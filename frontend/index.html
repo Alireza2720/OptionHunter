@@ -22,6 +22,7 @@
     * { box-sizing:border-box; margin:0; padding:0; }
     html, body { overflow-x:hidden; max-width:100%; }
     body { font-family:'Vazirmatn',Tahoma,sans-serif; background:var(--bg); color:var(--text); padding:24px; line-height:1.7; transition:background .3s, color .3s; }
+    body.menu-open { overflow:hidden !important; position:fixed; width:100%; }
     .container { max-width:1280px; margin:0 auto; }
 
     header { text-align:center; margin-bottom:22px; }
@@ -40,35 +41,17 @@
     .menu-panel.open { right:0; }
     .menu-panel h3 { font-size:16px; color:var(--text-bright); margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border); }
 
-    /* تب‌های منو */
     .menu-tabs { display:flex; gap:6px; margin-bottom:18px; padding:4px; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; }
-    .menu-tab {
-        flex:1; padding:8px 12px; font-size:13px; color:var(--text-dim); background:transparent; border:none;
-        cursor:pointer; font-family:inherit; border-radius:7px; transition:all .15s; font-weight:500;
-    }
+    .menu-tab { flex:1; padding:8px 12px; font-size:13px; color:var(--text-dim); background:transparent; border:none; cursor:pointer; font-family:inherit; border-radius:7px; transition:all .15s; font-weight:500; }
     .menu-tab:hover { color:var(--text); }
     .menu-tab.active { background:var(--accent); color:#fff; }
 
     .menu-tab-content { flex:1; overflow-y:auto; padding-left:4px; }
 
-    /* خط جداکننده زیبا */
-    .menu-divider {
-        height:1px;
-        background:linear-gradient(90deg, transparent 0%, var(--border-light) 20%, var(--border-light) 80%, transparent 100%);
-        margin:14px 0;
-        position:relative;
-    }
-    .menu-divider::before {
-        content:''; position:absolute; left:50%; top:50%; width:6px; height:6px;
-        background:var(--bg-card); border:1px solid var(--border-light); border-radius:50%;
-        transform:translate(-50%,-50%);
-    }
+    .menu-divider { height:1px; background:linear-gradient(90deg, transparent 0%, var(--border-light) 20%, var(--border-light) 80%, transparent 100%); margin:14px 0; position:relative; }
+    .menu-divider::before { content:''; position:absolute; left:50%; top:50%; width:6px; height:6px; background:var(--bg-card); border:1px solid var(--border-light); border-radius:50%; transform:translate(-50%,-50%); }
 
-    .menu-item {
-        display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:8px;
-        cursor:pointer; font-size:14px; color:var(--text); transition:background .15s;
-        border:none; background:transparent; width:100%; text-align:right; font-family:inherit;
-    }
+    .menu-item { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:8px; cursor:pointer; font-size:14px; color:var(--text); transition:background .15s; border:none; background:transparent; width:100%; text-align:right; font-family:inherit; }
     .menu-item:hover { background:var(--border); }
 
     .menu-label { font-size:11px; color:var(--text-dim); padding:4px 6px; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
@@ -111,20 +94,15 @@
     .btn.tiny { padding:2px 8px; font-size:11px; border-radius:6px; }
 
     .symbol-list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
-    .symbol-item { display:grid; grid-template-columns:44px 1fr auto; align-items:center; gap:14px;
-        background:var(--bg-input); border:1px solid var(--border); border-radius:12px;
-        padding:10px 14px; transition:border-color .15s, background .15s; }
+    .symbol-item { display:grid; grid-template-columns:44px 1fr auto; align-items:center; gap:14px; background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:10px 14px; transition:border-color .15s, background .15s; }
     .symbol-item:hover { border-color:var(--accent); background:var(--bg-card); }
-    .sym-avatar { width:42px; height:42px; border-radius:10px;
-        background:linear-gradient(135deg, var(--accent), var(--good)); color:#fff;
-        display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; user-select:none; }
+    .sym-avatar { width:42px; height:42px; border-radius:10px; background:linear-gradient(135deg, var(--accent), var(--good)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; user-select:none; }
     .sym-body { display:flex; flex-direction:column; gap:3px; min-width:0; }
     .sym-name { font-weight:600; font-size:14.5px; color:var(--text-bright); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .sym-meta { font-size:11.5px; color:var(--text-dim); display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
     .sym-meta b { color:var(--text); font-weight:500; }
     .sym-actions { display:flex; gap:6px; }
-    .sym-btn { background:transparent; border:1px solid var(--border-light); color:var(--text-dim);
-        cursor:pointer; font-size:11.5px; padding:5px 10px; border-radius:6px; font-family:inherit; transition:all .15s; white-space:nowrap; }
+    .sym-btn { background:transparent; border:1px solid var(--border-light); color:var(--text-dim); cursor:pointer; font-size:11.5px; padding:5px 10px; border-radius:6px; font-family:inherit; transition:all .15s; white-space:nowrap; }
     .sym-btn:hover { color:var(--text-bright); background:var(--border-light); }
     .sym-btn.x:hover { background:var(--bad); color:#fff; border-color:var(--bad); }
 
@@ -143,6 +121,20 @@
     .action-btns { display:flex; gap:4px; justify-content:center; flex-wrap:nowrap; }
     .empty-row td { color:var(--text-dim); padding:20px; white-space:normal; }
     .pos { color:var(--good); } .neg { color:var(--bad); }
+
+    tr.insufficient-row { background: rgba(217, 83, 79, .08); }
+    tr.insufficient-row:hover { background: rgba(217, 83, 79, .15); }
+    .insufficient-badge { display: inline-block; background: rgba(217, 83, 79, .2); color: var(--bad); padding: 2px 10px; border-radius: 12px; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .insufficient-badge:hover { background: rgba(217, 83, 79, .35); }
+
+    .role-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:10.5px; font-weight:600; }
+    .role-badge.leader { background:rgba(61,125,216,.15); color:var(--accent); }
+    .role-badge.confirmer { background:rgba(125,133,144,.15); color:var(--text-dim); }
+
+    .config-checkbox { width:16px; height:16px; cursor:pointer; }
+    .bulk-toolbar { display:none; gap:8px; align-items:center; padding:10px 14px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin-bottom:10px; flex-wrap:wrap; }
+    .bulk-toolbar.show { display:flex; }
+    .bulk-toolbar .sel-count { font-size:12.5px; color:var(--text-dim); margin-left:auto; }
 
     .stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin-bottom:14px; }
     .stat { background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:8px 10px; }
@@ -169,27 +161,10 @@
     .modal-bg.open { display:flex; }
     .modal { background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; max-width:1000px; width:100%; max-height:90vh; overflow:auto; padding:20px; }
     .modal h3 { font-size:15px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
-    .tabs { display:flex; gap:6px; border-bottom:1px solid var(--border); margin-bottom:14px; }
+    .tabs { display:flex; gap:6px; border-bottom:1px solid var(--border); margin-bottom:14px; flex-wrap:wrap; }
     .tab { padding:8px 14px; cursor:pointer; font-size:13px; color:var(--text-dim); border-bottom:2px solid transparent; transition:all .15s; background:transparent; border:none; font-family:inherit; }
     .tab:hover { color:var(--text); }
     .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
-
-    ::-webkit-scrollbar { width:7px; height:7px; } ::-webkit-scrollbar-thumb { background:var(--border-light); border-radius:4px; }
-
-    tr.insufficient-row { background: rgba(217, 83, 79, .08); }
-    tr.insufficient-row:hover { background: rgba(217, 83, 79, .15); }
-    .insufficient-badge {
-        display: inline-block;
-        background: rgba(217, 83, 79, .2);
-        color: var(--bad);
-        padding: 2px 10px;
-        border-radius: 12px;
-        font-size: 10.5px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all .15s;
-    }
-    .insufficient-badge:hover { background: rgba(217, 83, 79, .35); }
 
     .adv-accordion { border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; overflow: hidden; }
     .adv-header { padding: 10px 14px; background: var(--bg-input); cursor: pointer; font-size: 13px; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center; transition: background .15s; }
@@ -225,6 +200,9 @@
     .bt-strategy-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
     .bt-strategy-row label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 
+    ::-webkit-scrollbar { width:7px; height:7px; }
+    ::-webkit-scrollbar-thumb { background:var(--border-light); border-radius:4px; }
+
     @media (max-width:900px) { .symbol-list { gap:6px; } }
     @media (max-width:640px) {
         body { padding:12px; } .brand { font-size:22px; } .brand-sub { font-size:11px; }
@@ -255,13 +233,11 @@
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
 <div class="menu-panel" id="menuPanel">
     <h3>منوی اصلی</h3>
-
     <div class="menu-tabs">
         <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button>
         <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button>
     </div>
 
-    <!-- ===== تب تنظیمات ===== -->
     <div class="menu-tab-content" id="menuTab-settings">
         <div class="menu-label">وضعیت سرور</div>
         <div class="menu-status-grid">
@@ -292,7 +268,6 @@
         <button class="menu-item" onclick="openBacktestCompare(); toggleMenu();">بک‌تست مقایسه‌ای</button>
     </div>
 
-    <!-- ===== تب راهنما ===== -->
     <div class="menu-tab-content" id="menuTab-guide" style="display:none;">
         <div style="display:flex; gap:8px; margin-bottom:14px;">
             <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button>
@@ -345,6 +320,7 @@
                 <div class="field"><label>تایم‌فریم ورود</label><select id="timeframeSelect"></select></div>
                 <div class="field"><label>تایم‌فریم بالا (روند)</label><select id="htfSelect"></select></div>
                 <div class="field"><label>نوع کندل</label><select id="candleTypeSelect"><option value="heikin">هیکن آشی</option><option value="simple">ساده</option></select></div>
+                <div class="field"><label>نقش</label><select id="roleSelect"><option value="leader">لیدر (سیگنال مستقل)</option><option value="confirmer">تأییدکننده (فقط وضعیت)</option></select></div>
             </div>
             <div id="paramsContainer"></div>
             <div style="margin-top:6px;"><button class="btn" onclick="addStrategyConfig()">ایجاد استراتژی</button></div>
@@ -357,10 +333,22 @@
             <span class="chev">▼</span>
         </h2>
         <div class="card-body">
+            <div class="bulk-toolbar" id="bulkToolbar">
+                <span class="sel-count" id="bulkCount">0 مورد انتخاب شده</span>
+                <button class="btn tiny outline" onclick="bulkToggleEnabled(true)">فعال کن</button>
+                <button class="btn tiny outline" onclick="bulkToggleEnabled(false)">غیرفعال کن</button>
+                <button class="btn tiny outline" onclick="bulkSetRole('leader')">لیدر کن</button>
+                <button class="btn tiny outline" onclick="bulkSetRole('confirmer')">تأییدکننده کن</button>
+                <button class="btn tiny danger" onclick="bulkDelete()">حذف</button>
+                <button class="btn tiny outline" onclick="clearSelection()">لغو انتخاب</button>
+            </div>
             <div class="table-responsive">
             <table class="data-table">
-                <thead><tr><th style="width:100px;">نماد</th><th>استراتژی</th><th>تایم‌فریم</th><th>کندل</th><th>روند بالا</th><th>وضعیت</th><th>فعال</th><th>عملیات</th></tr></thead>
-                <tbody id="configsBody"><tr class="empty-row"><td colspan="8">تنظیمی ایجاد نشده است</td></tr></tbody>
+                <thead><tr>
+                    <th style="width:30px;"><input type="checkbox" class="config-checkbox" id="selectAllConfigs" onchange="toggleSelectAllConfigs(this.checked)"></th>
+                    <th style="width:100px;">نماد</th><th>استراتژی</th><th>نقش</th><th>تایم‌فریم</th><th>کندل</th><th>روند بالا</th><th>وضعیت</th><th>فعال</th><th>عملیات</th>
+                </tr></thead>
+                <tbody id="configsBody"><tr class="empty-row"><td colspan="10">تنظیمی ایجاد نشده است</td></tr></tbody>
             </table>
             </div>
         </div>
@@ -381,8 +369,8 @@
         <h2>موقعیت‌های اخیر آپشن</h2>
         <div class="stats-grid" id="optStats"></div>
         <div class="table-responsive"><table class="data-table">
-            <thead><tr><th>پایه</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>ورود</th><th>قیمت ورود</th><th>قیمت فعلی/خروج</th><th>بازده</th><th>پایه ورود→فعلی</th><th>IV</th><th>دلیل خروج</th><th></th></tr></thead>
-            <tbody id="optBody"><tr class="empty-row"><td colspan="12">موقعیتی ثبت نشده است</td></tr></tbody>
+            <thead><tr><th>پایه</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>ورود</th><th>قیمت ورود</th><th>تعداد</th><th>قیمت فعلی/خروج</th><th>بازده</th><th>پایه ورود→فعلی</th><th>IV</th><th>دلیل خروج</th><th></th></tr></thead>
+            <tbody id="optBody"><tr class="empty-row"><td colspan="13">موقعیتی ثبت نشده است</td></tr></tbody>
         </table></div>
     </div>
 
@@ -390,8 +378,8 @@
         <h2>تاریخچه سیگنال‌های ارسال‌شده <button class="btn small danger" onclick="clearSignalHistory()">پاک کردن</button></h2>
         <div class="table-responsive">
         <table class="data-table">
-            <thead><tr><th>زمان کندل</th><th>نماد</th><th>استراتژی</th><th>سیگنال</th><th>قیمت</th><th>روند بالا</th><th>دلیل</th><th>وضعیت</th></tr></thead>
-            <tbody id="signalHistoryBody"><tr class="empty-row"><td colspan="8">سیگنالی ثبت نشده است</td></tr></tbody>
+            <thead><tr><th>زمان کندل</th><th>نماد</th><th>استراتژی</th><th>نقش</th><th>سیگنال</th><th>قیمت</th><th>روند بالا</th><th>دلیل</th><th>وضعیت</th></tr></thead>
+            <tbody id="signalHistoryBody"><tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده است</td></tr></tbody>
         </table>
         </div>
     </div>
@@ -406,7 +394,6 @@ const PARAM_LABELS = {
     rsiFastPeriod:'دوره RSI سریع', rsiSlowPeriod:'دوره RSI کند', rsiOversold:'آستانه اشباع فروش RSI', rsiOverbought:'آستانه اشباع خرید RSI',
     lookback:'تعداد کندل نگاه به عقب', maxHoldBars:'حداکثر کندل نگه‌داری', cooldownBars:'کندل استراحت پس از خروج',
     emaFast:'EMA سریع', emaMid:'EMA میانی', emaSlow:'EMA کند', pullbackPct:'حداکثر فاصله از EMA سریع (٪)', exitBufferPct:'بافر خروج (٪)',
-    macdFast:'دوره MACD سریع', macdSlow:'دوره MACD کند', macdSignal:'دوره Signal',
     tenkanPeriod:'دوره Tenkan-sen', kijunPeriod:'دوره Kijun-sen', senkouBPeriod:'دوره Senkou Span B',
     htfEma:'EMA تایم‌فریم بالا', htfRsiPeriod:'RSI تایم‌فریم بالا', atrPeriod:'دوره ATR', atrMult:'ضریب ATR', requireNoLowerWick:'کندل HA بدون سایه پایین (1/0)',
     swingLength:'طول پنجره سوئینگ (کندل)', fvgMinGapPct:'حداقل شکاف FVG (٪)',
@@ -422,17 +409,26 @@ const PARAM_LABELS = {
     requireDisplacement:'نیاز به Displacement (1/0)', displacementMult:'ضریب Displacement',
     obLookback:'تعداد کندل جستجوی Order Block', minSweepPct:'حداقل عمق شکار نقدینگی (٪)',
     threshold:'آستانه مجموع وزن', minAgree:'حداقل تعداد استراتژی موافق',
-    wRsi:'وزن RSI', wEma:'وزن EMA', wMacd:'وزن MACD', wIchimoku:'وزن Ichimoku',
+    wRsi:'وزن RSI', wEma:'وزن EMA', wIchimoku:'وزن Ichimoku',
     wSmc:'وزن SMC Unicorn', wSilver:'وزن Silver Bullet', wOb:'وزن OB+Sweep'
 };
 const IND_LABELS = { rsiFast:'RSI سریع', rsiSlow:'RSI کند', emaFast:'EMA سریع', emaMid:'EMA میانی', emaSlow:'EMA کند', atr:'ATR', stop:'حد ضرر',
-    macd:'MACD', signal:'Signal', hist:'هیستوگرام', tenkan:'Tenkan', kijun:'Kijun', spanA:'Span A', spanB:'Span B' };
+    signal:'Signal', hist:'هیستوگرام', tenkan:'Tenkan', kijun:'Kijun', spanA:'Span A', spanB:'Span B' };
 const OPT_LABELS = { minDays:'حداقل روز تا سررسید', maxDays:'حداکثر روز تا سررسید', maxSpreadPct:'حداکثر اسپرد (٪)', minOI:'حداقل موقعیت باز', minTrades:'حداقل معامله امروز', minPremium:'حداقل پرمیوم (ریال)', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'هدف = چند برابر ریسک', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر آپشن (٪)', take1Pct:'هشدار نیمه‌فروش (٪)', take2Pct:'حد سود کامل (٪)', closeDaysBefore:'بستن X روز قبل سررسید' };
 const TRADING_LABELS = { ENTRY_START: 'شروع بازه‌ی مجاز ورود (HH:MM)', ENTRY_END: 'پایان بازه‌ی مجاز ورود (HH:MM)', OPTION_FEE_BUY: 'کارمزد خرید آپشن', OPTION_FEE_SELL: 'کارمزد فروش آپشن', RISK_FREE_RATE: 'نرخ بدون ریسک سالانه' };
+const CAPITAL_LABELS = {
+    TOTAL_CAPITAL: 'سرمایه کل (ریال)',
+    RISK_PER_TRADE_PCT: 'ریسک هر معامله (٪)',
+    MAX_SYMBOL_EXPOSURE_PCT: 'حداکثر درگیری هر نماد (٪)',
+    MAX_TOTAL_EXPOSURE_PCT: 'حداکثر درگیری کل (٪)',
+    MIN_CASH_RESERVE_PCT: 'حداقل نقد ذخیره (٪)',
+    MAX_POSITION_SIZE: 'حداکثر تعداد قرارداد هر معامله'
+};
 const COLORS = ['#3d7dd8','#c9973d','#b565d9','#2ea88a','#d9534f'];
 
 let strategiesInfo = [], monitoredSymbols = [], configs = [], statusMap = {};
 let selectedConfigId = null;
+const selectedConfigs = new Set();
 let priceChart = null, panelChart = null, candleSeries = null, overlaySeries = {}, panelSeries = {}, chartConfigId = null;
 let currentTheme = localStorage.getItem('theme') || 'dark';
 
@@ -458,6 +454,7 @@ function toggleMenu() {
     panel.classList.toggle('open', willOpen);
     overlay.classList.toggle('open', willOpen);
     btn.classList.toggle('hidden', willOpen);
+    document.body.classList.toggle('menu-open', willOpen);
 }
 function switchMenuTab(which, btn) {
     document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active'));
@@ -498,22 +495,15 @@ const trendBadge = t => {
 };
 
 function getToken() { return localStorage.getItem('adminToken') || ''; }
-
 function promptToken() {
     const current = getToken();
     openModal('وارد کردن توکن', `
-        <div class="hint">توکن ادمین برای انجام عملیات تغییر داده. اگه ADMIN_TOKEN روی سرور تنظیم نشده باشه، می‌تونی خالی بذاری.</div>
-        <div class="form-row">
-            <div class="field" style="flex:1; min-width:200px;">
-                <label>توکن ادمین</label>
-                <input type="text" id="tokenInput" value="${esc(current)}" placeholder="توکن را وارد کنید" style="direction:ltr; text-align:left;">
-            </div>
-        </div>
+        <div class="hint">توکن ادمین برای عملیات تغییر داده.</div>
+        <div class="form-row"><div class="field" style="flex:1;min-width:200px;"><label>توکن ادمین</label><input type="text" id="tokenInput" value="${esc(current)}" style="direction:ltr;text-align:left;"></div></div>
         <div style="display:flex;gap:6px;margin-top:10px;">
             <button class="btn" onclick="saveToken()">ذخیره و بررسی</button>
             <button class="btn outline" onclick="clearToken()">پاک کردن</button>
-        </div>
-    `);
+        </div>`);
 }
 async function saveToken() {
     const t = document.getElementById('tokenInput').value.trim();
@@ -521,14 +511,13 @@ async function saveToken() {
     try {
         const res = await fetch(`${BACKEND_URL}/api/auth/check`, { headers: { 'x-admin-token': t } });
         const d = await res.json();
-        if (d.ok) { localStorage.setItem('adminToken', t); showAlert('توکن درست است و ذخیره شد.', 'success', 4000); closeModal(); await checkBackendStatus(); }
+        if (d.ok) { localStorage.setItem('adminToken', t); showAlert('ذخیره شد.', 'success', 4000); closeModal(); await checkBackendStatus(); }
         else showAlert('توکن نادرست است.', 'error', 5000);
-    } catch (e) { showAlert('خطا: ' + e.message, 'error', 5000); }
+    } catch (e) { showAlert('خطا: ' + e.message); }
 }
 function clearToken() { localStorage.removeItem('adminToken'); showAlert('توکن پاک شد.', 'info', 3000); closeModal(); }
-
-async function testTelegram() { try { await apiFetch(`${BACKEND_URL}/api/telegram/test`, { method:'POST' }); showAlert('پیام تست ارسال شد؛ تلگرام را چک کنید.', 'success', 5000); } catch (e) { showAlert('خطا در ارسال تست: ' + e.message); } }
-async function runBackupNow() { try { await apiFetch(`${BACKEND_URL}/api/backup/run`, { method:'POST' }); showAlert('بکاپ ارسال شد؛ تلگرام را چک کنید.', 'success', 5000); } catch (e) { showAlert('خطا در ارسال بکاپ: ' + e.message); } }
+async function testTelegram() { try { await apiFetch(`${BACKEND_URL}/api/telegram/test`, { method:'POST' }); showAlert('پیام تست ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function runBackupNow() { try { await apiFetch(`${BACKEND_URL}/api/backup/run`, { method:'POST' }); showAlert('بکاپ ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 
 async function apiFetch(url, options={}, retries=1) {
     options.headers = { ...(options.headers||{}), 'x-admin-token': getToken() };
@@ -537,12 +526,9 @@ async function apiFetch(url, options={}, retries=1) {
         try {
             const res = await fetch(url, options);
             const ct = res.headers.get('content-type') || '';
-            if (!ct.includes('application/json')) throw new Error('پاسخ نامعتبر از سرور');
+            if (!ct.includes('application/json')) throw new Error('پاسخ نامعتبر');
             const data = await res.json();
-            if (res.status === 401) {
-                promptToken();
-                throw new Error('توکن ادمین نامعتبر است');
-            }
+            if (res.status === 401) { promptToken(); throw new Error('توکن ادمین نامعتبر است'); }
             if (!res.ok) throw new Error(data.error || 'خطای نامشخص');
             return data;
         } catch (e) { lastErr = e; if (a < retries) await new Promise(r => setTimeout(r, 1500)); }
@@ -553,15 +539,15 @@ async function apiFetch(url, options={}, retries=1) {
 async function waitForBackend(max=12, delay=3000) {
     for (let i = 0; i < max; i++) {
         try { await apiFetch(`${BACKEND_URL}/ping`); return true; }
-        catch { document.getElementById('bootMessage').textContent = `در حال اتصال به سرور... تلاش ${i+1} از ${max}`; await new Promise(r => setTimeout(r, delay)); }
+        catch { document.getElementById('bootMessage').textContent = `در حال اتصال... (${i+1}/${max})`; await new Promise(r => setTimeout(r, delay)); }
     }
     return false;
 }
-function loadScriptOnce(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('بارگذاری ناموفق')); document.body.appendChild(s); }); }
+function loadScriptOnce(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('خطا')); document.body.appendChild(s); }); }
 async function loadStrategiesLibrary(max=5) {
     for (let i = 0; i < max; i++) {
         try { await loadScriptOnce(`${BACKEND_URL}/strategies.js?v=${Date.now()}`); if (window.TradingStrategies) return true; throw new Error(); }
-        catch { document.getElementById('bootMessage').textContent = `خطا در بارگذاری استراتژی‌ها، تلاش ${i+1} از ${max}...`; await new Promise(r => setTimeout(r, 2000)); }
+        catch { document.getElementById('bootMessage').textContent = `خطا در بارگذاری استراتژی‌ها (${i+1}/${max})`; await new Promise(r => setTimeout(r, 2000)); }
     }
     return false;
 }
@@ -584,10 +570,7 @@ async function checkBackendStatus() {
         if (!d.adminRequired && !warnedToken) { warnedToken = true; showAlert('ADMIN_TOKEN تنظیم نشده.', 'warn', 12000); }
         const u = await apiFetch(`${BACKEND_URL}/api/usage`);
         document.getElementById('usageAllSymbols').textContent = `${u.total}/${u.totalLimit}`;
-        if (u.total >= u.totalLimit) showAlert('سهمیه‌ی روزانه‌ی API تمام شد.', 'error');
-    } catch (e) {
-        const bs = document.getElementById('backendStatus'); bs.textContent = 'قطع'; bs.style.color = 'var(--bad)';
-    }
+    } catch (e) { const bs = document.getElementById('backendStatus'); bs.textContent = 'قطع'; bs.style.color = 'var(--bad)'; }
 }
 
 let searchTimeout = null, selectedSymbol = null;
@@ -599,14 +582,14 @@ document.getElementById('symbolSearchInput').addEventListener('input', e => {
             const r = await apiFetch(`${BACKEND_URL}/api/symbols/search?q=${encodeURIComponent(q)}`);
             if (!r.length) { list.style.display = 'none'; return; }
             list.innerHTML = r.map(x => `<div onclick="selectSymbol('${esc(x.symbol)}')">${esc(x.symbol)} <small>${esc(x.name||'')}</small></div>`).join(''); list.style.display = 'block';
-        } catch (e) { showAlert('خطا در جستجو: ' + e.message); }
+        } catch (e) {}
     }, 300);
 });
 function selectSymbol(s) { selectedSymbol = s; document.getElementById('symbolSearchInput').value = s; document.getElementById('autocompleteList').style.display = 'none'; }
 document.addEventListener('click', e => { if (!e.target.closest('.field')) document.getElementById('autocompleteList').style.display = 'none'; });
 
 async function addMonitoredSymbol() {
-    if (!selectedSymbol) return showAlert('یک نماد را از لیست انتخاب کنید.', 'warn');
+    if (!selectedSymbol) return showAlert('یک نماد انتخاب کنید.', 'warn');
     try {
         await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: selectedSymbol }) });
         showAlert(`«${selectedSymbol}» اضافه شد.`, 'success', 4000);
@@ -618,14 +601,10 @@ async function loadMonitoredSymbols() {
         monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`);
         try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`); } catch (e) {}
         renderMonitoredSymbols(); renderConfigSymbolOptions();
-    }
-    catch (e) { showAlert('خطا در بارگذاری نمادها: ' + e.message); }
+    } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function refreshQuotesOnly() {
-    try {
-        window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`);
-        if (monitoredSymbols.length) renderMonitoredSymbols();
-    } catch (e) {}
+    try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`); if (monitoredSymbols.length) renderMonitoredSymbols(); } catch (e) {}
 }
 function renderMonitoredSymbols() {
     const g = document.getElementById('symbolGrid');
@@ -662,10 +641,10 @@ async function deleteMonitoredSymbol(id, sym) {
     try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function importDaily(sym) {
-    showAlert(`در حال دریافت تاریخچه‌ی «${sym}»...`, 'info', 4000);
+    showAlert(`در حال دریافت «${sym}»...`, 'info', 4000);
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/import-daily/${encodeURIComponent(sym)}`, { method:'POST' }, 0);
-        showAlert(`«${sym}»: ${r.added} کندل روزانه اضافه شد (از ${r.total}).`, 'success', 8000);
+        showAlert(`«${sym}»: ${r.added} کندل اضافه شد.`, 'success', 8000);
         await Promise.all([loadMonitoredSymbols(), loadConfigs()]);
     } catch (e) { showAlert('خطا: ' + e.message, 'error', 10000); }
 }
@@ -703,8 +682,9 @@ async function addStrategyConfig() {
     const timeframe = document.getElementById('timeframeSelect').value, htfTimeframe = document.getElementById('htfSelect').value;
     if (TF_MIN[htfTimeframe] <= TF_MIN[timeframe]) return showAlert('تایم‌فریم بالا باید بزرگ‌تر باشد.', 'warn');
     const params = {}; Object.keys(s.defaultParams).forEach(k => { const el = document.getElementById(`param_${k}`); if (el) params[k] = parseFloat(el.value); });
+    const role = document.getElementById('roleSelect').value;
     try {
-        await apiFetch(`${BACKEND_URL}/api/strategy-configs`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol, strategyId, timeframe, htfTimeframe, candleType: document.getElementById('candleTypeSelect').value, params, enabled:true }) });
+        await apiFetch(`${BACKEND_URL}/api/strategy-configs`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol, strategyId, timeframe, htfTimeframe, candleType: document.getElementById('candleTypeSelect').value, params, enabled:true, role }) });
         showAlert(`استراتژی «${s.name}» برای «${symbol}» ایجاد شد.`, 'success', 4000); await loadConfigs();
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
@@ -712,133 +692,124 @@ async function loadConfigs() {
     try {
         const [c, st] = await Promise.all([apiFetch(`${BACKEND_URL}/api/strategy-configs`), apiFetch(`${BACKEND_URL}/api/status`)]);
         configs = c; statusMap = {}; st.forEach(x => statusMap[x.configId] = x); renderConfigs();
-    } catch (e) { showAlert('خطا در بارگذاری تنظیمات: ' + e.message); }
+    } catch (e) { showAlert('خطا: ' + e.message); }
 }
 function renderConfigs() {
     const tb = document.getElementById('configsBody');
     document.getElementById('configsCountLabel').textContent = configs.length;
-    if (!configs.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="8">تنظیمی ایجاد نشده است</td></tr>';
-
+    if (!configs.length) { tb.innerHTML = '<tr class="empty-row"><td colspan="10">تنظیمی ایجاد نشده است</td></tr>'; updateBulkToolbar(); return; }
     const groups = {};
     configs.forEach(c => { if (!groups[c.symbol]) groups[c.symbol] = []; groups[c.symbol].push(c); });
-
+    const validIds = new Set(configs.map(c => c._id));
+    for (const id of Array.from(selectedConfigs)) if (!validIds.has(id)) selectedConfigs.delete(id);
     let html = '';
     for (const symbol of Object.keys(groups)) {
         const items = groups[symbol];
-
         items.forEach((it, idx) => {
             const id = it._id;
             const st = statusMap[id];
             const s = strategiesInfo.find(x => x.id === it.strategyId);
-
-            // ✅ چک per-item — نه per-symbol
             const isInsufficient = !!(st && st.insufficientData);
-
             const name = s ? s.name : it.strategyId;
             const tf = `${TF_LABELS[it.timeframe]||it.timeframe} → ${TF_LABELS[it.htfTimeframe||'1d']}`;
             const candle = it.candleType === 'simple' ? 'ساده' : 'HA';
             const trend = st && st.htfTrend ? trendBadge(st.htfTrend) : '<span class="badge none">-</span>';
-
             let posBadge = '<span class="badge none">بدون موقعیت</span>';
             if (st && !isInsufficient && st.position === 'LONG') posBadge = '<span class="badge long">در کال</span>';
-
-            const queue = st && st.queue === 'buy'
-                ? ' <span class="badge warn">صف خرید</span>'
-                : st && st.queue === 'sell'
-                    ? ' <span class="badge short">صف فروش</span>'
-                    : '';
-
+            const queue = st && st.queue === 'buy' ? ' <span class="badge warn">صف خرید</span>' : st && st.queue === 'sell' ? ' <span class="badge short">صف فروش</span>' : '';
             const active = `<input type="checkbox" ${it.enabled?'checked':''} onchange="toggleConfigEnabled('${id}', this.checked)">`;
-
             const actions = `<div class="action-btns">
                 <button class="btn tiny outline" onclick="viewChart('${id}')">نمودار</button>
                 <button class="btn tiny outline" onclick="runOptionBacktest('${id}')">بک‌تست</button>
                 <button class="btn tiny outline" onclick="recommendOption('${id}')">آپشن</button>
                 <button class="btn tiny danger" onclick="deleteConfig('${id}')">حذف</button>
             </div>`;
-
-            const insufChip = isInsufficient
-                ? ` <span class="insufficient-badge" onclick="showInsufficientReason('${id}')" title="کلیک کنید تا دلیل دقیق را ببینید">داده ناکافی</span>`
-                : '';
-
-            const symbolCell = idx === 0
-                ? `<td rowspan="${items.length}" style="font-weight:600; background:var(--bg-input); border-left:2px solid var(--accent); vertical-align:middle;"><b>${esc(symbol)}</b></td>`
-                : '';
-
+            const insufChip = isInsufficient ? ` <span class="insufficient-badge" onclick="showInsufficientReason('${id}')">داده ناکافی</span>` : '';
+            const roleBadge = it.role === 'confirmer'
+                ? '<span class="role-badge confirmer">تأییدکننده</span>'
+                : '<span class="role-badge leader">لیدر</span>';
+            const checkbox = `<input type="checkbox" class="config-checkbox row-checkbox" data-id="${id}" ${selectedConfigs.has(id)?'checked':''} onchange="toggleSelectConfig('${id}', this.checked)">`;
+            const symbolCell = idx === 0 ? `<td rowspan="${items.length}" style="font-weight:600; background:var(--bg-input); border-left:2px solid var(--accent); vertical-align:middle;"><b>${esc(symbol)}</b></td>` : '';
             const rowClass = (idx === 0 ? 'symbol-start ' : '') + (isInsufficient ? 'insufficient-row' : '');
-
-            html += `<tr class="${rowClass}">${symbolCell}<td>${esc(name)}${queue}${insufChip}</td><td>${tf}</td><td>${candle}</td><td>${trend}</td><td>${posBadge}</td><td>${active}</td><td>${actions}</td></tr>`;
+            html += `<tr class="${rowClass}"><td>${checkbox}</td>${symbolCell}<td>${esc(name)}${queue}${insufChip}</td><td>${roleBadge}</td><td>${tf}</td><td>${candle}</td><td>${trend}</td><td>${posBadge}</td><td>${active}</td><td>${actions}</td></tr>`;
         });
     }
     tb.innerHTML = html;
+    updateBulkToolbar();
+    const selAll = document.getElementById('selectAllConfigs');
+    if (selAll) selAll.checked = configs.length > 0 && selectedConfigs.size === configs.length;
 }
+function toggleSelectConfig(id, checked) { if (checked) selectedConfigs.add(id); else selectedConfigs.delete(id); updateBulkToolbar(); }
+function toggleSelectAllConfigs(checked) { if (checked) configs.forEach(c => selectedConfigs.add(c._id)); else selectedConfigs.clear(); renderConfigs(); }
+function updateBulkToolbar() {
+    const tb = document.getElementById('bulkToolbar');
+    const cnt = document.getElementById('bulkCount');
+    if (!tb) return;
+    if (selectedConfigs.size > 0) { tb.classList.add('show'); cnt.textContent = `${selectedConfigs.size} مورد انتخاب شده`; }
+    else tb.classList.remove('show');
+}
+function clearSelection() { selectedConfigs.clear(); renderConfigs(); }
+async function bulkToggleEnabled(en) {
+    if (!selectedConfigs.size) return;
+    if (!confirm(`${selectedConfigs.size} مورد ${en ? 'فعال' : 'غیرفعال'} شوند؟`)) return;
+    try {
+        await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs), enabled: en }) });
+        showAlert('به‌روز شد.', 'success', 3000); selectedConfigs.clear(); await loadConfigs();
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+async function bulkSetRole(role) {
+    if (!selectedConfigs.size) return;
+    if (!confirm(`${selectedConfigs.size} مورد به «${role === 'leader' ? 'لیدر' : 'تأییدکننده'}» تغییر کنند؟`)) return;
+    try {
+        await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs), role }) });
+        showAlert('به‌روز شد.', 'success', 3000); selectedConfigs.clear(); await loadConfigs();
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+async function bulkDelete() {
+    if (!selectedConfigs.size) return;
+    if (!confirm(`آیا از حذف ${selectedConfigs.size} مورد مطمئنی؟`)) return;
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs) }) });
+        showAlert(`${r.deleted} مورد حذف شد.`, 'success', 3000); selectedConfigs.clear(); await loadConfigs();
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+
 function showInsufficientReason(id) {
     const it = configs.find(c => c._id === id); if (!it) return;
     const st = statusMap[id];
-    if (!st) return showAlert('وضعیت این استراتژی هنوز محاسبه نشده.');
+    if (!st) return showAlert('وضعیت محاسبه نشده.');
     const s = strategiesInfo.find(x => x.id === it.strategyId);
     const tfLabel = TF_LABELS[it.timeframe] || it.timeframe;
     const htfLabel = TF_LABELS[it.htfTimeframe || '1d'] || '1d';
-    const candleCount = st.candleCount || 0;
-    const required = st.requiredCandles || 0;
-    const htfCount = st.htfCandleCount || 0;
-    const htfRequired = st.requiredHtfCandles || 0;
-    const optCount = st.optionContractCount || 0;
+    const candleCount = Number(st.candleCount) || 0;
+    const required = Number(st.requiredCandles) || 0;
+    const htfCount = Number(st.htfCandleCount) || 0;
+    const htfRequired = Number(st.requiredHtfCandles) || 0;
+    const candleOk = candleCount >= required;
+    const htfOk = htfCount >= htfRequired;
     const missingCandles = Math.max(0, required - candleCount);
     const missingHtf = Math.max(0, htfRequired - htfCount);
-
-    openModal(`دلیل داده ناکافی — ${it.symbol}`, `
-        <div class="hint" style="font-size:12.5px;">استراتژی: <b>${esc(s?s.name:it.strategyId)}</b> · تایم‌فریم ورود: <b>${tfLabel}</b> · روند: <b>${htfLabel}</b></div>
-
-        <h4 style="font-size:13px;color:var(--accent);margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">۱. کندل‌های سهم پایه (دلیل اصلی)</h4>
-        <div class="hint" style="margin-top:0;">این استراتژی برای ارزیابی، به تعداد مشخصی کندل بسته‌شده در تایم‌فریم‌های زیر نیاز داره.</div>
-        <div class="stats-grid" style="margin-top:10px;">
-            <div class="stat">
-                <small>کندل ورود (${tfLabel})</small>
-                <b>${candleCount} / ${required}</b>
-                ${candleCount < required
-                    ? `<div style="margin-top:4px;"><span class="badge warn">${missingCandles} کندل کم</span></div>`
-                    : '<div style="margin-top:4px;"><span class="badge long">کافی</span></div>'}
-            </div>
-            <div class="stat">
-                <small>کندل روند (${htfLabel})</small>
-                <b>${htfCount} / ${htfRequired}</b>
-                ${htfCount < htfRequired
-                    ? `<div style="margin-top:4px;"><span class="badge warn">${missingHtf} کندل کم</span></div>`
-                    : '<div style="margin-top:4px;"><span class="badge long">کافی</span></div>'}
-            </div>
+    const roleLabel = it.role === 'confirmer' ? 'تأییدکننده' : 'لیدر';
+    openModal(`داده ناکافی — ${it.symbol}`, `
+        <div class="hint">استراتژی: <b>${esc(s?s.name:it.strategyId)}</b> · نقش: <b>${roleLabel}</b> · ورود: <b>${tfLabel}</b> · روند: <b>${htfLabel}</b></div>
+        <div class="stats-grid" style="margin-top:12px;">
+            <div class="stat"><small>کندل ورود (${tfLabel})</small><b>${candleCount} / ${required}</b><div style="margin-top:6px;">${candleOk ? '<span class="badge long">کافی</span>' : `<span class="badge warn">${missingCandles} کندل کم</span>`}</div></div>
+            <div class="stat"><small>کندل روند (${htfLabel})</small><b>${htfCount} / ${htfRequired}</b><div style="margin-top:6px;">${htfOk ? '<span class="badge long">کافی</span>' : `<span class="badge warn">${missingHtf} کندل کم</span>`}</div></div>
         </div>
-
-        <h4 style="font-size:13px;color:var(--accent);margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">۲. داده‌ی آپشن (اطلاعاتی)</h4>
-        <div class="stats-grid" style="margin-top:10px;">
-            <div class="stat">
-                <small>قرارداد آپشن موجود</small>
-                <b>${optCount}</b>
-                ${optCount === 0
-                    ? '<div style="margin-top:4px;"><span class="badge warn">هیچ قراردادی ذخیره نشده</span></div>'
-                    : '<div style="margin-top:4px;"><span class="badge long">موجود</span></div>'}
-            </div>
-        </div>
-        ${optCount === 0
-            ? `<div class="msg-warn" style="display:block;">داده‌ی آپشن این نماد هنوز ذخیره نشده. بعد از اولین تیک بازار (هر ۵ دقیقه) پر می‌شه. برای بررسی فوری، روی «زنجیره آپشن» در بخش نمادهای زیر نظر کلیک کن.</div>`
-            : ''}
-
-        <h4 style="font-size:13px;color:var(--accent);margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">راه‌های حل</h4>
-        <ul style="padding-right:20px;font-size:12.5px;line-height:2;margin-bottom:12px;">
-            ${missingHtf > 0 ? `<li>برای کندل‌های روند (${htfLabel}): از دکمه «دریافت تاریخچه روزانه» در بخش نمادهای زیر نظر استفاده کن. با این کار همه‌ی کندل‌های تاریخی روزانه اضافه می‌شن.</li>` : ''}
-            ${missingCandles > 0 ? `<li>برای کندل‌های ورود (${tfLabel}): چند ساعت یا روز صبر کن تا کندل‌های جدید جمع بشن. سیستم در هر تیک کندل‌های تازه رو ذخیره می‌کنه.</li>` : ''}
-            ${(missingCandles > 0) ? `<li>اگه عجله داری، تایم‌فریم ورود رو کوچک‌تر انتخاب کن (مثلاً ${TF_LABELS['15m']} به‌جای ${tfLabel}) — به این ترتیب کندل‌های بیشتری در زمان کوتاه‌تر جمع می‌شن.</li>` : ''}
-            <li>روی «نمودار» کلیک کن تا ببینی چند کندل بسته‌شده واقعاً موجوده.</li>
+        <h4 style="font-size:13px;color:var(--accent);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">راه‌های حل</h4>
+        <ul style="padding-right:20px;font-size:12.5px;line-height:2;">
+            ${!htfOk ? `<li>برای کندل‌های روند (${htfLabel}): از دکمه «دریافت تاریخچه روزانه» در بخش نمادهای زیر نظر استفاده کن.</li>` : ''}
+            ${!candleOk ? `<li>برای کندل‌های ورود (${tfLabel}): چند ساعت یا روز صبر کن.</li>` : ''}
+            ${!candleOk ? `<li>اگر عجله داری، تایم‌فریم ورود را کوچک‌تر انتخاب کن.</li>` : ''}
+            <li>روی «نمودار» کلیک کن.</li>
         </ul>
-
-        <div class="tip" style="background:rgba(61,125,216,.1);border-right:3px solid var(--accent);padding:10px 12px;border-radius:6px;font-size:12.5px;">
-            <b>نکته:</b> در بخش «نمادهای زیر نظر»، تعداد «کندل دقیقه‌ای» نمایش داده می‌شه که با کندل‌های تجمیعی تایم‌فریم استراتژی فرق داره. مثلاً ۵۰۰ کندل دقیقه‌ای می‌شه فقط ~۱۶ کندل ۳۰ دقیقه‌ای.
-        </div>
-    `);
+        <div style="background:rgba(61,125,216,.1);border-right:3px solid var(--accent);padding:10px 12px;border-radius:6px;font-size:12.5px;">
+            <b>نکته:</b> در بخش «نمادهای زیر نظر»، «کندل دقیقه‌ای» نمایش داده می‌شود که با کندل‌های تجمیعی تایم‌فریم استراتژی فرق دارد.
+        </div>`);
 }
 async function toggleConfigEnabled(id, en) { try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: en }) }); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteConfig(id) {
-    if (!confirm('این تنظیم حذف شود؟')) return;
+    if (!confirm('حذف شود؟')) return;
     try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'DELETE' }); if (selectedConfigId === id) selectedConfigId = null; await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
@@ -848,16 +819,16 @@ async function runOptionBacktest(id) {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}`);
         const a = r.assumptions;
-        const diag = r.diagnostic ? `<div class="msg-warn" style="display:block;background:rgba(217,83,79,.1);border-color:var(--bad);color:var(--bad);">${esc(r.diagnostic)}</div>` : '';
-        const head = diag + `<div class="msg-warn" style="display:block;">بک‌تست تقریبی: قرارداد فرضی ATM، سررسید ${a.assumedMaturityDays} روز، IV = ${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪.</div>
+        const diag = r.diagnostic ? `<div class="msg-warn" style="display:block;background:rgba(217,83,79,.1);color:var(--bad);">${esc(r.diagnostic)}</div>` : '';
+        const head = diag + `<div class="msg-warn" style="display:block;">بک‌تست تقریبی: سررسید ${a.assumedMaturityDays} روز، IV = ${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪.</div>
             <div class="stats-grid">
-                <div class="stat"><small>معاملات سهم پایه</small><b>${r.stockTradesCount||0}</b></div>
-                <div class="stat"><small>معاملات بسته</small><b>${r.stockClosedCount||0}</b></div>
+                <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
+                <div class="stat"><small>بسته‌شده</small><b>${r.stockClosedCount||0}</b></div>
                 <div class="stat"><small>معامله آپشن</small><b>${r.stats.count}</b></div>
                 <div class="stat"><small>وین‌ریت</small><b>${r.stats.count ? r.stats.winRate.toFixed(0)+'٪' : '-'}</b></div>
                 <div class="stat"><small>بازده کل</small><b>${r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
                 <div class="stat"><small>میانگین</small><b>${r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
-                <div class="stat"><small>Profit Factor</small><b>${r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
+                <div class="stat"><small>PF</small><b>${r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
             </div>`;
         const rows = r.trades.length ? r.trades.slice().reverse().map(t => `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${(t.hv*100).toFixed(0)}٪</td><td>${t.entryDelta.toFixed(2)}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`).join('') : '<tr class="empty-row"><td colspan="8">معامله‌ای یافت نشد</td></tr>';
         openModal(`بک‌تست آپشن ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>HV</th><th>دلتا</th><th>پرمیوم</th><th>بازده</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`);
@@ -867,22 +838,22 @@ async function runOptionBacktest(id) {
 let signalHistoryLimit = 5;
 let signalHistoryCache = null;
 async function loadSignalHistory() {
-    try {
-        const h = await apiFetch(`${BACKEND_URL}/api/signal-history`);
-        signalHistoryCache = h;
-        signalHistoryLimit = 5;
-        renderSignalHistory();
-    } catch (e) { showAlert('خطا در تاریخچه: ' + e.message); }
+    try { const h = await apiFetch(`${BACKEND_URL}/api/signal-history`); signalHistoryCache = h; signalHistoryLimit = 5; renderSignalHistory(); }
+    catch (e) { showAlert('خطا: ' + e.message); }
 }
 function renderSignalHistory() {
     const tb = document.getElementById('signalHistoryBody');
     const list = signalHistoryCache || [];
-    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="8">سیگنالی ثبت نشده است</td></tr>';
+    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده است</td></tr>';
     const shown = list.slice(0, signalHistoryLimit);
-    tb.innerHTML = shown.map(x => `<tr><td>${fmtT(x.time)}</td><td>${esc(x.symbol)}</td><td>${esc(x.strategyName||x.strategyId)} · ${TF_LABELS[x.timeframe]||''}</td><td>${SIGNAL_LABELS[x.signalType]||x.signalType}</td><td>${x.price?x.price.toLocaleString():'-'}</td><td>${trendBadge(x.htfTrend)}</td><td style="font-size:11px;">${esc(x.reason||'-')}</td>
-        <td>${x.confluence>1?`<span class="badge long">${x.confluence}x</span>`:''}${x.queue==='buy'?'<span class="badge warn">صف خرید</span>':''}${x.signalType==='BUY'&&x.inWindow===false?'<span class="badge warn">خارج بازه</span>':''}${x.incomplete?'<span class="badge warn">ناقص</span>':''}</td></tr>`).join('');
+    tb.innerHTML = shown.map(x => {
+        const roleTag = x.role === 'confirmer' ? '<span class="role-badge confirmer">تأیید</span>' : '<span class="role-badge leader">لیدر</span>';
+        const confTag = x.confirmers && x.confirmers.length ? `<span class="badge long">تأیید: ${x.confirmers.length}</span>` : '';
+        const badges = `${x.confluence>1?`<span class="badge long">${x.confluence}x</span>`:''}${x.queue==='buy'?'<span class="badge warn">صف خرید</span>':''}${x.signalType==='BUY'&&x.inWindow===false?'<span class="badge warn">خارج بازه</span>':''}${x.incomplete?'<span class="badge warn">ناقص</span>':''}${confTag}`;
+        return `<tr><td>${fmtT(x.time)}</td><td>${esc(x.symbol)}</td><td>${esc(x.strategyName||x.strategyId)} · ${TF_LABELS[x.timeframe]||''}</td><td>${roleTag}</td><td>${SIGNAL_LABELS[x.signalType]||x.signalType}</td><td>${x.price?x.price.toLocaleString():'-'}</td><td>${trendBadge(x.htfTrend)}</td><td style="font-size:11px;">${esc(x.reason||'-')}</td><td>${badges}</td></tr>`;
+    }).join('');
     if (list.length > signalHistoryLimit) {
-        tb.innerHTML += `<tr><td colspan="8" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش ${Math.min(5, list.length - signalHistoryLimit)} مورد بیشتر (${list.length - signalHistoryLimit} باقی‌مانده)</button></td></tr>`;
+        tb.innerHTML += `<tr><td colspan="9" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش ${Math.min(5, list.length - signalHistoryLimit)} مورد بیشتر (${list.length - signalHistoryLimit} باقی‌مانده)</button></td></tr>`;
     }
 }
 async function clearSignalHistory() {
@@ -978,10 +949,13 @@ async function openSettings() {
             return `<div class="field"><label>${TRADING_LABELS[k]||k}</label><input type="${isTime?'text':'number'}" ${isTime?'':'step="any"'} id="ts_${k}" value="${t.values[k]}"></div>`;
         }).join('');
         const optFields = Object.keys(o.defaults).map(k => `<div class="field"><label>${OPT_LABELS[k]||k}</label><input type="number" step="any" id="opt_${k}" value="${o.values[k]}"></div>`).join('');
+        const capitalKeys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT','MAX_POSITION_SIZE'];
+        const capitalFields = capitalKeys.map(k => `<div class="field"><label>${CAPITAL_LABELS[k]||k}</label><input type="number" step="any" id="cap_${k}" value="${t.values[k] !== undefined ? t.values[k] : ''}"></div>`).join('');
         openModal('تنظیمات عمومی', `
             <div class="tabs">
-                <button class="tab active" onclick="switchSettingsTab('trading', this)">تنظیمات معاملات</button>
-                <button class="tab" onclick="switchSettingsTab('option', this)">تنظیمات آپشن</button>
+                <button class="tab active" onclick="switchSettingsTab('trading', this)">معاملات</button>
+                <button class="tab" onclick="switchSettingsTab('option', this)">آپشن</button>
+                <button class="tab" onclick="switchSettingsTab('capital', this)">مدیریت سرمایه</button>
             </div>
             <div id="tab-trading">
                 <div class="hint">این مقادیر بلافاصله اعمال می‌شوند.</div>
@@ -992,13 +966,19 @@ async function openSettings() {
                 <div class="hint">کارمزد خرید ${(o.fees.buy*100).toFixed(2)}٪ · فروش ${(o.fees.sell*100).toFixed(2)}٪ · نرخ بدون ریسک ${(o.riskFree*100).toFixed(0)}٪</div>
                 <div class="form-row">${optFields}</div>
                 <button class="btn" onclick="saveOptionSettings()">ذخیره</button>
+            </div>
+            <div id="tab-capital" style="display:none;">
+                <div class="hint">این مقادیر مبنای محاسبه حجم پوزیشن و پیام‌های تلگرام هستند. پیش‌فرض: ریسک ۱.۵٪، سقف نماد ۲۰٪، سقف کل ۵۰٪، نقد ذخیره ۲۰٪.</div>
+                <div class="form-row">${capitalFields}</div>
+                <button class="btn" onclick="saveCapitalSettings()">ذخیره</button>
             </div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 function switchSettingsTab(which, btn) {
     document.getElementById('tab-trading').style.display = which === 'trading' ? 'block' : 'none';
     document.getElementById('tab-option').style.display = which === 'option' ? 'block' : 'none';
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-capital').style.display = which === 'capital' ? 'block' : 'none';
+    document.querySelectorAll('.modal .tabs .tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
 }
 async function saveTradingSettings() {
@@ -1009,54 +989,35 @@ async function saveOptionSettings() {
     const body = {}; window._optKeys.forEach(k => body[k] = parseFloat(document.getElementById(`opt_${k}`).value));
     try { await apiFetch(`${BACKEND_URL}/api/options/settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); }
 }
+async function saveCapitalSettings() {
+    const keys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT','MAX_POSITION_SIZE'];
+    const body = {};
+    keys.forEach(k => { const el = document.getElementById(`cap_${k}`); if (el && el.value !== '') body[k] = parseFloat(el.value); });
+    try { await apiFetch(`${BACKEND_URL}/api/trading-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); }
+}
 
-// ===== بک‌تست مقایسه‌ای =====
 async function openBacktestCompare() {
     try {
         const symbolsHtml = monitoredSymbols.map(s => `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="bt-symbol" value="${esc(s.symbol)}"> ${esc(s.symbol)}</label>`).join('');
         if (!symbolsHtml) return openModal('بک‌تست مقایسه‌ای', '<div class="empty-note">ابتدا نماد اضافه کنید.</div>');
-
-        const stratList = strategiesInfo.map(s => `
-            <div class="bt-strategy-row">
-                <label><input type="checkbox" class="bt-strategy-check" value="${esc(s.id)}" checked> <b>${esc(s.name)}</b></label>
-                <span class="hint" style="margin:0;">${TF_LABELS[s.defaultTimeframe]||s.defaultTimeframe} → ${TF_LABELS[s.htfTimeframe||'1d']}</span>
-            </div>
-        `).join('');
-
+        const stratList = strategiesInfo.map(s => `<div class="bt-strategy-row"><label><input type="checkbox" class="bt-strategy-check" value="${esc(s.id)}" checked> <b>${esc(s.name)}</b></label><span class="hint" style="margin:0;">${TF_LABELS[s.defaultTimeframe]||s.defaultTimeframe} → ${TF_LABELS[s.htfTimeframe||'1d']}</span></div>`).join('');
         openModal('بک‌تست مقایسه‌ای', `
             <div class="tabs">
                 <button class="tab active" onclick="switchBtTab('default', this)">پیش‌فرض</button>
                 <button class="tab" onclick="switchBtTab('advanced', this)">تنظیمات پیشرفته</button>
             </div>
-
             <div id="btTab-default">
-                <div class="hint">هر استراتژی با تایم‌فریم، کندل و پارامترهای پیش‌فرض خودش اجرا می‌شه. برای تغییر، به تب تنظیمات پیشرفته برو.</div>
-
-                <div style="margin:14px 0;">
-                    <div class="menu-label" style="padding-right:0;">نمادها</div>
-                    <div>${symbolsHtml}</div>
-                </div>
-
-                <div style="margin:14px 0;">
-                    <div class="menu-label" style="padding-right:0;">استراتژی‌ها</div>
-                    <div>${stratList}</div>
-                </div>
-
-                <div style="margin:14px 0;">
-                    <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;">
-                        <input type="checkbox" id="btRealOption"> استفاده از دیتای واقعی آپشن (دقیق‌تر، فقط اگه دیتا ذخیره شده)
-                    </label>
-                </div>
-
+                <div class="hint">هر استراتژی با تایم‌فریم، کندل و پارامترهای پیش‌فرض خودش اجرا می‌شود.</div>
+                <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">نمادها</div><div>${symbolsHtml}</div></div>
+                <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">استراتژی‌ها</div><div>${stratList}</div></div>
+                <div style="margin:14px 0;"><label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="btRealOption"> استفاده از دیتای واقعی آپشن</label></div>
                 <button class="btn" id="btRunBtn" onclick="runBacktestCompare()">اجرای بک‌تست</button>
                 <div id="btResults" style="margin-top:16px;"></div>
             </div>
-
             <div id="btTab-advanced" style="display:none;">
-                <div class="hint">برای هر استراتژی می‌تونی پارامترها رو تنظیم کنی. اگه تغییری ندی، پیش‌فرض استفاده می‌شه. استراتژی Ensemble از تنظیمات پیش‌فرض هفت استراتژی دیگه استفاده می‌کنه.</div>
+                <div class="hint">پارامترهای هر استراتژی را می‌توانی تغییر دهی.</div>
                 <div id="btAdvancedParams"></div>
-            </div>
-        `);
+            </div>`);
         buildBtAdvancedParams();
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
@@ -1085,7 +1046,6 @@ async function runBacktestCompare() {
     const strategyChecks = Array.from(document.querySelectorAll('.bt-strategy-check:checked'));
     if (!symbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
     if (!strategyChecks.length) return showAlert('حداقل یک استراتژی انتخاب کن', 'warn');
-
     const useRealOption = document.getElementById('btRealOption').checked;
     const strategies = strategyChecks.map(chk => {
         const id = chk.value;
@@ -1095,78 +1055,30 @@ async function runBacktestCompare() {
             const v = parseFloat(inp.value);
             if (Number.isFinite(v)) params[inp.dataset.param] = v;
         });
-        return {
-            id,
-            timeframe: s.defaultTimeframe,
-            htfTimeframe: s.htfTimeframe || '1d',
-            candleType: 'heikin',
-            params: { ...s.defaultParams, ...params }
-        };
+        return { id, timeframe: s.defaultTimeframe, htfTimeframe: s.htfTimeframe || '1d', candleType: 'heikin', params: { ...s.defaultParams, ...params } };
     });
-
     const btn = document.getElementById('btRunBtn');
-    btn.disabled = true;
-    btn.textContent = 'در حال محاسبه...';
+    btn.disabled = true; btn.textContent = 'در حال محاسبه...';
     document.getElementById('btResults').innerHTML = '<div style="text-align:center;padding:20px;"><div style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px;"></div></div>';
-
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbols, strategies, useRealOption })
-        }, 0);
-
-        if (!r.results || !r.results.length) {
-            document.getElementById('btResults').innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>';
-            return;
-        }
-
+        const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols, strategies, useRealOption }) }, 0);
+        if (!r.results || !r.results.length) { document.getElementById('btResults').innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>'; return; }
         const rows = r.results.map((x, i) => {
             if (x.error) return `<tr><td>${i+1}</td><td>${esc(x.symbol)}</td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="7" style="color:var(--bad);">${esc(x.error)}</td></tr>`;
             const o = x.option || {}; const s = x.stock || {};
-            return `<tr>
-                <td>${i+1}</td>
-                <td><b>${esc(x.symbol)}</b></td>
-                <td>${esc(x.strategyName)}</td>
-                <td>${TF_LABELS[x.timeframe]||'-'}</td>
-                <td>${s.closed || 0}</td>
-                <td>${(s.winRate || 0).toFixed(1)}٪</td>
-                <td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td>
-                <td>${o.count || 0}</td>
-                <td>${(o.winRate || 0).toFixed(1)}٪</td>
-                <td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td>
-                <td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td>
-                <td><b>${fmtPF(o.profitFactor)}</b></td>
-            </tr>`;
+            return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td></tr>`;
         }).join('');
-
         document.getElementById('btResults').innerHTML = `
-            <div class="hint">${r.count} نتیجه — مرتب‌شده بر اساس Profit Factor آپشن</div>
+            <div class="hint">${r.count} نتیجه — مرتب‌شده بر اساس PF آپشن</div>
             <div class="table-responsive"><table class="data-table">
-                <thead>
-                    <tr>
-                        <th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th>
-                        <th colspan="3" style="background:var(--bg-input);">سهم پایه</th>
-                        <th colspan="5" style="background:var(--bg-input);">آپشن ${useRealOption ? '(دقیق/تقریبی)' : '(تقریبی)'}</th>
-                    </tr>
-                    <tr>
-                        <th>معامله</th><th>وین‌ریت</th><th>میانگین</th>
-                        <th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th>
-                    </tr>
-                </thead>
+                <thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th></tr>
+                <tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead>
                 <tbody>${rows}</tbody>
-            </table></div>
-            <div class="hint" style="margin-top:10px;">بهترین ردیف‌ها اون‌هایی هستن که PF بالا و تعداد معامله کافی دارن.</div>
-        `;
-    } catch (e) {
-        document.getElementById('btResults').innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'اجرای بک‌تست';
-    }
+            </table></div>`;
+    } catch (e) { document.getElementById('btResults').innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`; }
+    finally { btn.disabled = false; btn.textContent = 'اجرای بک‌تست'; }
 }
 
-// ===== راهنما =====
 function guideFull() {
     const stratBlock = (name, wr, pf, tf, htf, desc, good) => `
         <div class="strat-block">
@@ -1174,115 +1086,39 @@ function guideFull() {
             <p>${desc}</p>
             <p>مناسب برای: ${good}</p>
             <p style="color:var(--text-bright);">تایم‌فریم پیش‌فرض: ${tf} | HTF: ${htf}</p>
-        </div>
-    `;
+        </div>`;
     return `
         <h4>شروع سریع</h4>
         <ol>
-            <li>از بخش «نمادهای زیر نظر» نمادهای مورد نظرت رو اضافه کن.</li>
-            <li>از بخش «ایجاد استراتژی» نماد، استراتژی، تایم‌فریم و کندل رو انتخاب و استراتژی رو بساز.</li>
-            <li>منتظر سیگنال توی تلگرام بمون. هر سیگنال شامل قیمت، حد ضرر، هدف و قرارداد آپشن پیشنهادی هست.</li>
-            <li>موقعیت‌های باز و بسته رو در بخش «موقعیت‌های اخیر آپشن» ببین.</li>
+            <li>نمادهای مورد نظرت را در بخش «نمادهای زیر نظر» اضافه کن.</li>
+            <li>در «ایجاد استراتژی» نماد، استراتژی، تایم‌فریم و کندل را انتخاب کن.</li>
+            <li>نقش را انتخاب کن: <b>لیدر</b> سیگنال مستقل می‌فرستد، <b>تأییدکننده</b> فقط در پیام لیدر ذکر می‌شود.</li>
+            <li>منتظر سیگنال در تلگرام بمان.</li>
         </ol>
-
+        <h4>منطق لیدری</h4>
+        <p>روی هر نماد، فقط <b>لیدرها</b> سیگنال تلگرام می‌فرستند. <b>تأییدکننده‌ها</b> وضعیتشان ذخیره می‌شود و اگر هم‌زمان با لیدر سیگنال بدهند، در پیام لیدر با برچسب «✅ تأیید» نشان داده می‌شوند.</p>
+        <h4>مدیریت سرمایه</h4>
+        <p>حجم هر پوزیشن بر اساس: ریسک هر معامله، قدرت سیگنال (RR)، ارزانی IV، سقف درگیری نماد و سقف کل، محاسبه می‌شود.</p>
         <h4>استراتژی‌ها</h4>
-        ${stratBlock('RSI Pullback (کانرز)', '۴۷ تا ۵۵٪', '~۱.۴', '۳۰ دقیقه', 'روزانه',
-            'وقتی قیمت در روند صعودی یه پولبک (اصلاح موقت) می‌زنه و RSI سریع به زیر ۱۰ می‌رسه، سیستم منتظر برگشت می‌مونه و خرید می‌کنه.',
-            'بازارهای رنج و پولبک‌های سریع')}
-        ${stratBlock('EMA Pullback', '۴۹ تا ۶۳٪', '~۱.۶', '۱۵ دقیقه', 'روزانه',
-            'سه EMA (۲۵، ۵۰، ۱۰۰) باید هم‌تراز باشن. قیمت به EMA سریع پولبک می‌زنه و با کندل صعودی بدون سایه برمی‌گرده. سیستم ورود می‌کنه.',
-            'روندهای پایدار و یک‌جهته')}
-        ${stratBlock('MACD Momentum', '۴۵ تا ۵۵٪', '~۱.۳', '۱۵ دقیقه', 'روزانه',
-            'کراس صعودی MACD بالای خط صفر + کندل HA صعودی. سیستم ورود می‌کنه و با Death Cross یا کوچک‌شدن هیستوگرام خارج می‌شه.',
-            'شکار شروع روندهای جدید')}
-        ${stratBlock('Ichimoku Cloud', '۳۹ تا ۵۸٪', '~۱.۵', '۳۰ دقیقه', 'روزانه',
-            'قیمت باید بالای ابر Kumo (ابر) باشه + ابر سبز + کراس صعودی Tenkan/Kijun. یه استراتژی کلاسیک ژاپنی با دید کلی.',
-            'روندهای با نوسان کم')}
-        ${stratBlock('SMC Unicorn', '۵۰ تا ۶۴٪', '~۲.۵', '۱ ساعت', 'روزانه',
-            'ترکیب شکار نقدینگی (Liquidity Sweep) + Breaker Block + Fair Value Gap. بر پایه رفتار پول هوشمند (Smart Money). بهترین نسبت ریسک به ریوارد رو داره.',
-            'شکار حرکات بزرگ و شارپ')}
-        ${stratBlock('ICT Silver Bullet', '۵۳ تا ۵۹٪', '~۱.۹', '۱۵ دقیقه', 'روزانه',
-            'شکار FVG (شکاف) در پنجره‌های زمانی خاص (معمولاً شروع یا پایان بازار). فرکانس بالاتر و مناسبه برای روزهایی که Unicorn ستاپ نمی‌ده.',
-            'فرصت‌های کوتاه و پرتکرار')}
-        ${stratBlock('OB + Sweep', '۳۹ تا ۴۶٪', '~۱.۳', '۱ ساعت', 'روزانه',
-            'پس از شکار نقدینگی (Sweep) و تأیید تغییر ساختار (MSS)، بازگشت به Order Block و ورود.',
-            'شکار برگشت‌های ناگهانی')}
-        ${stratBlock('Ensemble (ترکیبی)', '۵۵ تا ۷۰٪ (تخمینی)', 'بالا', '۳۰ دقیقه', 'روزانه',
-            'ترکیب هفت استراتژی بالا با رأی‌گیری وزنی. هر استراتژی یه وزن داره و وقتی مجموع وزن سیگنال‌های خرید از یه آستانه بگذره، ورود انجام می‌شه. مناسب‌ترین گزینه برای شروع.',
-            'همه شرایط بازار (کاهش ریسک)')}
-
-        <h4>معنی پارامترها</h4>
-        <table>
-            <thead><tr><th>پارامتر</th><th>توضیح</th></tr></thead>
-            <tbody>
-                <tr><td>rsiFastPeriod</td><td>دوره RSI سریع. کوچک‌تر = واکنش سریع‌تر. پیش‌فرض ۲ (کانرز).</td></tr>
-                <tr><td>rsiSlowPeriod</td><td>دوره RSI کند. برای تشخیص روند بزرگ. پیش‌فرض ۵۰.</td></tr>
-                <tr><td>rsiOversold</td><td>آستانه اشباع فروش. زیر این سطح = احتمال برگشت صعودی. پیش‌فرض ۱۰.</td></tr>
-                <tr><td>rsiOverbought</td><td>آستانه اشباع خرید. بالای این سطح = احتمال برگشت نزولی. پیش‌فرض ۸۰.</td></tr>
-                <tr><td>lookback</td><td>چند کندل به عقب نگاه کنه. مثلاً «RSI در ۳ کندل اخیر زیر ۱۰ بوده؟»</td></tr>
-                <tr><td>maxHoldBars</td><td>حداکثر کندلی که یه معامله باز می‌مونه. بعد از این، خودکار بسته می‌شه.</td></tr>
-                <tr><td>cooldownBars</td><td>بعد از خروج چند کندل صبر کنه تا معامله جدید باز نکنه.</td></tr>
-                <tr><td>emaFast / Mid / Slow</td><td>دوره‌های EMA. هم‌ترازی این سه = روند قوی.</td></tr>
-                <tr><td>pullbackPct</td><td>چند درصد به EMA نزدیک بشه تا پولبک محسوب بشه.</td></tr>
-                <tr><td>macdFast / Slow / Signal</td><td>دوره‌های MACD. پیش‌فرض ۱۲، ۲۶، ۹.</td></tr>
-                <tr><td>tenkanPeriod / kijunPeriod / senkouBPeriod</td><td>دوره‌های Ichimoku. پیش‌فرض ۹، ۲۶، ۵۲.</td></tr>
-                <tr><td>htfEma</td><td>دوره EMA تایم‌فریم بالا (روند). پیش‌فرض ۲۰.</td></tr>
-                <tr><td>htfRsiPeriod</td><td>دوره RSI تایم‌فریم بالا. پیش‌فرض ۱۴.</td></tr>
-                <tr><td>atrPeriod / atrMult</td><td>دوره و ضریب ATR. برای محاسبه حد ضرر. مثلاً حد ضرر = ورود - (atrMult × ATR).</td></tr>
-                <tr><td>requireNoLowerWick</td><td>اگه ۱ باشه، فقط کندل‌های HA بدون سایه پایین رو قبول می‌کنه (کندل قوی).</td></tr>
-                <tr><td>swingLength</td><td>طول پنجره برای تشخیص سقف/کف سوئینگ (تعداد کندل).</td></tr>
-                <tr><td>fvgMinGapPct</td><td>حداقل اندازه FVG (شکاف) به درصد قیمت. FVGهای کوچیک رد می‌شن.</td></tr>
-                <tr><td>useOTE</td><td>اگه ۱ باشه، ورود فقط در ناحیه OTE (فیبوناچی ۶۱.۸-۷۸.۶٪) مجازه.</td></tr>
-                <tr><td>useBreakEven</td><td>اگه ۱ باشه، بعد از رسیدن به TP1، حد ضرر به نقطه ورود منتقل می‌شه.</td></tr>
-                <tr><td>tp1R / tp2R / tp3R</td><td>اهداف پله‌ای بر حسب R (مقدار ریسک). مثلاً tp1R=1 یعنی هدف اول = 1R سود.</td></tr>
-                <tr><td>minLiquiditySweepPct</td><td>حداقل عمق شکار نقدینگی. Sweepهای کم‌عمق رد می‌شن.</td></tr>
-                <tr><td>requireVolumeFilter</td><td>اگه ۱ باشه، فقط سیگنال‌هایی که حجم بالای میانگین دارن قبول می‌شن.</td></tr>
-                <tr><td>useKillzone</td><td>اگه ۱ باشه، ورود فقط در بازه‌های Killzone (ساعات خاص) مجازه.</td></tr>
-                <tr><td>minConfluence</td><td>حداقل شرط‌های لازم برای ورود (SMC: از ۳ شرط حداقل ۲ شرط).</td></tr>
-                <tr><td>sb1Start / sb1End / ...</td><td>پنجره‌های Silver Bullet (ساعت تهران). مثلاً 9.5 تا 10.0.</td></tr>
-                <tr><td>requireDisplacement</td><td>اگه ۱ باشه، FVG باید از یه حرکت قدرتمند (Displacement) ناشی شده باشه.</td></tr>
-                <tr><td>obLookback</td><td>چند کندل به عقب دنبال Order Block بگرده.</td></tr>
-                <tr><td>threshold (Ensemble)</td><td>آستانه مجموع وزن برای سیگنال خرید. پیش‌فرض ۱.۵.</td></tr>
-                <tr><td>minAgree (Ensemble)</td><td>حداقل تعداد استراتژی موافق. پیش‌فرض ۲.</td></tr>
-                <tr><td>wRsi / wEma / wMacd / ...</td><td>وزن هر استراتژی در Ensemble. وزن بالاتر = تأثیر بیشتر.</td></tr>
-            </tbody>
-        </table>
-
+        ${stratBlock('RSI Pullback', '۴۷-۵۵٪', '~۱.۴', '۳۰ دقیقه', 'روزانه', 'پولبک RSI (کانرز) با آستانه ۱۵.', 'بازارهای رنج')}
+        ${stratBlock('EMA Pullback', '۴۹-۶۳٪', '~۱.۶', '۱۵ دقیقه', 'روزانه', 'پولبک به EMA با pullback تنگ‌تر.', 'روندهای پایدار')}
+        ${stratBlock('Ichimoku', '۳۹-۵۸٪', '~۱.۵', '۳۰ دقیقه', 'روزانه', 'ابر Kumo + کراس T/K (senkou ۲۶).', 'روند کم‌نوسان')}
+        ${stratBlock('SMC Unicorn', '۵۰-۶۴٪', '~۲.۵', '۱ ساعت', 'روزانه', 'شکار نقدینگی + Breaker Block + FVG + OTE.', 'حرکات بزرگ')}
+        ${stratBlock('ICT Silver Bullet', '۵۳-۵۹٪', '~۱.۹', '۱۵ دقیقه', 'روزانه', 'شکار FVG در پنجره‌های زمانی.', 'فرصت‌های پرتکرار')}
+        ${stratBlock('OB + Sweep', '۳۹-۴۶٪', '~۱.۳', '۱ ساعت', 'روزانه', 'Sweep + MSS + Order Block.', 'برگشت‌های ناگهانی')}
+        ${stratBlock('Ensemble', '۵۵-۷۰٪ (تخمینی)', 'بالا', '۳۰ دقیقه', 'روزانه', 'رأی‌گیری وزنی از ۶ استراتژی بالا.', 'همه شرایط')}
+        <h4>مدیریت ریسک</h4>
+        <p>هر معامله ۱.۵٪ سرمایه، سقف نماد ۲۰٪، سقف کل ۵۰٪، نقد ذخیره ۲۰٪.</p>
+        <p>خروج پله‌ای: +۵۰٪ → فروش ۳۳٪، +۱۰۰٪ → فروش ۳۳٪ دیگر، بقیه با حد ضرر متحرک.</p>
         <h4>اصطلاحات آپشن</h4>
         <dl>
-            <dt>پرمیوم</dt><dd>قیمتی که برای خرید آپشن می‌پردازی.</dd>
-            <dt>اعمال (Strike)</dt><dd>قیمتی که قرارداد بهت اجازه می‌ده سهم رو بخری/بفروشی.</dd>
-            <dt>سررسید (Expiry)</dt><dd>تاریخی که قرارداد منقضی می‌شه.</dd>
-            <dt>دلتا (Delta)</dt><dd>میزان حساسیت پرمیوم به تغییر قیمت سهم پایه. دلتا ۰.۵ = با ۱ واحد حرکت سهم، پرمیوم ۰.۵ واحد تغییر می‌کنه.</dd>
-            <dt>تتا (Theta)</dt><dd>مقدار کاهش روزانه ارزش آپشن به‌خاطر گذشت زمان. هرچی به سررسید نزدیک‌تر بشیم، تتا بزرگ‌تر می‌شه.</dd>
-            <dt>گاما (Gamma)</dt><dd>میزان تغییر دلتا نسبت به تغییر قیمت سهم. هرچی گاما بالاتر، ریسک بالاتر.</dd>
-            <dt>وگا (Vega)</dt><dd>میزان حساسیت پرمیوم به تغییر IV.</dd>
-            <dt>IV (نوسان ضمنی)</dt><dd>انتظار بازار از نوسان آینده سهم. IV بالا = آپشن گرون. IV پایین = آپشن ارزون.</dd>
-            <dt>HV (نوسان تاریخی)</dt><dd>نوسان واقعی سهم در ۲۰ روز گذشته.</dd>
-            <dt>IV/HV</dt><dd>نسبت IV به HV. اگه بالای ۱.۴ باشه، آپشن گرون‌تر از حد معمول‌ه و بهتره صبر کنی.</dd>
-            <dt>OI (Open Interest)</dt><dd>تعداد قراردادهای باز. OI بالا = نقدشوندگی بالا.</dd>
-            <dt>اسپرد</dt><dd>فاصله بین بهترین خرید و بهترین فروش. اسپرد کم = نقدشوندگی بالا.</dd>
-        </dl>
-
-        <h4>مدیریت ریسک</h4>
-        <p><b>قاعده طلایی:</b> در هر معامله حداکثر ۱ تا ۲٪ کل سرمایه‌ت رو ریسک کن.</p>
-        <p><b>خروج پله‌ای:</b> در +۵۰٪ سود ۳۳٪ موقعیت رو بفروش، در +۱۰۰٪ سود ۳۳٪ بعدی، بقیه رو با حد ضرر متحرک نگه دار.</p>
-        <p><b>حد ضرر آپشن:</b> اگه پرمیوم ۳۰٪ افت کرد، سیستم خودکار می‌بنده.</p>
-        <p><b>زمان ورود:</b> فقط بین ۹:۳۰ تا ۱۲:۰۰. در ۳۰ دقیقه آخر، اسپرد باز می‌شه.</p>
-
-        <h4>سوالات متداول</h4>
-        <p><b>چرا سیگنال اومد ولی قرارداد پیشنهاد نشد؟</b></p>
-        <p>ممکنه هیچ قراردادی با فیلترهای فعلی جور نبوده. سیستم به‌صورت پله‌ای فیلترها رو سست می‌کنه تا یه قرارداد پیدا کنه. اگه پیام «سطح B یا C» دیدی، یعنی کیفیت قرارداد پایین‌تره.</p>
-
-        <p><b>چرا «داده ناکافی» می‌بینم؟</b></p>
-        <p>روی badge «داده ناکافی» کلیک کن تا دقیق ببینی چند کندل دیگه لازمه.</p>
-
-        <p><b>تفاوت بک‌تست تقریبی و دقیق چیه؟</b></p>
-        <p>تقریبی بر اساس مدل Black-Scholes با فرضیات ساده. دقیق از دیتای واقعی قراردادهای آپشن که سیستم ذخیره کرده استفاده می‌کنه.</p>
-
-        <p><b>کدوم استراتژی برای من بهتره؟</b></p>
-        <p>برای شروع، Ensemble بهترینه چون خودش از ۷ استراتژی رأی می‌گیره. بعد از مدتی، از «بک‌تست مقایسه‌ای» استفاده کن و بهترین استراتژی هر نماد رو انتخاب کن.</p>
-    `;
+            <dt>دلتا</dt><dd>حساسیت پرمیوم به تغییر قیمت سهم.</dd>
+            <dt>تتا</dt><dd>کاهش روزانه ارزش آپشن به‌خاطر زمان.</dd>
+            <dt>IV (نوسان ضمنی)</dt><dd>انتظار بازار از نوسان آینده.</dd>
+            <dt>HV (نوسان تاریخی)</dt><dd>نوسان واقعی ۲۰ روز گذشته.</dd>
+            <dt>IV/HV</dt><dd>بالای ۱.۴ یعنی آپشن گران است.</dd>
+            <dt>OI</dt><dd>تعداد قراردادهای باز.</dd>
+        </dl>`;
 }
 
 async function viewChain(sym) {
@@ -1291,7 +1127,7 @@ async function viewChain(sym) {
         const d = await apiFetch(`${BACKEND_URL}/api/options/chain/${encodeURIComponent(sym)}`);
         if (!d.rows.length) {
             let sug = '';
-            try { const u = await apiFetch(`${BACKEND_URL}/api/options/underlyings`); sug = `<div class="hint">نام‌های تطبیق: ${(d.matchedNames||[]).map(esc).join('، ')||'-'}</div><div class="hint">نمونه نام‌های موجود: ${u.underlyings.slice(0,40).map(x=>esc(x.underlying)).join('، ')}</div>`; } catch (e) {}
+            try { const u = await apiFetch(`${BACKEND_URL}/api/options/underlyings`); sug = `<div class="hint">نام‌های تطبیق: ${(d.matchedNames||[]).map(esc).join('، ')||'-'}</div><div class="hint">نمونه: ${u.underlyings.slice(0,40).map(x=>esc(x.underlying)).join('، ')}</div>`; } catch (e) {}
             return openModal(`زنجیره ${sym}`, `<div class="empty-note">قراردادی یافت نشد.</div>${sug}`);
         }
         const rows = d.rows.map(r => {
@@ -1307,15 +1143,14 @@ async function viewChain(sym) {
             return `<tr style="${r.reject.length?'opacity:.55':''}">
                 <td>${esc(r.symbol)}</td><td>${fmtN(r.strike)}</td><td>${r.expiry}</td><td>${r.daysLeft}</td>
                 <td>${fmtN(r.bid)} / ${fmtN(r.ask)}</td><td>${r.spreadPct===null?'-':r.spreadPct.toFixed(1)+'٪'}</td>
-                <td>${ivApiShow}<br><small>${ivCalc}</small></td>
-                <td>${hvApiShow}</td>
+                <td>${ivApiShow}<br><small>${ivCalc}</small></td><td>${hvApiShow}</td>
                 <td>${bsApi}<br><small>${bsCalc}</small></td>
                 <td>${delta}</td><td>${gamma}</td><td>${theta}</td><td>${vega}</td>
                 <td style="font-size:11px;">${r.reject.length?esc(r.reject.join('، ')):'<span class="badge long">قابل بررسی</span>'}</td>
             </tr>`;
         }).join('');
-        openModal(`زنجیره ${sym} — پایه ${fmtN(d.S)}${d.hv?` · HV محاسبه ${(d.hv*100).toFixed(0)}٪`:''} · داده ${d.chainAgeSec}s پیش`,
-            `<div class="table-responsive"><table class="data-table"><thead><tr><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>روز</th><th>خرید / فروش</th><th>اسپرد</th><th>IV (API/محاسبه)</th><th>HV API</th><th>BS (API/محاسبه)</th><th>دلتا</th><th>گاما</th><th>تتا</th><th>وگا</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>`);
+        openModal(`زنجیره ${sym} — پایه ${fmtN(d.S)}${d.hv?` · HV ${(d.hv*100).toFixed(0)}٪`:''}`,
+            `<div class="table-responsive"><table class="data-table"><thead><tr><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>روز</th><th>خرید/فروش</th><th>اسپرد</th><th>IV (API/محاسبه)</th><th>HV API</th><th>BS</th><th>دلتا</th><th>گاما</th><th>تتا</th><th>وگا</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
@@ -1329,14 +1164,17 @@ async function recommendOption(id) {
         const head = levelTag + `<div class="hint">سناریو: ورود ${fmtN(sc.entry)} · حد ضرر ${fmtN(sc.stop)} · هدف ${fmtN(sc.target)} · افق ~${sc.horizonDays} روز${sc.hv?` · HV ${(sc.hv*100).toFixed(0)}٪`:''}</div>`;
         let picks = '';
         if (r.picks.length) {
-            picks = r.picks.map((p,i) => `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)} <small>(${p.spreadPct.toFixed(1)}٪)</small></td><td>${fmtN(p.theo)}</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.leverage.toFixed(1)}x</td><td>${p.oi}</td><td>${pct(p.bePct)}</td><td>${pct(p.profitPct)}</td><td>${pct(p.lossPct)}</td><td>${pct(p.flatPct)}</td><td><b>${p.rr.toFixed(2)}</b></td><td>${p.positionSize||1}</td></tr>`).join('');
+            picks = r.picks.map((p,i) => {
+                const sizeInfo = p.positionInfo ? `<span title="ریسک: ${fmtN(p.positionInfo.limits.riskAmount)} | سقف نماد: ${fmtN(p.positionInfo.limits.maxSymbolExposure)}">${p.positionSize||1}</span>` : (p.positionSize||1);
+                return `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)} <small>(${p.spreadPct.toFixed(1)}٪)</small></td><td>${fmtN(p.theo)}</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.leverage.toFixed(1)}x</td><td>${p.oi}</td><td>${pct(p.bePct)}</td><td>${pct(p.profitPct)}</td><td>${pct(p.lossPct)}</td><td><b>${p.rr.toFixed(2)}</b></td><td>${sizeInfo}</td></tr>`;
+            }).join('');
         } else {
             picks = `<tr class="empty-row"><td colspan="16">قراردادی نیست</td></tr>`;
             if (r.nearMisses && r.nearMisses.length) {
-                picks += r.nearMisses.map((n,i) => `<tr style="opacity:.6;"><td>-</td><td>${esc(n.symbol)}</td><td>${fmtN(n.strike)}</td><td>${n.daysLeft} روز</td><td colspan="12" style="text-align:right; font-size:11px; color:var(--bad);">رد شد: ${esc(n.reasons.join('، '))}</td></tr>`).join('');
+                picks += r.nearMisses.map(n => `<tr style="opacity:.6;"><td>-</td><td>${esc(n.symbol)}</td><td>${fmtN(n.strike)}</td><td>${n.daysLeft} روز</td><td colspan="12" style="text-align:right; font-size:11px; color:var(--bad);">رد شد: ${esc(n.reasons.join('، '))}</td></tr>`).join('');
             }
         }
-        openModal(`پیشنهاد آپشن ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>خرید</th><th>منصفانه</th><th>IV</th><th>دلتا</th><th>اهرم</th><th>OI</th><th>سربه‌سر</th><th>هدف</th><th>حد ضرر</th><th>بی‌حرکت</th><th>RR</th><th>حجم</th></tr></thead><tbody>${picks}</tbody></table></div><div class="hint">بررسی‌شده ${r.considered} · قابل قبول ${r.passed}</div>`);
+        openModal(`پیشنهاد آپشن ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>خرید</th><th>منصفانه</th><th>IV</th><th>دلتا</th><th>اهرم</th><th>OI</th><th>سربه‌سر</th><th>هدف</th><th>حد ضرر</th><th>RR</th><th>حجم</th></tr></thead><tbody>${picks}</tbody></table></div><div class="hint">بررسی‌شده ${r.considered} · قابل قبول ${r.passed}</div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
@@ -1345,24 +1183,27 @@ let optPositionsCache = null;
 async function loadOptionPositions() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/options/positions`), s = r.stats;
-        optPositionsCache = r.positions;
-        optPositionsLimit = 5;
-        document.getElementById('optStats').innerHTML = (s.open + s.closed) ? `<div class="stat"><small>باز / بسته</small><b>${s.open} / ${s.closed}</b></div><div class="stat"><small>وین‌ریت</small><b>${s.winRate.toFixed(0)}٪</b></div><div class="stat"><small>بازده کل</small><b>${pct(s.totalPnl)}</b></div><div class="stat"><small>میانگین</small><b>${pct(s.avgPnl)}</b></div><div class="stat"><small>سود/زیان</small><b>${pct(s.avgWin)} / ${pct(s.avgLoss)}</b></div><div class="stat"><small>Profit Factor</small><b>${fmtPF(s.profitFactor)}</b></div>` : '<div class="empty-note">موقعیتی ثبت نشده است</div>';
+        optPositionsCache = r.positions; optPositionsLimit = 5;
+        document.getElementById('optStats').innerHTML = (s.open + s.closed) ? `<div class="stat"><small>باز / بسته</small><b>${s.open} / ${s.closed}</b></div><div class="stat"><small>وین‌ریت</small><b>${s.winRate.toFixed(0)}٪</b></div><div class="stat"><small>بازده کل</small><b>${pct(s.totalPnl)}</b></div><div class="stat"><small>میانگین</small><b>${pct(s.avgPnl)}</b></div><div class="stat"><small>PF</small><b>${fmtPF(s.profitFactor)}</b></div>` : '<div class="empty-note">موقعیتی ثبت نشده است</div>';
         renderOptPositions();
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
 function renderOptPositions() {
     const tb = document.getElementById('optBody');
     const list = optPositionsCache || [];
-    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="12">موقعیتی ثبت نشده است</td></tr>';
+    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="13">موقعیتی ثبت نشده است</td></tr>';
     const shown = list.slice(0, optPositionsLimit);
-    tb.innerHTML = shown.map(p => { const cur = p.status==='closed' ? p.exitBid : p.lastBid, curS = p.status==='closed' ? p.exitS : p.lastS, pnl = p.status==='closed' ? p.pnlPct : p.lastPnlPct; return `<tr>
-        <td>${esc(p.underlying)}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry}${p.lastDaysLeft!==undefined&&p.status==='open'?` <small>(${p.lastDaysLeft})</small>`:''}</td>
-        <td>${new Date(p.entryTime).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td>${fmtN(p.entryAsk)}</td><td>${fmtN(cur)}${p.status==='open'?' <span class="badge long">باز</span>':''}</td><td>${pct(pnl)}</td>
-        <td>${fmtN(p.entryS)} → ${fmtN(curS)}</td><td>${fmtIv(p.entryIv)} → ${fmtIv(p.lastIv)}</td><td style="font-size:11px;">${esc(p.exitReason||'-')}</td>
-        <td><button class="btn tiny danger" onclick="deleteOptionPosition('${p._id}')">×</button></td></tr>`; }).join('');
+    tb.innerHTML = shown.map(p => {
+        const cur = p.status==='closed' ? p.exitBid : p.lastBid, curS = p.status==='closed' ? p.exitS : p.lastS, pnl = p.status==='closed' ? p.pnlPct : p.lastPnlPct;
+        const size = p.positionSize || 1;
+        return `<tr>
+            <td>${esc(p.underlying)}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry}${p.lastDaysLeft!==undefined&&p.status==='open'?` <small>(${p.lastDaysLeft})</small>`:''}</td>
+            <td>${new Date(p.entryTime).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td>${fmtN(p.entryAsk)}</td><td><b>${size}</b></td><td>${fmtN(cur)}${p.status==='open'?' <span class="badge long">باز</span>':''}</td><td>${pct(pnl)}</td>
+            <td>${fmtN(p.entryS)} → ${fmtN(curS)}</td><td>${fmtIv(p.entryIv)} → ${fmtIv(p.lastIv)}</td><td style="font-size:11px;">${esc(p.exitReason||'-')}</td>
+            <td><button class="btn tiny danger" onclick="deleteOptionPosition('${p._id}')">×</button></td></tr>`;
+    }).join('');
     if (list.length > optPositionsLimit) {
-        tb.innerHTML += `<tr><td colspan="12" style="padding:0;"><button class="show-more-btn" onclick="optPositionsLimit += 5; renderOptPositions();">نمایش ${Math.min(5, list.length - optPositionsLimit)} مورد بیشتر (${list.length - optPositionsLimit} باقی‌مانده)</button></td></tr>`;
+        tb.innerHTML += `<tr><td colspan="13" style="padding:0;"><button class="show-more-btn" onclick="optPositionsLimit += 5; renderOptPositions();">نمایش ${Math.min(5, list.length - optPositionsLimit)} مورد بیشتر (${list.length - optPositionsLimit} باقی‌مانده)</button></td></tr>`;
     }
 }
 async function deleteOptionPosition(id) { if (!confirm('حذف شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/options/positions/${id}`, { method:'DELETE' }); await loadOptionPositions(); } catch (e) { showAlert('خطا: ' + e.message); } }
@@ -1374,7 +1215,7 @@ async function openLogs(source='memory') {
         if (source === 'client') rows = clientLogs.slice().reverse();
         else { const r = await apiFetch(`${BACKEND_URL}/api/logs?source=${source}&limit=300`); rows = r.logs; }
         const tab = (k, l) => `<button class="btn small ${source===k?'':'outline'}" onclick="openLogs('${k}')">${l}</button>`;
-        const tabs = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${tab('memory','سرور')}${tab('db','خطاهای ذخیره‌شده')}${tab('client','مرورگر')}</div>`;
+        const tabs = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${tab('memory','سرور')}${tab('db','خطاها')}${tab('client','مرورگر')}</div>`;
         const body = rows.length ? rows.map(l => `<div style="font-family:monospace;font-size:11.5px;direction:ltr;text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);white-space:pre-wrap;word-break:break-all;color:${l.level==='error'?'var(--bad)':l.level==='warn'?'var(--warn)':'var(--text-dim)'}">${new Date(l.at).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})} [${l.level}] ${esc(l.msg)}</div>`).join('') : '<div class="empty-note">لاگی نیست</div>';
         openModal(`لاگ (${rows.length})`, tabs + body);
     } catch (e) { openModal('لاگ', `<div class="empty-note">${esc(e.message)}</div>`); }

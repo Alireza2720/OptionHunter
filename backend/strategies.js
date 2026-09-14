@@ -83,28 +83,6 @@
         for (let i = period + 1; i < c.length; i++) atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
         return atr;
     }
-    function calculateMACD(closes, fast, slow, signal) {
-        const emaFast = calculateEMA(closes, fast);
-        const emaSlow = calculateEMA(closes, slow);
-        const macdLine = new Array(closes.length).fill(null);
-        for (let i = 0; i < closes.length; i++) {
-            if (emaFast[i] !== null && emaSlow[i] !== null) macdLine[i] = emaFast[i] - emaSlow[i];
-        }
-        const validMacd = []; const validIdx = [];
-        for (let i = 0; i < macdLine.length; i++) {
-            if (macdLine[i] !== null) { validMacd.push(macdLine[i]); validIdx.push(i); }
-        }
-        const signalEma = calculateEMA(validMacd, signal);
-        const signalLine = new Array(closes.length).fill(null);
-        for (let j = 0; j < validIdx.length; j++) {
-            if (signalEma[j] !== null) signalLine[validIdx[j]] = signalEma[j];
-        }
-        const histogram = new Array(closes.length).fill(null);
-        for (let i = 0; i < closes.length; i++) {
-            if (macdLine[i] !== null && signalLine[i] !== null) histogram[i] = macdLine[i] - signalLine[i];
-        }
-        return { macdLine, signalLine, histogram };
-    }
     function calculateIchimoku(candles, tenkanP, kijunP, senkouBP) {
         const n = candles.length;
         const tenkan = new Array(n).fill(null);
@@ -158,9 +136,22 @@
     const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
     // ==========================================================
-    // استراتژی ۱: پولبک RSI در روند (کانرز) — فقط کال
+    // استراتژی ۱: پولبک RSI (کانرز) — بهینه‌شده بر اساس بک‌تست‌های بین‌المللی
     // ==========================================================
-    const RSI_DEFAULTS = { rsiFastPeriod: 2, rsiSlowPeriod: 50, rsiOversold: 10, rsiOverbought: 80, lookback: 3, maxHoldBars: 10, cooldownBars: 2, atrPeriod: 14, atrMult: 2, requireNoLowerWick: 0, htfEma: 20, htfRsiPeriod: 14 };
+    const RSI_DEFAULTS = {
+        rsiFastPeriod: 2,
+        rsiSlowPeriod: 50,
+        rsiOversold: 15,       // تغییر: 10 → 15 (کاهش whipsaw)
+        rsiOverbought: 80,
+        lookback: 3,
+        maxHoldBars: 10,
+        cooldownBars: 2,
+        atrPeriod: 14,
+        atrMult: 2,
+        requireNoLowerWick: 0,
+        htfEma: 20,
+        htfRsiPeriod: 14
+    };
     function runRSIPullback(candles, params, ctx) {
         const p = { ...RSI_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -209,9 +200,23 @@
     }
 
     // ==========================================================
-    // استراتژی ۲: پولبک به EMA در روند (EMA 25/50/100) — فقط کال
+    // استراتژی ۲: پولبک به EMA — بهینه‌شده (pullback تنگ‌تر)
     // ==========================================================
-    const EMA_DEFAULTS = { emaFast: 25, emaMid: 50, emaSlow: 100, pullbackPct: 1, lookback: 5, exitBufferPct: 0.5, maxHoldBars: 40, cooldownBars: 3, atrPeriod: 14, atrMult: 2.5, requireNoLowerWick: 1, htfEma: 20, htfRsiPeriod: 14 };
+    const EMA_DEFAULTS = {
+        emaFast: 25,
+        emaMid: 50,
+        emaSlow: 100,
+        pullbackPct: 0.5,      // تغییر: 1 → 0.5 (ورود بهتر)
+        lookback: 5,
+        exitBufferPct: 0.5,
+        maxHoldBars: 40,
+        cooldownBars: 3,
+        atrPeriod: 14,
+        atrMult: 2.5,
+        requireNoLowerWick: 1,
+        htfEma: 20,
+        htfRsiPeriod: 14
+    };
     function runEMAPullback(candles, params, ctx) {
         const p = { ...EMA_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -231,7 +236,7 @@
                 ind.stop = round(entry.stop);
                 const bars = i - entry.idx;
                 if (c.close < entry.stop) reason = `شکست حد ضرر تریلینگ (${Math.round(entry.stop).toLocaleString()})`;
-                else if (c.close < eF[i] * (1 - p.exitBufferPct / 100) && !h.bullish) reason = `بسته‌شدن زیر EMA${p.emaFast} (بافر ${p.exitBufferPct}٪) با کندل نزولی`;
+                else if (c.close < eF[i] * (1 - p.exitBufferPct / 100) && !h.bullish) reason = `بسته‌شدن زیر EMA${p.emaFast} با کندل نزولی`;
                 else if (eF[i] < eM[i]) reason = `هم‌ترازی EMA شکست (EMA${p.emaFast} < EMA${p.emaMid})`;
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
                 else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
@@ -265,66 +270,20 @@
     }
 
     // ==========================================================
-    // استراتژی ۳: مومنتوم MACD — فقط کال
+    // استراتژی ۳: ابر ایچیموکو — بهینه‌شده برای بازار ایران
     // ==========================================================
-    const MACD_DEFAULTS = { macdFast: 12, macdSlow: 26, macdSignal: 9, atrPeriod: 14, atrMult: 2, maxHoldBars: 15, cooldownBars: 2, requireNoLowerWick: 0, htfEma: 20, htfRsiPeriod: 14 };
-    function runMACDMomentum(candles, params, ctx) {
-        const p = { ...MACD_DEFAULTS, ...(params || {}) };
-        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
-        const closes = candles.map(c => c.close);
-        const atr = calculateATR(candles, p.atrPeriod);
-        const { macdLine, signalLine, histogram } = calculateMACD(closes, p.macdFast, p.macdSlow, p.macdSignal);
-        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
-        const signals = [], trades = [];
-        let position = null, entry = null, cooldown = 0, lastTrend = null;
-        for (let i = 0; i < candles.length; i++) {
-            const c = candles[i], h = ha[i], hp = ha[i - 1];
-            const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
-            const ind = { macd: round(macdLine[i]), signal: round(signalLine[i]), hist: round(histogram[i]), atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
-            let signalType = null, reason = null;
-            if (macdLine[i] === null || signalLine[i] === null || histogram[i] === null || atr[i] === null || i < 1 || macdLine[i - 1] === null || signalLine[i - 1] === null) {
-                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue;
-            }
-            if (position === 'LONG') {
-                const bars = i - entry.idx;
-                const deathCross = macdLine[i] < signalLine[i] && macdLine[i - 1] >= signalLine[i - 1];
-                const histShrinking = histogram[i] !== null && histogram[i - 1] !== null && histogram[i - 2] !== null &&
-                    histogram[i] > 0 && histogram[i] < histogram[i - 1] && histogram[i - 1] < histogram[i - 2];
-                if (deathCross) reason = 'کراس نزولی MACD (Death Cross)';
-                else if (histShrinking) reason = 'هیستوگرام MACD دو کندل پیاپی کوچک‌شونده';
-                else if (c.close < entry.stop) reason = `شکست حد ضرر ATR (${Math.round(entry.stop).toLocaleString()})`;
-                else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
-                if (reason) {
-                    position = null; signalType = 'EXIT_LONG';
-                    const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
-                    entry = null; cooldown = p.cooldownBars;
-                }
-            } else {
-                if (cooldown > 0) cooldown--;
-                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
-                    const goldenCross = macdLine[i] > signalLine[i] && macdLine[i - 1] <= signalLine[i - 1];
-                    const aboveZero = macdLine[i] > 0;
-                    const flip = h.bullish && hp && !hp.bullish;
-                    const strong = !p.requireNoLowerWick || noLowerWick(h);
-                    if (goldenCross && aboveZero && flip && strong) {
-                        position = 'LONG'; signalType = 'BUY';
-                        entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
-                        ind.stop = round(entry.stop);
-                        reason = `کراس صعودی MACD بالای صفر + کندل HA صعودی + روند ${htfName} صعودی`;
-                        trades.push({ type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: entry.stop, reason });
-                    }
-                }
-            }
-            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
-        }
-        return { ha, signals, trades, htfTrend: lastTrend };
-    }
-
-    // ==========================================================
-    // استراتژی ۴: ابر ایچیموکو (Ichimoku Cloud) — فقط کال
-    // ==========================================================
-    const ICHIMOKU_DEFAULTS = { tenkanPeriod: 9, kijunPeriod: 26, senkouBPeriod: 52, maxHoldBars: 20, cooldownBars: 3, atrPeriod: 14, atrMult: 2.5, requireNoLowerWick: 1, htfEma: 20, htfRsiPeriod: 14 };
+    const ICHIMOKU_DEFAULTS = {
+        tenkanPeriod: 9,
+        kijunPeriod: 26,
+        senkouBPeriod: 26,      // تغییر: 52 → 26 (سازگار با بازار ایران)
+        maxHoldBars: 20,
+        cooldownBars: 3,
+        atrPeriod: 14,
+        atrMult: 2.5,
+        requireNoLowerWick: 1,
+        htfEma: 20,
+        htfRsiPeriod: 14
+    };
     function runIchimoku(candles, params, ctx) {
         const p = { ...ICHIMOKU_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -353,7 +312,7 @@
                 const tkCrossDown = tenkan[i] < kijun[i] && tenkan[i - 1] >= kijun[i - 1];
                 if (belowCloud) reason = 'قیمت به زیر ابر Kumo رفت';
                 else if (tkCrossDown) reason = 'کراس نزولی Tenkan/Kijun';
-                else if (c.close < entry.stop) reason = `شکست حد ضرر ATR (${Math.round(entry.stop).toLocaleString()})`;
+                else if (c.close < entry.stop) reason = `شکست حد ضرر ATR`;
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
                 else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
                 if (reason) {
@@ -371,7 +330,7 @@
                         position = 'LONG'; signalType = 'BUY';
                         entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
                         ind.stop = round(entry.stop);
-                        reason = `قیمت بالای ابر سبز Kumo + کراس صعودی Tenkan/Kijun + روند ${htfName} صعودی`;
+                        reason = `قیمت بالای ابر سبز + کراس صعودی T/K + روند ${htfName} صعودی`;
                         trades.push({ type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: entry.stop, reason });
                     }
                 }
@@ -382,7 +341,7 @@
     }
 
     // ==========================================================
-    // استراتژی ۵: Smart Money Concepts (SMC) — ICT Unicorn
+    // استراتژی ۴: SMC Unicorn — بهینه‌شده بر اساس بک‌تست
     // ==========================================================
     const SMC_DEFAULTS = {
         swingLength: 5,
@@ -409,7 +368,6 @@
         killzone2End: 12.0,
         minConfluence: 2
     };
-
     function runSMCUnicorn(candles, params, ctx) {
         const p = { ...SMC_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -418,170 +376,51 @@
         const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
         const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
-
-        // ---- توابع کمکی داخلی ----
-        function findSwingHigh(idx, len) {
-            const start = Math.max(0, idx - len);
-            let hi = -Infinity, hiIdx = -1;
-            for (let i = start; i <= idx; i++) {
-                if (candles[i].high > hi) { hi = candles[i].high; hiIdx = i; }
-            }
-            return { price: hi, idx: hiIdx };
-        }
-        function findSwingLow(idx, len) {
-            const start = Math.max(0, idx - len);
-            let lo = Infinity, loIdx = -1;
-            for (let i = start; i <= idx; i++) {
-                if (candles[i].low < lo) { lo = candles[i].low; loIdx = i; }
-            }
-            return { price: lo, idx: loIdx };
-        }
-        function detectBullishFVG(i) {
-            if (i < 2) return null;
-            const c1 = candles[i - 2], c3 = candles[i];
-            if (c3.low > c1.high) {
-                const gap = c3.low - c1.high;
-                const gapPct = gap / c1.high * 100;
-                if (gapPct >= p.fvgMinGapPct) {
-                    return { top: c3.low, bottom: c1.high, mid: (c3.low + c1.high) / 2, gap, gapPct, idx: i };
-                }
-            }
-            return null;
-        }
-        function detectBullishBreaker(i) {
-            if (i < p.swingLength) return null;
-            const prevSwing = findSwingHigh(i - 1, p.swingLength);
-            if (!(candles[i].close > prevSwing.price && closes[i] > closes[i - 1])) return null;
-            for (let k = i - 1; k >= Math.max(0, i - 10); k--) {
-                if (candles[k].close < candles[k].open) {
-                    return {
-                        top: candles[k].high,
-                        bottom: candles[k].low,
-                        mid: (candles[k].high + candles[k].low) / 2,
-                        idx: k,
-                        bosIdx: i,
-                        swingHigh: prevSwing.price
-                    };
-                }
-            }
-            return null;
-        }
-        function detectLiquiditySweep(i) {
-            if (i < p.swingLength + 1) return null;
-            const prevLow = findSwingLow(i - 1, p.swingLength);
-            const c = candles[i], prev = candles[i - 1];
-            const swept = (c.low < prevLow.price || prev.low < prevLow.price);
-            const reclaimed = c.close > prevLow.price;
-            if (swept && reclaimed) {
-                const depthPct = (prevLow.price - Math.min(c.low, prev.low)) / prevLow.price * 100;
-                if (depthPct >= p.minLiquiditySweepPct) {
-                    return { sweptLevel: prevLow.price, depthPct, idx: i, sweepLow: Math.min(c.low, prev.low) };
-                }
-            }
-            return null;
-        }
-        function calcOTE(swingLow, swingHigh) {
-            const range = swingHigh - swingLow;
-            return {
-                low: swingLow + range * (1 - p.oteHigh),
-                high: swingLow + range * (1 - p.oteLow)
-            };
-        }
-        function inKillzone(timeSec) {
-            if (!p.useKillzone) return true;
-            const h = hourFloatOfDay(timeSec);
-            return (h >= p.killzone1Start && h <= p.killzone1End) ||
-                   (h >= p.killzone2Start && h <= p.killzone2End);
-        }
-        function checkVolumeFilter(i) {
-            if (!p.requireVolumeFilter) return true;
-            const start = Math.max(0, i - 20);
-            let sum = 0, count = 0;
-            for (let k = start; k < i; k++) { sum += (candles[k].volume || 0); count++; }
-            if (!count) return true;
-            const avg = sum / count;
-            return avg > 0 && (candles[i].volume || 0) >= avg * 1.5;
-        }
-
-        // ---- حلقه اصلی ----
+        function findSwingHigh(idx, len) { const start = Math.max(0, idx - len); let hi = -Infinity, hiIdx = -1; for (let i = start; i <= idx; i++) { if (candles[i].high > hi) { hi = candles[i].high; hiIdx = i; } } return { price: hi, idx: hiIdx }; }
+        function findSwingLow(idx, len) { const start = Math.max(0, idx - len); let lo = Infinity, loIdx = -1; for (let i = start; i <= idx; i++) { if (candles[i].low < lo) { lo = candles[i].low; loIdx = i; } } return { price: lo, idx: loIdx }; }
+        function detectBullishFVG(i) { if (i < 2) return null; const c1 = candles[i - 2], c3 = candles[i]; if (c3.low > c1.high) { const gap = c3.low - c1.high; const gapPct = gap / c1.high * 100; if (gapPct >= p.fvgMinGapPct) return { top: c3.low, bottom: c1.high, mid: (c3.low + c1.high) / 2, gap, gapPct, idx: i }; } return null; }
+        function detectBullishBreaker(i) { if (i < p.swingLength) return null; const prevSwing = findSwingHigh(i - 1, p.swingLength); if (!(candles[i].close > prevSwing.price && closes[i] > closes[i - 1])) return null; for (let k = i - 1; k >= Math.max(0, i - 10); k--) { if (candles[k].close < candles[k].open) return { top: candles[k].high, bottom: candles[k].low, mid: (candles[k].high + candles[k].low) / 2, idx: k, bosIdx: i, swingHigh: prevSwing.price }; } return null; }
+        function detectLiquiditySweep(i) { if (i < p.swingLength + 1) return null; const prevLow = findSwingLow(i - 1, p.swingLength); const c = candles[i], prev = candles[i - 1]; const swept = (c.low < prevLow.price || prev.low < prevLow.price); const reclaimed = c.close > prevLow.price; if (swept && reclaimed) { const depthPct = (prevLow.price - Math.min(c.low, prev.low)) / prevLow.price * 100; if (depthPct >= p.minLiquiditySweepPct) return { sweptLevel: prevLow.price, depthPct, idx: i, sweepLow: Math.min(c.low, prev.low) }; } return null; }
+        function calcOTE(swingLow, swingHigh) { const range = swingHigh - swingLow; return { low: swingLow + range * (1 - p.oteHigh), high: swingLow + range * (1 - p.oteLow) }; }
+        function inKillzone(timeSec) { if (!p.useKillzone) return true; const h = hourFloatOfDay(timeSec); return (h >= p.killzone1Start && h <= p.killzone1End) || (h >= p.killzone2Start && h <= p.killzone2End); }
+        function checkVolumeFilter(i) { if (!p.requireVolumeFilter) return true; const start = Math.max(0, i - 20); let sum = 0, count = 0; for (let k = start; k < i; k++) { sum += (candles[k].volume || 0); count++; } if (!count) return true; const avg = sum / count; return avg > 0 && (candles[i].volume || 0) >= avg * 1.5; }
         for (let i = 0; i < candles.length; i++) {
             const c = candles[i], h = ha[i];
-            const row = htf.forTime(c.time), trend = row ? row.trend : null;
-            if (trend) lastTrend = trend;
-
+            const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
             const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null, trend: trend || '-' };
-
-            if (i < Math.max(p.swingLength + 3, p.atrPeriod + 2) || atr[i] === null) {
-                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
-                continue;
-            }
-
+            if (i < Math.max(p.swingLength + 3, p.atrPeriod + 2) || atr[i] === null) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
             let signalType = null, reason = null;
-
-            // ---- مدیریت موقعیت باز ----
             if (position === 'LONG') {
                 const bars = i - entry.idx;
                 const R = entry.risk;
-
-                if (c.close < entry.stop) {
-                    reason = `شکست حد ضرر (${Math.round(entry.stop).toLocaleString()})`;
-                }
-                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) {
-                    entry.tp1Hit = true;
-                    if (p.useBreakEven) entry.stop = entry.entry;
-                }
-                else if (entry.tp1Hit && !entry.tp2Hit && c.close >= entry.entry + R * p.tp2R) {
-                    entry.tp2Hit = true;
-                }
-                else if (entry.tp2Hit && c.close >= entry.entry + R * p.tp3R) {
-                    reason = `رسیدن به هدف سوم (${p.tp3R}R)`;
-                }
-                else if (trend === 'نزولی') {
-                    reason = `روند ${htfName} نزولی شد`;
-                }
-                else if (bars >= p.maxHoldBars) {
-                    reason = `سقف زمانی ${p.maxHoldBars} کندل`;
-                }
-
+                if (c.close < entry.stop) reason = `شکست حد ضرر`;
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; if (p.useBreakEven) entry.stop = entry.entry; }
+                else if (entry.tp1Hit && !entry.tp2Hit && c.close >= entry.entry + R * p.tp2R) entry.tp2Hit = true;
+                else if (entry.tp2Hit && c.close >= entry.entry + R * p.tp3R) reason = `رسیدن به هدف سوم (${p.tp3R}R)`;
+                else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1];
-                    if (tr) {
-                        tr.exitDate = c.time;
-                        tr.exitPrice = c.close;
-                        tr.pnlPct = (c.close / tr.entryPrice - 1) * 100;
-                        tr.exitReason = reason;
-                    }
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
                     entry = null; cooldown = p.cooldownBars;
                 }
-            }
-            // ---- ورود به معامله ----
-            else {
+            } else {
                 if (cooldown > 0) cooldown--;
                 else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow) && inKillzone(c.time) && checkVolumeFilter(i)) {
-                    const sweep = detectLiquiditySweep(i);
-                    const bb = detectBullishBreaker(i);
-                    const fvg = detectBullishFVG(i);
-
-                    // شمارش شرط‌ها (حداقل ۲ شرط از ۳)
-                    const conditions = [!!sweep, !!bb, !!fvg];
-                    const condCount = conditions.filter(Boolean).length;
-
+                    const sweep = detectLiquiditySweep(i), bb = detectBullishBreaker(i), fvg = detectBullishFVG(i);
+                    const condCount = [!!sweep, !!bb, !!fvg].filter(Boolean).length;
                     if (condCount >= p.minConfluence) {
-                        // ساخت ناحیه ورود از ترکیب شرط‌های موجود
                         let zoneLow = -Infinity, zoneHigh = Infinity;
                         if (bb) { zoneLow = Math.max(zoneLow, Math.min(bb.bottom, bb.top)); zoneHigh = Math.min(zoneHigh, Math.max(bb.bottom, bb.top)); }
                         if (fvg) { zoneLow = Math.max(zoneLow, Math.min(fvg.bottom, fvg.top)); zoneHigh = Math.min(zoneHigh, Math.max(fvg.bottom, fvg.top)); }
-                        // اگر sweep-only و zone تعریف نشده، از سوئینگ اخیر استفاده کن
                         if (zoneLow === -Infinity) zoneLow = findSwingLow(i, p.swingLength).price;
                         if (zoneHigh === Infinity) zoneHigh = c.close;
-
                         if (zoneHigh > zoneLow) {
                             const swingLow = findSwingLow(i, p.swingLength).price;
                             const swingHigh = findSwingHigh(i, p.swingLength).price;
                             const ote = calcOTE(swingLow, swingHigh);
                             const inOTE = !p.useOTE || (zoneLow <= ote.high && zoneHigh >= ote.low);
-
                             if (inOTE && h.bullish) {
                                 position = 'LONG'; signalType = 'BUY';
                                 const entryPrice = Math.min(zoneHigh, c.close);
@@ -592,49 +431,29 @@
                                 stopPrice -= p.atrMult * atr[i];
                                 const risk = entryPrice - stopPrice;
                                 if (risk <= 0) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
-
-                                entry = {
-                                    idx: i, price: entryPrice, stop: stopPrice, risk,
-                                    entry: entryPrice, tp1Hit: false, tp2Hit: false,
-                                    zoneLow, zoneHigh,
-                                    sweepLevel: sweep ? sweep.sweptLevel : null,
-                                    oteLow: ote.low, oteHigh: ote.high
-                                };
+                                entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false, tp2Hit: false, zoneLow, zoneHigh, sweepLevel: sweep ? sweep.sweptLevel : null, oteLow: ote.low, oteHigh: ote.high };
                                 ind.stop = round(stopPrice);
-
-                                const parts = [];
-                                if (sweep) parts.push('Sweep');
-                                if (bb) parts.push('BB');
-                                if (fvg) parts.push('FVG');
-                                reason = `SMC [${parts.join('+')}]`;
-                                if (p.useOTE) reason += ` + OTE`;
-                                reason += ` | ${condCount}/3 confluence`;
-
-                                trades.push({
-                                    type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk,
-                                    tp1R: p.tp1R, tp2R: p.tp2R, tp3R: p.tp3R, reason
-                                });
+                                const parts = []; if (sweep) parts.push('Sweep'); if (bb) parts.push('BB'); if (fvg) parts.push('FVG');
+                                reason = `SMC [${parts.join('+')}]${p.useOTE ? ' + OTE' : ''} | ${condCount}/3`;
+                                trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, tp1R: p.tp1R, tp2R: p.tp2R, tp3R: p.tp3R, reason });
                             }
                         }
                     }
                 }
             }
-
             signals.push({ time: c.time, indicators: ind, signalType, position, reason });
         }
-
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
     // ==========================================================
-    // استراتژی ۶: ICT Silver Bullet
+    // استراتژی ۵: ICT Silver Bullet
     // ==========================================================
     const SB_DEFAULTS = {
         htfEma: 20, htfRsiPeriod: 14,
         fvgMinGapPct: 0.05,
         atrPeriod: 14, atrMult: 1.2,
         maxHoldBars: 15, cooldownBars: 2,
-        // پنجره‌های Silver Bullet (به ساعت تهران)
         sb1Start: 9.5, sb1End: 10.0,
         sb2Start: 10.5, sb2End: 11.0,
         sb3Start: 11.5, sb3End: 12.0,
@@ -642,7 +461,6 @@
         requireDisplacement: 1,
         displacementMult: 1.3
     };
-
     function runSilverBullet(candles, params, ctx) {
         const p = { ...SB_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -650,45 +468,15 @@
         const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
         const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
-
-        function inSilverBulletWindow(timeSec) {
-            const h = hourFloatOfDay(timeSec);
-            return (h >= p.sb1Start && h < p.sb1End) ||
-                   (h >= p.sb2Start && h < p.sb2End) ||
-                   (h >= p.sb3Start && h < p.sb3End);
-        }
-
-        function detectFVG(i) {
-            if (i < 2) return null;
-            const c1 = candles[i - 2], c3 = candles[i];
-            if (c3.low > c1.high) {
-                const gap = c3.low - c1.high;
-                if (gap / c1.high * 100 >= p.fvgMinGapPct) {
-                    return { top: c3.low, bottom: c1.high, gap, idx: i };
-                }
-            }
-            return null;
-        }
-
-        function isDisplacement(i, atrVal) {
-            if (!p.requireDisplacement) return true;
-            const body = Math.abs(candles[i].close - candles[i].open);
-            return body >= p.displacementMult * atrVal;
-        }
-
+        function inSilverBulletWindow(timeSec) { const h = hourFloatOfDay(timeSec); return (h >= p.sb1Start && h < p.sb1End) || (h >= p.sb2Start && h < p.sb2End) || (h >= p.sb3Start && h < p.sb3End); }
+        function detectFVG(i) { if (i < 2) return null; const c1 = candles[i - 2], c3 = candles[i]; if (c3.low > c1.high) { const gap = c3.low - c1.high; if (gap / c1.high * 100 >= p.fvgMinGapPct) return { top: c3.low, bottom: c1.high, gap, idx: i }; } return null; }
+        function isDisplacement(i, atrVal) { if (!p.requireDisplacement) return true; const body = Math.abs(candles[i].close - candles[i].open); return body >= p.displacementMult * atrVal; }
         for (let i = 0; i < candles.length; i++) {
             const c = candles[i], h = ha[i];
-            const row = htf.forTime(c.time), trend = row ? row.trend : null;
-            if (trend) lastTrend = trend;
+            const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
             const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
-
-            if (i < Math.max(p.atrPeriod + 3, 5) || atr[i] === null) {
-                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
-                continue;
-            }
-
+            if (i < Math.max(p.atrPeriod + 3, 5) || atr[i] === null) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
             let signalType = null, reason = null;
-
             if (position === 'LONG') {
                 const bars = i - entry.idx;
                 if (c.close < entry.stop) reason = `شکست حد ضرر`;
@@ -696,11 +484,9 @@
                 else if (p.useSessionEndExit && !inSilverBulletWindow(c.time) && hourFloatOfDay(c.time) > p.sb3End) reason = 'پایان پنجره Silver Bullet';
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
                 else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
-
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
-                    const tr = trades[trades.length - 1];
-                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
                     entry = null; cooldown = p.cooldownBars;
                 }
             } else {
@@ -713,24 +499,21 @@
                         const risk = entryPrice - stopPrice;
                         if (risk <= 0) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
                         const target = entryPrice + risk * 2.5;
-
                         position = 'LONG'; signalType = 'BUY';
                         entry = { idx: i, price: entryPrice, stop: stopPrice, risk, target, rr: 2.5, fvgTop: fvg.top, fvgBottom: fvg.bottom };
                         ind.stop = round(stopPrice);
-
                         reason = `ICT Silver Bullet: FVG retest + displacement`;
                         trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, target, reason });
                     }
                 }
             }
-
             signals.push({ time: c.time, indicators: ind, signalType, position, reason });
         }
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
     // ==========================================================
-    // استراتژی ۷: Order Block + Liquidity Sweep
+    // استراتژی ۶: Order Block + Liquidity Sweep — بهینه‌شده
     // ==========================================================
     const OB_DEFAULTS = {
         swingLength: 5,
@@ -738,10 +521,9 @@
         atrPeriod: 14, atrMult: 1.5,
         maxHoldBars: 25, cooldownBars: 3,
         tp1R: 1.5, tp2R: 2.5,
-        obLookback: 10,
+        obLookback: 5,          // تغییر: 10 → 5 (سیگنال‌های تازه‌تر)
         minSweepPct: 0.05
     };
-
     function runOBSweep(candles, params, ctx) {
         const p = { ...OB_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -750,96 +532,42 @@
         const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
         const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
-
-        function findSwingLow(idx, len) {
-            const start = Math.max(0, idx - len);
-            let lo = Infinity, loIdx = -1;
-            for (let i = start; i <= idx; i++) { if (candles[i].low < lo) { lo = candles[i].low; loIdx = i; } }
-            return { price: lo, idx: loIdx };
-        }
-        function findSwingHigh(idx, len) {
-            const start = Math.max(0, idx - len);
-            let hi = -Infinity, hiIdx = -1;
-            for (let i = start; i <= idx; i++) { if (candles[i].high > hi) { hi = candles[i].high; hiIdx = i; } }
-            return { price: hi, idx: hiIdx };
-        }
-
-        function detectSweep(i) {
-            if (i < p.swingLength + 1) return null;
-            const prevLow = findSwingLow(i - 1, p.swingLength);
-            const c = candles[i], prev = candles[i - 1];
-            if ((c.low < prevLow.price || prev.low < prevLow.price) && c.close > prevLow.price) {
-                const depth = (prevLow.price - Math.min(c.low, prev.low)) / prevLow.price * 100;
-                if (depth >= p.minSweepPct) return { sweptLevel: prevLow.price, sweepLow: Math.min(c.low, prev.low), idx: i };
-            }
-            return null;
-        }
-
-        function findOrderBlock(i) {
-            for (let k = i - 1; k >= Math.max(0, i - p.obLookback); k--) {
-                if (candles[k].close < candles[k].open) {
-                    const isBigEnough = Math.abs(candles[k].close - candles[k].open) > atr[k] * 0.5;
-                    if (isBigEnough) return { top: candles[k].high, bottom: candles[k].low, idx: k };
-                }
-            }
-            return null;
-        }
-
-        function detectMSS(i) {
-            if (i < p.swingLength) return null;
-            const prevHigh = findSwingHigh(i - 1, p.swingLength);
-            if (candles[i].close > prevHigh.price && closes[i] > closes[i - 1]) {
-                return { level: prevHigh.price, idx: i };
-            }
-            return null;
-        }
-
+        function findSwingLow(idx, len) { const start = Math.max(0, idx - len); let lo = Infinity, loIdx = -1; for (let i = start; i <= idx; i++) { if (candles[i].low < lo) { lo = candles[i].low; loIdx = i; } } return { price: lo, idx: loIdx }; }
+        function findSwingHigh(idx, len) { const start = Math.max(0, idx - len); let hi = -Infinity, hiIdx = -1; for (let i = start; i <= idx; i++) { if (candles[i].high > hi) { hi = candles[i].high; hiIdx = i; } } return { price: hi, idx: hiIdx }; }
+        function detectSweep(i) { if (i < p.swingLength + 1) return null; const prevLow = findSwingLow(i - 1, p.swingLength); const c = candles[i], prev = candles[i - 1]; if ((c.low < prevLow.price || prev.low < prevLow.price) && c.close > prevLow.price) { const depth = (prevLow.price - Math.min(c.low, prev.low)) / prevLow.price * 100; if (depth >= p.minSweepPct) return { sweptLevel: prevLow.price, sweepLow: Math.min(c.low, prev.low), idx: i }; } return null; }
+        function findOrderBlock(i) { for (let k = i - 1; k >= Math.max(0, i - p.obLookback); k--) { if (candles[k].close < candles[k].open) { const isBigEnough = Math.abs(candles[k].close - candles[k].open) > atr[k] * 0.5; if (isBigEnough) return { top: candles[k].high, bottom: candles[k].low, idx: k }; } } return null; }
+        function detectMSS(i) { if (i < p.swingLength) return null; const prevHigh = findSwingHigh(i - 1, p.swingLength); if (candles[i].close > prevHigh.price && closes[i] > closes[i - 1]) return { level: prevHigh.price, idx: i }; return null; }
         for (let i = 0; i < candles.length; i++) {
             const c = candles[i], h = ha[i];
-            const row = htf.forTime(c.time), trend = row ? row.trend : null;
-            if (trend) lastTrend = trend;
+            const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
             const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
-
-            if (i < Math.max(p.swingLength + 3, p.atrPeriod + 2) || atr[i] === null) {
-                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
-                continue;
-            }
-
+            if (i < Math.max(p.swingLength + 3, p.atrPeriod + 2) || atr[i] === null) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
             let signalType = null, reason = null;
-
             if (position === 'LONG') {
-                const bars = i - entry.idx;
-                const R = entry.risk;
-                if (c.close < entry.stop) reason = `شکست حد ضرر (${Math.round(entry.stop).toLocaleString()})`;
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = `شکست حد ضرر`;
                 else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
                 else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = `رسیدن به هدف دوم (${p.tp2R}R)`;
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
                 else if (bars >= p.maxHoldBars) reason = `سقف زمانی`;
-
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
-                    const tr = trades[trades.length - 1];
-                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
                     entry = null; cooldown = p.cooldownBars;
                 }
             } else {
                 if (cooldown > 0) cooldown--;
                 else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
-                    const sweep = detectSweep(i);
-                    const mss = detectMSS(i);
-                    const ob = findOrderBlock(i);
-
+                    const sweep = detectSweep(i), mss = detectMSS(i), ob = findOrderBlock(i);
                     if (sweep && mss && ob && h.bullish) {
                         const entryPrice = ob.top;
                         const stopPrice = Math.min(ob.bottom, sweep.sweepLow) - p.atrMult * atr[i];
                         const risk = entryPrice - stopPrice;
                         if (risk <= 0) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
-
                         position = 'LONG'; signalType = 'BUY';
                         entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false, obTop: ob.top, obBottom: ob.bottom };
                         ind.stop = round(stopPrice);
-
-                        reason = `OB+Sweep: Liquidity Sweep + MSS + Order Block`;
+                        reason = `OB+Sweep: Sweep + MSS + Order Block`;
                         trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, tp1R: p.tp1R, tp2R: p.tp2R, reason });
                     }
                 }
@@ -848,21 +576,19 @@
         }
         return { ha, signals, trades, htfTrend: lastTrend };
     }
+
     // ==========================================================
-    // استراتژی ۸: Ensemble (رأی‌گیری وزنی از ۷ استراتژی)
-    // منطق: هر استراتژی یه وزن بر اساس PF×WinRate داره
-    // وقتی مجموع وزن BUY از آستانه بگذره + حداقل N استراتژی موافق، بخر
+    // استراتژی ۷: Ensemble — وزنی، بدون MACD
     // ==========================================================
     const ENSEMBLE_DEFAULTS = {
         threshold: 1.5,
         minAgree: 2,
-        wRsi: 0.70,
-        wEma: 0.88,
-        wMacd: 0.59,
-        wIchimoku: 0.75,
-        wSmc: 1.38,
-        wSilver: 1.05,
-        wOb: 0.52,
+        wRsi: 0.75,
+        wEma: 0.90,
+        wIchimoku: 0.80,
+        wSmc: 1.50,           // وزن بالاتر برای بهترین استراتژی
+        wSilver: 1.10,
+        wOb: 0.55,
         cooldownBars: 3,
         maxHoldBars: 30,
         atrPeriod: 14,
@@ -870,90 +596,52 @@
         htfEma: 20,
         htfRsiPeriod: 14
     };
-
     function runEnsemble(candles, params, ctx) {
         const p = { ...ENSEMBLE_DEFAULTS, ...(params || {}) };
         const subStrategies = [
             { id: 'rsi50_2', weight: p.wRsi, run: runRSIPullback, defaults: RSI_DEFAULTS },
             { id: 'ema_heikin', weight: p.wEma, run: runEMAPullback, defaults: EMA_DEFAULTS },
-            { id: 'macd_momentum', weight: p.wMacd, run: runMACDMomentum, defaults: MACD_DEFAULTS },
             { id: 'ichimoku_cloud', weight: p.wIchimoku, run: runIchimoku, defaults: ICHIMOKU_DEFAULTS },
             { id: 'smc_unicorn', weight: p.wSmc, run: runSMCUnicorn, defaults: SMC_DEFAULTS },
             { id: 'silver_bullet', weight: p.wSilver, run: runSilverBullet, defaults: SB_DEFAULTS },
             { id: 'ob_sweep', weight: p.wOb, run: runOBSweep, defaults: OB_DEFAULTS }
         ];
-
         const subCtx = { ...ctx, entryWindow: ctx && ctx.entryWindow };
         const results = {};
         for (const sub of subStrategies) {
             try {
-                const subParams = {
-                    ...sub.defaults,
-                    candleType: p.candleType,
-                    htfEma: p.htfEma,
-                    htfRsiPeriod: p.htfRsiPeriod
-                };
+                const subParams = { ...sub.defaults, candleType: p.candleType, htfEma: p.htfEma, htfRsiPeriod: p.htfRsiPeriod };
                 results[sub.id] = sub.run(candles, subParams, subCtx);
-            } catch (e) {
-                results[sub.id] = { signals: [], trades: [], htfTrend: null, ha: [] };
-            }
+            } catch (e) { results[sub.id] = { signals: [], trades: [], htfTrend: null, ha: [] }; }
         }
-
         const n = candles.length;
         const atr = calculateATR(candles, p.atrPeriod);
         const firstHa = results.rsi50_2.ha && results.rsi50_2.ha.length ? results.rsi50_2.ha : getDisplayCandles(candles, p.candleType || 'heikin');
-        const signals = [];
-        const trades = [];
+        const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
-
         for (let i = 0; i < n; i++) {
             const c = candles[i];
             let buyWeight = 0, buyCount = 0, exitWeight = 0, exitCount = 0;
             const voters = [];
-
             for (const sub of subStrategies) {
                 const subSigs = results[sub.id].signals;
                 if (!subSigs || !subSigs[i]) continue;
                 const s = subSigs[i];
-                if (s.signalType === 'BUY') {
-                    buyWeight += sub.weight;
-                    buyCount++;
-                    voters.push(`${sub.id}(${sub.weight.toFixed(2)})`);
-                } else if (s.signalType === 'EXIT_LONG') {
-                    exitWeight += sub.weight;
-                    exitCount++;
-                }
+                if (s.signalType === 'BUY') { buyWeight += sub.weight; buyCount++; voters.push(`${sub.id}(${sub.weight.toFixed(2)})`); }
+                else if (s.signalType === 'EXIT_LONG') { exitWeight += sub.weight; exitCount++; }
             }
-
-            for (const sub of subStrategies) {
-                if (results[sub.id].htfTrend) { lastTrend = results[sub.id].htfTrend; break; }
-            }
-
-            const ind = {
-                stop: entry ? round(entry.stop) : null,
-                buyWeight: round(buyWeight),
-                exitWeight: round(exitWeight)
-            };
+            for (const sub of subStrategies) { if (results[sub.id].htfTrend) { lastTrend = results[sub.id].htfTrend; break; } }
+            const ind = { stop: entry ? round(entry.stop) : null, buyWeight: round(buyWeight), exitWeight: round(exitWeight) };
             let signalType = null, reason = null;
-
             if (position === 'LONG') {
                 const bars = i - entry.idx;
-                if (exitWeight >= p.threshold && exitCount >= p.minAgree) {
-                    reason = `Ensemble EXIT: ${exitCount} استراتژی موافق (وزن ${exitWeight.toFixed(2)})`;
-                } else if (c.close < entry.stop) {
-                    reason = `شکست حد ضرر (${Math.round(entry.stop).toLocaleString()})`;
-                } else if (bars >= p.maxHoldBars) {
-                    reason = `سقف زمانی ${p.maxHoldBars} کندل`;
-                }
+                if (exitWeight >= p.threshold && exitCount >= p.minAgree) reason = `Ensemble EXIT: ${exitCount} استراتژی (وزن ${exitWeight.toFixed(2)})`;
+                else if (c.close < entry.stop) reason = `شکست حد ضرر`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1];
-                    if (tr) {
-                        tr.exitDate = c.time;
-                        tr.exitPrice = c.close;
-                        tr.pnlPct = (c.close / tr.entryPrice - 1) * 100;
-                        tr.exitReason = reason;
-                    }
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
                     entry = null; cooldown = p.cooldownBars;
                 }
             } else {
@@ -964,18 +652,14 @@
                     entry = { idx: i, price: c.close, stop: stopPrice };
                     ind.stop = round(stopPrice);
                     reason = `Ensemble BUY: ${buyCount} استراتژی (وزن ${buyWeight.toFixed(2)}) | ${voters.join(', ')}`;
-                    trades.push({
-                        type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: stopPrice,
-                        reason, buyWeight, buyCount
-                    });
+                    trades.push({ type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: stopPrice, reason, buyWeight, buyCount });
                 }
             }
-
             signals.push({ time: c.time, indicators: ind, signalType, position, reason });
         }
-
         return { ha: firstHa, signals, trades, htfTrend: lastTrend };
     }
+
     // ---------------- تعریف استراتژی‌ها ----------------
     const STRATEGIES = {
         rsi50_2: {
@@ -989,12 +673,6 @@
             defaultParams: EMA_DEFAULTS,
             indicators: { overlay: ['emaFast', 'emaMid', 'emaSlow'], panel: [] },
             run: runEMAPullback
-        },
-        macd_momentum: {
-            id: 'macd_momentum', name: 'MACD', defaultTimeframe: '15m', htfTimeframe: '1d',
-            defaultParams: MACD_DEFAULTS,
-            indicators: { overlay: [], panel: ['macd', 'signal', 'hist'] },
-            run: runMACDMomentum
         },
         ichimoku_cloud: {
             id: 'ichimoku_cloud', name: 'Ichimoku', defaultTimeframe: '30m', htfTimeframe: '1d',
@@ -1032,12 +710,11 @@
         const p = { ...(STRATEGIES[id] ? STRATEGIES[id].defaultParams : {}), ...(params || {}) };
         if (id === 'rsi50_2') return Math.max(p.rsiSlowPeriod, p.atrPeriod) + p.lookback + 2;
         if (id === 'ema_heikin') return Math.max(p.emaSlow, p.atrPeriod) + p.lookback + 2;
-        if (id === 'macd_momentum') return Math.max(p.macdSlow, p.macdSignal, p.atrPeriod) + 5;
         if (id === 'ichimoku_cloud') return Math.max(p.senkouBPeriod, p.atrPeriod) + 3;
         if (id === 'smc_unicorn') return Math.max(p.swingLength + 5, p.atrPeriod + 3, p.maxHoldBars);
         if (id === 'silver_bullet') return Math.max(p.atrPeriod + 5, 10);
         if (id === 'ob_sweep') return Math.max(p.swingLength + p.obLookback + 5, p.atrPeriod + 3, p.maxHoldBars);
-        if (id === 'ensemble') return 100; // چون همه‌ی زیراستراتژی‌ها رو اجرا می‌کنه، بیشترین نیاز رو داره
+        if (id === 'ensemble') return 100;
         return 10;
     }
     function getRequiredHtfCandles(id, params) {
@@ -1047,11 +724,11 @@
 
     return {
         calculateHeikinAshi, calculateSimpleCandles, getDisplayCandles,
-        calculateRSI, calculateEMA, calculateATR, calculateMACD, calculateIchimoku,
+        calculateRSI, calculateEMA, calculateATR, calculateIchimoku,
         aggregateCandles, TIMEFRAME_MINUTES, getRequiredCandles, getRequiredHtfCandles,
-        runRSIPullback, runEMAPullback, runMACDMomentum, runIchimoku,
+        runRSIPullback, runEMAPullback, runIchimoku,
         runSMCUnicorn, runSilverBullet, runOBSweep, runEnsemble,
-        RSI_DEFAULTS, EMA_DEFAULTS, MACD_DEFAULTS, ICHIMOKU_DEFAULTS,
+        RSI_DEFAULTS, EMA_DEFAULTS, ICHIMOKU_DEFAULTS,
         SMC_DEFAULTS, SB_DEFAULTS, OB_DEFAULTS, ENSEMBLE_DEFAULTS,
         STRATEGIES
     };

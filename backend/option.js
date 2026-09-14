@@ -19,7 +19,29 @@ function reloadFromSettings() {
     FEE_BUY = s.OPTION_FEE_BUY;
     FEE_SELL = s.OPTION_FEE_SELL;
 }
+const Settings = require('./settings.js');
+// (این خط از قبل بود)
 
+// تابع کمکی مدیریت سرمایه
+function capitalRiskAmount() {
+    return Settings.riskAmount ? Settings.riskAmount() : 1500000;
+}
+function capitalMaxSymbol() {
+    return Settings.maxSymbolExposure ? Settings.maxSymbolExposure() : 20000000;
+}
+function capitalMaxTotal() {
+    return Settings.maxTotalExposure ? Settings.maxTotalExposure() : 50000000;
+}
+function capitalMinCash() {
+    return Settings.minCashReserve ? Settings.minCashReserve() : 20000000;
+}
+function capitalTotal() {
+    return Settings.capital ? Settings.capital() : 100000000;
+}
+function capitalMaxSize() {
+    const v = Settings.get();
+    return v.MAX_POSITION_SIZE || 10;
+}
 const DEFAULT_SETTINGS = {
     minDays: 20, maxDays: 90,
     maxSpreadPct: 10,
@@ -191,14 +213,84 @@ function breakevenMove(S, K, T2, sig, cost, halfSpread) {
 }
 
 // ---------------- Position Sizing ----------------
-function calcPositionSize(pick, scenario, settings) {
-    const rrScore = Math.min(1, (pick.rr || 0) / 4);
-    const ivScore = pick.ivHv ? Math.min(1, Math.max(0.3, 1.2 / pick.ivHv)) : 0.6;
-    const stopDist = scenario.stop && scenario.entry ? Math.abs(scenario.entry - scenario.stop) / scenario.entry : 0.03;
-    const stopScore = Math.min(1, 0.03 / Math.max(stopDist, 0.005));
-    const score = Math.max(0.3, Math.min(1, (rrScore * 0.4 + ivScore * 0.3 + stopScore * 0.3)));
-    return Math.max(1, Math.round(score * 5));
+// ✅ Position Sizing بر اساس مدیریت سرمایه + قدرت سیگنال
+// - بر اساس ریسک تعیین‌شده در هر معامله
+// - با محدودیت درگیری در هر نماد و کل پرتفوی
+// - ضریب تعدیل بر اساس قدرت سیگنال (RR × ارزانی IV)
+async function calcPositionSizeV2(pick, scenario, currentPortfolio) {
+    const capital = capitalTotal();
+    const riskAmt = capitalRiskAmount();
+    const maxSymbol = capitalMaxSymbol();
+    const maxTotal = capitalMaxTotal();
+    const maxSize = capitalMaxSize();
+
+    // قیمت قرارداد × ضریب (پیش‌فرض ۱۰۰۰ سهم در هر قرارداد آپشن ایران)
+    const contractValue = pick.ask * (pick.size || 1000);
+    if (!(contractValue > 0)) return 0;
+
+    // سقف بر اساس ریسک معامله
+    const byRisk = Math.floor(riskAmt / contractValue);
+
+    // سقف بر اساس درگیری نماد
+    const currentSymbolExposure = (currentPortfolio && currentPortfolio.bySymbol && currentPortfolio.bySymbol[pick.underlying]) || 0;
+    const remainingSymbol = Math.max(0, maxSymbol - currentSymbolExposure);
+    const bySymbol = Math.floor(remainingSymbol / contractValue);
+
+    // سقف بر اساس درگیری کل
+    const currentTotal = (currentPortfolio && currentPortfolio.totalExposure) || 0;
+    const remainingTotal = Math.max(0, maxTotal - currentTotal);
+    const byTotal = Math.floor(remainingTotal / contractValue);
+
+    // ضریب کیفیت سیگنال (۰.۵ تا ۱.۵): RR بالا → حجم بیشتر، IV گران → حجم کمتر
+    const rrScore = Math.min(1.5, Math.max(0.5, (pick.rr || 1) / 2.5));
+    const ivScore = pick.ivHv ? Math.min(1.2, Math.max(0.6, 1.1 / pick.ivHv)) : 1;
+    const quality = rrScore * ivScore;
+
+    const raw = Math.min(byRisk, bySymbol, byTotal, maxSize);
+    const adjusted = Math.max(0, Math.round(raw * quality));
+
+    return {
+        size: adjusted,
+        byRisk,
+        bySymbol,
+        byTotal,
+        maxSize,
+        contractValue,
+        qualityFactor: round(quality),
+        limits: {
+            riskAmount: riskAmt,
+            maxSymbolExposure: maxSymbol,
+            maxTotalExposure: maxTotal,
+            currentSymbolExposure,
+            currentTotalExposure: currentTotal
+        }
+    };
 }
+
+// محاسبه وضعیت پرتفوی فعلی
+async function getPortfolioState() {
+    const db = deps.getDB();
+    const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
+    const bySymbol = {};
+    let totalExposure = 0;
+    for (const p of open) {
+        const value = (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
+        bySymbol[p.underlying] = (bySymbol[p.underlying] || 0) + value;
+        totalExposure += value;
+    }
+    const capital = capitalTotal();
+    return {
+        totalCapital: capital,
+        totalExposure,
+        availableCash: capital - totalExposure,
+        exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0,
+        openCount: open.length,
+        bySymbol
+    };
+}
+
+// تابع کمکی round (اگر از قبل نبود)
+const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
 // ---------------- انتخاب قرارداد ----------------
 const RELAX_LEVELS = [
@@ -231,7 +323,8 @@ function scoreContract(c, sc, s, effective) {
         bePct: breakevenMove(S, c.strike, T2, sig, cost, half),
         score: rr * liq * ivPen, S
     };
-    pick.positionSize = calcPositionSize(pick, sc, s);
+    // Position size در لحظه انتخاب نمی‌توانیم قطعی کنیم، در onBuySignal محاسبه می‌شود
+    pick.positionSize = 1; // مقدار موقت
     return { ok: true, pick, m };
 }
 
@@ -321,8 +414,13 @@ async function buildScenario(config, price, liveS, indicators, s) {
 const f0 = n => Math.round(n).toLocaleString('en-US');
 const pc = v => v === null || v === undefined ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}٪`;
 
-function formatRecommendation(symbol, sc, res, title = '🎯 انتخاب قرارداد کال') {
-    let t = `${title} — ${symbol}\nسناریو: ورود ${f0(sc.entry)} | حد ضرر ${f0(sc.stop)} | هدف ${f0(sc.target)} | افق ~${sc.horizonDays} روز${sc.hv ? ` | HV ${(sc.hv * 100).toFixed(0)}٪` : ''}\n`;
+function formatRecommendation(symbol, sc, res, portfolio, title = '🎯 انتخاب قرارداد کال') {
+    let t = `${title} — ${symbol}\n`;
+    t += `📊 سناریو: ورود ${f0(sc.entry)} | حد ضرر ${f0(sc.stop)} | هدف ${f0(sc.target)} | افق ~${sc.horizonDays} روز${sc.hv ? ` | HV ${(sc.hv * 100).toFixed(0)}٪` : ''}\n`;
+
+    if (portfolio) {
+        t += `💰 سرمایه: ${f0(portfolio.totalCapital)} | درگیری فعلی: ${f0(portfolio.totalExposure)} (${portfolio.exposurePct.toFixed(1)}٪) | نقد: ${f0(portfolio.availableCash)}\n`;
+    }
 
     if (res.level && res.level !== 'A+') {
         t += `\n⚠️ سطح فیلتر: ${res.level}${res.tag ? ' — ' + res.tag : ''}\n`;
@@ -331,7 +429,7 @@ function formatRecommendation(symbol, sc, res, title = '🎯 انتخاب قرا
     if (!res.picks.length) {
         t += `⛔ قرارداد مناسبی یافت نشد (${res.considered} بررسی شد)\n`;
         if (res.nearMisses && res.nearMisses.length) {
-            t += `\n📋 نزدیک‌ترین گزینه‌ها (رد شدند):\n`;
+            t += `\n📋 نزدیک‌ترین گزینه‌ها:\n`;
             res.nearMisses.forEach((n, i) => {
                 t += `${i + 1}) ${n.symbol} | اعمال ${f0(n.strike)} | ${n.daysLeft} روز\n` +
                      `   OI ${n.oi} | معاملات ${n.trades} | اسپرد ${n.spreadPct ? n.spreadPct.toFixed(1) + '٪' : '-'} | دلتا ${n.delta ? n.delta.toFixed(2) : '-'}\n` +
@@ -344,8 +442,17 @@ function formatRecommendation(symbol, sc, res, title = '🎯 انتخاب قرا
     res.picks.forEach((p, i) => {
         t += `\n${i + 1}) ${p.symbol} | اعمال ${f0(p.strike)} | ${p.expiry} (${p.daysLeft} روز)\n` +
             `   خرید ${f0(p.ask)} (اسپرد ${p.spreadPct.toFixed(1)}٪) | منصفانه ${f0(p.theo)} | IV ${p.iv ? (p.iv * 100).toFixed(0) + '٪' : '-'}${p.ivHv ? ` (${p.ivHv.toFixed(2)}×HV)` : ''}\n` +
-            `   دلتا ${p.delta.toFixed(2)} | اهرم ${p.leverage.toFixed(1)}x | OI ${p.oi} | تتا/روز ${f0(p.thetaDay)} | سربه‌سر تا افق ${pc(p.bePct)}\n` +
-            `   هدف ${pc(p.profitPct)} | حد ضرر ${pc(p.lossPct)} | بی‌حرکت ${pc(p.flatPct)} | RR ${p.rr.toFixed(2)} | حجم پیشنهادی ${p.positionSize} قرارداد`;
+            `   دلتا ${p.delta.toFixed(2)} | اهرم ${p.leverage.toFixed(1)}x | OI ${p.oi} | تتا/روز ${f0(p.thetaDay)} | سربه‌سر ${pc(p.bePct)}\n` +
+            `   هدف ${pc(p.profitPct)} | حد ضرر ${pc(p.lossPct)} | RR ${p.rr.toFixed(2)}\n`;
+
+        if (p.positionInfo) {
+            const pi = p.positionInfo;
+            t += `   💼 حجم پیشنهادی: ${pi.size} قرارداد\n`;
+            t += `      (ریسک: ${f0(pi.limits.riskAmount)} | سقف نماد: ${f0(pi.limits.maxSymbolExposure)} | درگیری نماد فعلی: ${f0(pi.limits.currentSymbolExposure)})\n`;
+            if (pi.size === 0) {
+                t += `      ⚠️ حجم صفر شد: ${pi.byRisk === 0 ? 'سرمایه برای ریسک کافی نیست' : pi.bySymbol === 0 ? 'سقف درگیری این نماد پر شده' : pi.byTotal === 0 ? 'سقف کل درگیری پر شده' : 'نامشخص'}\n`;
+            }
+        }
     });
     return t;
 }
@@ -357,16 +464,30 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
     const sc = await buildScenario(config, price, liveS, indicators, s);
     const names = deps.getUnderlyingNames ? deps.getUnderlyingNames(config.symbol) : [norm(config.symbol)];
     const res = selectCalls(chain, names, sc, s);
+    const portfolio = await getPortfolioState();
+
+    // محاسبه Position Size برای هر pick
+    for (const p of res.picks) {
+        try {
+            const pi = await calcPositionSizeV2({ ...p, underlying: config.symbol }, sc, portfolio);
+            p.positionSize = pi.size;
+            p.positionInfo = pi;
+        } catch (e) {
+            p.positionSize = 1;
+            p.positionInfo = null;
+        }
+    }
 
     await deps.notify(formatRecommendation(
-        config.symbol, sc, res,
+        config.symbol, sc, res, portfolio,
         confluence > 1 ? `🎯 انتخاب قرارداد کال (هم‌گرایی ${confluence} استراتژی)` : undefined
     ));
 
     if (res.picks.length) {
         const p = res.picks[0];
-        const db = deps.getDB();
+        if (!p.positionSize || p.positionSize <= 0) return res; // حجم صفر → پوزیشن ثبت نمی‌شود
 
+        const db = deps.getDB();
         const existing = await db.collection('option_positions').findOne({ configId: config._id.toString(), status: 'open' });
         if (existing) {
             await db.collection('option_positions').updateOne(
@@ -385,6 +506,7 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
             entryS: p.S, entryIv: p.iv, entryDelta: p.delta,
             entryDaysLeft: p.daysLeft, size: p.size,
             positionSize: p.positionSize,
+            entryValue: p.ask * p.positionSize * (p.size || 1000),
             scenario: sc, paper: true, status: 'open',
             confluence, stagedExits: []
         });
