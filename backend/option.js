@@ -19,8 +19,6 @@ function reloadFromSettings() {
     FEE_BUY = s.OPTION_FEE_BUY;
     FEE_SELL = s.OPTION_FEE_SELL;
 }
-const Settings = require('./settings.js');
-// (این خط از قبل بود)
 
 // تابع کمکی مدیریت سرمایه
 function capitalRiskAmount() {
@@ -83,6 +81,9 @@ const asDecimal = v => {
     if (!Number.isFinite(n) || n <= 0) return null;
     return n > 3 ? n / 100 : n;
 };
+
+// ✅ تابع کمکی round
+const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
 // نگاشت دقیق: imp = IV (نوسان ضمنی) | sigma = HV (نوسان تاریخی)
 function parseContract(r) {
@@ -288,9 +289,6 @@ async function getPortfolioState() {
         bySymbol
     };
 }
-
-// تابع کمکی round (اگر از قبل نبود)
-const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
 // ---------------- انتخاب قرارداد ----------------
 const RELAX_LEVELS = [
