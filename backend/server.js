@@ -17,7 +17,7 @@ const STARTED_AT = new Date();
 const app = express();
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v8.0-auto-config';
+const SERVER_VERSION = 'v8.1-hybrid-bt';
 let holidayDate = null, inactiveTicks = 0;
 
 const API_KEYS = [process.env.BRSAPI_KEY_1 || process.env.BRSAPI_KEY, process.env.BRSAPI_KEY_2, process.env.BRSAPI_KEY_3].filter(Boolean);
@@ -39,6 +39,15 @@ let ENTRY_END = toMin(process.env.ENTRY_END || '12:00');
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
+// ✅ افزایش timeout در سطح اپ
+app.use((req, res, next) => {
+    if (req.path.startsWith('/api/backtest') || req.path.startsWith('/api/auto-configure')) {
+        req.setTimeout(10 * 60 * 1000);
+        res.setTimeout(10 * 60 * 1000);
+    }
+    next();
+});
+
 app.use((req, res, next) => {
     if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
     if (!ADMIN_TOKEN) return next();
@@ -47,26 +56,17 @@ app.use((req, res, next) => {
 });
 app.get('/api/auth/check', (req, res) => res.json({ required: !!ADMIN_TOKEN, ok: !ADMIN_TOKEN || req.headers['x-admin-token'] === ADMIN_TOKEN }));
 
-// ======================== تنظیمات معاملات ========================
-app.get('/api/trading-settings', async (req, res, next) => {
-    try { res.json({ values: Settings.get(), defaults: Settings.DEFAULTS }); } catch (e) { next(e); }
-});
+app.get('/api/trading-settings', async (req, res, next) => { try { res.json({ values: Settings.get(), defaults: Settings.DEFAULTS }); } catch (e) { next(e); } });
 app.put('/api/trading-settings', async (req, res, next) => {
-    try {
-        await Settings.save(req.body || {});
-        await reloadEntryWindow();
-        if (typeof Options.reloadFromSettings === 'function') Options.reloadFromSettings();
-        res.json({ success: true, values: Settings.get() });
-    } catch (e) { res.status(400).json({ error: e.message }); }
+    try { await Settings.save(req.body || {}); await reloadEntryWindow(); if (typeof Options.reloadFromSettings === 'function') Options.reloadFromSettings(); res.json({ success: true, values: Settings.get() }); }
+    catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ======================== پیش‌فرض استراتژی‌ها ========================
 app.get('/api/strategy-defaults', (req, res) => {
     const overrides = Settings.getAllStrategyDefaults();
     const all = {};
-    Object.values(STRATEGIES).forEach(s => {
-        all[s.id] = { ...s.defaultParams, ...(overrides[s.id] || {}) };
-    });
+    Object.values(STRATEGIES).forEach(s => { all[s.id] = { ...s.defaultParams, ...(overrides[s.id] || {}) }; });
     res.json({ defaults: all, overrides });
 });
 app.put('/api/strategy-defaults', async (req, res, next) => {
@@ -77,22 +77,13 @@ app.put('/api/strategy-defaults', async (req, res, next) => {
         for (const [sid, params] of Object.entries(overrides)) {
             if (!STRATEGIES[sid]) continue;
             clean[sid] = {};
-            for (const [k, v] of Object.entries(params || {})) {
-                if (STRATEGIES[sid].defaultParams[k] !== undefined && Number.isFinite(+v)) {
-                    clean[sid][k] = +v;
-                }
-            }
+            for (const [k, v] of Object.entries(params || {})) if (STRATEGIES[sid].defaultParams[k] !== undefined && Number.isFinite(+v)) clean[sid][k] = +v;
         }
         await Settings.saveStrategyDefaults(clean);
         res.json({ success: true, overrides: clean });
     } catch (e) { next(e); }
 });
-app.delete('/api/strategy-defaults/:strategyId?', async (req, res, next) => {
-    try {
-        await Settings.resetStrategyDefaults(req.params.strategyId || null);
-        res.json({ success: true });
-    } catch (e) { next(e); }
-});
+app.delete('/api/strategy-defaults/:strategyId?', async (req, res, next) => { try { await Settings.resetStrategyDefaults(req.params.strategyId || null); res.json({ success: true }); } catch (e) { next(e); } });
 
 app.get('/ping', (req, res) => res.json({ pong: true, time: new Date().toISOString() }));
 app.get('/strategies.js', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'strategies.js')); });
@@ -111,7 +102,6 @@ const isMarketOpen = t => isTradingDay(t) && minuteOfDay(t) >= SESSION_START && 
 function getBucketTime(t, size) { const b = Math.floor(minuteOfDay(t) / size) * size; return tehranPartsToUTCDate(t.year, t.month, t.day, Math.floor(b / 60), b % 60); }
 const dayStartUTC = t => tehranPartsToUTCDate(t.year, t.month, t.day, 0, 0);
 
-// ======================== سهمیه کلیدها ========================
 const usageId = (i, prefix = 'allsymbols') => `${prefix}_usage_key${i + 1}`;
 async function getKeyUsage(i, prefix = 'allsymbols') {
     const db = getDB(), today = todayDateString(getTehranParts());
@@ -127,18 +117,13 @@ async function acquireApiKey(prefix = 'allsymbols', limit = PER_KEY_LIMIT) {
     return null;
 }
 async function getAllUsage() {
-    const keys = [];
-    for (let i = 0; i < API_KEYS.length; i++) { const u = await getKeyUsage(i); keys.push({ index: i + 1, count: u.count, limit: PER_KEY_LIMIT }); }
-    const hist = [];
-    for (let i = 0; i < API_KEYS.length; i++) { const u = await getKeyUsage(i, 'history'); hist.push({ index: i + 1, count: u.count, limit: HISTORY_PER_KEY_LIMIT }); }
-    return {
-        date: todayDateString(getTehranParts()), keys, total: keys.reduce((s, k) => s + k.count, 0), totalLimit: API_KEYS.length * PER_KEY_LIMIT,
-        history: { keys: hist, total: hist.reduce((s, k) => s + k.count, 0), totalLimit: API_KEYS.length * HISTORY_PER_KEY_LIMIT }
-    };
+    const keys = []; for (let i = 0; i < API_KEYS.length; i++) { const u = await getKeyUsage(i); keys.push({ index: i + 1, count: u.count, limit: PER_KEY_LIMIT }); }
+    const hist = []; for (let i = 0; i < API_KEYS.length; i++) { const u = await getKeyUsage(i, 'history'); hist.push({ index: i + 1, count: u.count, limit: HISTORY_PER_KEY_LIMIT }); }
+    return { date: todayDateString(getTehranParts()), keys, total: keys.reduce((s, k) => s + k.count, 0), totalLimit: API_KEYS.length * PER_KEY_LIMIT, history: { keys: hist, total: hist.reduce((s, k) => s + k.count, 0), totalLimit: API_KEYS.length * HISTORY_PER_KEY_LIMIT } };
 }
 app.get('/api/usage', async (req, res, next) => { try { res.json(await getAllUsage()); } catch (e) { next(e); } });
 
-// ======================== لیست نمادها ========================
+// ======================== نمادها ========================
 let symbolsCache = [];
 async function fetchAllSymbolsRaw() {
     if (!API_KEYS.length) throw new Error('هیچ کلید BrsApi تنظیم نشده است.');
@@ -170,7 +155,7 @@ function getUnderlyingNames(symbol) {
     return Array.from(names);
 }
 
-// ======================== آخرین قیمت‌ها ========================
+// ======================== Quotes ========================
 const lastQuotes = new Map();
 let rawSymbolsCache = { at: 0, data: null };
 async function fetchAllSymbolsRawCached(maxAgeMs = 15000) {
@@ -206,7 +191,7 @@ async function refreshSymbolData(symbol) {
     } catch (e) { console.error('❌ refreshSymbolData:', e.message); return false; }
 }
 
-// ======================== تلگرام ========================
+// ======================== Telegram ========================
 async function telegramSend(text) {
     if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('تلگرام تنظیم نشده است');
     const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text }), timeout: 15000 });
@@ -224,15 +209,10 @@ async function flushOutbox() {
         }
     } finally { flushing = false; }
 }
-async function notify(text) {
-    await getDB().collection('telegram_outbox').insertOne({ text, createdAt: new Date(), attempts: 0, sentAt: null });
-    flushOutbox().catch(() => {});
-}
-app.post('/api/telegram/test', async (req, res, next) => {
-    try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); }
-});
+async function notify(text) { await getDB().collection('telegram_outbox').insertOne({ text, createdAt: new Date(), attempts: 0, sentAt: null }); flushOutbox().catch(() => {}); }
+app.post('/api/telegram/test', async (req, res, next) => { try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== سلامت ========================
+// ======================== Health ========================
 const health = { consecutiveFailures: 0, alerted: false, lastError: null, lastTickAt: null };
 async function bumpDayStat(field, n = 1) {
     const today = todayDateString(getTehranParts());
@@ -264,7 +244,7 @@ async function sendDailySummary() {
     await notify(`📊 خلاصه روز ${today}\nتیک: موفق ${st.ticksOk || 0} | ناموفق ${st.ticksFail || 0}\nسیگنال: ${st.signals || 0} | لغو: ${st.cancels || 0}${optLine}${portfolioLine}\nAPI: ${usage.total}/${usage.totalLimit}${storLine}`);
 }
 
-// ======================== بکاپ ========================
+// ======================== Backup ========================
 async function telegramSendBackup(filename, jsonObj) {
     if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('تلگرام تنظیم نشده است');
     const blob = new Blob([JSON.stringify(jsonObj, null, 2)], { type: 'application/json' });
@@ -287,17 +267,15 @@ async function sendWeeklyBackup() {
 }
 app.post('/api/backup/run', async (req, res, next) => { try { await sendWeeklyBackup(); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== تعطیلی ========================
+// ======================== Holiday ========================
 async function markHoliday(t) {
     holidayDate = todayDateString(t);
     await getDB().collection('meta').updateOne({ _id: 'holiday' }, { $set: { date: holidayDate } }, { upsert: true });
     await notify(`📅 امروز (${holidayDate}) احتمالاً تعطیل است.`);
 }
-app.delete('/api/holiday', async (req, res, next) => {
-    try { holidayDate = null; inactiveTicks = 0; await getDB().collection('meta').deleteOne({ _id: 'holiday' }); res.json({ success: true }); } catch (e) { next(e); }
-});
+app.delete('/api/holiday', async (req, res, next) => { try { holidayDate = null; inactiveTicks = 0; await getDB().collection('meta').deleteOne({ _id: 'holiday' }); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== کندل‌ها ========================
+// ======================== Candles ========================
 async function getBaseCandles(symbol) {
     const base = await getDB().collection('candles_base').find({ symbol }).sort({ time: 1 }).toArray();
     return base.map(c => ({ time: Math.floor(c.time.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }));
@@ -390,15 +368,7 @@ async function backfillDailyFromBase() {
 app.get('/api/timeframes', (req, res) => res.json(Object.keys(TF)));
 app.get('/api/strategies', (req, res) => {
     const overrides = Settings.getAllStrategyDefaults();
-    res.json(Object.values(STRATEGIES).map(s => ({
-        id: s.id, name: s.name,
-        defaultTimeframe: s.defaultTimeframe,
-        htfTimeframe: s.htfTimeframe || '1d',
-        defaultParams: { ...s.defaultParams, ...(overrides[s.id] || {}) },
-        baseDefaults: s.defaultParams,
-        overrides: overrides[s.id] || {},
-        indicators: s.indicators
-    })));
+    res.json(Object.values(STRATEGIES).map(s => ({ id: s.id, name: s.name, defaultTimeframe: s.defaultTimeframe, htfTimeframe: s.htfTimeframe || '1d', defaultParams: { ...s.defaultParams, ...(overrides[s.id] || {}) }, baseDefaults: s.defaultParams, overrides: overrides[s.id] || {}, indicators: s.indicators })));
 });
 app.get('/api/candles/:symbol/:timeframe', async (req, res, next) => {
     const { symbol, timeframe } = req.params; if (!TF[timeframe]) return res.status(400).json({ error: 'تایم‌فریم نامعتبر' });
@@ -457,7 +427,7 @@ app.post('/api/import-daily/:symbol', async (req, res) => {
     catch (e) { console.error('❌ import-daily:', e.message); res.status(400).json({ error: e.message }); }
 });
 
-// ======================== نمادهای زیر نظر ========================
+// ======================== monitored-symbols ========================
 app.get('/api/monitored-symbols', async (req, res, next) => {
     try {
         const db = getDB();
@@ -491,9 +461,8 @@ app.delete('/api/monitored-symbols/:id', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== تنظیمات استراتژی ========================
+// ======================== strategy-configs ========================
 app.get('/api/strategy-configs', async (req, res, next) => { try { res.json(await getDB().collection('strategy_configs').find({}).sort({ createdAt: 1 }).toArray()); } catch (e) { next(e); } });
-
 app.post('/api/strategy-configs', async (req, res, next) => {
     try {
         const { symbol, strategyId, timeframe, htfTimeframe, candleType, params, enabled, role } = req.body;
@@ -524,12 +493,9 @@ app.put('/api/strategy-configs/:id', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 app.delete('/api/strategy-configs/:id', async (req, res, next) => {
-    try {
-        const db = getDB(); await db.collection('strategy_configs').deleteOne({ _id: new ObjectId(req.params.id) });
-        await db.collection('signals_state').deleteOne({ configId: req.params.id }); res.json({ success: true });
-    } catch (e) { next(e); }
+    try { const db = getDB(); await db.collection('strategy_configs').deleteOne({ _id: new ObjectId(req.params.id) }); await db.collection('signals_state').deleteOne({ configId: req.params.id }); res.json({ success: true }); }
+    catch (e) { next(e); }
 });
-
 app.post('/api/strategy-configs/bulk-delete', async (req, res, next) => {
     try {
         const { ids } = req.body || {};
@@ -548,7 +514,7 @@ app.post('/api/strategy-configs/bulk-update', async (req, res, next) => {
         const upd = {};
         if (typeof enabled === 'boolean') upd.enabled = enabled;
         if (role === 'leader' || role === 'confirmer') upd.role = role;
-        if (!Object.keys(upd).length) return res.status(400).json({ error: 'فیلدی برای تغییر مشخص نشد' });
+        if (!Object.keys(upd).length) return res.status(400).json({ error: 'فیلدی مشخص نشد' });
         const db = getDB();
         const objectIds = ids.map(id => new ObjectId(id));
         const r = await db.collection('strategy_configs').updateMany({ _id: { $in: objectIds } }, { $set: upd });
@@ -556,12 +522,12 @@ app.post('/api/strategy-configs/bulk-update', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== وضعیت / تاریخچه ========================
+// ======================== status / history ========================
 app.get('/api/status', async (req, res, next) => { try { res.json(await getDB().collection('signals_state').find({}).toArray()); } catch (e) { next(e); } });
 app.get('/api/signal-history', async (req, res, next) => { try { res.json(await getDB().collection('signal_history').find({}).sort({ createdAt: -1 }).limit(300).toArray()); } catch (e) { next(e); } });
 app.delete('/api/signal-history', async (req, res, next) => { try { await getDB().collection('signal_history').deleteMany({}); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== پرتفوی ========================
+// ======================== portfolio ========================
 app.get('/api/portfolio', async (req, res, next) => {
     try {
         const s = Settings.get();
@@ -574,16 +540,7 @@ app.get('/api/portfolio', async (req, res, next) => {
             totalExposure += value;
         }
         const capital = s.TOTAL_CAPITAL || 0;
-        res.json({
-            totalCapital: capital,
-            riskPerTrade: capital * (s.RISK_PER_TRADE_PCT / 100),
-            maxSymbolExposure: capital * (s.MAX_SYMBOL_EXPOSURE_PCT / 100),
-            maxTotalExposure: capital * (s.MAX_TOTAL_EXPOSURE_PCT / 100),
-            minCashReserve: capital * (s.MIN_CASH_RESERVE_PCT / 100),
-            totalExposure, availableCash: capital - totalExposure,
-            exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0,
-            openCount: open.length, bySymbol
-        });
+        res.json({ totalCapital: capital, riskPerTrade: capital * (s.RISK_PER_TRADE_PCT / 100), maxSymbolExposure: capital * (s.MAX_SYMBOL_EXPOSURE_PCT / 100), maxTotalExposure: capital * (s.MAX_TOTAL_EXPOSURE_PCT / 100), minCashReserve: capital * (s.MIN_CASH_RESERVE_PCT / 100), totalExposure, availableCash: capital - totalExposure, exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0, openCount: open.length, bySymbol });
     } catch (e) { next(e); }
 });
 
@@ -609,76 +566,55 @@ app.get('/api/backtest-option/:configId', async (req, res, next) => {
         if (!cfg) return res.status(404).json({ error: 'تنظیم یافت نشد' });
         const { trades } = await computeStockBacktestTrades(cfg);
         const closedTrades = trades.filter(t => t.status === 'closed');
-        const result = await Options.runApproxOptionBacktest(cfg.symbol, closedTrades);
+        const result = await Options.runHybridOptionBacktest(cfg.symbol, closedTrades);
         res.json({ stockTradesCount: trades.length, stockClosedCount: closedTrades.length, ...result });
     } catch (e) { next(e); }
 });
 
-// ======================== بک‌تست مقایسه‌ای ========================
+// ======================== بک‌تست مقایسه‌ای (hybrid) ========================
 app.post('/api/backtest-compare', async (req, res, next) => {
     try {
         const { symbols, strategies, useRealOption } = req.body || {};
-        if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد انتخاب کنید' });
-        if (!Array.isArray(strategies) || !strategies.length) return res.status(400).json({ error: 'حداقل یک استراتژی انتخاب کنید' });
-
-        req.setTimeout(5 * 60 * 1000);
-        res.setTimeout(5 * 60 * 1000);
+        if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد' });
+        if (!Array.isArray(strategies) || !strategies.length) return res.status(400).json({ error: 'حداقل یک استراتژی' });
 
         const results = [];
         for (const symbol of symbols) {
             for (const s of strategies) {
-                const def = STRATEGIES[s.id];
-                if (!def) continue;
-                const cfg = {
-                    symbol, strategyId: s.id,
-                    timeframe: s.timeframe || def.defaultTimeframe,
-                    htfTimeframe: s.htfTimeframe || def.htfTimeframe || '1d',
-                    candleType: s.candleType === 'simple' ? 'simple' : 'heikin',
-                    params: { ...def.defaultParams, ...Settings.getStrategyDefaults(s.id), ...(s.params || {}) }
-                };
+                const def = STRATEGIES[s.id]; if (!def) continue;
+                const cfg = { symbol, strategyId: s.id, timeframe: s.timeframe || def.defaultTimeframe, htfTimeframe: s.htfTimeframe || def.htfTimeframe || '1d', candleType: s.candleType === 'simple' ? 'simple' : 'heikin', params: { ...def.defaultParams, ...Settings.getStrategyDefaults(s.id), ...(s.params || {}) } };
                 try {
                     const tf = cfg.timeframe, htf = cfg.htfTimeframe;
-                    const allCandles = await getCandles(cfg.symbol, tf);
-                    const allHtf = await getCandles(cfg.symbol, htf);
-                    const closedCandles = closedOnly(allCandles, tf);
-                    const closedHtf = closedOnly(allHtf, htf);
+                    const closedCandles = closedOnly(await getCandles(cfg.symbol, tf), tf);
+                    const closedHtf = closedOnly(await getCandles(cfg.symbol, htf), htf);
                     const required = getRequiredCandles(cfg.strategyId, cfg.params);
                     const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
-
                     if (closedCandles.length < required || closedHtf.length < requiredHtf) {
-                        results.push({
-                            symbol, strategyId: s.id, strategyName: def.name,
-                            timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType,
-                            error: `داده کافی نیست (ورود: ${closedCandles.length}/${required}، روند: ${closedHtf.length}/${requiredHtf})`,
-                            insufficientData: true
-                        });
+                        results.push({ symbol, strategyId: s.id, strategyName: def.name, timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType, error: `داده کافی نیست (ورود: ${closedCandles.length}/${required}، روند: ${closedHtf.length}/${requiredHtf})`, insufficientData: true });
                         continue;
                     }
-
                     const { trades } = await computeStockBacktestTrades(cfg);
                     const closedTrades = trades.filter(t => t.status === 'closed');
                     const stockWins = closedTrades.filter(t => t.pnlPct > 0);
                     const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
 
-                    let optStats; let optMode = 'approximate';
+                    // ✅ hybrid backtest
+                    let optStats, optMode;
                     if (useRealOption) {
                         const real = await Options.runRealOptionBacktest(symbol, closedTrades);
                         if (real.available) { optStats = real.stats; optMode = 'real'; }
-                        else { const approx = await Options.runApproxOptionBacktest(symbol, closedTrades); optStats = approx.stats; optMode = 'approximate (fallback)'; }
+                        else { const h = await Options.runHybridOptionBacktest(symbol, closedTrades); optStats = h.stats; optMode = 'hybrid (fallback)'; }
                     } else {
-                        const approx = await Options.runApproxOptionBacktest(symbol, closedTrades);
-                        optStats = approx.stats;
+                        const h = await Options.runHybridOptionBacktest(symbol, closedTrades);
+                        optStats = h.stats; optMode = 'hybrid';
+                        if (h.realUsed !== undefined) optStats.realUsed = h.realUsed;
+                        if (h.approxUsed !== undefined) optStats.approxUsed = h.approxUsed;
                     }
 
                     results.push({
                         symbol, strategyId: s.id, strategyName: def.name,
                         timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType,
-                        stock: {
-                            total: trades.length, closed: closedTrades.length,
-                            winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0,
-                            avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0,
-                            totalPnl: stockSum
-                        },
+                        stock: { total: trades.length, closed: closedTrades.length, winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0, avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0, totalPnl: stockSum },
                         option: optStats, optionMode: optMode
                     });
                 } catch (e) {
@@ -695,209 +631,128 @@ app.post('/api/backtest-compare', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== Auto-Configure (جدید) ========================
-// بر اساس بک‌تست، بهترین استراتژی‌ها رو برای هر نماد انتخاب می‌کنه
+// ======================== Auto-Configure ========================
 function scoreStrategyForAuto(res) {
-    // امتیازدهی: ترکیب PF + وین‌ریت + تعداد معامله
     if (!res || res.error || res.insufficientData) return -Infinity;
     const s = res.stock || {};
     const o = res.option || {};
     const tradeCount = s.closed || 0;
-    if (tradeCount < 1) return -Infinity;
-    // PF آپشن (اگر موجود) + PF سهم
+    if (tradeCount < 2) return -Infinity;   // ✅ حداقل ۲ معامله
     const optPF = (o.profitFactor !== null && o.profitFactor !== undefined && isFinite(o.profitFactor)) ? o.profitFactor : 0;
-    const stockPF = computeStockPF(res);
-    // وین‌ریت
+    if (optPF < 0.8) return -Infinity;      // ✅ PF زیر ۰.۸ رد
     const winRate = (s.winRate || 0) / 100;
-    // میانگین بازده آپشن
     const optAvg = o.avgPnl || 0;
-    // امتیاز = PF×0.4 + وین‌ریت×0.3 + تعداد×0.1 + بازده آپشن×0.2
-    const score = optPF * 0.4 + winRate * 0.3 + Math.min(tradeCount, 20) / 20 * 0.1 + Math.max(-1, Math.min(2, optAvg / 50)) * 0.2;
+    let score = optPF * 0.4 + winRate * 0.3 + Math.min(tradeCount, 20) / 20 * 0.1 + Math.max(-1, Math.min(2, optAvg / 50)) * 0.2;
+    if (tradeCount >= 5) score *= 1.2;      // ✅ پاداش تعداد
     return score;
 }
-function computeStockPF(res) {
-    if (!res.stock || !res.stock.total) return 0;
-    // تقریب: از وین‌ریت و میانگین
-    const wr = (res.stock.winRate || 0) / 100;
-    const avg = res.stock.avgPnl || 0;
-    return wr * Math.abs(avg) / 10;
+
+// ✅ auto-configure روی یک نماد
+async function autoConfigureSingle(symbol, maxConfirmers) {
+    const db = getDB();
+    const monitored = await db.collection('monitored_symbols').findOne({ symbol });
+    if (!monitored) return { symbol, error: 'نماد در لیست پایش نیست' };
+
+    const strategies = Object.values(STRATEGIES).filter(s => s.id !== 'ensemble');
+    const results = [];
+
+    for (const def of strategies) {
+        const cfg = { symbol, strategyId: def.id, timeframe: def.defaultTimeframe, htfTimeframe: def.htfTimeframe || '1d', candleType: 'heikin', params: { ...def.defaultParams, ...Settings.getStrategyDefaults(def.id) } };
+        try {
+            const tf = cfg.timeframe, htf = cfg.htfTimeframe;
+            const closedCandles = closedOnly(await getCandles(symbol, tf), tf);
+            const closedHtf = closedOnly(await getCandles(symbol, htf), htf);
+            const required = getRequiredCandles(cfg.strategyId, cfg.params);
+            const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
+            if (closedCandles.length < required || closedHtf.length < requiredHtf) {
+                results.push({ strategyId: def.id, strategyName: def.name, error: 'داده ناکافی', insufficientData: true, score: -Infinity });
+                continue;
+            }
+            const { trades } = await computeStockBacktestTrades(cfg);
+            const closedTrades = trades.filter(t => t.status === 'closed');
+            const stockWins = closedTrades.filter(t => t.pnlPct > 0);
+            const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
+            const h = await Options.runHybridOptionBacktest(symbol, closedTrades);
+
+            const r = {
+                strategyId: def.id, strategyName: def.name, timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe,
+                stock: { total: trades.length, closed: closedTrades.length, winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0, avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0, totalPnl: stockSum },
+                option: h.stats
+            };
+            r.score = scoreStrategyForAuto(r);
+            results.push(r);
+        } catch (e) {
+            results.push({ strategyId: def.id, strategyName: def.name, error: e.message, score: -Infinity });
+        }
+    }
+
+    const valid = results.filter(r => isFinite(r.score) && r.score > -Infinity).sort((a, b) => b.score - a.score);
+    if (!valid.length) return { symbol, error: 'هیچ استراتژی معتبری پیدا نشد', results };
+
+    const leader = valid[0];
+    const confirmers = valid.slice(1, 1 + maxConfirmers);
+    return {
+        symbol,
+        leader: { strategyId: leader.strategyId, strategyName: leader.strategyName, timeframe: leader.timeframe, htfTimeframe: leader.htfTimeframe, score: Math.round(leader.score * 100) / 100, stats: leader },
+        confirmers: confirmers.map(c => ({ strategyId: c.strategyId, strategyName: c.strategyName, timeframe: c.timeframe, htfTimeframe: c.htfTimeframe, score: Math.round(c.score * 100) / 100, stats: c })),
+        allResults: valid.map(v => ({ strategyId: v.strategyId, strategyName: v.strategyName, score: Math.round(v.score * 100) / 100, trades: v.stock.closed, winRate: v.stock.winRate, optAvg: v.option.avgPnl }))
+    };
 }
 
+// ✅ auto-configure endpoint — per-symbol برای جلوگیری از timeout
 app.post('/api/auto-configure', async (req, res, next) => {
     try {
-        req.setTimeout(5 * 60 * 1000);
-        res.setTimeout(5 * 60 * 1000);
-
-        const { symbols, maxConfirmers = 2, dryRun = false } = req.body || {};
-        if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد انتخاب کنید' });
+        const { symbol, symbols, maxConfirmers = 2, dryRun = false } = req.body || {};
+        // پشتیبانی از هر دو حالت: symbol واحد یا symbols آرایه (اگر آرایه با 1 عنصر باشه)
+        let targetSymbols = [];
+        if (symbol) targetSymbols = [symbol];
+        else if (Array.isArray(symbols)) targetSymbols = symbols;
+        if (!targetSymbols.length) return res.status(400).json({ error: 'حداقل یک نماد انتخاب کنید' });
 
         const db = getDB();
-        const plan = [];
-
-        for (const symbol of symbols) {
-            // چک کنیم نماد در monitored هست
-            const monitored = await db.collection('monitored_symbols').findOne({ symbol });
-            if (!monitored) { plan.push({ symbol, error: 'نماد در لیست پایش نیست' }); continue; }
-
-            // اجرای بک‌تست روی همه استراتژی‌ها
-            const strategies = Object.values(STRATEGIES).filter(s => s.id !== 'ensemble');
-            const results = [];
-
-            for (const def of strategies) {
-                const cfg = {
-                    symbol, strategyId: def.id,
-                    timeframe: def.defaultTimeframe,
-                    htfTimeframe: def.htfTimeframe || '1d',
-                    candleType: 'heikin',
-                    params: { ...def.defaultParams, ...Settings.getStrategyDefaults(def.id) }
-                };
-                try {
-                    const tf = cfg.timeframe, htf = cfg.htfTimeframe;
-                    const closedCandles = closedOnly(await getCandles(symbol, tf), tf);
-                    const closedHtf = closedOnly(await getCandles(symbol, htf), htf);
-                    const required = getRequiredCandles(cfg.strategyId, cfg.params);
-                    const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
-                    if (closedCandles.length < required || closedHtf.length < requiredHtf) {
-                        results.push({ strategyId: def.id, strategyName: def.name, error: 'داده ناکافی', insufficientData: true, score: -Infinity });
-                        continue;
-                    }
-                    const { trades } = await computeStockBacktestTrades(cfg);
-                    const closedTrades = trades.filter(t => t.status === 'closed');
-                    const stockWins = closedTrades.filter(t => t.pnlPct > 0);
-                    const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
-                    const approx = await Options.runApproxOptionBacktest(symbol, closedTrades);
-
-                    const r = {
-                        strategyId: def.id, strategyName: def.name,
-                        timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe,
-                        stock: {
-                            total: trades.length, closed: closedTrades.length,
-                            winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0,
-                            avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0,
-                            totalPnl: stockSum
-                        },
-                        option: approx.stats
-                    };
-                    r.score = scoreStrategyForAuto(r);
-                    results.push(r);
-                } catch (e) {
-                    results.push({ strategyId: def.id, strategyName: def.name, error: e.message, score: -Infinity });
-                }
-            }
-
-            // انتخاب بهترین لیدر و تأییدکننده‌ها
-            const valid = results.filter(r => isFinite(r.score) && r.score > -Infinity).sort((a, b) => b.score - a.score);
-            if (!valid.length) { plan.push({ symbol, error: 'هیچ استراتژی معتبری پیدا نشد', results }); continue; }
-
-            const leader = valid[0];
-            const confirmers = valid.slice(1, 1 + maxConfirmers);
-
-            plan.push({
-                symbol,
-                leader: { strategyId: leader.strategyId, strategyName: leader.strategyName, timeframe: leader.timeframe, htfTimeframe: leader.htfTimeframe, score: Math.round(leader.score * 100) / 100, stats: leader },
-                confirmers: confirmers.map(c => ({ strategyId: c.strategyId, strategyName: c.strategyName, timeframe: c.timeframe, htfTimeframe: c.htfTimeframe, score: Math.round(c.score * 100) / 100, stats: c })),
-                allResults: valid.map(v => ({ strategyId: v.strategyId, strategyName: v.strategyName, score: Math.round(v.score * 100) / 100, trades: v.stock.closed, winRate: v.stock.winRate, optAvg: v.option.avgPnl }))
-            });
+        const plans = [];
+        for (const sym of targetSymbols) {
+            const p = await autoConfigureSingle(sym, maxConfirmers);
+            plans.push(p);
         }
 
-        if (dryRun) return res.json({ plan, applied: false });
+        if (dryRun) return res.json({ plans, applied: false });
 
-        // اعمال (حذف تنظیمات قدیمی و ایجاد جدید)
         const applied = [];
-        for (const p of plan) {
+        for (const p of plans) {
             if (p.error || !p.leader) { applied.push({ symbol: p.symbol, error: p.error || 'بدون leader' }); continue; }
-
-            // حذف تنظیمات قبلی این نماد
             const old = await db.collection('strategy_configs').find({ symbol: p.symbol }).toArray();
             const oldIds = old.map(o => o._id.toString());
             await db.collection('strategy_configs').deleteMany({ symbol: p.symbol });
             await db.collection('signals_state').deleteMany({ configId: { $in: oldIds } });
 
-            // ایجاد leader
-            const leaderDoc = {
-                symbol: p.symbol,
-                strategyId: p.leader.strategyId,
-                timeframe: p.leader.timeframe,
-                htfTimeframe: p.leader.htfTimeframe,
-                candleType: 'heikin',
-                params: { ...STRATEGIES[p.leader.strategyId].defaultParams, ...Settings.getStrategyDefaults(p.leader.strategyId) },
-                enabled: true,
-                role: 'leader',
-                autoConfigured: true,
-                createdAt: new Date()
-            };
+            const leaderDoc = { symbol: p.symbol, strategyId: p.leader.strategyId, timeframe: p.leader.timeframe, htfTimeframe: p.leader.htfTimeframe, candleType: 'heikin', params: { ...STRATEGIES[p.leader.strategyId].defaultParams, ...Settings.getStrategyDefaults(p.leader.strategyId) }, enabled: true, role: 'leader', autoConfigured: true, createdAt: new Date() };
             const r1 = await db.collection('strategy_configs').insertOne(leaderDoc);
-
-            // ایجاد confirmers
             const created = [r1.insertedId.toString()];
             for (const c of p.confirmers) {
-                const cDoc = {
-                    symbol: p.symbol,
-                    strategyId: c.strategyId,
-                    timeframe: c.timeframe,
-                    htfTimeframe: c.htfTimeframe,
-                    candleType: 'heikin',
-                    params: { ...STRATEGIES[c.strategyId].defaultParams, ...Settings.getStrategyDefaults(c.strategyId) },
-                    enabled: true,
-                    role: 'confirmer',
-                    autoConfigured: true,
-                    createdAt: new Date()
-                };
+                const cDoc = { symbol: p.symbol, strategyId: c.strategyId, timeframe: c.timeframe, htfTimeframe: c.htfTimeframe, candleType: 'heikin', params: { ...STRATEGIES[c.strategyId].defaultParams, ...Settings.getStrategyDefaults(c.strategyId) }, enabled: true, role: 'confirmer', autoConfigured: true, createdAt: new Date() };
                 const r2 = await db.collection('strategy_configs').insertOne(cDoc);
                 created.push(r2.insertedId.toString());
             }
-
             applied.push({ symbol: p.symbol, leader: p.leader.strategyId, confirmers: p.confirmers.map(c => c.strategyId), created: created.length });
         }
 
         await notify(`🤖 تنظیم خودکار انجام شد\n${applied.filter(a => !a.error).map(a => `• ${a.symbol}: لیدر ${a.leader} + ${a.confirmers.length} تأییدکننده`).join('\n')}`).catch(() => {});
-        res.json({ plan, applied: true, results: applied });
+        res.json({ plans, applied: true, results: applied });
     } catch (e) { next(e); }
 });
 
-app.get('/api/auto-configure/preview/:symbol', async (req, res, next) => {
+app.post('/api/auto-configure/preview', async (req, res, next) => {
     try {
-        req.setTimeout(5 * 60 * 1000);
-        res.setTimeout(5 * 60 * 1000);
-        const symbol = req.params.symbol;
-        const db = getDB();
-        const strategies = Object.values(STRATEGIES).filter(s => s.id !== 'ensemble');
-        const results = [];
-        for (const def of strategies) {
-            const cfg = {
-                symbol, strategyId: def.id,
-                timeframe: def.defaultTimeframe,
-                htfTimeframe: def.htfTimeframe || '1d',
-                candleType: 'heikin',
-                params: { ...def.defaultParams, ...Settings.getStrategyDefaults(def.id) }
-            };
-            try {
-                const tf = cfg.timeframe, htf = cfg.htfTimeframe;
-                const closedCandles = closedOnly(await getCandles(symbol, tf), tf);
-                const closedHtf = closedOnly(await getCandles(symbol, htf), htf);
-                const required = getRequiredCandles(cfg.strategyId, cfg.params);
-                const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
-                if (closedCandles.length < required || closedHtf.length < requiredHtf) {
-                    results.push({ strategyId: def.id, strategyName: def.name, error: 'داده ناکافی', score: -Infinity });
-                    continue;
-                }
-                const { trades } = await computeStockBacktestTrades(cfg);
-                const closedTrades = trades.filter(t => t.status === 'closed');
-                const stockWins = closedTrades.filter(t => t.pnlPct > 0);
-                const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
-                const approx = await Options.runApproxOptionBacktest(symbol, closedTrades);
-                const r = {
-                    strategyId: def.id, strategyName: def.name,
-                    timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe,
-                    stock: { total: trades.length, closed: closedTrades.length, winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0, avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0 },
-                    option: approx.stats
-                };
-                r.score = scoreStrategyForAuto(r);
-                results.push(r);
-            } catch (e) { results.push({ strategyId: def.id, strategyName: def.name, error: e.message, score: -Infinity }); }
-        }
-        results.sort((a, b) => (b.score || -Infinity) - (a.score || -Infinity));
-        res.json({ symbol, results: results.map(r => ({ ...r, score: isFinite(r.score) ? Math.round(r.score * 100) / 100 : null })) });
+        const { symbol, symbols, maxConfirmers = 2 } = req.body || {};
+        let targetSymbols = [];
+        if (symbol) targetSymbols = [symbol];
+        else if (Array.isArray(symbols)) targetSymbols = symbols;
+        if (!targetSymbols.length) return res.status(400).json({ error: 'حداقل یک نماد' });
+
+        const plans = [];
+        for (const sym of targetSymbols) plans.push(await autoConfigureSingle(sym, maxConfirmers));
+        res.json({ plans });
     } catch (e) { next(e); }
 });
 
@@ -930,30 +785,22 @@ async function evaluateStrategyConfig(config, marketInfo) {
     }
     const late = last !== latest;
     const lastPrice = candles[candles.length - 1].close;
-
     await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: false, position: latest.position, indicators: latest.indicators, price: lastPrice, lastCandleTime: latest.time, htfTrend: result.htfTrend || null, reason: latest.reason || null } }, { upsert: true });
-
     const label = `${config.symbol} | ${def.name} | ${config.timeframe}→${htfTf}`;
     const lastHa = result.ha.find(h => h.time === last.time);
     const incompleteTag = lastHa && lastHa.complete === false ? '\n⚠️ کندل ناقص' : '';
     if (prev && prev.position === 'LONG' && latest.position !== 'LONG' && last.signalType !== 'EXIT_LONG') {
-        if (!isConfirmer) {
-            await notify(`⚠️ لغو سیگنال\n${label}\nموقعیت خرید قبلی وجود ندارد.`);
-            await bumpDayStat('cancels');
-        }
+        if (!isConfirmer) { await notify(`⚠️ لغو سیگنال\n${label}\nموقعیت خرید قبلی وجود ندارد.`); await bumpDayStat('cancels'); }
     }
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
-
     const nowMin = minuteOfDay(getTehranParts());
     const inWindow = nowMin >= ENTRY_START && nowMin <= ENTRY_END;
     const queueTag = info && info.queue === 'buy' ? '\n⚠️ صف خرید' : info && info.queue === 'sell' ? '\n⚠️ صف فروش' : '';
     const windowTag = last.signalType === 'BUY' && !inWindow ? `\n⏸ خارج از بازه` : '';
 
-    // Confluence (اصلاح‌شده)
-    let confluence = 1;
-    let confirmersList = [];
+    let confluence = 1, confirmersList = [];
     if (last.signalType === 'BUY') {
         try {
             const otherConfigs = await db.collection('strategy_configs').find({ symbol: config.symbol, _id: { $ne: config._id }, enabled: true }).toArray();
@@ -965,15 +812,9 @@ async function evaluateStrategyConfig(config, marketInfo) {
             for (const oc of otherConfigs) {
                 const ost = stateMap.get(oc._id.toString());
                 if (!ost || ost.position !== 'LONG') continue;
-                if (timeWindowSec > 0) {
-                    const diff = Math.abs(nowSec - (ost.updatedAt ? Math.floor(new Date(ost.updatedAt).getTime() / 1000) : 0));
-                    if (diff > timeWindowSec) continue;
-                }
+                if (timeWindowSec > 0) { const diff = Math.abs(nowSec - (ost.updatedAt ? Math.floor(new Date(ost.updatedAt).getTime() / 1000) : 0)); if (diff > timeWindowSec) continue; }
                 confluence++;
-                if (oc.role === 'confirmer') {
-                    const cfDef = STRATEGIES[oc.strategyId];
-                    confirmersList.push(cfDef ? cfDef.name : oc.strategyId);
-                }
+                if (oc.role === 'confirmer') { const cfDef = STRATEGIES[oc.strategyId]; confirmersList.push(cfDef ? cfDef.name : oc.strategyId); }
             }
         } catch (e) {}
     }
@@ -982,19 +823,11 @@ async function evaluateStrategyConfig(config, marketInfo) {
 
     await stateColl.updateOne({ configId }, { $set: { lastNotifiedTime: last.time, lastNotifiedType: last.signalType } });
 
-    // چند-تأییدکننده: اگه ۲+ تأییدکننده هم‌زمان سیگنال بدن → پیام مستقل
     let shouldNotifyConfirmer = false;
-    if (isConfirmer && last.signalType === 'BUY' && confirmersList.length >= Settings.multiConfirmerMin()) {
-        shouldNotifyConfirmer = true;
-    }
+    if (isConfirmer && last.signalType === 'BUY' && confirmersList.length >= Settings.multiConfirmerMin()) shouldNotifyConfirmer = true;
 
     if (isConfirmer && !shouldNotifyConfirmer) {
-        await db.collection('signal_history').insertOne({
-            configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name,
-            timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time,
-            reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null,
-            incomplete: !!(lastHa && lastHa.complete === false), confluence, role: 'confirmer', createdAt: new Date()
-        });
+        await db.collection('signal_history').insertOne({ configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name, timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time, reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false), confluence, role: 'confirmer', createdAt: new Date() });
         return;
     }
 
@@ -1004,43 +837,20 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const roleTag = isConfirmer ? '[چند-تأیید]' : '[لیدر]';
     const text = `${title}\n${label} ${roleTag}\nروند ${htfTf}: ${result.htfTrend || '-'}\nقیمت: ${lastPrice.toLocaleString()}${info ? ` | لحظه‌ای: ${info.price.toLocaleString()}` : ''}\nدلیل: ${last.reason || '-'}${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
     await notify(text);
-
-    await db.collection('signal_history').insertOne({
-        configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name,
-        timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time,
-        reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null,
-        incomplete: !!(lastHa && lastHa.complete === false), confluence, role: isConfirmer ? 'multi-confirmer' : 'leader',
-        confirmers: confirmersList, createdAt: new Date()
-    });
+    await db.collection('signal_history').insertOne({ configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name, timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time, reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false), confluence, role: isConfirmer ? 'multi-confirmer' : 'leader', confirmers: confirmersList, createdAt: new Date() });
     await bumpDayStat('signals');
 
     if (last.signalType === 'BUY') {
-        if (!inWindow || (info && info.queue === 'buy')) {
-            await notify(`ℹ️ ${config.symbol}: به‌دلیل ${!inWindow ? 'خارج از بازه' : 'صف خرید'} آپشن پیشنهاد نشد.`);
-            return;
-        }
-        const stop = last.indicators && last.indicators.stop;
-        const atr = last.indicators && last.indicators.atr;
+        if (!inWindow || (info && info.queue === 'buy')) { await notify(`ℹ️ ${config.symbol}: به‌دلیل ${!inWindow ? 'خارج از بازه' : 'صف خرید'} آپشن پیشنهاد نشد.`); return; }
+        const stop = last.indicators && last.indicators.stop, atr = last.indicators && last.indicators.atr;
         const risk = stop && stop < lastPrice ? lastPrice - stop : (atr ? 2 * atr : lastPrice * 0.03);
         const targetPct = (risk * 3.0 / lastPrice) * 100;
         const minTarget = Settings.minTargetPct();
-        if (targetPct < minTarget) {
-            await notify(`ℹ️ ${config.symbol}: هدف سهم فقط ${targetPct.toFixed(1)}٪ — کمتر از حداقل ${minTarget}٪ برای آپشن.`);
-            return;
-        }
-        try {
-            await Options.onBuySignal({
-                config, indicators: last.indicators, price: lastPrice,
-                liveS: info ? info.price : null, tradeId: null,
-                confluence, confirmers: confirmersList
-            });
-        } catch (e) {
-            console.error('❌ انتخاب آپشن:', e.message);
-            await notify(`⚠️ انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`);
-        }
+        if (targetPct < minTarget) { await notify(`ℹ️ ${config.symbol}: هدف سهم فقط ${targetPct.toFixed(1)}٪ — کمتر از حداقل ${minTarget}٪.`); return; }
+        try { await Options.onBuySignal({ config, indicators: last.indicators, price: lastPrice, liveS: info ? info.price : null, tradeId: null, confluence, confirmers: confirmersList }); }
+        catch (e) { console.error('❌ انتخاب آپشن:', e.message); await notify(`⚠️ انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`); }
     }
 }
-
 async function evaluateAll(marketInfo) {
     const configs = await getDB().collection('strategy_configs').find({ enabled: true }).toArray();
     const leaders = configs.filter(c => c.role !== 'confirmer');
@@ -1050,7 +860,7 @@ async function evaluateAll(marketInfo) {
     return configs.length;
 }
 
-// ======================== تیک ========================
+// ======================== Tick ========================
 const lastSnap = new Map(); let tickRunning = false;
 async function tick() {
     if (tickRunning) return; tickRunning = true;
@@ -1060,14 +870,10 @@ async function tick() {
         if (!monitored.length) return;
         const tehran = getTehranParts();
         const bucket1 = getBucketTime(tehran, 1), dayTime = dayStartUTC(tehran);
-
         let raw; try { raw = await fetchAllSymbolsRaw(); rawSymbolsCache = { at: Date.now(), data: raw }; } catch (e) { await recordTickFailure(e.message); return; }
         await updateSymbolsCacheFromRaw(raw);
-
         const active = raw.filter(s => +s.tno > 0).length;
-        if (minuteOfDay(tehran) >= SESSION_START + 10) {
-            if (active < 20) { if (++inactiveTicks >= 12) { await markHoliday(tehran); return; } } else inactiveTicks = 0;
-        }
+        if (minuteOfDay(tehran) >= SESSION_START + 10) { if (active < 20) { if (++inactiveTicks >= 12) { await markHoliday(tehran); return; } } else inactiveTicks = 0; }
         const rawMap = new Map(); raw.forEach(s => { if (s.l18) rawMap.set(s.l18, s); });
         const marketInfo = new Map();
         for (const m of monitored) {
@@ -1091,10 +897,7 @@ async function tick() {
             if (tehran.minute % 5 === 0 || openOpt > 0) {
                 const chain = await Options.fetchChain(30000);
                 const mset = new Set(monitored.map(m => Options.norm(m.symbol)));
-                if (tehran.minute % 5 === 0) {
-                    await Options.storeSnapshots(chain, mset);
-                    await Options.storeFullOptionHistory(chain, mset);
-                }
+                if (tehran.minute % 5 === 0) { await Options.storeSnapshots(chain, mset); await Options.storeFullOptionHistory(chain, mset); }
                 await Options.managePositions(chain);
             }
         } catch (e) { console.error('❌ آپشن:', e.message); }
@@ -1104,19 +907,13 @@ async function tick() {
     } catch (e) { await recordTickFailure(e.message); }
     finally { tickRunning = false; }
 }
+app.post('/api/evaluate-now', async (req, res, next) => { try { await tick(); res.json({ success: true, lastTickAt: health.lastTickAt, lastError: health.lastError, consecutiveFailures: health.consecutiveFailures }); } catch (e) { next(e); } });
 
-app.post('/api/evaluate-now', async (req, res, next) => {
-    try { await tick(); res.json({ success: true, lastTickAt: health.lastTickAt, lastError: health.lastError, consecutiveFailures: health.consecutiveFailures }); } catch (e) { next(e); }
-});
-
-// ======================== وضعیت کلی ========================
 app.get('/', async (req, res) => {
     let pendingOutbox = 0;
     try { pendingOutbox = await getDB().collection('telegram_outbox').countDocuments({ sentAt: null, attempts: { $lt: 120 }, createdAt: { $lt: new Date(Date.now() - 120000) } }); } catch (e) {}
     const t = getTehranParts();
-    res.json({ status: 'ok', version: SERVER_VERSION, startedAt: STARTED_AT, commit: process.env.RENDER_GIT_COMMIT || null, apiKeysConfigured: API_KEYS.length, adminRequired: !!ADMIN_TOKEN, telegramConfigured: !!(TELEGRAM_TOKEN && TELEGRAM_CHAT_ID),
-        symbolsCached: symbolsCache.length, marketOpenNow: isMarketOpen(t), holidayToday: holidayDate === todayDateString(t),
-        entryWindow: `${fmtMin(ENTRY_START)}-${fmtMin(ENTRY_END)}`, health: { ...health }, pendingOutbox });
+    res.json({ status: 'ok', version: SERVER_VERSION, startedAt: STARTED_AT, commit: process.env.RENDER_GIT_COMMIT || null, apiKeysConfigured: API_KEYS.length, adminRequired: !!ADMIN_TOKEN, telegramConfigured: !!(TELEGRAM_TOKEN && TELEGRAM_CHAT_ID), symbolsCached: symbolsCache.length, marketOpenNow: isMarketOpen(t), holidayToday: holidayDate === todayDateString(t), entryWindow: `${fmtMin(ENTRY_START)}-${fmtMin(ENTRY_END)}`, health: { ...health }, pendingOutbox });
 });
 app.get('/api/logs', async (req, res, next) => {
     try {
@@ -1131,7 +928,6 @@ Options.registerRoutes(app, ObjectId);
 app.use((req, res) => { Log.push('warn', `404 ${req.method} ${req.originalUrl}`); res.status(404).json({ error: 'مسیر یافت نشد' }); });
 app.use((err, req, res, next) => { console.error('❌', err.message); res.status(500).json({ error: err.message || 'خطای داخلی' }); });
 
-// ======================== راه‌اندازی ========================
 async function ensureIndexes() {
     const db = getDB();
     await db.collection('candles_daily').createIndex({ symbol: 1, time: 1 }, { unique: true });
@@ -1140,11 +936,7 @@ async function ensureIndexes() {
     try { await db.collection('telegram_outbox').dropIndex('createdAt_1'); } catch (e) {}
     await Log.ensureIndexes(db);
 }
-
-async function reloadEntryWindow() {
-    const w = Settings.entryWindow();
-    ENTRY_START = w.start; ENTRY_END = w.end;
-}
+async function reloadEntryWindow() { const w = Settings.entryWindow(); ENTRY_START = w.start; ENTRY_END = w.end; }
 
 async function start() {
     await connectDB();
@@ -1168,11 +960,8 @@ async function start() {
         if (!isMarketOpen(t)) return;
         if (holidayDate === todayDateString(t)) {
             if (t.minute % 5 !== 0) return;
-            try {
-                const raw = await fetchAllSymbolsRaw();
-                if (raw.filter(s => +s.tno > 0).length >= 20) { holidayDate = null; inactiveTicks = 0; await getDB().collection('meta').deleteOne({ _id: 'holiday' }); await notify('🟢 بازار فعال شد.'); }
-                else return;
-            } catch (e) { return; }
+            try { const raw = await fetchAllSymbolsRaw(); if (raw.filter(s => +s.tno > 0).length >= 20) { holidayDate = null; inactiveTicks = 0; await getDB().collection('meta').deleteOne({ _id: 'holiday' }); await notify('🟢 بازار فعال شد.'); } else return; }
+            catch (e) { return; }
         }
         await tick();
     });
@@ -1197,5 +986,4 @@ async function start() {
     app.listen(PORT, () => console.log(`🚀 ${SERVER_VERSION} | port ${PORT} | keys ${API_KEYS.length}`));
     notify(`🚀 سرور ری‌استارت شد (${SERVER_VERSION})`).catch(() => {});
 }
-
 start().catch(e => { console.error('❌ راه‌اندازی:', e); process.exit(1); });
