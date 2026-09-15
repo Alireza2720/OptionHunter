@@ -99,20 +99,21 @@ function normCdf(x) {
     return x >= 0 ? 1 - p : p;
 }
 function bsCall(S, K, T, r, sig) {
-    if (T <= 0 || sig <= 0) {
+    if (T <= 0) {
         const v = Math.max(S - K * Math.exp(-r * Math.max(T, 0)), 0);
         return { price: v, delta: S > K ? 1 : 0, thetaDay: 0, vega: 0, gamma: 0 };
     }
+    if (!(sig > 0.01)) sig = 0.01;  // ✅ حداقل sigma — جلوگیری از قیمت صفر
     const sq = Math.sqrt(T), d1 = (Math.log(S / K) + (r + sig * sig / 2) * T) / (sig * sq), d2 = d1 - sig * sq;
-    const Nd1 = normCdf(d1), Nd2 = normCdf(d2), pdf = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI);
-    return {
-        price: S * Nd1 - K * Math.exp(-r * T) * Nd2,
-        delta: Nd1,
-        gamma: pdf / (S * sig * sq),
-        thetaDay: (-(S * pdf * sig) / (2 * sq) - r * K * Math.exp(-r * T) * Nd2) / 365,
-        vega: S * pdf * sq / 100
-    };
-}
+        const Nd1 = normCdf(d1), Nd2 = normCdf(d2), pdf = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI);
+        return {
+            price: S * Nd1 - K * Math.exp(-r * T) * Nd2,
+            delta: Nd1,
+            gamma: pdf / (S * sig * sq),
+            thetaDay: (-(S * pdf * sig) / (2 * sq) - r * K * Math.exp(-r * T) * Nd2) / 365,
+            vega: S * pdf * sq / 100
+        };
+    }
 function impliedVol(price, S, K, T, r) {
     if (!(price > 0) || T <= 0) return null;
     if (price <= Math.max(S - K * Math.exp(-r * T), 0) * 1.001) return null;
@@ -806,11 +807,15 @@ async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
     }
 
     const trades = [];
+    const skipReasons = { entryZero: 0, exitZero: 0, noHv: 0 };
+    let skippedCount = 0;
+    const skippedExamples = [];
+
     for (const t of closedTrades) {
         let idx = -1;
         for (let i = 0; i < times.length; i++) { if (times[i] <= t.entryTime) idx = i; else break; }
         const hv = (idx >= 0 ? historicalHV(closes, idx) : null) || 0.4;
-        const sigma = hv * p.ivMultiplier;
+        const sigma = Math.max(hv * p.ivMultiplier, 0.05);  // ✅ حداقل ۵٪
         const daysHeld = Math.max((t.exitTime - t.entryTime) / 86400, 0.1);
         const Tentry = p.assumedMaturityDays / 365;
         const Texit = Math.max(p.assumedMaturityDays - daysHeld, 0.5) / 365;
@@ -820,7 +825,27 @@ async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
         const halfSpread = p.spreadPct / 200;
         const entryCost = entryTheo.price * (1 + halfSpread) * (1 + FEE_BUY);
         const exitProceeds = exitTheo.price * (1 - halfSpread) * (1 - FEE_SELL);
-        if (!(entryCost > 0)) continue;
+
+        // ✅ بررسی دقیق‌تر با دلیل skip
+        if (!(entryTheo.price > 0)) {
+            skipReasons.entryZero++;
+            skippedCount++;
+            if (skippedExamples.length < 3) {
+                skippedExamples.push(`${new Date(t.entryTime*1000).toLocaleDateString('fa-IR')}: قیمت نظری ورود صفر (S=${Math.round(t.entryPrice)}, K=${strike})`);
+            }
+            continue;
+        }
+        if (!(entryCost > 0)) {
+            skipReasons.entryZero++;
+            skippedCount++;
+            continue;
+        }
+        if (!(exitProceeds >= 0) || !isFinite(exitProceeds)) {
+            skipReasons.exitZero++;
+            skippedCount++;
+            continue;
+        }
+
         trades.push({
             entryTime: t.entryTime, exitTime: t.exitTime,
             stockEntry: t.entryPrice, stockExit: t.exitPrice,
@@ -845,7 +870,21 @@ async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
         },
         trades
     };
-    if (!trades.length) result.diagnostic = 'هیچ معامله‌ای تولید نشد.';
+
+    // ✅ diagnostic کامل
+    if (!trades.length) {
+        result.diagnostic = `هیچ معامله‌ای تولید نشد. (${skippedCount} skip)`;
+    } else if (skippedCount > 0) {
+        result.diagnostic = `${skippedCount} از ${closedTrades.length} معامله skip شد (ورود صفر: ${skipReasons.entryZero}، خروج صفر: ${skipReasons.exitZero})`;
+    }
+    if (skippedCount > 0) {
+        result.skipped = {
+            count: skippedCount,
+            total: closedTrades.length,
+            reasons: skipReasons,
+            examples: skippedExamples
+        };
+    }
     return result;
 }
 
@@ -859,6 +898,9 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
     }
 
     const trades = [];
+    const skipReasons = { noEntryCandidates: 0, noDeltaMatch: 0, noExitBid: 0 };
+    let skippedCount = 0;
+
     for (const t of closedTrades) {
         const entryDate = new Date(t.entryTime * 1000);
         const exitDate = new Date(t.exitTime * 1000);
@@ -868,7 +910,7 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
             daysLeft: { $gte: p.minDays, $lte: p.maxDays },
             bid: { $gt: 0 }, ask: { $gt: 0 }, oi: { $gt: 0 }
         }).toArray();
-        if (!entryCandidates.length) continue;
+        if (!entryCandidates.length) { skipReasons.noEntryCandidates++; skippedCount++; continue; }
 
         const targetDelta = 0.55;
         let best = null, bestDiff = Infinity;
@@ -878,7 +920,7 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
             const diff = Math.abs(delta - targetDelta);
             if (diff < bestDiff) { bestDiff = diff; best = c; }
         }
-        if (!best) continue;
+        if (!best) { skipReasons.noDeltaMatch++; skippedCount++; continue; }
 
         const exitRows = await db.collection('option_history').find({
             symbol: best.symbol,
@@ -890,7 +932,7 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
             const lastRow = await db.collection('option_history').find({ symbol: best.symbol, time: { $lt: exitDate } }).sort({ time: -1 }).limit(1).toArray();
             if (lastRow.length) exitBid = lastRow[0].bid;
         }
-        if (!exitBid) continue;
+        if (!exitBid) { skipReasons.noExitBid++; skippedCount++; continue; }
 
         const entryCost = best.ask * (1 + FEE_BUY);
         const exitProceeds = exitBid * (1 - FEE_SELL);
@@ -909,7 +951,7 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
     const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
     const gp = sum(wins), gl = -sum(trades.filter(x => x.pnlPct <= 0));
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
-    return {
+    const result = {
         available: true,
         stats: {
             count: trades.length,
@@ -919,6 +961,15 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
         },
         trades, coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
     };
+    if (skippedCount > 0) {
+        result.skipped = {
+            count: skippedCount,
+            total: closedTrades.length,
+            reasons: skipReasons
+        };
+        result.diagnostic = `${skippedCount} از ${closedTrades.length} معامله skip شد (بدون قرارداد: ${skipReasons.noEntryCandidates}، دلتا نامناسب: ${skipReasons.noDeltaMatch}، بدون قیمت خروج: ${skipReasons.noExitBid})`;
+    }
+    return result;
 }
 
 // ======================== روت‌ها ========================

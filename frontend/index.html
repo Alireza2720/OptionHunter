@@ -22,7 +22,10 @@
     * { box-sizing:border-box; margin:0; padding:0; }
     html, body { overflow-x:hidden; max-width:100%; }
     body { font-family:'Vazirmatn',Tahoma,sans-serif; background:var(--bg); color:var(--text); padding:24px; line-height:1.7; transition:background .3s, color .3s; }
-    body.menu-open { overflow:hidden !important; position:fixed; width:100%; }
+    body.menu-open { overflow:hidden !important; position:fixed; width:100%; top:0; left:0; }
+    .menu-tab-content { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: 40px; }
+    .modal { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    .table-responsive { overscroll-behavior-x: contain; }
     .container { max-width:1280px; margin:0 auto; }
 
     header { text-align:center; margin-bottom:22px; }
@@ -418,7 +421,8 @@ const PARAM_LABELS = {
     threshold:'آستانه مجموع وزن', minAgree:'حداقل تعداد استراتژی موافق',
     wRsi:'وزن RSI', wEma:'وزن EMA', wIchimoku:'وزن Ichimoku',
     wSmc:'وزن SMC', wSilver:'وزن Silver Bullet', wOb:'وزن OB+Sweep',
-    minSweepDepthPct:'حداقل عمق شکار نقدینگی (٪)',
+    // ===== استراتژی‌های جدید =====
+    minSweepDepthPct:'حداقل عمق شکار نقدینگی LHR (٪)',
     confirmBars:'تعداد کندل تأیید',
     volPeriod:'دوره میانگین حجم',
     volMult:'ضریب حجم نسبی',
@@ -432,11 +436,12 @@ const PARAM_LABELS = {
     baseBars:'تعداد کندل پایه',
     minMovePct:'حداقل حرکت بعد از zone (٪)',
     zoneLookback:'پنجره جستجوی zone',
-    zoneTouchPct:'درصد نزدیکی به zone',
+    zoneTouchPct:'درصد نزدیکی به zone'
 };
 
 const IND_LABELS = { rsiFast:'RSI سریع', rsiSlow:'RSI کند', emaFast:'EMA سریع', emaMid:'EMA میانی', emaSlow:'EMA کند', atr:'ATR', stop:'حد ضرر',
-    signal:'Signal', hist:'هیستوگرام', tenkan:'Tenkan', kijun:'Kijun', spanA:'Span A', spanB:'Span B',    rsi:'RSI', relVol:'حجم نسبی', delta:'دلتا', hist:'هیستوگرام MACD' };
+    signal:'Signal', hist:'هیستوگرام MACD', tenkan:'Tenkan', kijun:'Kijun', spanA:'Span A', spanB:'Span B',
+    rsi:'RSI', relVol:'حجم نسبی', delta:'دلتا' };
 const OPT_LABELS = { minDays:'حداقل روز تا سررسید', maxDays:'حداکثر روز تا سررسید', maxSpreadPct:'حداکثر اسپرد (٪)', minOI:'حداقل موقعیت باز', minTrades:'حداقل معامله امروز', minPremium:'حداقل پرمیوم', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'R:R هدف', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر آپشن (٪)', take1Pct:'هشدار نیمه‌فروش (٪)', take2Pct:'حد سود کامل (٪)', closeDaysBefore:'بستن X روز قبل سررسید' };
 const TRADING_LABELS = {
     ENTRY_START: 'شروع بازه ورود (HH:MM)', ENTRY_END: 'پایان بازه ورود (HH:MM)',
@@ -848,7 +853,13 @@ async function runOptionBacktest(id) {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}`);
         const a = r.assumptions;
-        const diag = r.diagnostic ? `<div class="msg-warn" style="display:block;background:rgba(217,83,79,.1);color:var(--bad);">${esc(r.diagnostic)}</div>` : '';
+        let diag = '';
+        if (r.diagnostic) {
+            diag = `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);">ℹ️ ${esc(r.diagnostic)}</div>`;
+        }
+        if (r.skipped && r.skipped.examples && r.skipped.examples.length) {
+            diag += `<div class="msg-warn" style="display:block;background:rgba(61,125,216,.08);color:var(--accent);font-size:11.5px;">نمونه‌های skip:<br>${r.skipped.examples.map(esc).join('<br>')}</div>`;
+        }
         const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV = ${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪.</div>
             <div class="stats-grid">
                 <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
@@ -1191,7 +1202,18 @@ async function runBacktestCompare() {
         if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--warn);font-size:11.5px;">⚠️ ${esc(x.error)}</td></tr>`;
         if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--bad);font-size:11.5px;">❌ ${esc(x.error)}</td></tr>`;
         const o = x.option || {}, s = x.stock || {};
-        return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td></tr>`;
+        // ✅ badge برای skip
+        let optCell = `${o.count || 0}`;
+        if (o.diagnostic) {
+            const title = esc(o.diagnostic);
+            optCell += ` <span class="badge warn" title="${title}" style="cursor:help;">!</span>`;
+        }
+        if (o.skipped && o.skipped.count > 0) {
+            const reasons = o.skipped.reasons || {};
+            const reasonTitle = Object.entries(reasons).filter(([k,v]) => v > 0).map(([k,v]) => `${k}: ${v}`).join(' | ');
+            optCell += `<br><small style="color:var(--text-dim);font-size:10px;" title="${esc(reasonTitle)}">${o.skipped.count} skip</small>`;
+        }
+        return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${optCell}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td></tr>`;
     }).join('');
     resultsDiv.innerHTML = `<div class="hint" style="margin-bottom:10px;">${allResults.length} ترکیب — <span style="color:var(--good);">${validCount} موفق</span> · <span style="color:var(--warn);">${insufficientCount} داده ناکافی</span> · <span style="color:var(--bad);">${errorCount} خطا</span></div><div class="table-responsive"><table class="data-table"><thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th></tr><tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     btn.disabled = false;
