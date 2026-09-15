@@ -3,7 +3,6 @@
     else root.TradingStrategies = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
 
-    // ---------------- زمان تهران ----------------
     function getTehranParts(date) {
         const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
         const map = {}; fmt.formatToParts(date).forEach(p => { map[p.type] = p.value; });
@@ -15,7 +14,6 @@
 
     const TIMEFRAME_MINUTES = { '1m': 1, '3m': 3, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '1h': 60, '1d': 1440 };
 
-    // ---------------- تجمیع کندل ----------------
     const SESSION_START_MIN = 9 * 60, SESSION_END_MIN = 12 * 60 + 30;
     function expectedBarsFor(bucketStartMin, tfMin) {
         const overlap = Math.max(0, Math.min(bucketStartMin + tfMin, SESSION_END_MIN) - Math.max(bucketStartMin, SESSION_START_MIN));
@@ -38,7 +36,6 @@
         return Array.from(map.values()).map(x => ({ ...x, complete: x.barCount >= Math.max(1, x.expectedBars) * 0.6 })).sort((a, b) => a.time - b.time);
     }
 
-    // ---------------- کندل‌ها ----------------
     function calculateHeikinAshi(data) {
         const ha = [];
         for (let i = 0; i < data.length; i++) {
@@ -54,7 +51,6 @@
     function getDisplayCandles(data, candleType) { return candleType === 'simple' ? calculateSimpleCandles(data) : calculateHeikinAshi(data); }
     function noLowerWick(h) { return h.low >= Math.min(h.open, h.close) * 0.999; }
 
-    // ---------------- اندیکاتورها ----------------
     function calculateRSI(closes, period) {
         const rsi = new Array(closes.length).fill(null); if (closes.length <= period) return rsi;
         let g = 0, l = 0;
@@ -100,7 +96,6 @@
         return { tenkan, kijun, spanA, spanB };
     }
 
-    // ---------------- تایم‌فریم بالا ----------------
     function htfCloseTime(c, htfMin) {
         const t = getTehranParts(new Date(c.time * 1000));
         if (htfMin >= 1440 || (htfMin === 60 && t.hour === 11)) return Math.floor(tehranPartsToUTC(t.year, t.month, t.day, 12, 30).getTime() / 1000);
@@ -136,18 +131,19 @@
     const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
     // ==========================================================
-    // استراتژی ۱: پولبک RSI (کانرز) — بهینه‌شده بر اساس بک‌تست‌های بین‌المللی
+    // استراتژی ۱: RSI Pullback (کانرز) — نسخه تعدیل‌شده
+    // تغییرات: rsiOversold 15→10، lookback 3→4، maxHoldBars 10→15، atrMult 2→1.8
     // ==========================================================
     const RSI_DEFAULTS = {
         rsiFastPeriod: 2,
         rsiSlowPeriod: 50,
-        rsiOversold: 15,       // تغییر: 10 → 15 (کاهش whipsaw)
-        rsiOverbought: 80,
-        lookback: 3,
-        maxHoldBars: 10,
+        rsiOversold: 10,
+        rsiOverbought: 75,
+        lookback: 4,
+        maxHoldBars: 15,
         cooldownBars: 2,
         atrPeriod: 14,
-        atrMult: 2,
+        atrMult: 1.8,
         requireNoLowerWick: 0,
         htfEma: 20,
         htfRsiPeriod: 14
@@ -168,11 +164,11 @@
             if (rsiFast[i] === null || rsiSlow[i] === null || atr[i] === null) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
             if (position === 'LONG') {
                 const bars = i - entry.idx;
-                if (rsiFast[i] >= p.rsiOverbought) reason = `RSI${p.rsiFastPeriod} به ${rsiFast[i].toFixed(0)} رسید (اشباع خرید)`;
-                else if (c.close < entry.stop) reason = `شکست حد ضرر ATR (${Math.round(entry.stop).toLocaleString()})`;
+                if (rsiFast[i] >= p.rsiOverbought) reason = `RSI${p.rsiFastPeriod} به ${rsiFast[i].toFixed(0)} رسید`;
+                else if (c.close < entry.stop) reason = `شکست حد ضرر ATR`;
                 else if (!h.bullish && hp && !hp.bullish) reason = 'دو کندل HA نزولی متوالی';
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars}`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
@@ -189,7 +185,7 @@
                         position = 'LONG'; signalType = 'BUY';
                         entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
                         ind.stop = round(entry.stop);
-                        reason = `پولبک RSI${p.rsiFastPeriod} در روند صعودی ${htfName} + برگشت کندل به صعودی`;
+                        reason = `پولبک RSI${p.rsiFastPeriod} در روند ${htfName} صعودی`;
                         trades.push({ type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: entry.stop, reason });
                     }
                 }
@@ -200,20 +196,21 @@
     }
 
     // ==========================================================
-    // استراتژی ۲: پولبک به EMA — بهینه‌شده (pullback تنگ‌تر)
+    // استراتژی ۲: EMA Pullback — نسخه تعدیل‌شده
+    // تغییرات: pullbackPct 0.5→1.0، requireNoLowerWick 1→0، maxHoldBars 40→30، atrMult 2.5→2.0، exitBufferPct 0.5→0.8
     // ==========================================================
     const EMA_DEFAULTS = {
         emaFast: 25,
         emaMid: 50,
         emaSlow: 100,
-        pullbackPct: 0.5,      // تغییر: 1 → 0.5 (ورود بهتر)
+        pullbackPct: 1.0,
         lookback: 5,
-        exitBufferPct: 0.5,
-        maxHoldBars: 40,
+        exitBufferPct: 0.8,
+        maxHoldBars: 30,
         cooldownBars: 3,
         atrPeriod: 14,
-        atrMult: 2.5,
-        requireNoLowerWick: 1,
+        atrMult: 2.0,
+        requireNoLowerWick: 0,
         htfEma: 20,
         htfRsiPeriod: 14
     };
@@ -235,11 +232,11 @@
                 entry.stop = Math.max(entry.stop, c.close - p.atrMult * atr[i]);
                 ind.stop = round(entry.stop);
                 const bars = i - entry.idx;
-                if (c.close < entry.stop) reason = `شکست حد ضرر تریلینگ (${Math.round(entry.stop).toLocaleString()})`;
-                else if (c.close < eF[i] * (1 - p.exitBufferPct / 100) && !h.bullish) reason = `بسته‌شدن زیر EMA${p.emaFast} با کندل نزولی`;
-                else if (eF[i] < eM[i]) reason = `هم‌ترازی EMA شکست (EMA${p.emaFast} < EMA${p.emaMid})`;
+                if (c.close < entry.stop) reason = `شکست حد ضرر تریلینگ`;
+                else if (c.close < eF[i] * (1 - p.exitBufferPct / 100) && !h.bullish) reason = `بسته‌شدن زیر EMA${p.emaFast}`;
+                else if (eF[i] < eM[i]) reason = `هم‌ترازی EMA شکست`;
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars}`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
@@ -258,7 +255,7 @@
                             position = 'LONG'; signalType = 'BUY';
                             entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
                             ind.stop = round(entry.stop);
-                            reason = `پولبک به EMA${p.emaFast} در روند صعودی ${htfName} + کندل صعودی${p.requireNoLowerWick ? ' بدون سایه' : ''}`;
+                            reason = `پولبک به EMA${p.emaFast} در روند ${htfName} صعودی`;
                             trades.push({ type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: entry.stop, reason });
                         }
                     }
@@ -270,17 +267,18 @@
     }
 
     // ==========================================================
-    // استراتژی ۳: ابر ایچیموکو — بهینه‌شده برای بازار ایران
+    // استراتژی ۳: Ichimoku — با ابر Senkou B = 52
+    // تغییرات: senkouBPeriod 26→52، maxHoldBars 20→25، atrMult 2.5→2.0، requireNoLowerWick 1→0
     // ==========================================================
     const ICHIMOKU_DEFAULTS = {
         tenkanPeriod: 9,
         kijunPeriod: 26,
-        senkouBPeriod: 26,      // تغییر: 52 → 26 (سازگار با بازار ایران)
-        maxHoldBars: 20,
+        senkouBPeriod: 52,
+        maxHoldBars: 25,
         cooldownBars: 3,
         atrPeriod: 14,
-        atrMult: 2.5,
-        requireNoLowerWick: 1,
+        atrMult: 2.0,
+        requireNoLowerWick: 0,
         htfEma: 20,
         htfRsiPeriod: 14
     };
@@ -314,7 +312,7 @@
                 else if (tkCrossDown) reason = 'کراس نزولی Tenkan/Kijun';
                 else if (c.close < entry.stop) reason = `شکست حد ضرر ATR`;
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars}`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
@@ -330,7 +328,7 @@
                         position = 'LONG'; signalType = 'BUY';
                         entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
                         ind.stop = round(entry.stop);
-                        reason = `قیمت بالای ابر سبز + کراس صعودی T/K + روند ${htfName} صعودی`;
+                        reason = `قیمت بالای ابر سبز + کراس صعودی T/K + روند ${htfName}`;
                         trades.push({ type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: entry.stop, reason });
                     }
                 }
@@ -341,16 +339,18 @@
     }
 
     // ==========================================================
-    // استراتژی ۴: SMC Unicorn — بهینه‌شده بر اساس بک‌تست
+    // استراتژی ۴: SMC Unicorn — نسخه سست‌شده
+    // تغییرات: swingLength 5→3، fvgMinGapPct 0.05→0.02، minLiquiditySweepPct 0.1→0.03،
+    //          useOTE 1→0، oteLow 0.618→0.5، oteHigh 0.786→0.886
     // ==========================================================
     const SMC_DEFAULTS = {
-        swingLength: 5,
+        swingLength: 3,
         htfEma: 20,
         htfRsiPeriod: 14,
-        fvgMinGapPct: 0.05,
-        useOTE: 1,
-        oteLow: 0.618,
-        oteHigh: 0.786,
+        fvgMinGapPct: 0.02,
+        useOTE: 0,
+        oteLow: 0.5,
+        oteHigh: 0.886,
         atrPeriod: 14,
         atrMult: 1.5,
         maxHoldBars: 20,
@@ -359,7 +359,7 @@
         tp1R: 1,
         tp2R: 2,
         tp3R: 3,
-        minLiquiditySweepPct: 0.1,
+        minLiquiditySweepPct: 0.03,
         requireVolumeFilter: 0,
         useKillzone: 0,
         killzone1Start: 9.5,
@@ -398,7 +398,7 @@
                 else if (entry.tp1Hit && !entry.tp2Hit && c.close >= entry.entry + R * p.tp2R) entry.tp2Hit = true;
                 else if (entry.tp2Hit && c.close >= entry.entry + R * p.tp3R) reason = `رسیدن به هدف سوم (${p.tp3R}R)`;
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars}`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1];
@@ -447,19 +447,22 @@
     }
 
     // ==========================================================
-    // استراتژی ۵: ICT Silver Bullet
+    // استراتژی ۵: ICT Silver Bullet — هدف 4R، پنجره‌های گسترده‌تر
+    // تغییرات: targetR 2.5→4، پنجره‌ها گسترده‌تر، maxHoldBars 15→20، displacementMult 1.3→1.1
     // ==========================================================
     const SB_DEFAULTS = {
         htfEma: 20, htfRsiPeriod: 14,
         fvgMinGapPct: 0.05,
         atrPeriod: 14, atrMult: 1.2,
-        maxHoldBars: 15, cooldownBars: 2,
-        sb1Start: 9.5, sb1End: 10.0,
-        sb2Start: 10.5, sb2End: 11.0,
+        maxHoldBars: 20,
+        cooldownBars: 2,
+        targetR: 4.0,
+        sb1Start: 9.5, sb1End: 10.5,
+        sb2Start: 10.5, sb2End: 11.5,
         sb3Start: 11.5, sb3End: 12.0,
         useSessionEndExit: 1,
         requireDisplacement: 1,
-        displacementMult: 1.3
+        displacementMult: 1.1
     };
     function runSilverBullet(candles, params, ctx) {
         const p = { ...SB_DEFAULTS, ...(params || {}) };
@@ -483,7 +486,7 @@
                 else if (c.close >= entry.target) reason = `رسیدن به هدف (${entry.rr}R)`;
                 else if (p.useSessionEndExit && !inSilverBulletWindow(c.time) && hourFloatOfDay(c.time) > p.sb3End) reason = 'پایان پنجره Silver Bullet';
                 else if (trend === 'نزولی') reason = `روند ${htfName} نزولی شد`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars}`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
@@ -498,11 +501,11 @@
                         const stopPrice = fvg.bottom - p.atrMult * atr[i];
                         const risk = entryPrice - stopPrice;
                         if (risk <= 0) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
-                        const target = entryPrice + risk * 2.5;
+                        const target = entryPrice + risk * p.targetR;
                         position = 'LONG'; signalType = 'BUY';
-                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, target, rr: 2.5, fvgTop: fvg.top, fvgBottom: fvg.bottom };
+                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, target, rr: p.targetR, fvgTop: fvg.top, fvgBottom: fvg.bottom };
                         ind.stop = round(stopPrice);
-                        reason = `ICT Silver Bullet: FVG retest + displacement`;
+                        reason = `ICT Silver Bullet: FVG retest + displacement (${p.targetR}R)`;
                         trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, target, reason });
                     }
                 }
@@ -513,16 +516,18 @@
     }
 
     // ==========================================================
-    // استراتژی ۶: Order Block + Liquidity Sweep — بهینه‌شده
+    // استراتژی ۶: OB + Sweep — منطق «۲ از ۳ شرط»
+    // تغییرات: از «هر ۳ شرط» به «حداقل ۲ شرط از ۳» (Sweep + MSS + OB)
     // ==========================================================
     const OB_DEFAULTS = {
         swingLength: 5,
         htfEma: 20, htfRsiPeriod: 14,
         atrPeriod: 14, atrMult: 1.5,
         maxHoldBars: 25, cooldownBars: 3,
-        tp1R: 1.5, tp2R: 2.5,
-        obLookback: 5,          // تغییر: 10 → 5 (سیگنال‌های تازه‌تر)
-        minSweepPct: 0.05
+        tp1R: 1.5, tp2R: 3.0,
+        obLookback: 5,
+        minSweepPct: 0.05,
+        minConditions: 2
     };
     function runOBSweep(candles, params, ctx) {
         const p = { ...OB_DEFAULTS, ...(params || {}) };
@@ -559,15 +564,23 @@
                 if (cooldown > 0) cooldown--;
                 else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
                     const sweep = detectSweep(i), mss = detectMSS(i), ob = findOrderBlock(i);
-                    if (sweep && mss && ob && h.bullish) {
-                        const entryPrice = ob.top;
-                        const stopPrice = Math.min(ob.bottom, sweep.sweepLow) - p.atrMult * atr[i];
+                    const condCount = [!!sweep, !!mss, !!ob].filter(Boolean).length;
+                    if (condCount >= p.minConditions && h.bullish) {
+                        // ورود از نزدیک‌ترین ناحیه موجود
+                        const entryPrice = ob ? ob.top : c.close;
+                        let stopPrice;
+                        if (sweep && ob) stopPrice = Math.min(ob.bottom, sweep.sweepLow);
+                        else if (sweep) stopPrice = sweep.sweepLow;
+                        else if (ob) stopPrice = ob.bottom;
+                        else stopPrice = c.close - 2 * atr[i];
+                        stopPrice -= p.atrMult * atr[i];
                         const risk = entryPrice - stopPrice;
                         if (risk <= 0) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
                         position = 'LONG'; signalType = 'BUY';
-                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false, obTop: ob.top, obBottom: ob.bottom };
+                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false, obTop: ob ? ob.top : null, obBottom: ob ? ob.bottom : null };
                         ind.stop = round(stopPrice);
-                        reason = `OB+Sweep: Sweep + MSS + Order Block`;
+                        const parts = []; if (sweep) parts.push('Sweep'); if (mss) parts.push('MSS'); if (ob) parts.push('OB');
+                        reason = `OB+Sweep [${parts.join('+')}] | ${condCount}/3`;
                         trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, tp1R: p.tp1R, tp2R: p.tp2R, reason });
                     }
                 }
@@ -578,17 +591,17 @@
     }
 
     // ==========================================================
-    // استراتژی ۷: Ensemble — وزنی، بدون MACD
+    // استراتژی ۷: Ensemble — وزن‌های به‌روز، threshold 1.2
     // ==========================================================
     const ENSEMBLE_DEFAULTS = {
-        threshold: 1.5,
+        threshold: 1.2,
         minAgree: 2,
-        wRsi: 0.75,
-        wEma: 0.90,
-        wIchimoku: 0.80,
-        wSmc: 1.50,           // وزن بالاتر برای بهترین استراتژی
-        wSilver: 1.10,
-        wOb: 0.55,
+        wRsi: 0.85,
+        wEma: 0.95,
+        wIchimoku: 1.00,
+        wSmc: 1.30,
+        wSilver: 1.25,
+        wOb: 0.70,
         cooldownBars: 3,
         maxHoldBars: 30,
         atrPeriod: 14,
@@ -637,7 +650,7 @@
                 const bars = i - entry.idx;
                 if (exitWeight >= p.threshold && exitCount >= p.minAgree) reason = `Ensemble EXIT: ${exitCount} استراتژی (وزن ${exitWeight.toFixed(2)})`;
                 else if (c.close < entry.stop) reason = `شکست حد ضرر`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars} کندل`;
+                else if (bars >= p.maxHoldBars) reason = `سقف زمانی ${p.maxHoldBars}`;
                 if (reason) {
                     position = null; signalType = 'EXIT_LONG';
                     const tr = trades[trades.length - 1];
@@ -660,7 +673,9 @@
         return { ha: firstHa, signals, trades, htfTrend: lastTrend };
     }
 
-    // ---------------- تعریف استراتژی‌ها ----------------
+    // ==========================================================
+    // تعریف استراتژی‌ها
+    // ==========================================================
     const STRATEGIES = {
         rsi50_2: {
             id: 'rsi50_2', name: 'RSI', defaultTimeframe: '30m', htfTimeframe: '1d',

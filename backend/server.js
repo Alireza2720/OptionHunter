@@ -17,10 +17,9 @@ const STARTED_AT = new Date();
 const app = express();
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v6.0-leader-capital';
+const SERVER_VERSION = 'v7.0-multiconf-capital3L';
 let holidayDate = null, inactiveTicks = 0;
 
-// ---------------- تنظیمات ----------------
 const API_KEYS = [process.env.BRSAPI_KEY_1 || process.env.BRSAPI_KEY, process.env.BRSAPI_KEY_2, process.env.BRSAPI_KEY_3].filter(Boolean);
 const PER_KEY_LIMIT = 90;
 const HISTORY_PER_KEY_LIMIT = 10;
@@ -40,7 +39,6 @@ let ENTRY_END = toMin(process.env.ENTRY_END || '12:00');
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
-// ---------------- احراز هویت ادمین ----------------
 app.use((req, res, next) => {
     if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
     if (!ADMIN_TOKEN) return next();
@@ -49,7 +47,7 @@ app.use((req, res, next) => {
 });
 app.get('/api/auth/check', (req, res) => res.json({ required: !!ADMIN_TOKEN, ok: !ADMIN_TOKEN || req.headers['x-admin-token'] === ADMIN_TOKEN }));
 
-// ---------------- تنظیمات معاملات ----------------
+// ======================== تنظیمات معاملات ========================
 app.get('/api/trading-settings', async (req, res, next) => {
     try { res.json({ values: Settings.get(), defaults: Settings.DEFAULTS }); } catch (e) { next(e); }
 });
@@ -62,10 +60,45 @@ app.put('/api/trading-settings', async (req, res, next) => {
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ======================== پیش‌فرض استراتژی‌ها ========================
+app.get('/api/strategy-defaults', (req, res) => {
+    const overrides = Settings.getAllStrategyDefaults();
+    const all = {};
+    Object.values(STRATEGIES).forEach(s => {
+        all[s.id] = { ...s.defaultParams, ...(overrides[s.id] || {}) };
+    });
+    res.json({ defaults: all, overrides });
+});
+app.put('/api/strategy-defaults', async (req, res, next) => {
+    try {
+        const { overrides } = req.body || {};
+        if (!overrides || typeof overrides !== 'object') return res.status(400).json({ error: 'ساختار نامعتبر' });
+        // validate: هر کلید باید strategyId معتبر باشه
+        const clean = {};
+        for (const [sid, params] of Object.entries(overrides)) {
+            if (!STRATEGIES[sid]) continue;
+            clean[sid] = {};
+            for (const [k, v] of Object.entries(params || {})) {
+                if (STRATEGIES[sid].defaultParams[k] !== undefined && Number.isFinite(+v)) {
+                    clean[sid][k] = +v;
+                }
+            }
+        }
+        await Settings.saveStrategyDefaults(clean);
+        res.json({ success: true, overrides: clean });
+    } catch (e) { next(e); }
+});
+app.delete('/api/strategy-defaults/:strategyId?', async (req, res, next) => {
+    try {
+        await Settings.resetStrategyDefaults(req.params.strategyId || null);
+        res.json({ success: true });
+    } catch (e) { next(e); }
+});
+
 app.get('/ping', (req, res) => res.json({ pong: true, time: new Date().toISOString() }));
 app.get('/strategies.js', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'strategies.js')); });
 
-// ---------------- زمان تهران ----------------
+// ======================== زمان تهران ========================
 function getTehranParts(date = new Date()) {
     const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, weekday: 'short' });
     const map = {}; fmt.formatToParts(date).forEach(p => { map[p.type] = p.value; });
@@ -79,7 +112,7 @@ const isMarketOpen = t => isTradingDay(t) && minuteOfDay(t) >= SESSION_START && 
 function getBucketTime(t, size) { const b = Math.floor(minuteOfDay(t) / size) * size; return tehranPartsToUTCDate(t.year, t.month, t.day, Math.floor(b / 60), b % 60); }
 const dayStartUTC = t => tehranPartsToUTCDate(t.year, t.month, t.day, 0, 0);
 
-// ---------------- سهمیه‌ی کلیدها ----------------
+// ======================== سهمیه کلیدها ========================
 const usageId = (i, prefix = 'allsymbols') => `${prefix}_usage_key${i + 1}`;
 async function getKeyUsage(i, prefix = 'allsymbols') {
     const db = getDB(), today = todayDateString(getTehranParts());
@@ -106,7 +139,7 @@ async function getAllUsage() {
 }
 app.get('/api/usage', async (req, res, next) => { try { res.json(await getAllUsage()); } catch (e) { next(e); } });
 
-// ---------------- لیست نمادها ----------------
+// ======================== لیست نمادها ========================
 let symbolsCache = [];
 async function fetchAllSymbolsRaw() {
     if (!API_KEYS.length) throw new Error('هیچ کلید BrsApi تنظیم نشده است.');
@@ -138,9 +171,8 @@ function getUnderlyingNames(symbol) {
     return Array.from(names);
 }
 
-// ---------------- آخرین قیمت‌ها ----------------
+// ======================== آخرین قیمت‌ها ========================
 const lastQuotes = new Map();
-
 let rawSymbolsCache = { at: 0, data: null };
 async function fetchAllSymbolsRawCached(maxAgeMs = 15000) {
     if (rawSymbolsCache.data && Date.now() - rawSymbolsCache.at < maxAgeMs) return rawSymbolsCache.data;
@@ -180,7 +212,7 @@ async function refreshSymbolData(symbol) {
     }
 }
 
-// ---------------- تلگرام ----------------
+// ======================== تلگرام ========================
 async function telegramSend(text) {
     if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('تلگرام تنظیم نشده است');
     const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text }), timeout: 15000 });
@@ -203,10 +235,10 @@ async function notify(text) {
     flushOutbox().catch(() => {});
 }
 app.post('/api/telegram/test', async (req, res, next) => {
-    try { await notify('🔔 پیام تست — اگر این را در تلگرام می‌بینید، ارسال سالم است.'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); }
+    try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); }
 });
 
-// ---------------- سلامت ----------------
+// ======================== سلامت ========================
 const health = { consecutiveFailures: 0, alerted: false, lastError: null, lastTickAt: null };
 async function bumpDayStat(field, n = 1) {
     const today = todayDateString(getTehranParts());
@@ -215,7 +247,7 @@ async function bumpDayStat(field, n = 1) {
 async function recordTickFailure(msg) {
     health.consecutiveFailures++; health.lastError = msg; await bumpDayStat('ticksFail');
     console.error('❌ تیک ناموفق:', msg);
-    if (health.consecutiveFailures === 5 && !health.alerted) { health.alerted = true; await notify(`🔴 پنج تیک پیاپی ناموفق — بازار پایش نمی‌شود!\nآخرین خطا: ${msg}`); }
+    if (health.consecutiveFailures === 5 && !health.alerted) { health.alerted = true; await notify(`🔴 پنج تیک پیاپی ناموفق!\n${msg}`); }
 }
 async function recordTickSuccess() {
     if (health.alerted) { health.alerted = false; await notify('🟢 سیستم به حالت عادی برگشت.'); }
@@ -225,54 +257,53 @@ async function sendDailySummary() {
     const today = todayDateString(getTehranParts());
     const st = await getDB().collection('meta').findOne({ _id: `daystats_${today}` }) || {};
     const usage = await getAllUsage();
-    let optLine = '', storLine = '';
+    let optLine = '', storLine = '', portfolioLine = '';
     try { const list = await getDB().collection('option_positions').find({}).toArray(); const s = Options.positionStats(list); optLine = `\nآپشن: باز ${s.open} | بسته ${s.closed} | وین‌ریت ${s.winRate.toFixed(0)}٪ | بازده کل ${s.totalPnl.toFixed(0)}٪`; } catch (e) {}
-    try { const sg = await Options.storageStats(); storLine = `\nدیتابیس اصلی: ${sg.storageMB} MB`; } catch (e) {}
-    let portfolioLine = '';
+    try { const sg = await Options.storageStats(); storLine = `\nدیتابیس: ${sg.storageMB} MB`; } catch (e) {}
     try {
-        const s = Settings.get();
         const open = await getDB().collection('option_positions').find({ status: 'open' }).toArray();
         let totalExposure = 0;
         for (const p of open) totalExposure += (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
-        const capital = s.TOTAL_CAPITAL || 0;
+        const capital = Settings.capital();
         portfolioLine = `\n💼 سرمایه: ${Math.round(capital).toLocaleString()} | درگیری: ${Math.round(totalExposure).toLocaleString()} (${capital > 0 ? (totalExposure/capital*100).toFixed(1) : 0}٪)`;
     } catch (e) {}
-    await notify(`📊 خلاصه‌ی روز ${today}\nتیک موفق: ${st.ticksOk || 0} | ناموفق: ${st.ticksFail || 0}\nسیگنال‌ها: ${st.signals || 0} | لغوشده: ${st.cancels || 0}${optLine}${portfolioLine}\nمصرف API: ${usage.total}/${usage.totalLimit}${storLine}`);
+    await notify(`📊 خلاصه‌ی روز ${today}\nتیک: موفق ${st.ticksOk || 0} | ناموفق ${st.ticksFail || 0}\nسیگنال: ${st.signals || 0} | لغو: ${st.cancels || 0}${optLine}${portfolioLine}\nAPI: ${usage.total}/${usage.totalLimit}${storLine}`);
 }
 
-// ---------------- بکاپ ----------------
+// ======================== بکاپ ========================
 async function telegramSendBackup(filename, jsonObj) {
     if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('تلگرام تنظیم نشده است');
     const blob = new Blob([JSON.stringify(jsonObj, null, 2)], { type: 'application/json' });
     const form = new FormData();
     form.append('chat_id', TELEGRAM_CHAT_ID);
-    form.append('caption', `💾 بکاپ تنظیمات (${todayDateString(getTehranParts())})`);
+    form.append('caption', `💾 بکاپ (${todayDateString(getTehranParts())})`);
     form.append('document', blob, filename);
     const r = await globalThis.fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument`, { method: 'POST', body: form });
-    const d = await r.json(); if (!d.ok) throw new Error(d.description || 'خطای ارسال بکاپ به تلگرام');
+    const d = await r.json(); if (!d.ok) throw new Error(d.description || 'خطای بکاپ');
 }
 async function sendWeeklyBackup() {
     const db = getDB();
-    const [symbols, configs, optSettings] = await Promise.all([
+    const [symbols, configs, optSettings, stratDefaults] = await Promise.all([
         db.collection('monitored_symbols').find({}).toArray(),
         db.collection('strategy_configs').find({}).toArray(),
-        db.collection('meta').findOne({ _id: 'option_settings' })
+        db.collection('meta').findOne({ _id: 'option_settings' }),
+        db.collection('meta').findOne({ _id: 'strategy_defaults' })
     ]);
-    await telegramSendBackup(`backup_${todayDateString(getTehranParts())}.json`, { exportedAt: new Date(), monitoredSymbols: symbols, strategyConfigs: configs, optionSettings: optSettings || null });
+    await telegramSendBackup(`backup_${todayDateString(getTehranParts())}.json`, { exportedAt: new Date(), monitoredSymbols: symbols, strategyConfigs: configs, optionSettings: optSettings || null, strategyDefaults: stratDefaults || null });
 }
 app.post('/api/backup/run', async (req, res, next) => { try { await sendWeeklyBackup(); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ---------------- تعطیلی ----------------
+// ======================== تعطیلی ========================
 async function markHoliday(t) {
     holidayDate = todayDateString(t);
     await getDB().collection('meta').updateOne({ _id: 'holiday' }, { $set: { date: holidayDate } }, { upsert: true });
-    await notify(`📅 امروز (${holidayDate}) معامله‌ای در بازار دیده نشد؛ احتمالاً تعطیل است. پایش تا فردا متوقف شد.`);
+    await notify(`📅 امروز (${holidayDate}) احتمالاً تعطیل است.`);
 }
 app.delete('/api/holiday', async (req, res, next) => {
     try { holidayDate = null; inactiveTicks = 0; await getDB().collection('meta').deleteOne({ _id: 'holiday' }); res.json({ success: true }); } catch (e) { next(e); }
 });
 
-// ---------------- کندل‌ها ----------------
+// ======================== کندل‌ها ========================
 async function getBaseCandles(symbol) {
     const base = await getDB().collection('candles_base').find({ symbol }).sort({ time: 1 }).toArray();
     return base.map(c => ({ time: Math.floor(c.time.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }));
@@ -363,7 +394,18 @@ async function backfillDailyFromBase() {
 }
 
 app.get('/api/timeframes', (req, res) => res.json(Object.keys(TF)));
-app.get('/api/strategies', (req, res) => res.json(Object.values(STRATEGIES).map(s => ({ id: s.id, name: s.name, defaultTimeframe: s.defaultTimeframe, htfTimeframe: s.htfTimeframe || '1d', defaultParams: s.defaultParams, indicators: s.indicators }))));
+app.get('/api/strategies', (req, res) => {
+    const overrides = Settings.getAllStrategyDefaults();
+    res.json(Object.values(STRATEGIES).map(s => ({
+        id: s.id, name: s.name,
+        defaultTimeframe: s.defaultTimeframe,
+        htfTimeframe: s.htfTimeframe || '1d',
+        defaultParams: { ...s.defaultParams, ...(overrides[s.id] || {}) },
+        baseDefaults: s.defaultParams,
+        overrides: overrides[s.id] || {},
+        indicators: s.indicators
+    })));
+});
 app.get('/api/candles/:symbol/:timeframe', async (req, res, next) => {
     const { symbol, timeframe } = req.params; if (!TF[timeframe]) return res.status(400).json({ error: 'تایم‌فریم نامعتبر' });
     try { res.json(await getCandles(symbol, timeframe)); } catch (e) { next(e); }
@@ -379,7 +421,7 @@ app.get('/api/chart-data/:configId', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ---------------- import-daily ----------------
+// ======================== import-daily ========================
 function jalaliToGregorian(jy, jm, jd) {
     let gy; jy += 1595;
     let days = -355668 + (365 * jy) + (Math.floor(jy / 33) * 8) + Math.floor(((jy % 33) + 3) / 4) + jd + ((jm < 7) ? (jm - 1) * 31 : ((jm - 7) * 30) + 186);
@@ -401,7 +443,7 @@ function parseJalaliDate(s) {
 async function importDailyHistory(symbol) {
     if (!API_KEYS.length) throw new Error('هیچ کلید BrsApi تنظیم نشده است.');
     const picked = await acquireApiKey('history', HISTORY_PER_KEY_LIMIT);
-    if (!picked) throw new Error('سهمیه‌ی روزانه‌ی دیتای تاریخی تمام شده است؛ فردا دوباره امتحان کنید.');
+    if (!picked) throw new Error('سهمیه‌ی دیتای تاریخی تمام شده است.');
     const r = await fetch(`https://Api.BrsApi.ir/Tsetmc/History.php?key=${picked.key}&type=0&l18=${encodeURIComponent(symbol)}`, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, timeout: 20000 });
     if (!r.ok) throw new Error(`HTTP ${r.status} (کلید ${picked.index + 1})`);
     const data = await r.json();
@@ -421,7 +463,7 @@ app.post('/api/import-daily/:symbol', async (req, res) => {
     catch (e) { console.error('❌ import-daily:', e.message); res.status(400).json({ error: e.message }); }
 });
 
-// ---------------- نمادهای زیر نظر ----------------
+// ======================== نمادهای زیر نظر ========================
 app.get('/api/monitored-symbols', async (req, res, next) => {
     try {
         const db = getDB();
@@ -455,7 +497,7 @@ app.delete('/api/monitored-symbols/:id', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ---------------- تنظیمات استراتژی ----------------
+// ======================== تنظیمات استراتژی ========================
 app.get('/api/strategy-configs', async (req, res, next) => { try { res.json(await getDB().collection('strategy_configs').find({}).sort({ createdAt: 1 }).toArray()); } catch (e) { next(e); } });
 
 app.post('/api/strategy-configs', async (req, res, next) => {
@@ -464,14 +506,15 @@ app.post('/api/strategy-configs', async (req, res, next) => {
         if (!symbol || !STRATEGIES[strategyId]) return res.status(400).json({ error: 'نماد یا استراتژی نامعتبر' });
         if (!TF[timeframe]) return res.status(400).json({ error: 'تایم‌فریم نامعتبر' });
         const htf = htfTimeframe || STRATEGIES[strategyId].htfTimeframe || '1d';
-        if (!TF[htf] || TF[htf] <= TF[timeframe]) return res.status(400).json({ error: 'تایم‌فریم بالا باید بزرگ‌تر از تایم‌فریم ورود باشد' });
+        if (!TF[htf] || TF[htf] <= TF[timeframe]) return res.status(400).json({ error: 'تایم‌فریم بالا باید بزرگ‌تر باشد' });
         const db = getDB();
-        if (!await db.collection('monitored_symbols').findOne({ symbol })) return res.status(400).json({ error: 'ابتدا نماد را به لیست زیر نظر اضافه کنید.' });
+        if (!await db.collection('monitored_symbols').findOne({ symbol })) return res.status(400).json({ error: 'ابتدا نماد را اضافه کنید.' });
+        const overrides = Settings.getStrategyDefaults(strategyId);
+        const defaultParams = { ...STRATEGIES[strategyId].defaultParams, ...overrides, ...(params || {}) };
         const finalRole = (role === 'confirmer') ? 'confirmer' : 'leader';
-        const doc = { symbol, strategyId, timeframe, htfTimeframe: htf, candleType: candleType === 'simple' ? 'simple' : 'heikin', params: { ...STRATEGIES[strategyId].defaultParams, ...(params || {}) }, enabled: enabled !== false, role: finalRole, createdAt: new Date() };
+        const doc = { symbol, strategyId, timeframe, htfTimeframe: htf, candleType: candleType === 'simple' ? 'simple' : 'heikin', params: defaultParams, enabled: enabled !== false, role: finalRole, createdAt: new Date() };
         const r = await db.collection('strategy_configs').insertOne(doc);
         const fullDoc = { _id: r.insertedId, ...doc };
-        if (strategyId === 'ensemble') console.log('ℹ️ استراتژی Ensemble — محاسبات سنگین‌تر');
         await evaluateStrategyConfig(fullDoc, null).catch(e => console.error('❌ ارزیابی آنی:', e.message));
         res.json(fullDoc);
     } catch (e) { next(e); }
@@ -493,11 +536,10 @@ app.delete('/api/strategy-configs/:id', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ✅ حذف گروهی
 app.post('/api/strategy-configs/bulk-delete', async (req, res, next) => {
     try {
         const { ids } = req.body || {};
-        if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'لیست شناسه خالی است' });
+        if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'لیست خالی است' });
         const db = getDB();
         const objectIds = ids.map(id => new ObjectId(id));
         const del = await db.collection('strategy_configs').deleteMany({ _id: { $in: objectIds } });
@@ -505,16 +547,14 @@ app.post('/api/strategy-configs/bulk-delete', async (req, res, next) => {
         res.json({ success: true, deleted: del.deletedCount });
     } catch (e) { next(e); }
 });
-
-// ✅ ویرایش گروهی
 app.post('/api/strategy-configs/bulk-update', async (req, res, next) => {
     try {
         const { ids, enabled, role } = req.body || {};
-        if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'لیست شناسه خالی است' });
+        if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'لیست خالی است' });
         const upd = {};
         if (typeof enabled === 'boolean') upd.enabled = enabled;
         if (role === 'leader' || role === 'confirmer') upd.role = role;
-        if (!Object.keys(upd).length) return res.status(400).json({ error: 'هیچ فیلدی برای تغییر مشخص نشد' });
+        if (!Object.keys(upd).length) return res.status(400).json({ error: 'فیلدی برای تغییر مشخص نشد' });
         const db = getDB();
         const objectIds = ids.map(id => new ObjectId(id));
         const r = await db.collection('strategy_configs').updateMany({ _id: { $in: objectIds } }, { $set: upd });
@@ -522,12 +562,12 @@ app.post('/api/strategy-configs/bulk-update', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ---------------- وضعیت / تاریخچه ----------------
+// ======================== وضعیت / تاریخچه ========================
 app.get('/api/status', async (req, res, next) => { try { res.json(await getDB().collection('signals_state').find({}).toArray()); } catch (e) { next(e); } });
 app.get('/api/signal-history', async (req, res, next) => { try { res.json(await getDB().collection('signal_history').find({}).sort({ createdAt: -1 }).limit(300).toArray()); } catch (e) { next(e); } });
 app.delete('/api/signal-history', async (req, res, next) => { try { await getDB().collection('signal_history').deleteMany({}); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ---------------- پرتفوی ----------------
+// ======================== پرتفوی ========================
 app.get('/api/portfolio', async (req, res, next) => {
     try {
         const s = Settings.get();
@@ -553,7 +593,7 @@ app.get('/api/portfolio', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ---------------- بک‌تست سهم ----------------
+// ======================== بک‌تست سهم ========================
 async function computeStockBacktestTrades(cfg) {
     const def = STRATEGIES[cfg.strategyId]; const htfTf = cfg.htfTimeframe || '1d';
     const candles = closedOnly(await getCandlesFull(cfg.symbol, cfg.timeframe), cfg.timeframe);
@@ -580,14 +620,13 @@ app.get('/api/backtest-option/:configId', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ✅ بک‌تست مقایسه‌ای با تنظیمات per-strategy + بررسی داده کافی
+// ======================== بک‌تست مقایسه‌ای ========================
 app.post('/api/backtest-compare', async (req, res, next) => {
     try {
         const { symbols, strategies, useRealOption } = req.body || {};
         if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد انتخاب کنید' });
         if (!Array.isArray(strategies) || !strategies.length) return res.status(400).json({ error: 'حداقل یک استراتژی انتخاب کنید' });
 
-        // ✅ تایم‌اوت طولانی‌تر برای بک‌تست
         req.setTimeout(5 * 60 * 1000);
         res.setTimeout(5 * 60 * 1000);
 
@@ -601,11 +640,10 @@ app.post('/api/backtest-compare', async (req, res, next) => {
                     timeframe: s.timeframe || def.defaultTimeframe,
                     htfTimeframe: s.htfTimeframe || def.htfTimeframe || '1d',
                     candleType: s.candleType === 'simple' ? 'simple' : 'heikin',
-                    params: { ...def.defaultParams, ...(s.params || {}) }
+                    params: { ...def.defaultParams, ...Settings.getStrategyDefaults(s.id), ...(s.params || {}) }
                 };
                 try {
                     const tf = cfg.timeframe, htf = cfg.htfTimeframe;
-                    // ✅ بررسی داده کافی قبل از اجرای بک‌تست
                     const allCandles = await getCandles(cfg.symbol, tf);
                     const allHtf = await getCandles(cfg.symbol, htf);
                     const closedCandles = closedOnly(allCandles, tf);
@@ -617,7 +655,7 @@ app.post('/api/backtest-compare', async (req, res, next) => {
                         results.push({
                             symbol, strategyId: s.id, strategyName: def.name,
                             timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType,
-                            error: `داده کافی نیست (کندل ورود: ${closedCandles.length}/${required}، کندل روند: ${closedHtf.length}/${requiredHtf})`,
+                            error: `داده کافی نیست (ورود: ${closedCandles.length}/${required}، روند: ${closedHtf.length}/${requiredHtf})`,
                             insufficientData: true
                         });
                         continue;
@@ -654,16 +692,16 @@ app.post('/api/backtest-compare', async (req, res, next) => {
                 }
             }
         }
-
         results.sort((a, b) => {
-            const pfA = a.option && a.option.profitFactor !== null && a.option.profitFactor !== undefined ? a.option.profitFactor : -1;
-            const pfB = b.option && b.option.profitFactor !== null && b.option.profitFactor !== undefined ? b.option.profitFactor : -1;
+            const pfA = a.option && a.option.profitFactor != null ? a.option.profitFactor : -1;
+            const pfB = b.option && b.option.profitFactor != null ? b.option.profitFactor : -1;
             return pfB - pfA;
         });
         res.json({ count: results.length, results });
     } catch (e) { next(e); }
 });
-// ---------------- ارزیابی استراتژی ----------------
+
+// ======================== ارزیابی استراتژی ========================
 async function evaluateStrategyConfig(config, marketInfo) {
     const def = STRATEGIES[config.strategyId]; if (!def) return;
     const isConfirmer = config.role === 'confirmer';
@@ -677,112 +715,172 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const base = { configId, symbol: config.symbol, strategyId: config.strategyId, timeframe: config.timeframe, htfTimeframe: htfTf, candleCount: candles.length, requiredCandles: required, htfCandleCount: htfCandles.length, requiredHtfCandles: requiredHtf, updatedAt: new Date(), queue: info ? info.queue : null, livePrice: info ? info.price : null };
 
     if (candles.length < required || htfCandles.length < requiredHtf) {
-        await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: true, position: null } }, { upsert: true }); return;
+        await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: true, position: null } }, { upsert: true });
+        return;
     }
+
     let result;
     try { result = def.run(candles, { ...config.params, candleType: config.candleType }, { htfCandles, htfTimeframe: htfTf, entryWindow: { start: ENTRY_START, end: ENTRY_END } }); }
     catch (e) { console.error(`❌ استراتژی ${config.symbol}:`, e.message); return; }
+
     const prev = await stateColl.findOne({ configId });
     const latest = result.signals[result.signals.length - 1]; if (!latest) return;
     const prevNotified = prev && prev.lastNotifiedTime || 0;
+
     let last = latest;
-    for (let i = result.signals.length - 1, k = 0; i >= 0 && k < 5; i--, k++) {
+    for (let i = result.signals.length - 1, k = 0; i >= 0 && k < 5; i--, k--) {
         const s = result.signals[i];
         if ((s.signalType === 'BUY' || s.signalType === 'EXIT_LONG') && s.time > prevNotified) { last = s; break; }
     }
     const late = last !== latest;
     const lastPrice = candles[candles.length - 1].close;
 
+    // ذخیره وضعیت (با آخرین قیمت)
     await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: false, position: latest.position, indicators: latest.indicators, price: lastPrice, lastCandleTime: latest.time, htfTrend: result.htfTrend || null, reason: latest.reason || null } }, { upsert: true });
 
     const label = `${config.symbol} | ${def.name} | ${config.timeframe}→${htfTf}`;
     const lastHa = result.ha.find(h => h.time === last.time);
-    const incompleteTag = lastHa && lastHa.complete === false ? '\n⚠️ این کندل داده‌ی ناقص دارد' : '';
+    const incompleteTag = lastHa && lastHa.complete === false ? '\n⚠️ کندل ناقص' : '';
+
+    // لغو سیگنال
     if (prev && prev.position === 'LONG' && latest.position !== 'LONG' && last.signalType !== 'EXIT_LONG') {
-        await notify(`⚠️ لغو سیگنال\n${label}\nموقعیت خرید قبلی در محاسبه‌ی جدید وجود ندارد.`);
-        await bumpDayStat('cancels');
+        if (!isConfirmer) {
+            await notify(`⚠️ لغو سیگنال\n${label}\nموقعیت خرید قبلی وجود ندارد.`);
+            await bumpDayStat('cancels');
+        }
     }
+
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
 
     const nowMin = minuteOfDay(getTehranParts());
     const inWindow = nowMin >= ENTRY_START && nowMin <= ENTRY_END;
-    const queueTag = info && info.queue === 'buy' ? '\n⚠️ صف خرید — آپشن احتمالاً گران شده' : info && info.queue === 'sell' ? '\n⚠️ صف فروش' : '';
-    const windowTag = last.signalType === 'BUY' && !inWindow ? `\n⏸ خارج از بازه‌ی ورود (${fmtMin(ENTRY_START)}–${fmtMin(ENTRY_END)}) — توصیه: ورود نکن` : '';
+    const queueTag = info && info.queue === 'buy' ? '\n⚠️ صف خرید' : info && info.queue === 'sell' ? '\n⚠️ صف فروش' : '';
+    const windowTag = last.signalType === 'BUY' && !inWindow ? `\n⏸ خارج از بازه (${fmtMin(ENTRY_START)}–${fmtMin(ENTRY_END)})` : '';
 
-    // Confluence
+    // ======================== Confluence (اصلاح‌شده) ========================
     let confluence = 1;
+    let confirmersList = [];
     if (last.signalType === 'BUY') {
         try {
             const otherConfigs = await db.collection('strategy_configs').find({ symbol: config.symbol, _id: { $ne: config._id }, enabled: true }).toArray();
             const otherIds = otherConfigs.map(oc => oc._id.toString());
             const otherStates = await stateColl.find({ configId: { $in: otherIds } }).toArray();
             const stateMap = new Map(otherStates.map(s => [s.configId, s]));
+            const timeWindowSec = Settings.confluenceTimeWindow();
+            const nowSec = Math.floor(Date.now() / 1000);
+
             for (const oc of otherConfigs) {
                 const ost = stateMap.get(oc._id.toString());
-                if (ost && ost.position === 'LONG' && ost.lastCandleTime === last.time) confluence++;
-            }
-        } catch (e) {}
-    }
-    const confluenceTag = confluence > 1 ? `\n🔥 هم‌گرایی ${confluence} استراتژی` : '';
+                if (!ost || ost.position !== 'LONG') continue;
 
-    // Confirmers list
-    let confirmersList = [];
-    if (last.signalType === 'BUY') {
-        try {
-            const confs = await db.collection('strategy_configs').find({ symbol: config.symbol, role: 'confirmer', enabled: true }).toArray();
-            const confIds = confs.map(c => c._id.toString());
-            const confStates = await stateColl.find({ configId: { $in: confIds } }).toArray();
-            const stateMap = new Map(confStates.map(s => [s.configId, s]));
-            for (const cf of confs) {
-                const cs = stateMap.get(cf._id.toString());
-                if (cs && cs.position === 'LONG' && cs.lastCandleTime === last.time) {
-                    const cfDef = STRATEGIES[cf.strategyId];
-                    confirmersList.push(cfDef ? cfDef.name : cf.strategyId);
+                // اگه پنجره زمانی فعاله، چک کن
+                if (timeWindowSec > 0) {
+                    const diff = Math.abs(nowSec - (ost.updatedAt ? Math.floor(new Date(ost.updatedAt).getTime() / 1000) : 0));
+                    if (diff > timeWindowSec) continue;
+                }
+
+                confluence++;
+                if (oc.role === 'confirmer') {
+                    const cfDef = STRATEGIES[oc.strategyId];
+                    confirmersList.push(cfDef ? cfDef.name : oc.strategyId);
                 }
             }
         } catch (e) {}
     }
+    const confluenceTag = confluence > 1 ? `\n🔥 هم‌گرایی ${confluence} استراتژی` : '';
     const confirmersTag = confirmersList.length ? `\n✅ تأیید: ${confirmersList.join('، ')}` : '';
 
-    // اگه confirmer هستیم، پیام مستقل نفرست
-    if (isConfirmer) {
-        await stateColl.updateOne({ configId }, { $set: { lastNotifiedTime: last.time, lastNotifiedType: last.signalType } });
+    // ======================== ذخیره در تاریخچه ========================
+    await stateColl.updateOne({ configId }, { $set: { lastNotifiedTime: last.time, lastNotifiedType: last.signalType } });
+
+    // ======================== پیام مستقل چند تأییدکننده ========================
+    // اگه این config تأییدکننده هست ولی 2+ تأییدکننده هم‌زمان سیگنال دادن → پیام مستقل
+    let shouldNotifyConfirmer = false;
+    if (isConfirmer && last.signalType === 'BUY' && confirmersList.length >= Settings.multiConfirmerMin()) {
+        shouldNotifyConfirmer = true;
+    }
+
+    // ======================== اگه confirmer هستیم و شرط بالا نیست، خروج ========================
+    if (isConfirmer && !shouldNotifyConfirmer) {
         await db.collection('signal_history').insertOne({
             configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name,
             timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time,
-            reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null,
-            incomplete: !!(lastHa && lastHa.complete === false), confluence, role: 'confirmer', createdAt: new Date()
+            reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow,
+            queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false),
+            confluence, role: 'confirmer', createdAt: new Date()
         });
         return;
     }
 
-    const title = (last.signalType === 'BUY' ? '📈 سیگنال خرید (کال)' : '🔔 خروج از خرید (بستن کال)') + (late ? ' ⏰' : '');
-    const text = `${title}\n${label} [لیدر]\nروند ${htfTf}: ${result.htfTrend || '-'}\nقیمت: ${lastPrice.toLocaleString()}${info ? ` | لحظه‌ای: ${info.price.toLocaleString()}` : ''}\nدلیل: ${last.reason || '-'}${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
+    // ======================== ساخت پیام ========================
+    let title;
+    if (isConfirmer) {
+        title = `🔔 سیگنال چند-تأییدکننده (${confirmersList.length} تأیید)`;
+    } else {
+        title = (last.signalType === 'BUY' ? '📈 سیگنال خرید (کال)' : '🔔 خروج از خرید (بستن کال)') + (late ? ' ⏰' : '');
+    }
+    const roleTag = isConfirmer ? '[چند-تأیید]' : '[لیدر]';
+    const text = `${title}\n${label} ${roleTag}\nروند ${htfTf}: ${result.htfTrend || '-'}\nقیمت: ${lastPrice.toLocaleString()}${info ? ` | لحظه‌ای: ${info.price.toLocaleString()}` : ''}\nدلیل: ${last.reason || '-'}${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
     await notify(text);
-    await stateColl.updateOne({ configId }, { $set: { lastNotifiedTime: last.time, lastNotifiedType: last.signalType } });
-    await db.collection('signal_history').insertOne({ configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name, timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time, reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false), confluence, role: 'leader', confirmers: confirmersList, createdAt: new Date() });
+
+    await db.collection('signal_history').insertOne({
+        configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name,
+        timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time,
+        reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow,
+        queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false),
+        confluence, role: isConfirmer ? 'multi-confirmer' : 'leader', confirmers: confirmersList, createdAt: new Date()
+    });
     await bumpDayStat('signals');
 
+    // ======================== ارسال به Options با فیلتر هدف ========================
     if (last.signalType === 'BUY') {
-        if (inWindow && !(info && info.queue === 'buy')) {
-            try { await Options.onBuySignal({ config, indicators: last.indicators, price: lastPrice, liveS: info ? info.price : null, tradeId: null, confluence }); }
-            catch (e) { console.error('❌ انتخاب آپشن:', e.message); await notify(`⚠️ انتخاب قرارداد آپشن برای ${config.symbol} ناموفق: ${e.message}`); }
-        } else await notify(`ℹ️ ${config.symbol}: به‌دلیل ${!inWindow ? 'خارج از بازه‌ی ورود' : 'صف خرید'} قرارداد آپشن پیشنهاد نشد.`);
+        if (!inWindow || (info && info.queue === 'buy')) {
+            await notify(`ℹ️ ${config.symbol}: به‌دلیل ${!inWindow ? 'خارج از بازه' : 'صف خرید'} آپشن پیشنهاد نشد.`);
+            return;
+        }
+
+        // فیلتر هدف سهم
+        const stop = last.indicators && last.indicators.stop;
+        const atr = last.indicators && last.indicators.atr;
+        const risk = stop && stop < lastPrice ? lastPrice - stop : (atr ? 2 * atr : lastPrice * 0.03);
+        const targetPct = (risk * 3.0 / lastPrice) * 100;  // با R:R = 3.0
+        const minTarget = Settings.minTargetPct();
+
+        if (targetPct < minTarget) {
+            await notify(`ℹ️ ${config.symbol}: هدف سهم فقط ${targetPct.toFixed(1)}٪ — کمتر از حداقل ${minTarget}٪ برای آپشن.`);
+            return;
+        }
+
+        try {
+            await Options.onBuySignal({
+                config,
+                indicators: last.indicators,
+                price: lastPrice,
+                liveS: info ? info.price : null,
+                tradeId: null,
+                confluence,
+                confirmers: confirmersList
+            });
+        } catch (e) {
+            console.error('❌ انتخاب آپشن:', e.message);
+            await notify(`⚠️ انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`);
+        }
     }
 }
+
 async function evaluateAll(marketInfo) {
     const configs = await getDB().collection('strategy_configs').find({ enabled: true }).toArray();
-    // ابتدا confirmerها، سپس leaderها (تا وضعیت confirmerها آماده باشد)
     const leaders = configs.filter(c => c.role !== 'confirmer');
     const confirmers = configs.filter(c => c.role === 'confirmer');
+    // اول confirmerها (تا وضعیت‌شون آماده باشه)، بعد leaderها
     for (const c of confirmers) await evaluateStrategyConfig(c, marketInfo);
     for (const c of leaders) await evaluateStrategyConfig(c, marketInfo);
     return configs.length;
 }
 
-// ---------------- تیک ----------------
+// ======================== تیک ========================
 const lastSnap = new Map(); let tickRunning = false;
 async function tick() {
     if (tickRunning) return; tickRunning = true;
@@ -841,7 +939,7 @@ app.post('/api/evaluate-now', async (req, res, next) => {
     try { await tick(); res.json({ success: true, lastTickAt: health.lastTickAt, lastError: health.lastError, consecutiveFailures: health.consecutiveFailures }); } catch (e) { next(e); }
 });
 
-// ---------------- وضعیت کلی ----------------
+// ======================== وضعیت کلی ========================
 app.get('/', async (req, res) => {
     let pendingOutbox = 0;
     try { pendingOutbox = await getDB().collection('telegram_outbox').countDocuments({ sentAt: null, attempts: { $lt: 120 }, createdAt: { $lt: new Date(Date.now() - 120000) } }); } catch (e) {}
@@ -852,7 +950,7 @@ app.get('/', async (req, res) => {
 });
 app.get('/api/logs', async (req, res, next) => {
     try {
-        if (ADMIN_TOKEN && req.headers['x-admin-token'] !== ADMIN_TOKEN) return res.status(401).json({ error: 'توکن ادمین نامعتبر است' });
+        if (ADMIN_TOKEN && req.headers['x-admin-token'] !== ADMIN_TOKEN) return res.status(401).json({ error: 'توکن ادمین نامعتبر' });
         const limit = Math.min(+req.query.limit || 200, 1000);
         if (req.query.source === 'db') return res.json({ logs: await getDB().collection('logs').find({}).sort({ at: -1 }).limit(limit).toArray() });
         res.json({ logs: Log.recent(limit, req.query.level || undefined) });
@@ -863,7 +961,7 @@ Options.registerRoutes(app, ObjectId);
 app.use((req, res) => { Log.push('warn', `404 ${req.method} ${req.originalUrl}`); res.status(404).json({ error: 'مسیر یافت نشد' }); });
 app.use((err, req, res, next) => { console.error('❌', err.message); res.status(500).json({ error: err.message || 'خطای داخلی' }); });
 
-// ---------------- راه‌اندازی ----------------
+// ======================== راه‌اندازی ========================
 async function ensureIndexes() {
     const db = getDB();
     await db.collection('candles_daily').createIndex({ symbol: 1, time: 1 }, { unique: true });

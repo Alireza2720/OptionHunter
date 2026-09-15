@@ -37,7 +37,7 @@
     .menu-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:999; opacity:0; visibility:hidden; transition:all .3s; }
     .menu-overlay.open { opacity:1; visibility:visible; }
 
-    .menu-panel { position:fixed; top:0; right:-360px; width:340px; height:100vh; background:var(--bg-card); border-left:1px solid var(--border); z-index:1000; transition:right .3s ease; display:flex; flex-direction:column; padding:20px; }
+    .menu-panel { position:fixed; top:0; right:-380px; width:360px; height:100vh; background:var(--bg-card); border-left:1px solid var(--border); z-index:1000; transition:right .3s ease; display:flex; flex-direction:column; padding:20px; }
     .menu-panel.open { right:0; }
     .menu-panel h3 { font-size:16px; color:var(--text-bright); margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border); }
 
@@ -214,7 +214,7 @@
         #priceChart { height:260px !important; } #panelChart { height:120px !important; }
         #alertContainer { left:10px; right:10px; max-width:none; top:10px; }
         table.data-table th, table.data-table td { padding:5px 5px; font-size:11px; }
-        .menu-panel { width:300px; right:-320px; }
+        .menu-panel { width:310px; right:-330px; }
     }
 </style>
 </head>
@@ -260,6 +260,7 @@
         <div class="menu-divider"></div>
         <div class="menu-label">تنظیمات</div>
         <button class="menu-item" onclick="openSettings(); toggleMenu();">تنظیمات عمومی</button>
+        <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button>
         <button class="menu-item" onclick="promptToken(); toggleMenu();">وارد کردن توکن</button>
         <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button>
 
@@ -320,7 +321,7 @@
                 <div class="field"><label>تایم‌فریم ورود</label><select id="timeframeSelect"></select></div>
                 <div class="field"><label>تایم‌فریم بالا (روند)</label><select id="htfSelect"></select></div>
                 <div class="field"><label>نوع کندل</label><select id="candleTypeSelect"><option value="heikin">هیکن آشی</option><option value="simple">ساده</option></select></div>
-                <div class="field"><label>نقش</label><select id="roleSelect"><option value="leader">لیدر (سیگنال مستقل)</option><option value="confirmer">تأییدکننده (فقط وضعیت)</option></select></div>
+                <div class="field"><label>نقش</label><select id="roleSelect"><option value="leader">لیدر (سیگنال مستقل)</option><option value="confirmer">تأییدکننده</option></select></div>
             </div>
             <div id="paramsContainer"></div>
             <div style="margin-top:6px;"><button class="btn" onclick="addStrategyConfig()">ایجاد استراتژی</button></div>
@@ -335,12 +336,12 @@
         <div class="card-body">
             <div class="bulk-toolbar" id="bulkToolbar">
                 <span class="sel-count" id="bulkCount">0 مورد انتخاب شده</span>
-                <button class="btn tiny outline" onclick="bulkToggleEnabled(true)">فعال کن</button>
-                <button class="btn tiny outline" onclick="bulkToggleEnabled(false)">غیرفعال کن</button>
+                <button class="btn tiny outline" onclick="bulkToggleEnabled(true)">فعال</button>
+                <button class="btn tiny outline" onclick="bulkToggleEnabled(false)">غیرفعال</button>
                 <button class="btn tiny outline" onclick="bulkSetRole('leader')">لیدر کن</button>
                 <button class="btn tiny outline" onclick="bulkSetRole('confirmer')">تأییدکننده کن</button>
                 <button class="btn tiny danger" onclick="bulkDelete()">حذف</button>
-                <button class="btn tiny outline" onclick="clearSelection()">لغو انتخاب</button>
+                <button class="btn tiny outline" onclick="clearSelection()">لغو</button>
             </div>
             <div class="table-responsive">
             <table class="data-table">
@@ -369,8 +370,8 @@
         <h2>موقعیت‌های اخیر آپشن</h2>
         <div class="stats-grid" id="optStats"></div>
         <div class="table-responsive"><table class="data-table">
-            <thead><tr><th>پایه</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>ورود</th><th>قیمت ورود</th><th>تعداد</th><th>قیمت فعلی/خروج</th><th>بازده</th><th>پایه ورود→فعلی</th><th>IV</th><th>دلیل خروج</th><th></th></tr></thead>
-            <tbody id="optBody"><tr class="empty-row"><td colspan="13">موقعیتی ثبت نشده است</td></tr></tbody>
+            <thead><tr><th>پایه</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>ورود</th><th>قیمت ورود</th><th>تعداد</th><th>سطح</th><th>قیمت فعلی/خروج</th><th>بازده</th><th>پایه ورود→فعلی</th><th>IV</th><th>دلیل</th><th></th></tr></thead>
+            <tbody id="optBody"><tr class="empty-row"><td colspan="14">موقعیتی ثبت نشده است</td></tr></tbody>
         </table></div>
     </div>
 
@@ -390,39 +391,48 @@ const BACKEND_URL = 'https://api.optionhunter.ir';
 const TF_LABELS = { '1m':'۱ دقیقه','3m':'۳ دقیقه','5m':'۵ دقیقه','10m':'۱۰ دقیقه','15m':'۱۵ دقیقه','30m':'۳۰ دقیقه','1h':'۱ ساعت','1d':'روزانه' };
 const TF_MIN = { '1m':1,'3m':3,'5m':5,'10m':10,'15m':15,'30m':30,'1h':60,'1d':1440 };
 const SIGNAL_LABELS = { BUY:'خرید کال', EXIT_LONG:'خروج از کال' };
+
 const PARAM_LABELS = {
     rsiFastPeriod:'دوره RSI سریع', rsiSlowPeriod:'دوره RSI کند', rsiOversold:'آستانه اشباع فروش RSI', rsiOverbought:'آستانه اشباع خرید RSI',
     lookback:'تعداد کندل نگاه به عقب', maxHoldBars:'حداکثر کندل نگه‌داری', cooldownBars:'کندل استراحت پس از خروج',
     emaFast:'EMA سریع', emaMid:'EMA میانی', emaSlow:'EMA کند', pullbackPct:'حداکثر فاصله از EMA سریع (٪)', exitBufferPct:'بافر خروج (٪)',
     tenkanPeriod:'دوره Tenkan-sen', kijunPeriod:'دوره Kijun-sen', senkouBPeriod:'دوره Senkou Span B',
     htfEma:'EMA تایم‌فریم بالا', htfRsiPeriod:'RSI تایم‌فریم بالا', atrPeriod:'دوره ATR', atrMult:'ضریب ATR', requireNoLowerWick:'کندل HA بدون سایه پایین (1/0)',
-    swingLength:'طول پنجره سوئینگ (کندل)', fvgMinGapPct:'حداقل شکاف FVG (٪)',
+    swingLength:'طول پنجره سوئینگ', fvgMinGapPct:'حداقل شکاف FVG (٪)',
     useOTE:'استفاده از فیلتر OTE (1/0)', oteLow:'سطح پایین OTE', oteHigh:'سطح بالای OTE',
     useBreakEven:'انتقال SL به نقطه ورود بعد از TP1 (1/0)', tp1R:'هدف اول (R)', tp2R:'هدف دوم (R)', tp3R:'هدف سوم (R)',
     minLiquiditySweepPct:'حداقل عمق شکار نقدینگی (٪)', requireVolumeFilter:'فیلتر حجم (1/0)',
-    useKillzone:'فعال‌سازی Killzone (1/0)', killzone1Start:'شروع Killzone ۱ (ساعت)', killzone1End:'پایان Killzone ۱ (ساعت)',
-    killzone2Start:'شروع Killzone ۲ (ساعت)', killzone2End:'پایان Killzone ۲ (ساعت)', minConfluence:'حداقل تعداد شرط (۲ یا ۳)',
-    sb1Start:'شروع پنجره ۱ (ساعت)', sb1End:'پایان پنجره ۱ (ساعت)',
-    sb2Start:'شروع پنجره ۲ (ساعت)', sb2End:'پایان پنجره ۲ (ساعت)',
-    sb3Start:'شروع پنجره ۳ (ساعت)', sb3End:'پایان پنجره ۳ (ساعت)',
-    useSessionEndExit:'خروج در پایان پنجره (1/0)',
+    useKillzone:'فعال‌سازی Killzone (1/0)', killzone1Start:'شروع Killzone ۱', killzone1End:'پایان Killzone ۱',
+    killzone2Start:'شروع Killzone ۲', killzone2End:'پایان Killzone ۲', minConfluence:'حداقل تعداد شرط',
+    sb1Start:'شروع پنجره ۱', sb1End:'پایان پنجره ۱',
+    sb2Start:'شروع پنجره ۲', sb2End:'پایان پنجره ۲',
+    sb3Start:'شروع پنجره ۳', sb3End:'پایان پنجره ۳',
+    targetR:'هدف (R)', useSessionEndExit:'خروج در پایان پنجره (1/0)',
     requireDisplacement:'نیاز به Displacement (1/0)', displacementMult:'ضریب Displacement',
-    obLookback:'تعداد کندل جستجوی Order Block', minSweepPct:'حداقل عمق شکار نقدینگی (٪)',
+    obLookback:'تعداد کندل جستجوی OB', minSweepPct:'حداقل عمق Sweep (٪)', minConditions:'حداقل شرط‌های ورود',
     threshold:'آستانه مجموع وزن', minAgree:'حداقل تعداد استراتژی موافق',
     wRsi:'وزن RSI', wEma:'وزن EMA', wIchimoku:'وزن Ichimoku',
-    wSmc:'وزن SMC Unicorn', wSilver:'وزن Silver Bullet', wOb:'وزن OB+Sweep'
+    wSmc:'وزن SMC', wSilver:'وزن Silver Bullet', wOb:'وزن OB+Sweep'
 };
+
 const IND_LABELS = { rsiFast:'RSI سریع', rsiSlow:'RSI کند', emaFast:'EMA سریع', emaMid:'EMA میانی', emaSlow:'EMA کند', atr:'ATR', stop:'حد ضرر',
     signal:'Signal', hist:'هیستوگرام', tenkan:'Tenkan', kijun:'Kijun', spanA:'Span A', spanB:'Span B' };
-const OPT_LABELS = { minDays:'حداقل روز تا سررسید', maxDays:'حداکثر روز تا سررسید', maxSpreadPct:'حداکثر اسپرد (٪)', minOI:'حداقل موقعیت باز', minTrades:'حداقل معامله امروز', minPremium:'حداقل پرمیوم (ریال)', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'هدف = چند برابر ریسک', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر آپشن (٪)', take1Pct:'هشدار نیمه‌فروش (٪)', take2Pct:'حد سود کامل (٪)', closeDaysBefore:'بستن X روز قبل سررسید' };
-const TRADING_LABELS = { ENTRY_START: 'شروع بازه‌ی مجاز ورود (HH:MM)', ENTRY_END: 'پایان بازه‌ی مجاز ورود (HH:MM)', OPTION_FEE_BUY: 'کارمزد خرید آپشن', OPTION_FEE_SELL: 'کارمزد فروش آپشن', RISK_FREE_RATE: 'نرخ بدون ریسک سالانه' };
-const CAPITAL_LABELS = {
-    TOTAL_CAPITAL: 'سرمایه کل (ریال)',
-    RISK_PER_TRADE_PCT: 'ریسک هر معامله (٪)',
-    MAX_SYMBOL_EXPOSURE_PCT: 'حداکثر درگیری هر نماد (٪)',
-    MAX_TOTAL_EXPOSURE_PCT: 'حداکثر درگیری کل (٪)',
-    MIN_CASH_RESERVE_PCT: 'حداقل نقد ذخیره (٪)',
-    MAX_POSITION_SIZE: 'حداکثر تعداد قرارداد هر معامله'
+const OPT_LABELS = { minDays:'حداقل روز تا سررسید', maxDays:'حداکثر روز تا سررسید', maxSpreadPct:'حداکثر اسپرد (٪)', minOI:'حداقل موقعیت باز', minTrades:'حداقل معامله امروز', minPremium:'حداقل پرمیوم', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'R:R هدف', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر آپشن (٪)', take1Pct:'هشدار نیمه‌فروش (٪)', take2Pct:'حد سود کامل (٪)', closeDaysBefore:'بستن X روز قبل سررسید' };
+const TRADING_LABELS = {
+    ENTRY_START: 'شروع بازه ورود (HH:MM)', ENTRY_END: 'پایان بازه ورود (HH:MM)',
+    OPTION_FEE_BUY: 'کارمزد خرید', OPTION_FEE_SELL: 'کارمزد فروش', RISK_FREE_RATE: 'نرخ بدون ریسک',
+    TOTAL_CAPITAL: 'سرمایه کل (ریال)', RISK_PER_TRADE_PCT: 'ریسک هر معامله (٪)',
+    MAX_SYMBOL_EXPOSURE_PCT: 'حداکثر درگیری هر نماد (٪)', MAX_TOTAL_EXPOSURE_PCT: 'حداکثر درگیری کل (٪)',
+    MIN_CASH_RESERVE_PCT: 'حداقل نقد ذخیره (٪)', MAX_POSITION_SIZE: 'حداکثر تعداد قرارداد',
+    SIGNAL_FACTOR_1: 'ضریب سیگنال ۱ (لیدر تنها)', SIGNAL_FACTOR_2: 'ضریب سیگنال ۲ (+۱ تأیید)',
+    SIGNAL_FACTOR_3: 'ضریب سیگنال ۳ (+۲ تأیید)', SIGNAL_FACTOR_4PLUS: 'ضریب سیگنال ۴+ (+۳ یا بیشتر)',
+    LEVEL_FACTOR_A_PLUS: 'ضریب سطح A+', LEVEL_FACTOR_A: 'ضریب سطح A', LEVEL_FACTOR_B: 'ضریب سطح B',
+    LEVEL_FACTOR_C: 'ضریب سطح C', LEVEL_FACTOR_D: 'ضریب سطح D',
+    IV_FACTOR_MIN: 'حداقل ضریب IV', IV_FACTOR_MAX: 'حداکثر ضریب IV', IV_FACTOR_BASE: 'پایه ضریب IV',
+    CONFLUENCE_TIME_WINDOW: 'پنجره زمانی Confluence (ثانیه، 0=غیرفعال)',
+    MULTI_CONFIRMER_MIN: 'حداقل تأییدکننده برای سیگنال مستقل',
+    MULTI_CONFIRMER_TIME_WINDOW: 'پنجره زمانی چند تأییدکننده (ثانیه)',
+    MIN_TARGET_PCT: 'حداقل درصد هدف سهم برای آپشن (٪)'
 };
 const COLORS = ['#3d7dd8','#c9973d','#b565d9','#2ea88a','#d9534f'];
 
@@ -528,7 +538,7 @@ async function apiFetch(url, options={}, retries=1) {
             const ct = res.headers.get('content-type') || '';
             if (!ct.includes('application/json')) throw new Error('پاسخ نامعتبر');
             const data = await res.json();
-            if (res.status === 401) { promptToken(); throw new Error('توکن ادمین نامعتبر است'); }
+            if (res.status === 401) { promptToken(); throw new Error('توکن ادمین نامعتبر'); }
             if (!res.ok) throw new Error(data.error || 'خطای نامشخص');
             return data;
         } catch (e) { lastErr = e; if (a < retries) await new Promise(r => setTimeout(r, 1500)); }
@@ -656,8 +666,10 @@ async function loadTimeframes() {
 }
 async function loadStrategies() {
     strategiesInfo = await apiFetch(`${BACKEND_URL}/api/strategies`);
-    const sel = document.getElementById('strategySelect'); sel.innerHTML = strategiesInfo.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
-    onStrategyChange(); sel.addEventListener('change', onStrategyChange);
+    const sel = document.getElementById('strategySelect');
+    sel.innerHTML = strategiesInfo.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    onStrategyChange();
+    sel.addEventListener('change', onStrategyChange);
 }
 function onStrategyChange() {
     const s = strategiesInfo.find(x => x.id === document.getElementById('strategySelect').value); if (!s) return;
@@ -665,7 +677,7 @@ function onStrategyChange() {
     const fields = Object.entries(s.defaultParams).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" id="param_${k}" value="${v}"></div>`).join('');
     c.innerHTML = `<div class="adv-accordion" id="advAccordion">
         <div class="adv-header" onclick="document.getElementById('advAccordion').classList.toggle('open')">
-            <span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length} پارامتر)</span>
+            <span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length} پارامتر — این‌ها override هستند)</span>
             <span class="chev">▼</span>
         </div>
         <div class="adv-body"><div class="form-row">${fields}</div></div>
@@ -674,7 +686,9 @@ function onStrategyChange() {
     document.getElementById('htfSelect').value = s.htfTimeframe || '1d';
 }
 function renderConfigSymbolOptions() {
-    document.getElementById('configSymbolSelect').innerHTML = monitoredSymbols.length ? monitoredSymbols.map(s => `<option value="${esc(s.symbol)}">${esc(s.symbol)}</option>`).join('') : '<option value="">-- ابتدا نماد اضافه کنید --</option>';
+    document.getElementById('configSymbolSelect').innerHTML = monitoredSymbols.length
+        ? monitoredSymbols.map(s => `<option value="${esc(s.symbol)}">${esc(s.symbol)}</option>`).join('')
+        : '<option value="">-- ابتدا نماد اضافه کنید --</option>';
 }
 async function addStrategyConfig() {
     const symbol = document.getElementById('configSymbolSelect').value; if (!symbol) return showAlert('ابتدا نماد اضافه کنید.', 'warn');
@@ -684,7 +698,10 @@ async function addStrategyConfig() {
     const params = {}; Object.keys(s.defaultParams).forEach(k => { const el = document.getElementById(`param_${k}`); if (el) params[k] = parseFloat(el.value); });
     const role = document.getElementById('roleSelect').value;
     try {
-        await apiFetch(`${BACKEND_URL}/api/strategy-configs`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol, strategyId, timeframe, htfTimeframe, candleType: document.getElementById('candleTypeSelect').value, params, enabled:true, role }) });
+        await apiFetch(`${BACKEND_URL}/api/strategy-configs`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ symbol, strategyId, timeframe, htfTimeframe, candleType: document.getElementById('candleTypeSelect').value, params, enabled:true, role })
+        });
         showAlert(`استراتژی «${s.name}» برای «${symbol}» ایجاد شد.`, 'success', 4000); await loadConfigs();
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
@@ -725,10 +742,8 @@ function renderConfigs() {
                 <button class="btn tiny danger" onclick="deleteConfig('${id}')">حذف</button>
             </div>`;
             const insufChip = isInsufficient ? ` <span class="insufficient-badge" onclick="showInsufficientReason('${id}')">داده ناکافی</span>` : '';
-            const roleBadge = it.role === 'confirmer'
-                ? '<span class="role-badge confirmer">تأییدکننده</span>'
-                : '<span class="role-badge leader">لیدر</span>';
-            const checkbox = `<input type="checkbox" class="config-checkbox row-checkbox" data-id="${id}" ${selectedConfigs.has(id)?'checked':''} onchange="toggleSelectConfig('${id}', this.checked)">`;
+            const roleBadge = it.role === 'confirmer' ? '<span class="role-badge confirmer">تأییدکننده</span>' : '<span class="role-badge leader">لیدر</span>';
+            const checkbox = `<input type="checkbox" class="config-checkbox row-checkbox" ${selectedConfigs.has(id)?'checked':''} onchange="toggleSelectConfig('${id}', this.checked)">`;
             const symbolCell = idx === 0 ? `<td rowspan="${items.length}" style="font-weight:600; background:var(--bg-input); border-left:2px solid var(--accent); vertical-align:middle;"><b>${esc(symbol)}</b></td>` : '';
             const rowClass = (idx === 0 ? 'symbol-start ' : '') + (isInsufficient ? 'insufficient-row' : '');
             html += `<tr class="${rowClass}"><td>${checkbox}</td>${symbolCell}<td>${esc(name)}${queue}${insufChip}</td><td>${roleBadge}</td><td>${tf}</td><td>${candle}</td><td>${trend}</td><td>${posBadge}</td><td>${active}</td><td>${actions}</td></tr>`;
@@ -767,7 +782,7 @@ async function bulkSetRole(role) {
 }
 async function bulkDelete() {
     if (!selectedConfigs.size) return;
-    if (!confirm(`آیا از حذف ${selectedConfigs.size} مورد مطمئنی؟`)) return;
+    if (!confirm(`حذف ${selectedConfigs.size} مورد؟`)) return;
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs) }) });
         showAlert(`${r.deleted} مورد حذف شد.`, 'success', 3000); selectedConfigs.clear(); await loadConfigs();
@@ -787,25 +802,19 @@ function showInsufficientReason(id) {
     const htfRequired = Number(st.requiredHtfCandles) || 0;
     const candleOk = candleCount >= required;
     const htfOk = htfCount >= htfRequired;
-    const missingCandles = Math.max(0, required - candleCount);
-    const missingHtf = Math.max(0, htfRequired - htfCount);
     const roleLabel = it.role === 'confirmer' ? 'تأییدکننده' : 'لیدر';
     openModal(`داده ناکافی — ${it.symbol}`, `
         <div class="hint">استراتژی: <b>${esc(s?s.name:it.strategyId)}</b> · نقش: <b>${roleLabel}</b> · ورود: <b>${tfLabel}</b> · روند: <b>${htfLabel}</b></div>
         <div class="stats-grid" style="margin-top:12px;">
-            <div class="stat"><small>کندل ورود (${tfLabel})</small><b>${candleCount} / ${required}</b><div style="margin-top:6px;">${candleOk ? '<span class="badge long">کافی</span>' : `<span class="badge warn">${missingCandles} کندل کم</span>`}</div></div>
-            <div class="stat"><small>کندل روند (${htfLabel})</small><b>${htfCount} / ${htfRequired}</b><div style="margin-top:6px;">${htfOk ? '<span class="badge long">کافی</span>' : `<span class="badge warn">${missingHtf} کندل کم</span>`}</div></div>
+            <div class="stat"><small>کندل ورود (${tfLabel})</small><b>${candleCount} / ${required}</b><div style="margin-top:6px;">${candleOk ? '<span class="badge long">کافی</span>' : `<span class="badge warn">${required - candleCount} کم</span>`}</div></div>
+            <div class="stat"><small>کندل روند (${htfLabel})</small><b>${htfCount} / ${htfRequired}</b><div style="margin-top:6px;">${htfOk ? '<span class="badge long">کافی</span>' : `<span class="badge warn">${htfRequired - htfCount} کم</span>`}</div></div>
         </div>
-        <h4 style="font-size:13px;color:var(--accent);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">راه‌های حل</h4>
+        <h4 style="font-size:13px;color:var(--accent);margin:16px 0 8px;">راه‌های حل</h4>
         <ul style="padding-right:20px;font-size:12.5px;line-height:2;">
-            ${!htfOk ? `<li>برای کندل‌های روند (${htfLabel}): از دکمه «دریافت تاریخچه روزانه» در بخش نمادهای زیر نظر استفاده کن.</li>` : ''}
-            ${!candleOk ? `<li>برای کندل‌های ورود (${tfLabel}): چند ساعت یا روز صبر کن.</li>` : ''}
-            ${!candleOk ? `<li>اگر عجله داری، تایم‌فریم ورود را کوچک‌تر انتخاب کن.</li>` : ''}
-            <li>روی «نمودار» کلیک کن.</li>
-        </ul>
-        <div style="background:rgba(61,125,216,.1);border-right:3px solid var(--accent);padding:10px 12px;border-radius:6px;font-size:12.5px;">
-            <b>نکته:</b> در بخش «نمادهای زیر نظر»، «کندل دقیقه‌ای» نمایش داده می‌شود که با کندل‌های تجمیعی تایم‌فریم استراتژی فرق دارد.
-        </div>`);
+            ${!htfOk ? `<li>از «دریافت تاریخچه روزانه» استفاده کن.</li>` : ''}
+            ${!candleOk ? `<li>چند ساعت یا روز صبر کن.</li>` : ''}
+            ${!candleOk ? `<li>یا تایم‌فریم ورود را کوچک‌تر کن.</li>` : ''}
+        </ul>`);
 }
 async function toggleConfigEnabled(id, en) { try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: en }) }); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteConfig(id) {
@@ -815,23 +824,23 @@ async function deleteConfig(id) {
 
 async function runOptionBacktest(id) {
     const it = configs.find(c => c._id === id); if (!it) return;
-    openModal(`بک‌تست آپشن ${it.symbol}`, '<div style="text-align:center;padding:30px;"><div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>در حال محاسبه...</div>');
+    openModal(`بک‌تست ${it.symbol}`, '<div style="text-align:center;padding:30px;"><div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>در حال محاسبه...</div>');
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}`);
         const a = r.assumptions;
         const diag = r.diagnostic ? `<div class="msg-warn" style="display:block;background:rgba(217,83,79,.1);color:var(--bad);">${esc(r.diagnostic)}</div>` : '';
-        const head = diag + `<div class="msg-warn" style="display:block;">بک‌تست تقریبی: سررسید ${a.assumedMaturityDays} روز، IV = ${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪.</div>
+        const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV = ${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪.</div>
             <div class="stats-grid">
                 <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
                 <div class="stat"><small>بسته‌شده</small><b>${r.stockClosedCount||0}</b></div>
-                <div class="stat"><small>معامله آپشن</small><b>${r.stats.count}</b></div>
+                <div class="stat"><small>آپشن</small><b>${r.stats.count}</b></div>
                 <div class="stat"><small>وین‌ریت</small><b>${r.stats.count ? r.stats.winRate.toFixed(0)+'٪' : '-'}</b></div>
                 <div class="stat"><small>بازده کل</small><b>${r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
                 <div class="stat"><small>میانگین</small><b>${r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
                 <div class="stat"><small>PF</small><b>${r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
             </div>`;
         const rows = r.trades.length ? r.trades.slice().reverse().map(t => `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${(t.hv*100).toFixed(0)}٪</td><td>${t.entryDelta.toFixed(2)}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`).join('') : '<tr class="empty-row"><td colspan="8">معامله‌ای یافت نشد</td></tr>';
-        openModal(`بک‌تست آپشن ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>HV</th><th>دلتا</th><th>پرمیوم</th><th>بازده</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`);
+        openModal(`بک‌تست ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>HV</th><th>دلتا</th><th>پرمیوم</th><th>بازده</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
@@ -844,16 +853,18 @@ async function loadSignalHistory() {
 function renderSignalHistory() {
     const tb = document.getElementById('signalHistoryBody');
     const list = signalHistoryCache || [];
-    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده است</td></tr>';
+    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده</td></tr>';
     const shown = list.slice(0, signalHistoryLimit);
     tb.innerHTML = shown.map(x => {
-        const roleTag = x.role === 'confirmer' ? '<span class="role-badge confirmer">تأیید</span>' : '<span class="role-badge leader">لیدر</span>';
-        const confTag = x.confirmers && x.confirmers.length ? `<span class="badge long">تأیید: ${x.confirmers.length}</span>` : '';
+        let roleTag = '<span class="role-badge leader">لیدر</span>';
+        if (x.role === 'confirmer') roleTag = '<span class="role-badge confirmer">تأیید</span>';
+        else if (x.role === 'multi-confirmer') roleTag = '<span class="role-badge leader">چند-تأیید</span>';
+        const confTag = x.confirmers && x.confirmers.length ? `<span class="badge long">${x.confirmers.length} تأیید</span>` : '';
         const badges = `${x.confluence>1?`<span class="badge long">${x.confluence}x</span>`:''}${x.queue==='buy'?'<span class="badge warn">صف خرید</span>':''}${x.signalType==='BUY'&&x.inWindow===false?'<span class="badge warn">خارج بازه</span>':''}${x.incomplete?'<span class="badge warn">ناقص</span>':''}${confTag}`;
         return `<tr><td>${fmtT(x.time)}</td><td>${esc(x.symbol)}</td><td>${esc(x.strategyName||x.strategyId)} · ${TF_LABELS[x.timeframe]||''}</td><td>${roleTag}</td><td>${SIGNAL_LABELS[x.signalType]||x.signalType}</td><td>${x.price?x.price.toLocaleString():'-'}</td><td>${trendBadge(x.htfTrend)}</td><td style="font-size:11px;">${esc(x.reason||'-')}</td><td>${badges}</td></tr>`;
     }).join('');
     if (list.length > signalHistoryLimit) {
-        tb.innerHTML += `<tr><td colspan="9" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش ${Math.min(5, list.length - signalHistoryLimit)} مورد بیشتر (${list.length - signalHistoryLimit} باقی‌مانده)</button></td></tr>`;
+        tb.innerHTML += `<tr><td colspan="9" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش ${Math.min(5, list.length - signalHistoryLimit)} بیشتر (${list.length - signalHistoryLimit} باقی)</button></td></tr>`;
     }
 }
 async function clearSignalHistory() {
@@ -890,7 +901,7 @@ function resetZoom() { priceChart && priceChart.timeScale().fitContent(); panelC
 const seriesData = (signals, k) => signals.filter(s => s.indicators && typeof s.indicators[k] === 'number' && !Number.isNaN(s.indicators[k])).map(s => ({ time:s.time, value:s.indicators[k] }));
 
 async function viewChart(id) {
-    if (!window.TradingStrategies) return showAlert('کتابخانه‌ی استراتژی‌ها بارگذاری نشده.');
+    if (!window.TradingStrategies) return showAlert('کتابخانه بارگذاری نشده.');
     selectedConfigId = id;
     const insuf = document.getElementById('insufficientDataMsg'), legend = document.getElementById('chartLegend');
     try {
@@ -899,7 +910,7 @@ async function viewChart(id) {
         document.getElementById('chartSymbolLabel').textContent = `- ${cfg.symbol} (${s?s.name:cfg.strategyId} / ${TF_LABELS[cfg.timeframe]} → ${TF_LABELS[d.htfTimeframe]})`;
         const all = d.candles, closed = all.slice(0, d.closedCount);
         if (closed.length < 2) {
-            destroyCharts(); document.getElementById('priceChartWrapper').innerHTML = '<div class="chart-placeholder">هنوز کندل بسته‌شده‌ی کافی ثبت نشده است.</div>';
+            destroyCharts(); document.getElementById('priceChartWrapper').innerHTML = '<div class="chart-placeholder">کندل بسته‌شده کافی ثبت نشده.</div>';
             document.getElementById('panelChartWrapper').style.display = 'none'; insuf.style.display = 'none'; legend.innerHTML = ''; return;
         }
         const required = TradingStrategies.getRequiredCandles(cfg.strategyId, cfg.params);
@@ -928,74 +939,143 @@ async function viewChart(id) {
             : { time:x.time, position:'aboveBar', color:'#c9973d', shape:'circle', text:'خروج' }));
         legend.innerHTML = [...meta.overlay.map((k,i) => `<span><i style="background:${COLORS[i%COLORS.length]}"></i>${IND_LABELS[k]||k}</span>`),
             ...meta.panel.map((k,i) => `<span><i style="background:${COLORS[i%COLORS.length]}"></i>${IND_LABELS[k]||k}</span>`),
-            `<span><i style="background:rgba(125,133,144,.5)"></i>کندل باز</span>`,
-            `<span><i style="background:rgba(201,151,61,.55)"></i>کندل ناقص</span>`,
+            `<span><i style="background:rgba(125,133,144,.5)"></i>باز</span>`,
+            `<span><i style="background:rgba(201,151,61,.55)"></i>ناقص</span>`,
             result.htfTrend ? `<span>روند: ${trendBadge(result.htfTrend)}</span>` : ''].join('');
         const msgs = [];
-        if (closed.length < required) msgs.push(`کندل ورود: ${closed.length} از ${required}`);
-        if (d.htfCandles.length < requiredHtf) msgs.push(`کندل بالا: ${d.htfCandles.length} از ${requiredHtf}`);
-        insuf.style.display = msgs.length ? 'block' : 'none'; insuf.textContent = msgs.length ? 'داده‌ی ناکافی — ' + msgs.join(' · ') : '';
+        if (closed.length < required) msgs.push(`ورود: ${closed.length}/${required}`);
+        if (d.htfCandles.length < requiredHtf) msgs.push(`بالا: ${d.htfCandles.length}/${requiredHtf}`);
+        insuf.style.display = msgs.length ? 'block' : 'none'; insuf.textContent = msgs.length ? 'داده ناکافی — ' + msgs.join(' · ') : '';
         if (rebuild) { chartConfigId = id; requestAnimationFrame(() => { priceChart && priceChart.applyOptions({ width: document.getElementById('priceChart').clientWidth }); panelChart && panelChart.applyOptions({ width: document.getElementById('panelChart').clientWidth }); resetZoom(); }); }
-    } catch (e) { showAlert('خطا در نمودار: ' + e.message); }
+    } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
 async function openSettings() {
     openModal('تنظیمات عمومی', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
     try {
         const [t, o] = await Promise.all([apiFetch(`${BACKEND_URL}/api/trading-settings`), apiFetch(`${BACKEND_URL}/api/options/settings`)]);
-        window._tsKeys = Object.keys(t.defaults); window._optKeys = Object.keys(o.defaults);
-        const tradingFields = Object.keys(t.defaults).map(k => {
-            const isTime = k === 'ENTRY_START' || k === 'ENTRY_END';
-            return `<div class="field"><label>${TRADING_LABELS[k]||k}</label><input type="${isTime?'text':'number'}" ${isTime?'':'step="any"'} id="ts_${k}" value="${t.values[k]}"></div>`;
-        }).join('');
-        const optFields = Object.keys(o.defaults).map(k => `<div class="field"><label>${OPT_LABELS[k]||k}</label><input type="number" step="any" id="opt_${k}" value="${o.values[k]}"></div>`).join('');
+        window._tsKeys = Object.keys(t.defaults);
+        window._optKeys = Object.keys(o.defaults);
+        const tradingKeys = ['ENTRY_START','ENTRY_END','OPTION_FEE_BUY','OPTION_FEE_SELL','RISK_FREE_RATE'];
         const capitalKeys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT','MAX_POSITION_SIZE'];
-        const capitalFields = capitalKeys.map(k => `<div class="field"><label>${CAPITAL_LABELS[k]||k}</label><input type="number" step="any" id="cap_${k}" value="${t.values[k] !== undefined ? t.values[k] : ''}"></div>`).join('');
+        const factorKeys = ['SIGNAL_FACTOR_1','SIGNAL_FACTOR_2','SIGNAL_FACTOR_3','SIGNAL_FACTOR_4PLUS','LEVEL_FACTOR_A_PLUS','LEVEL_FACTOR_A','LEVEL_FACTOR_B','LEVEL_FACTOR_C','LEVEL_FACTOR_D','IV_FACTOR_MIN','IV_FACTOR_MAX','IV_FACTOR_BASE'];
+        const confKeys = ['CONFLUENCE_TIME_WINDOW','MULTI_CONFIRMER_MIN','MULTI_CONFIRMER_TIME_WINDOW','MIN_TARGET_PCT'];
+        const field = (k, val) => {
+            const isTime = k === 'ENTRY_START' || k === 'ENTRY_END';
+            return `<div class="field"><label>${TRADING_LABELS[k]||k}</label><input type="${isTime?'text':'number'}" ${isTime?'':'step="any"'} id="ts_${k}" value="${val}"></div>`;
+        };
+        const tradingFields = tradingKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+        const capitalFields = capitalKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+        const factorFields = factorKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+        const confFields = confKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+        const optFields = Object.keys(o.defaults).map(k => `<div class="field"><label>${OPT_LABELS[k]||k}</label><input type="number" step="any" id="opt_${k}" value="${o.values[k]}"></div>`).join('');
         openModal('تنظیمات عمومی', `
             <div class="tabs">
                 <button class="tab active" onclick="switchSettingsTab('trading', this)">معاملات</button>
-                <button class="tab" onclick="switchSettingsTab('option', this)">آپشن</button>
                 <button class="tab" onclick="switchSettingsTab('capital', this)">مدیریت سرمایه</button>
+                <button class="tab" onclick="switchSettingsTab('factors', this)">ضرایب سه‌لایه</button>
+                <button class="tab" onclick="switchSettingsTab('confluence', this)">هم‌گرایی</button>
+                <button class="tab" onclick="switchSettingsTab('option', this)">آپشن</button>
             </div>
             <div id="tab-trading">
-                <div class="hint">این مقادیر بلافاصله اعمال می‌شوند.</div>
+                <div class="hint">بازه ورود و کارمزدها.</div>
                 <div class="form-row">${tradingFields}</div>
-                <button class="btn" onclick="saveTradingSettings()">ذخیره</button>
-            </div>
-            <div id="tab-option" style="display:none;">
-                <div class="hint">کارمزد خرید ${(o.fees.buy*100).toFixed(2)}٪ · فروش ${(o.fees.sell*100).toFixed(2)}٪ · نرخ بدون ریسک ${(o.riskFree*100).toFixed(0)}٪</div>
-                <div class="form-row">${optFields}</div>
-                <button class="btn" onclick="saveOptionSettings()">ذخیره</button>
+                <button class="btn" onclick="saveTradingSettings(['ENTRY_START','ENTRY_END','OPTION_FEE_BUY','OPTION_FEE_SELL','RISK_FREE_RATE'])">ذخیره</button>
             </div>
             <div id="tab-capital" style="display:none;">
-                <div class="hint">این مقادیر مبنای محاسبه حجم پوزیشن و پیام‌های تلگرام هستند. پیش‌فرض: ریسک ۱.۵٪، سقف نماد ۲۰٪، سقف کل ۵۰٪، نقد ذخیره ۲۰٪.</div>
+                <div class="hint">سرمایه و سقف‌های درگیری.</div>
                 <div class="form-row">${capitalFields}</div>
-                <button class="btn" onclick="saveCapitalSettings()">ذخیره</button>
+                <button class="btn" onclick="saveTradingSettings(['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT','MAX_POSITION_SIZE'])">ذخیره</button>
+            </div>
+            <div id="tab-factors" style="display:none;">
+                <div class="hint">ضریب‌های سه‌لایه مدیریت سرمایه: حجم = پایه × سیگنال × سطح × IV.</div>
+                <div class="form-row">${factorFields}</div>
+                <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره</button>
+            </div>
+            <div id="tab-confluence" style="display:none;">
+                <div class="hint">پنجره زمانی Confluence و چند تأییدکننده + فیلتر هدف.</div>
+                <div class="form-row">${confFields}</div>
+                <button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره</button>
+            </div>
+            <div id="tab-option" style="display:none;">
+                <div class="hint">کارمزد خرید ${(o.fees.buy*100).toFixed(2)}٪ · فروش ${(o.fees.sell*100).toFixed(2)}٪</div>
+                <div class="form-row">${optFields}</div>
+                <button class="btn" onclick="saveOptionSettings()">ذخیره</button>
             </div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 function switchSettingsTab(which, btn) {
-    document.getElementById('tab-trading').style.display = which === 'trading' ? 'block' : 'none';
-    document.getElementById('tab-option').style.display = which === 'option' ? 'block' : 'none';
-    document.getElementById('tab-capital').style.display = which === 'capital' ? 'block' : 'none';
+    ['trading','capital','factors','confluence','option'].forEach(w => {
+        const el = document.getElementById(`tab-${w}`);
+        if (el) el.style.display = w === which ? 'block' : 'none';
+    });
     document.querySelectorAll('.modal .tabs .tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
 }
-async function saveTradingSettings() {
-    const body = {}; window._tsKeys.forEach(k => { const v = document.getElementById(`ts_${k}`).value.trim(); if (v !== '') body[k] = v; });
+async function saveTradingSettings(keys) {
+    const body = {};
+    keys.forEach(k => { const el = document.getElementById(`ts_${k}`); if (el) { const v = el.value.trim(); if (v !== '') body[k] = v; } });
     try { await apiFetch(`${BACKEND_URL}/api/trading-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); await checkBackendStatus(); } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function saveOptionSettings() {
     const body = {}; window._optKeys.forEach(k => body[k] = parseFloat(document.getElementById(`opt_${k}`).value));
     try { await apiFetch(`${BACKEND_URL}/api/options/settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); }
 }
-async function saveCapitalSettings() {
-    const keys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT','MAX_POSITION_SIZE'];
-    const body = {};
-    keys.forEach(k => { const el = document.getElementById(`cap_${k}`); if (el && el.value !== '') body[k] = parseFloat(el.value); });
-    try { await apiFetch(`${BACKEND_URL}/api/trading-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); }
+
+// ======================== پیش‌فرض استراتژی‌ها ========================
+async function openStrategyDefaults() {
+    openModal('پیش‌فرض استراتژی‌ها', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const d = await apiFetch(`${BACKEND_URL}/api/strategy-defaults`);
+        const defaults = d.defaults, overrides = d.overrides;
+        let html = `<div class="hint">مقادیر پایه‌ای که همه‌جا (ایجاد استراتژی، بک‌تست، پایش) استفاده می‌شن.</div>`;
+        for (const s of strategiesInfo) {
+            const values = defaults[s.id] || s.defaultParams;
+            const hasOverride = overrides[s.id] && Object.keys(overrides[s.id]).length > 0;
+            const fields = Object.entries(values).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" data-sid="${s.id}" data-param="${k}" value="${v}"></div>`).join('');
+            html += `<div class="adv-accordion ${hasOverride ? 'open' : ''}" id="sd-${s.id}">
+                <div class="adv-header" onclick="document.getElementById('sd-${s.id}').classList.toggle('open')">
+                    <span>${esc(s.name)} ${hasOverride ? '<span class="badge warn">ویرایش‌شده</span>' : ''}</span>
+                    <span class="chev">▼</span>
+                </div>
+                <div class="adv-body">
+                    <div class="form-row">${fields}</div>
+                    <button class="btn tiny outline" onclick="resetStrategyDefault('${s.id}')">بازگردانی به پیش‌فرض سرور</button>
+                </div>
+            </div>`;
+        }
+        html += `<div style="margin-top:16px; display:flex; gap:8px;">
+            <button class="btn" onclick="saveStrategyDefaults()">ذخیره همه</button>
+            <button class="btn outline" onclick="resetAllStrategyDefaults()">بازگردانی همه</button>
+        </div>`;
+        openModal('پیش‌فرض استراتژی‌ها', html);
+    } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
+}
+async function saveStrategyDefaults() {
+    const overrides = {};
+    document.querySelectorAll('[data-sid][data-param]').forEach(inp => {
+        const sid = inp.dataset.sid, k = inp.dataset.param;
+        if (!overrides[sid]) overrides[sid] = {};
+        const v = parseFloat(inp.value);
+        if (Number.isFinite(v)) overrides[sid][k] = v;
+    });
+    try {
+        await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ overrides }) });
+        showAlert('پیش‌فرض‌ها ذخیره شد.', 'success', 3000);
+        await loadStrategies();
+        await loadConfigs();
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+async function resetStrategyDefault(sid) {
+    if (!confirm(`بازگردانی پیش‌فرض ${sid}؟`)) return;
+    try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults/${sid}`, { method: 'DELETE' }); showAlert('بازگردانی شد.', 'success', 3000); await openStrategyDefaults(); await loadStrategies(); } catch (e) { showAlert('خطا: ' + e.message); }
+}
+async function resetAllStrategyDefaults() {
+    if (!confirm('بازگردانی همه پیش‌فرض‌ها به سرور؟')) return;
+    try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, { method: 'DELETE' }); showAlert('همه بازگردانی شد.', 'success', 3000); await openStrategyDefaults(); await loadStrategies(); } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
+// ======================== بک‌تست مقایسه‌ای ========================
 async function openBacktestCompare() {
     try {
         const symbolsHtml = monitoredSymbols.map(s => `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="bt-symbol" value="${esc(s.symbol)}"> ${esc(s.symbol)}</label>`).join('');
@@ -1046,7 +1126,6 @@ async function runBacktestCompare() {
     const strategyChecks = Array.from(document.querySelectorAll('.bt-strategy-check:checked'));
     if (!symbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
     if (!strategyChecks.length) return showAlert('حداقل یک استراتژی انتخاب کن', 'warn');
-
     const useRealOption = document.getElementById('btRealOption').checked;
     const strategies = strategyChecks.map(chk => {
         const id = chk.value;
@@ -1058,172 +1137,113 @@ async function runBacktestCompare() {
         });
         return { id, timeframe: s.defaultTimeframe, htfTimeframe: s.htfTimeframe || '1d', candleType: 'heikin', params: { ...s.defaultParams, ...params } };
     });
-
     const btn = document.getElementById('btRunBtn');
-    btn.disabled = true;
-    btn.textContent = 'در حال محاسبه...';
-
-    const total = symbols.length;
+    btn.disabled = true; btn.textContent = 'در حال محاسبه...';
     const resultsDiv = document.getElementById('btResults');
-
-    // ✅ نمایش progress
+    const total = symbols.length;
     const renderProgress = (done, current) => {
         const percent = Math.round(done / total * 100);
-        resultsDiv.innerHTML = `
-            <div style="padding:16px;">
-                <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">
-                    در حال پردازش ${done} از ${total} نماد ${current ? '— ' + esc(current) : ''}
-                </div>
-                <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">
-                    <div style="height:100%;width:${percent}%;background:var(--accent);transition:width .2s;"></div>
-                </div>
-                <div style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">${percent}٪</div>
-            </div>`;
+        resultsDiv.innerHTML = `<div style="padding:16px;"><div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">پردازش ${done}/${total} ${current?'— '+esc(current):''}</div><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:var(--accent);transition:width .2s;"></div></div><div style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">${percent}٪</div></div>`;
     };
     renderProgress(0, null);
-
-    // ✅ ارسال per-symbol برای جلوگیری از timeout
     const allResults = [];
     for (let i = 0; i < symbols.length; i++) {
         const symbol = symbols[i];
         renderProgress(i, symbol);
         try {
-            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbols: [symbol], strategies, useRealOption })
-            }, 0);
+            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: [symbol], strategies, useRealOption }) }, 0);
             if (r.results) allResults.push(...r.results);
         } catch (e) {
-            allResults.push({
-                symbol,
-                strategyId: '_error',
-                strategyName: 'خطا در دریافت',
-                error: e.message
-            });
+            allResults.push({ symbol, strategyId: '_err', strategyName: 'خطا', error: e.message });
         }
     }
     renderProgress(total, null);
-
-    // ✅ رندر نتیجه نهایی
-    if (!allResults.length) {
-        resultsDiv.innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>';
-        btn.disabled = false; btn.textContent = 'اجرای بک‌تست';
-        return;
-    }
-
-    // مرتب‌سازی
+    if (!allResults.length) { resultsDiv.innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>'; btn.disabled = false; btn.textContent = 'اجرای بک‌تست'; return; }
     allResults.sort((a, b) => {
-        const pfA = a.option && a.option.profitFactor != null ? a.option.profitFactor : -1;
-        const pfB = b.option && b.option.profitFactor != null ? b.option.profitFactor : -1;
-        return pfB - pfA;
+        const pA = a.option && a.option.profitFactor != null ? a.option.profitFactor : -1;
+        const pB = b.option && b.option.profitFactor != null ? b.option.profitFactor : -1;
+        return pB - pA;
     });
-
-    const validCount = allResults.filter(x => !x.error && !x.insufficientData).length;
     const insufficientCount = allResults.filter(x => x.insufficientData).length;
     const errorCount = allResults.filter(x => x.error && !x.insufficientData).length;
-
+    const validCount = allResults.filter(x => !x.error && !x.insufficientData).length;
     const rows = allResults.map((x, i) => {
-        if (x.insufficientData) {
-            return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--warn);font-size:11.5px;">⚠️ ${esc(x.error)}</td></tr>`;
-        }
-        if (x.error) {
-            return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--bad);font-size:11.5px;">❌ ${esc(x.error)}</td></tr>`;
-        }
-        const o = x.option || {}; const s = x.stock || {};
+        if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--warn);font-size:11.5px;">⚠️ ${esc(x.error)}</td></tr>`;
+        if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--bad);font-size:11.5px;">❌ ${esc(x.error)}</td></tr>`;
+        const o = x.option || {}, s = x.stock || {};
         return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td></tr>`;
     }).join('');
-
-    const summary = `<div class="hint" style="margin-bottom:10px;">
-        ${allResults.length} ترکیب — 
-        <span style="color:var(--good);">${validCount} موفق</span> · 
-        <span style="color:var(--warn);">${insufficientCount} داده ناکافی</span> · 
-        <span style="color:var(--bad);">${errorCount} خطا</span>
-    </div>`;
-
-    resultsDiv.innerHTML = summary + `
-        <div class="table-responsive"><table class="data-table">
-            <thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th></tr>
-            <tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead>
-            <tbody>${rows}</tbody>
-        </table></div>
-        <div class="hint" style="margin-top:10px;">💡 ردیف‌های زرد یعنی استراتژی هنوز داده‌ی کافی برای اجرا ندارد. از دکمه «دریافت تاریخچه روزانه» در بخش نمادهای زیر نظر استفاده کن.</div>`;
-
+    resultsDiv.innerHTML = `<div class="hint" style="margin-bottom:10px;">${allResults.length} ترکیب — <span style="color:var(--good);">${validCount} موفق</span> · <span style="color:var(--warn);">${insufficientCount} داده ناکافی</span> · <span style="color:var(--bad);">${errorCount} خطا</span></div><div class="table-responsive"><table class="data-table"><thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th></tr><tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     btn.disabled = false;
     btn.textContent = 'اجرای بک‌تست';
 }
+
+// ======================== راهنما ========================
 function guideFull() {
     const stratBlock = (name, wr, pf, tf, htf, desc, good) => `
         <div class="strat-block">
             <h5>${name} <span class="badge-win">وین‌ریت ${wr}</span> <span class="badge-pf">PF ${pf}</span></h5>
             <p>${desc}</p>
-            <p>مناسب برای: ${good}</p>
-            <p style="color:var(--text-bright);">تایم‌فریم پیش‌فرض: ${tf} | HTF: ${htf}</p>
+            <p>مناسب: ${good}</p>
+            <p style="color:var(--text-bright);">TF: ${tf} | HTF: ${htf}</p>
         </div>`;
     return `
         <h4>شروع سریع</h4>
         <ol>
-            <li>نمادهای مورد نظرت را در بخش «نمادهای زیر نظر» اضافه کن.</li>
-            <li>در «ایجاد استراتژی» نماد، استراتژی، تایم‌فریم و کندل را انتخاب کن.</li>
-            <li>نقش را انتخاب کن: <b>لیدر</b> سیگنال مستقل می‌فرستد، <b>تأییدکننده</b> فقط در پیام لیدر ذکر می‌شود.</li>
+            <li>نمادهای مورد نظرت را اضافه کن.</li>
+            <li>استراتژی بساز (لیدر یا تأییدکننده).</li>
             <li>منتظر سیگنال در تلگرام بمان.</li>
         </ol>
-        <h4>منطق لیدری</h4>
-        <p>روی هر نماد، فقط <b>لیدرها</b> سیگنال تلگرام می‌فرستند. <b>تأییدکننده‌ها</b> وضعیتشان ذخیره می‌شود و اگر هم‌زمان با لیدر سیگنال بدهند، در پیام لیدر با برچسب «✅ تأیید» نشان داده می‌شوند.</p>
-        <h4>مدیریت سرمایه</h4>
-        <p>حجم هر پوزیشن بر اساس: ریسک هر معامله، قدرت سیگنال (RR)، ارزانی IV، سقف درگیری نماد و سقف کل، محاسبه می‌شود.</p>
+        <h4>منطق لیدری و تأییدکننده</h4>
+        <p><b>لیدر</b>: سیگنال مستقل به تلگرام می‌فرستد.</p>
+        <p><b>تأییدکننده</b>: پیام مستقل نمی‌فرستد، ولی وضعیتش ذخیره می‌شود و اگر با لیدر هم‌جهت باشد، در پیام لیدر نشان داده می‌شود.</p>
+        <p>اگر <b>۲+ تأییدکننده</b> هم‌زمان (در پنجره زمانی) سیگنال بدهند، حتی بدون لیدر، پیام «چند-تأیید» فرستاده می‌شود.</p>
+        <h4>مدیریت سرمایه سه‌لایه</h4>
+        <p>حجم = پایه × ضریب سیگنال × ضریب سطح × ضریب IV</p>
+        <ul>
+            <li><b>پایه</b> = (سرمایه × ریسک٪) ÷ ارزش قرارداد</li>
+            <li><b>ضریب سیگنال</b>: لیدر تنها ۰.۷، +۱ تأیید ۱.۰، +۲ تأیید ۱.۳، +۳+ ۱.۵</li>
+            <li><b>ضریب سطح</b>: A+ ۱.۰، A ۰.۸، B ۰.۵، C ۰.۲۵، D ۰.۱</li>
+            <li><b>ضریب IV</b>: ۰.۶ تا ۱.۲ بر اساس IV/HV</li>
+        </ul>
         <h4>استراتژی‌ها</h4>
-        ${stratBlock('RSI Pullback', '۴۷-۵۵٪', '~۱.۴', '۳۰ دقیقه', 'روزانه', 'پولبک RSI (کانرز) با آستانه ۱۵.', 'بازارهای رنج')}
-        ${stratBlock('EMA Pullback', '۴۹-۶۳٪', '~۱.۶', '۱۵ دقیقه', 'روزانه', 'پولبک به EMA با pullback تنگ‌تر.', 'روندهای پایدار')}
-        ${stratBlock('Ichimoku', '۳۹-۵۸٪', '~۱.۵', '۳۰ دقیقه', 'روزانه', 'ابر Kumo + کراس T/K (senkou ۲۶).', 'روند کم‌نوسان')}
-        ${stratBlock('SMC Unicorn', '۵۰-۶۴٪', '~۲.۵', '۱ ساعت', 'روزانه', 'شکار نقدینگی + Breaker Block + FVG + OTE.', 'حرکات بزرگ')}
-        ${stratBlock('ICT Silver Bullet', '۵۳-۵۹٪', '~۱.۹', '۱۵ دقیقه', 'روزانه', 'شکار FVG در پنجره‌های زمانی.', 'فرصت‌های پرتکرار')}
-        ${stratBlock('OB + Sweep', '۳۹-۴۶٪', '~۱.۳', '۱ ساعت', 'روزانه', 'Sweep + MSS + Order Block.', 'برگشت‌های ناگهانی')}
-        ${stratBlock('Ensemble', '۵۵-۷۰٪ (تخمینی)', 'بالا', '۳۰ دقیقه', 'روزانه', 'رأی‌گیری وزنی از ۶ استراتژی بالا.', 'همه شرایط')}
+        ${stratBlock('RSI', '۴۷-۵۵٪', '~۱.۴', '۳۰ دقیقه', 'روزانه', 'پولبک RSI(2) در روند صعودی', 'بازار رنج')}
+        ${stratBlock('EMA', '۴۹-۶۳٪', '~۱.۶', '۱۵ دقیقه', 'روزانه', 'پولبک به EMA در هم‌ترازی', 'روندهای پایدار')}
+        ${stratBlock('Ichimoku', '۳۹-۵۸٪', '~۱.۵', '۳۰ دقیقه', 'روزانه', 'ابر + کراس T/K', 'روند کم‌نوسان')}
+        ${stratBlock('SMC Unicorn', '۵۰-۶۴٪', '~۲.۵', '۱ ساعت', 'روزانه', 'شکار نقدینگی + BB + FVG', 'حرکات بزرگ')}
+        ${stratBlock('Silver Bullet', '۵۳-۵۹٪', '~۱.۹', '۱۵ دقیقه', 'روزانه', 'FVG retest در پنجره', 'فرصت پرتکرار')}
+        ${stratBlock('OB+Sweep', '۴۰-۵۰٪', '~۱.۵', '۱ ساعت', 'روزانه', 'Sweep + MSS + OB (۲ از ۳)', 'برگشت ناگهانی')}
+        ${stratBlock('Ensemble', '۵۵-۷۰٪', 'بالا', '۳۰ دقیقه', 'روزانه', 'رأی‌گیری وزنی', 'همه شرایط')}
         <h4>مدیریت ریسک</h4>
-        <p>هر معامله ۱.۵٪ سرمایه، سقف نماد ۲۰٪، سقف کل ۵۰٪، نقد ذخیره ۲۰٪.</p>
-        <p>خروج پله‌ای: +۵۰٪ → فروش ۳۳٪، +۱۰۰٪ → فروش ۳۳٪ دیگر، بقیه با حد ضرر متحرک.</p>
+        <p>حد ضرر آپشن: ۲۰٪ | هدف: ۱۰۰٪ | خروج پله‌ای در ۵۰٪ و ۱۰۰٪</p>
         <h4>اصطلاحات آپشن</h4>
         <dl>
-            <dt>دلتا</dt><dd>حساسیت پرمیوم به تغییر قیمت سهم.</dd>
-            <dt>تتا</dt><dd>کاهش روزانه ارزش آپشن به‌خاطر زمان.</dd>
-            <dt>IV (نوسان ضمنی)</dt><dd>انتظار بازار از نوسان آینده.</dd>
-            <dt>HV (نوسان تاریخی)</dt><dd>نوسان واقعی ۲۰ روز گذشته.</dd>
-            <dt>IV/HV</dt><dd>بالای ۱.۴ یعنی آپشن گران است.</dd>
-            <dt>OI</dt><dd>تعداد قراردادهای باز.</dd>
+            <dt>دلتا</dt><dd>حساسیت پرمیوم به تغییر قیمت سهم</dd>
+            <dt>تتا</dt><dd>کاهش روزانه ارزش آپشن</dd>
+            <dt>IV (نوسان ضمنی)</dt><dd>انتظار بازار از نوسان</dd>
+            <dt>HV (نوسان تاریخی)</dt><dd>نوسان واقعی ۲۰ روز اخیر</dd>
+            <dt>IV/HV</dt><dd>بالای ۱.۴ = گران</dd>
+            <dt>OI</dt><dd>تعداد قرارداد باز</dd>
+            <dt>سطح A+/A/B/C/D</dt><dd>کیفیت قرارداد بر اساس OI، اسپرد، دلتا، IV</dd>
         </dl>`;
 }
 
+// ======================== زنجیره آپشن ========================
 async function viewChain(sym) {
     openModal(`زنجیره ${sym}`, '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
     try {
         const d = await apiFetch(`${BACKEND_URL}/api/options/chain/${encodeURIComponent(sym)}`);
         if (!d.rows.length) {
-            let sug = '';
-            try { const u = await apiFetch(`${BACKEND_URL}/api/options/underlyings`); sug = `<div class="hint">نام‌های تطبیق: ${(d.matchedNames||[]).map(esc).join('، ')||'-'}</div><div class="hint">نمونه: ${u.underlyings.slice(0,40).map(x=>esc(x.underlying)).join('، ')}</div>`; } catch (e) {}
-            return openModal(`زنجیره ${sym}`, `<div class="empty-note">قراردادی یافت نشد.</div>${sug}`);
+            return openModal(`زنجیره ${sym}`, `<div class="empty-note">قراردادی یافت نشد.</div>`);
         }
         const rows = d.rows.map(r => {
             const ivApiShow = r.ivApi ? (r.ivApi*100).toFixed(1)+'٪' : '-';
             const ivCalc = r.iv ? (r.iv*100).toFixed(1)+'٪' : '-';
             const hvApiShow = r.hvApi ? (r.hvApi*100).toFixed(1)+'٪' : '-';
-            const bsApi = r.theoApi ? fmtN(r.theoApi) : '-';
-            const bsCalc = r.theo ? fmtN(r.theo) : '-';
             const delta = r.deltaApi ? r.deltaApi.toFixed(2) : (r.delta ? r.delta.toFixed(2) : '-');
-            const gamma = r.gammaApi ? r.gammaApi.toFixed(4) : (r.gamma ? r.gamma.toFixed(4) : '-');
-            const theta = r.thetaApi ? r.thetaApi.toFixed(1) : (r.thetaDay ? r.thetaDay.toFixed(1) : '-');
-            const vega = r.vegaApi ? r.vegaApi.toFixed(1) : (r.vega ? r.vega.toFixed(1) : '-');
-            return `<tr style="${r.reject.length?'opacity:.55':''}">
-                <td>${esc(r.symbol)}</td><td>${fmtN(r.strike)}</td><td>${r.expiry}</td><td>${r.daysLeft}</td>
-                <td>${fmtN(r.bid)} / ${fmtN(r.ask)}</td><td>${r.spreadPct===null?'-':r.spreadPct.toFixed(1)+'٪'}</td>
-                <td>${ivApiShow}<br><small>${ivCalc}</small></td><td>${hvApiShow}</td>
-                <td>${bsApi}<br><small>${bsCalc}</small></td>
-                <td>${delta}</td><td>${gamma}</td><td>${theta}</td><td>${vega}</td>
-                <td style="font-size:11px;">${r.reject.length?esc(r.reject.join('، ')):'<span class="badge long">قابل بررسی</span>'}</td>
-            </tr>`;
+            return `<tr style="${r.reject.length?'opacity:.55':''}"><td>${esc(r.symbol)}</td><td>${fmtN(r.strike)}</td><td>${r.expiry}</td><td>${r.daysLeft}</td><td>${fmtN(r.bid)} / ${fmtN(r.ask)}</td><td>${r.spreadPct===null?'-':r.spreadPct.toFixed(1)+'٪'}</td><td>${ivApiShow}<br><small>${ivCalc}</small></td><td>${hvApiShow}</td><td>${delta}</td><td>${r.oi}</td><td style="font-size:11px;">${r.reject.length?esc(r.reject.join('، ')):'<span class="badge long">قابل بررسی</span>'}</td></tr>`;
         }).join('');
-        openModal(`زنجیره ${sym} — پایه ${fmtN(d.S)}${d.hv?` · HV ${(d.hv*100).toFixed(0)}٪`:''}`,
-            `<div class="table-responsive"><table class="data-table"><thead><tr><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>روز</th><th>خرید/فروش</th><th>اسپرد</th><th>IV (API/محاسبه)</th><th>HV API</th><th>BS</th><th>دلتا</th><th>گاما</th><th>تتا</th><th>وگا</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>`);
+        openModal(`زنجیره ${sym}`, `<div class="table-responsive"><table class="data-table"><thead><tr><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>روز</th><th>خرید/فروش</th><th>اسپرد</th><th>IV</th><th>HV</th><th>دلتا</th><th>OI</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
@@ -1234,20 +1254,12 @@ async function recommendOption(id) {
         const r = await apiFetch(`${BACKEND_URL}/api/options/recommend/${id}`);
         const sc = r.scenario;
         const levelTag = r.level && r.level !== 'A+' ? `<div class="msg-warn" style="display:block;">سطح فیلتر: ${r.level}${r.tag ? ' — ' + r.tag : ''}</div>` : '';
-        const head = levelTag + `<div class="hint">سناریو: ورود ${fmtN(sc.entry)} · حد ضرر ${fmtN(sc.stop)} · هدف ${fmtN(sc.target)} · افق ~${sc.horizonDays} روز${sc.hv?` · HV ${(sc.hv*100).toFixed(0)}٪`:''}</div>`;
+        const head = levelTag + `<div class="hint">سناریو: ورود ${fmtN(sc.entry)} · حد ضرر ${fmtN(sc.stop)} · هدف ${fmtN(sc.target)} · افق ~${sc.horizonDays} روز</div>`;
         let picks = '';
         if (r.picks.length) {
-            picks = r.picks.map((p,i) => {
-                const sizeInfo = p.positionInfo ? `<span title="ریسک: ${fmtN(p.positionInfo.limits.riskAmount)} | سقف نماد: ${fmtN(p.positionInfo.limits.maxSymbolExposure)}">${p.positionSize||1}</span>` : (p.positionSize||1);
-                return `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)} <small>(${p.spreadPct.toFixed(1)}٪)</small></td><td>${fmtN(p.theo)}</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.leverage.toFixed(1)}x</td><td>${p.oi}</td><td>${pct(p.bePct)}</td><td>${pct(p.profitPct)}</td><td>${pct(p.lossPct)}</td><td><b>${p.rr.toFixed(2)}</b></td><td>${sizeInfo}</td></tr>`;
-            }).join('');
-        } else {
-            picks = `<tr class="empty-row"><td colspan="16">قراردادی نیست</td></tr>`;
-            if (r.nearMisses && r.nearMisses.length) {
-                picks += r.nearMisses.map(n => `<tr style="opacity:.6;"><td>-</td><td>${esc(n.symbol)}</td><td>${fmtN(n.strike)}</td><td>${n.daysLeft} روز</td><td colspan="12" style="text-align:right; font-size:11px; color:var(--bad);">رد شد: ${esc(n.reasons.join('، '))}</td></tr>`).join('');
-            }
-        }
-        openModal(`پیشنهاد آپشن ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>خرید</th><th>منصفانه</th><th>IV</th><th>دلتا</th><th>اهرم</th><th>OI</th><th>سربه‌سر</th><th>هدف</th><th>حد ضرر</th><th>RR</th><th>حجم</th></tr></thead><tbody>${picks}</tbody></table></div><div class="hint">بررسی‌شده ${r.considered} · قابل قبول ${r.passed}</div>`);
+            picks = r.picks.map((p,i) => `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)} (${p.spreadPct.toFixed(1)}٪)</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.oi}</td><td>${p.rr.toFixed(2)}</td></tr>`).join('');
+        } else picks = `<tr class="empty-row"><td colspan="9">قراردادی نیست</td></tr>`;
+        openModal(`پیشنهاد آپشن ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>خرید</th><th>IV</th><th>دلتا</th><th>OI</th><th>RR</th></tr></thead><tbody>${picks}</tbody></table></div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
@@ -1257,29 +1269,26 @@ async function loadOptionPositions() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/options/positions`), s = r.stats;
         optPositionsCache = r.positions; optPositionsLimit = 5;
-        document.getElementById('optStats').innerHTML = (s.open + s.closed) ? `<div class="stat"><small>باز / بسته</small><b>${s.open} / ${s.closed}</b></div><div class="stat"><small>وین‌ریت</small><b>${s.winRate.toFixed(0)}٪</b></div><div class="stat"><small>بازده کل</small><b>${pct(s.totalPnl)}</b></div><div class="stat"><small>میانگین</small><b>${pct(s.avgPnl)}</b></div><div class="stat"><small>PF</small><b>${fmtPF(s.profitFactor)}</b></div>` : '<div class="empty-note">موقعیتی ثبت نشده است</div>';
+        document.getElementById('optStats').innerHTML = (s.open + s.closed) ? `<div class="stat"><small>باز / بسته</small><b>${s.open} / ${s.closed}</b></div><div class="stat"><small>وین‌ریت</small><b>${s.winRate.toFixed(0)}٪</b></div><div class="stat"><small>بازده کل</small><b>${pct(s.totalPnl)}</b></div><div class="stat"><small>میانگین</small><b>${pct(s.avgPnl)}</b></div><div class="stat"><small>PF</small><b>${fmtPF(s.profitFactor)}</b></div>` : '<div class="empty-note">موقعیتی ثبت نشده</div>';
         renderOptPositions();
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
 function renderOptPositions() {
     const tb = document.getElementById('optBody');
     const list = optPositionsCache || [];
-    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="13">موقعیتی ثبت نشده است</td></tr>';
+    if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="14">موقعیتی ثبت نشده</td></tr>';
     const shown = list.slice(0, optPositionsLimit);
     tb.innerHTML = shown.map(p => {
         const cur = p.status==='closed' ? p.exitBid : p.lastBid, curS = p.status==='closed' ? p.exitS : p.lastS, pnl = p.status==='closed' ? p.pnlPct : p.lastPnlPct;
         const size = p.positionSize || 1;
-        return `<tr>
-            <td>${esc(p.underlying)}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry}${p.lastDaysLeft!==undefined&&p.status==='open'?` <small>(${p.lastDaysLeft})</small>`:''}</td>
-            <td>${new Date(p.entryTime).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td>${fmtN(p.entryAsk)}</td><td><b>${size}</b></td><td>${fmtN(cur)}${p.status==='open'?' <span class="badge long">باز</span>':''}</td><td>${pct(pnl)}</td>
-            <td>${fmtN(p.entryS)} → ${fmtN(curS)}</td><td>${fmtIv(p.entryIv)} → ${fmtIv(p.lastIv)}</td><td style="font-size:11px;">${esc(p.exitReason||'-')}</td>
-            <td><button class="btn tiny danger" onclick="deleteOptionPosition('${p._id}')">×</button></td></tr>`;
+        const level = p.level || '-';
+        return `<tr><td>${esc(p.underlying)}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry}${p.lastDaysLeft!==undefined&&p.status==='open'?` <small>(${p.lastDaysLeft})</small>`:''}</td><td>${new Date(p.entryTime).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td>${fmtN(p.entryAsk)}</td><td><b>${size}</b></td><td><span class="badge ${level==='A+'?'long':level==='A'?'long':level==='B'?'warn':'short'}">${level}</span></td><td>${fmtN(cur)}${p.status==='open'?' <span class="badge long">باز</span>':''}</td><td>${pct(pnl)}</td><td>${fmtN(p.entryS)} → ${fmtN(curS)}</td><td>${fmtIv(p.entryIv)} → ${fmtIv(p.lastIv)}</td><td style="font-size:11px;">${esc(p.exitReason||'-')}</td><td><button class="btn tiny danger" onclick="deleteOptionPosition('${p._id}')">×</button></td></tr>`;
     }).join('');
     if (list.length > optPositionsLimit) {
-        tb.innerHTML += `<tr><td colspan="13" style="padding:0;"><button class="show-more-btn" onclick="optPositionsLimit += 5; renderOptPositions();">نمایش ${Math.min(5, list.length - optPositionsLimit)} مورد بیشتر (${list.length - optPositionsLimit} باقی‌مانده)</button></td></tr>`;
+        tb.innerHTML += `<tr><td colspan="14" style="padding:0;"><button class="show-more-btn" onclick="optPositionsLimit += 5; renderOptPositions();">نمایش بیشتر (${list.length - optPositionsLimit})</button></td></tr>`;
     }
 }
-async function deleteOptionPosition(id) { if (!confirm('حذف شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/options/positions/${id}`, { method:'DELETE' }); await loadOptionPositions(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function deleteOptionPosition(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/options/positions/${id}`, { method:'DELETE' }); await loadOptionPositions(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
 async function openLogs(source='memory') {
     openModal('لاگ سیستم', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
@@ -1298,11 +1307,19 @@ window.addEventListener('load', async () => {
     if (!await waitForBackend()) { document.getElementById('bootMessage').textContent = 'اتصال برقرار نشد.'; document.getElementById('bootRetryBtn').style.display = 'inline-block'; return; }
     if (!await loadStrategiesLibrary()) { document.getElementById('bootMessage').textContent = 'بارگذاری استراتژی‌ها ناموفق.'; document.getElementById('bootRetryBtn').style.display = 'inline-block'; return; }
     document.getElementById('bootOverlay').style.display = 'none';
-    await checkBackendStatus(); await loadTimeframes(); await loadStrategies(); await loadMonitoredSymbols(); await loadConfigs(); await loadSignalHistory();
+    await checkBackendStatus();
+    await loadTimeframes();
+    await loadStrategies();
+    await loadMonitoredSymbols();
+    await loadConfigs();
+    await loadSignalHistory();
     await loadOptionPositions();
-    setInterval(checkBackendStatus, 60000); setInterval(loadConfigs, 60000); setInterval(loadMonitoredSymbols, 120000);
+    setInterval(checkBackendStatus, 60000);
+    setInterval(loadConfigs, 60000);
+    setInterval(loadMonitoredSymbols, 120000);
     setInterval(refreshQuotesOnly, 30000);
-    setInterval(loadSignalHistory, 60000); setInterval(loadOptionPositions, 60000);
+    setInterval(loadSignalHistory, 60000);
+    setInterval(loadOptionPositions, 60000);
     setInterval(() => { if (selectedConfigId) viewChart(selectedConfigId); }, 60000);
 });
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'), rc = document.getElementById('panelChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); panelChart && rc && panelChart.applyOptions({ width: rc.clientWidth }); });

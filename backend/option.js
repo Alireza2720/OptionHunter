@@ -1,4 +1,4 @@
-// ======================== option.js (کامل و نهایی v3) ========================
+// ======================== option.js (کامل v4 — مدیریت سرمایه سه‌لایه + پیام جدید) ========================
 'use strict';
 const fetch = require('node-fetch');
 const Settings = require('./settings.js');
@@ -20,39 +20,23 @@ function reloadFromSettings() {
     FEE_SELL = s.OPTION_FEE_SELL;
 }
 
-// تابع کمکی مدیریت سرمایه
-function capitalRiskAmount() {
-    return Settings.riskAmount ? Settings.riskAmount() : 1500000;
-}
-function capitalMaxSymbol() {
-    return Settings.maxSymbolExposure ? Settings.maxSymbolExposure() : 20000000;
-}
-function capitalMaxTotal() {
-    return Settings.maxTotalExposure ? Settings.maxTotalExposure() : 50000000;
-}
-function capitalMinCash() {
-    return Settings.minCashReserve ? Settings.minCashReserve() : 20000000;
-}
-function capitalTotal() {
-    return Settings.capital ? Settings.capital() : 100000000;
-}
-function capitalMaxSize() {
-    const v = Settings.get();
-    return v.MAX_POSITION_SIZE || 10;
-}
+// ===== تنظیمات پیش‌فرض آپشن (تعدیل‌شده) =====
 const DEFAULT_SETTINGS = {
-    minDays: 20, maxDays: 90,
-    maxSpreadPct: 10,
-    minOI: 500,
-    minTrades: 5,
-    minPremium: 300,
-    deltaMin: 0.35, deltaMax: 0.85,
-    maxIvHv: 1.4,
-    rewardRisk: 2.0,
+    minDays: 15,           // 20 → 15
+    maxDays: 45,           // 90 → 45
+    maxSpreadPct: 7,       // 10 → 7
+    minOI: 200,            // 500 → 200
+    minTrades: 1,          // 5 → 1
+    minPremium: 200,       // 300 → 200
+    deltaMin: 0.40,        // 0.35 → 0.40
+    deltaMax: 0.75,        // 0.85 → 0.75
+    maxIvHv: 1.5,          // 1.4 → 1.5
+    rewardRisk: 3.0,       // 2.0 → 3.0
     topN: 3,
-    optionStopPct: 30,
-    take1Pct: 50, take2Pct: 100,
-    closeDaysBefore: 7
+    optionStopPct: 20,     // 30 → 20
+    take1Pct: 50,
+    take2Pct: 100,
+    closeDaysBefore: 5     // 7 → 5
 };
 
 let settingsCache = null;
@@ -71,10 +55,11 @@ async function saveSettings(values) {
     return getSettings(true);
 }
 
-// ---------------- نرمال‌سازی و پارس ----------------
+// ======================== نرمال‌سازی و پارس ========================
 const norm = s => String(s || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/[\u200c\u200f\s]/g, '').trim();
 const num = v => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
 const first = s => num(String(s || '').split('/')[0]);
+const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
 const asDecimal = v => {
     const n = num(v);
@@ -82,10 +67,7 @@ const asDecimal = v => {
     return n > 3 ? n / 100 : n;
 };
 
-// ✅ تابع کمکی round
-const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
-
-// نگاشت دقیق: imp = IV (نوسان ضمنی) | sigma = HV (نوسان تاریخی)
+// نگاشت: imp = IV | sigma = HV
 function parseContract(r) {
     const fname = r.fname || '';
     const isPut = /^اخت[يی]ارف/.test(fname), isCallName = /^اخت[يی]ارخ/.test(fname);
@@ -110,7 +92,7 @@ function parseContract(r) {
     };
 }
 
-// ---------------- بلک‌شولز ----------------
+// ======================== بلک‌شولز ========================
 function normCdf(x) {
     const t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989423 * Math.exp(-x * x / 2);
     const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
@@ -149,7 +131,7 @@ async function hvFromDaily(symbol, n = 20) {
     return Math.sqrt(v * TRADING_DAYS);
 }
 
-// ---------------- دریافت زنجیره (با کش) ----------------
+// ======================== دریافت زنجیره ========================
 let chainCache = { at: 0, list: [] };
 async function fetchChain(maxAgeMs = 60000) {
     if (Date.now() - chainCache.at < maxAgeMs && chainCache.list.length) return chainCache.list;
@@ -162,7 +144,7 @@ async function fetchChain(maxAgeMs = 60000) {
 }
 const chainAge = () => chainCache.at ? Math.round((Date.now() - chainCache.at) / 1000) : null;
 
-// ---------------- متریک‌های یک قرارداد ----------------
+// ======================== متریک‌ها ========================
 function metrics(c, S, hv) {
     const T = Math.max(c.daysLeft, 0.5) / 365;
     const mid = c.bid > 0 && c.ask > 0 ? (c.bid + c.ask) / 2 : 0;
@@ -189,7 +171,6 @@ function metrics(c, S, hv) {
     };
 }
 
-// ---------------- رد دلایل ----------------
 function rejectReasons(c, m, s) {
     const R = [];
     if (c.daysLeft < s.minDays) R.push('سررسید نزدیک');
@@ -204,6 +185,7 @@ function rejectReasons(c, m, s) {
     if (m.ivHv && m.ivHv > s.maxIvHv) R.push('IV گران');
     return R;
 }
+
 function breakevenMove(S, K, T2, sig, cost, halfSpread) {
     const f = x => Math.max(bsCall(x, K, T2, RISK_FREE, sig).price - halfSpread, 0) * (1 - FEE_SELL) - cost;
     let lo = S * 0.5, hi = S * 2;
@@ -213,89 +195,13 @@ function breakevenMove(S, K, T2, sig, cost, halfSpread) {
     return ((lo + hi) / 2 / S - 1) * 100;
 }
 
-// ---------------- Position Sizing ----------------
-// ✅ Position Sizing بر اساس مدیریت سرمایه + قدرت سیگنال
-// - بر اساس ریسک تعیین‌شده در هر معامله
-// - با محدودیت درگیری در هر نماد و کل پرتفوی
-// - ضریب تعدیل بر اساس قدرت سیگنال (RR × ارزانی IV)
-async function calcPositionSizeV2(pick, scenario, currentPortfolio) {
-    const capital = capitalTotal();
-    const riskAmt = capitalRiskAmount();
-    const maxSymbol = capitalMaxSymbol();
-    const maxTotal = capitalMaxTotal();
-    const maxSize = capitalMaxSize();
-
-    // قیمت قرارداد × ضریب (پیش‌فرض ۱۰۰۰ سهم در هر قرارداد آپشن ایران)
-    const contractValue = pick.ask * (pick.size || 1000);
-    if (!(contractValue > 0)) return 0;
-
-    // سقف بر اساس ریسک معامله
-    const byRisk = Math.floor(riskAmt / contractValue);
-
-    // سقف بر اساس درگیری نماد
-    const currentSymbolExposure = (currentPortfolio && currentPortfolio.bySymbol && currentPortfolio.bySymbol[pick.underlying]) || 0;
-    const remainingSymbol = Math.max(0, maxSymbol - currentSymbolExposure);
-    const bySymbol = Math.floor(remainingSymbol / contractValue);
-
-    // سقف بر اساس درگیری کل
-    const currentTotal = (currentPortfolio && currentPortfolio.totalExposure) || 0;
-    const remainingTotal = Math.max(0, maxTotal - currentTotal);
-    const byTotal = Math.floor(remainingTotal / contractValue);
-
-    // ضریب کیفیت سیگنال (۰.۵ تا ۱.۵): RR بالا → حجم بیشتر، IV گران → حجم کمتر
-    const rrScore = Math.min(1.5, Math.max(0.5, (pick.rr || 1) / 2.5));
-    const ivScore = pick.ivHv ? Math.min(1.2, Math.max(0.6, 1.1 / pick.ivHv)) : 1;
-    const quality = rrScore * ivScore;
-
-    const raw = Math.min(byRisk, bySymbol, byTotal, maxSize);
-    const adjusted = Math.max(0, Math.round(raw * quality));
-
-    return {
-        size: adjusted,
-        byRisk,
-        bySymbol,
-        byTotal,
-        maxSize,
-        contractValue,
-        qualityFactor: round(quality),
-        limits: {
-            riskAmount: riskAmt,
-            maxSymbolExposure: maxSymbol,
-            maxTotalExposure: maxTotal,
-            currentSymbolExposure,
-            currentTotalExposure: currentTotal
-        }
-    };
-}
-
-// محاسبه وضعیت پرتفوی فعلی
-async function getPortfolioState() {
-    const db = deps.getDB();
-    const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
-    const bySymbol = {};
-    let totalExposure = 0;
-    for (const p of open) {
-        const value = (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
-        bySymbol[p.underlying] = (bySymbol[p.underlying] || 0) + value;
-        totalExposure += value;
-    }
-    const capital = capitalTotal();
-    return {
-        totalCapital: capital,
-        totalExposure,
-        availableCash: capital - totalExposure,
-        exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0,
-        openCount: open.length,
-        bySymbol
-    };
-}
-
-// ---------------- انتخاب قرارداد ----------------
+// ======================== سطوح سست‌سازی (شامل C و D) ========================
 const RELAX_LEVELS = [
-    { name: 'A+', tag: null,       overrides: {} },
-    { name: 'A',  tag: null,       overrides: { minOI: 200, minTrades: 2, maxSpreadPct: 15, deltaMin: 0.30, deltaMax: 0.90 } },
-    { name: 'B',  tag: '⚠️ کیفیت B', overrides: { minOI: 50,  minTrades: 1, maxSpreadPct: 20, deltaMin: 0.25, deltaMax: 0.92, maxIvHv: 1.8 } },
-    { name: 'C',  tag: '🚨 کیفیت پایین — ریسک بالا', overrides: { minOI: 0, minTrades: 0, maxSpreadPct: 30, deltaMin: 0.20, deltaMax: 0.95, maxIvHv: 2.5, minPremium: 100 } }
+    { name: 'A+', tag: null, overrides: {} },
+    { name: 'A', tag: null, overrides: { minOI: 150, minTrades: 1, maxSpreadPct: 9, deltaMin: 0.35, deltaMax: 0.82 } },
+    { name: 'B', tag: '⚠️ کیفیت B', overrides: { minOI: 80, minTrades: 1, maxSpreadPct: 12, deltaMin: 0.30, deltaMax: 0.88, maxIvHv: 1.8 } },
+    { name: 'C', tag: '⚠️ کیفیت C — حجم کم', overrides: { minOI: 30, minTrades: 0, maxSpreadPct: 16, deltaMin: 0.25, deltaMax: 0.92, maxIvHv: 2.2, minPremium: 100 } },
+    { name: 'D', tag: '🚨 کیفیت D — ریسک بالا', overrides: { minOI: 0, minTrades: 0, maxSpreadPct: 22, deltaMin: 0.20, deltaMax: 0.95, maxIvHv: 2.8, minPremium: 50 } }
 ];
 
 function scoreContract(c, sc, s, effective) {
@@ -314,28 +220,26 @@ function scoreContract(c, sc, s, effective) {
     const ivPen = m.ivHv ? Math.max(0.6, Math.min(1, 1.3 / m.ivHv)) : 1;
     const pick = {
         symbol: c.symbol, fullName: c.fullName, strike: c.strike, expiry: c.expiry,
-        daysLeft: c.daysLeft, ask: c.ask, bid: c.bid, oi: c.oi, volume: c.volume, size: c.size,
+        daysLeft: c.daysLeft, ask: c.ask, bid: c.bid,
+        askVol: c.askVol, bidVol: c.bidVol,
+        oi: c.oi, volume: c.volume, trades: c.trades, size: c.size,
         spreadPct: m.spreadPct, theo: m.theo, iv: m.iv, hv: m.hv, ivHv: m.ivHv,
         delta: m.delta, thetaDay: m.thetaDay, leverage: m.leverage,
         profitPct: pt / cost * 100, lossPct: pl / cost * 100, flatPct: pf / cost * 100, rr,
         bePct: breakevenMove(S, c.strike, T2, sig, cost, half),
         score: rr * liq * ivPen, S
     };
-    // Position size در لحظه انتخاب نمی‌توانیم قطعی کنیم، در onBuySignal محاسبه می‌شود
-    pick.positionSize = 1; // مقدار موقت
+    pick.positionSize = 1;
     return { ok: true, pick, m };
 }
 
 function rejectionScore(c, m, R, effective) {
     let score = 0;
     if (R.includes('OI کم')) score += Math.max(0, (effective.minOI - c.oi) / Math.max(effective.minOI, 1)) * 100;
-    if (R.includes('بدون معامله امروز')) score += Math.max(0, (effective.minTrades - c.trades) / Math.max(effective.minTrades, 1)) * 100;
     if (R.includes('اسپرد بالا')) score += Math.max(0, (m.spreadPct - effective.maxSpreadPct)) * 5;
     if (R.includes('دلتا پایین')) score += Math.max(0, (effective.deltaMin - m.delta)) * 500;
     if (R.includes('دلتا بالا')) score += Math.max(0, (m.delta - effective.deltaMax)) * 500;
     if (R.includes('IV گران')) score += Math.max(0, (m.ivHv - effective.maxIvHv)) * 100;
-    if (R.includes('سررسید نزدیک')) score += Math.max(0, (effective.minDays - c.daysLeft)) * 5;
-    if (R.includes('سررسید دور')) score += Math.max(0, (c.daysLeft - effective.maxDays)) * 5;
     return score;
 }
 
@@ -345,7 +249,6 @@ function selectCalls(chain, underlying, sc, s) {
     if (!cands.length) return { picks: [], considered: 0, passed: 0, rejected: {}, level: null, nearMisses: [], relaxed: false };
 
     const nearMissesAll = [];
-
     for (const level of RELAX_LEVELS) {
         const effective = { ...s, ...level.overrides };
         const rejected = {}, scored = [];
@@ -364,29 +267,21 @@ function selectCalls(chain, underlying, sc, s) {
                 }
                 continue;
             }
+            res.pick.level = level.name;
             scored.push(res.pick);
         }
         if (scored.length) {
             scored.sort((a, b) => b.score - a.score);
             return {
                 picks: scored.slice(0, s.topN),
-                considered: cands.length,
-                passed: scored.length,
-                rejected,
-                level: level.name,
-                tag: level.tag,
-                relaxed: level.name !== 'A+',
-                nearMisses: []
+                considered: cands.length, passed: scored.length, rejected,
+                level: level.name, tag: level.tag,
+                relaxed: level.name !== 'A+', nearMisses: []
             };
         }
     }
-
     nearMissesAll.sort((a, b) => a.distance - b.distance);
-    return {
-        picks: [], considered: cands.length, passed: 0,
-        rejected: {}, level: null, tag: null, relaxed: false,
-        nearMisses: nearMissesAll.slice(0, 3)
-    };
+    return { picks: [], considered: cands.length, passed: 0, rejected: {}, level: null, tag: null, relaxed: false, nearMisses: nearMissesAll.slice(0, 3) };
 }
 
 function horizonDaysFor(config) {
@@ -412,13 +307,149 @@ async function buildScenario(config, price, liveS, indicators, s) {
 const f0 = n => Math.round(n).toLocaleString('en-US');
 const pc = v => v === null || v === undefined ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}٪`;
 
-function formatRecommendation(symbol, sc, res, portfolio, title = '🎯 انتخاب قرارداد کال') {
-    let t = `${title} — ${symbol}\n`;
-    t += `📊 سناریو: ورود ${f0(sc.entry)} | حد ضرر ${f0(sc.stop)} | هدف ${f0(sc.target)} | افق ~${sc.horizonDays} روز${sc.hv ? ` | HV ${(sc.hv * 100).toFixed(0)}٪` : ''}\n`;
-
-    if (portfolio) {
-        t += `💰 سرمایه: ${f0(portfolio.totalCapital)} | درگیری فعلی: ${f0(portfolio.totalExposure)} (${portfolio.exposurePct.toFixed(1)}٪) | نقد: ${f0(portfolio.availableCash)}\n`;
+// ======================== وضعیت پرتفوی ========================
+async function getPortfolioState() {
+    const db = deps.getDB();
+    const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
+    const bySymbol = {};
+    let totalExposure = 0;
+    for (const p of open) {
+        const value = (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
+        bySymbol[p.underlying] = (bySymbol[p.underlying] || 0) + value;
+        totalExposure += value;
     }
+    const capital = Settings.capital();
+    return {
+        totalCapital: capital,
+        totalExposure,
+        availableCash: capital - totalExposure,
+        exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0,
+        openCount: open.length,
+        bySymbol
+    };
+}
+
+// ======================== مدیریت سرمایه سه‌لایه ========================
+// حجم = پایه × سیگنال × سطح × IV
+// با محدودیت‌های سقف نماد / سقف کل / حداکثر تعداد
+async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStrength) {
+    const capital = Settings.capital();
+    const riskAmt = Settings.riskAmount();
+    const maxSymbol = Settings.maxSymbolExposure();
+    const maxTotal = Settings.maxTotalExposure();
+    const maxSize = (Settings.get().MAX_POSITION_SIZE) || 10;
+
+    const contractValue = pick.ask * (pick.size || 1000);
+    if (!(contractValue > 0)) {
+        return { size: 0, reason: 'قیمت قرارداد نامعتبر', baseSize: 0 };
+    }
+
+    // 1. حجم پایه بر اساس ریسک
+    const baseSize = riskAmt / contractValue;
+
+    // 2. ضریب سیگنال
+    const confluence = (signalStrength && signalStrength.confluence) || 1;
+    const signalFac = Settings.signalFactor(confluence);
+
+    // 3. ضریب سطح قرارداد
+    const level = pick.level || 'A+';
+    const levelFac = Settings.levelFactor(level);
+
+    // 4. ضریب IV
+    const ivFac = Settings.ivFactor(pick.ivHv);
+
+    // 5. حجم تعدیل‌شده
+    const adjusted = Math.round(baseSize * signalFac * levelFac * ivFac);
+
+    // 6. سقف‌های نماد و کل
+    const currentSymbolExposure = (currentPortfolio && currentPortfolio.bySymbol && currentPortfolio.bySymbol[pick.underlying]) || 0;
+    const remainingSymbol = Math.max(0, maxSymbol - currentSymbolExposure);
+    const bySymbol = Math.floor(remainingSymbol / contractValue);
+
+    const currentTotal = (currentPortfolio && currentPortfolio.totalExposure) || 0;
+    const remainingTotal = Math.max(0, maxTotal - currentTotal);
+    const byTotal = Math.floor(remainingTotal / contractValue);
+
+    const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byTotal, maxSize));
+
+    // تشخیص دلیل محدودیت
+    let limitReason = null;
+    if (finalSize < adjusted) {
+        if (bySymbol < adjusted && bySymbol <= byTotal) limitReason = 'سقف درگیری این نماد پر شده';
+        else if (byTotal < adjusted) limitReason = 'سقف کل درگیری پر شده';
+        else if (maxSize < adjusted) limitReason = 'به حداکثر تعداد قرارداد رسیده';
+    }
+    if (finalSize === 0) {
+        if (bySymbol === 0) limitReason = 'سقف درگیری این نماد پر شده';
+        else if (byTotal === 0) limitReason = 'سقف کل درگیری پر شده';
+        else if (baseSize < 0.5) limitReason = 'سرمایه برای این قرارداد کافی نیست';
+    }
+
+    return {
+        size: finalSize,
+        baseSize: Math.floor(baseSize),
+        signalFactor: round(signalFac),
+        levelFactor: round(levelFac),
+        ivFactor: round(ivFac),
+        level, confluence,
+        adjusted,
+        bySymbol, byTotal, maxSize,
+        contractValue,
+        limitReason,
+        limits: {
+            riskAmount: riskAmt,
+            maxSymbolExposure: maxSymbol,
+            maxTotalExposure: maxTotal,
+            currentSymbolExposure,
+            currentTotalExposure: currentTotal
+        }
+    };
+}
+
+// ======================== پیشنهاد خرید پله‌ای ========================
+// بر اساس حجم سرخط، پیشنهاد می‌ده چطور بخری
+function suggestOrderPlan(pick, targetSize) {
+    const askVol = pick.askVol || 0;
+    const askPrice = pick.ask;
+    const totalShares = targetSize * (pick.size || 1000);
+
+    if (askVol >= totalShares) {
+        return {
+            canFillAtAsk: true,
+            plans: [{ shares: totalShares, price: askPrice }],
+            note: null
+        };
+    }
+
+    // حجم سرخط کمه — پله‌ای
+    const plans = [];
+    if (askVol > 0) {
+        plans.push({ shares: askVol, price: askPrice });
+    }
+    const remaining = totalShares - askVol;
+    if (remaining > 0) {
+        // تخمین قیمت بالاتر (۵٪ بالاتر برای پله دوم)
+        const price2 = Math.round(askPrice * 1.03);
+        plans.push({ shares: remaining, price: price2, estimated: true });
+    }
+
+    return {
+        canFillAtAsk: false,
+        plans,
+        note: `حجم سرخط (${askVol.toLocaleString()} سهم) کمتر از نیاز (${totalShares.toLocaleString()} سهم) است — پله‌ای خرید کن`
+    };
+}
+
+// ======================== فرمت‌دهی پیام جدید ========================
+function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title = '🎯 انتخاب قرارداد کال') {
+    let t = `${title} — ${symbol}\n`;
+    if (signalStrength && signalStrength.confluence > 1) {
+        t += `🔥 هم‌گرایی ${signalStrength.confluence} استراتژی\n`;
+    }
+    if (signalStrength && signalStrength.confirmers && signalStrength.confirmers.length) {
+        t += `✅ تأیید: ${signalStrength.confirmers.join('، ')}\n`;
+    }
+    t += `📊 سناریو: ورود ${f0(sc.entry)} | حد ضرر ${f0(sc.stop)} | هدف ${f0(sc.target)} | افق ~${sc.horizonDays} روز${sc.hv ? ` | HV ${(sc.hv * 100).toFixed(0)}٪` : ''}\n`;
 
     if (res.level && res.level !== 'A+') {
         t += `\n⚠️ سطح فیلتر: ${res.level}${res.tag ? ' — ' + res.tag : ''}\n`;
@@ -429,34 +460,55 @@ function formatRecommendation(symbol, sc, res, portfolio, title = '🎯 انتخ
         if (res.nearMisses && res.nearMisses.length) {
             t += `\n📋 نزدیک‌ترین گزینه‌ها:\n`;
             res.nearMisses.forEach((n, i) => {
-                t += `${i + 1}) ${n.symbol} | اعمال ${f0(n.strike)} | ${n.daysLeft} روز\n` +
-                     `   OI ${n.oi} | معاملات ${n.trades} | اسپرد ${n.spreadPct ? n.spreadPct.toFixed(1) + '٪' : '-'} | دلتا ${n.delta ? n.delta.toFixed(2) : '-'}\n` +
-                     `   دلایل رد: ${n.reasons.join('، ')}\n`;
+                t += `${i + 1}) ${n.symbol} | اعمال ${f0(n.strike)} | ${n.daysLeft} روز\n`;
+                t += `   OI ${n.oi} | معاملات ${n.trades} | اسپرد ${n.spreadPct ? n.spreadPct.toFixed(1) + '٪' : '-'} | دلتا ${n.delta ? n.delta.toFixed(2) : '-'}\n`;
+                t += `   دلایل رد: ${n.reasons.join('، ')}\n`;
             });
         }
         return t;
     }
 
     res.picks.forEach((p, i) => {
-        t += `\n${i + 1}) ${p.symbol} | اعمال ${f0(p.strike)} | ${p.expiry} (${p.daysLeft} روز)\n` +
-            `   خرید ${f0(p.ask)} (اسپرد ${p.spreadPct.toFixed(1)}٪) | منصفانه ${f0(p.theo)} | IV ${p.iv ? (p.iv * 100).toFixed(0) + '٪' : '-'}${p.ivHv ? ` (${p.ivHv.toFixed(2)}×HV)` : ''}\n` +
-            `   دلتا ${p.delta.toFixed(2)} | اهرم ${p.leverage.toFixed(1)}x | OI ${p.oi} | تتا/روز ${f0(p.thetaDay)} | سربه‌سر ${pc(p.bePct)}\n` +
-            `   هدف ${pc(p.profitPct)} | حد ضرر ${pc(p.lossPct)} | RR ${p.rr.toFixed(2)}\n`;
+        t += `\n${i + 1}) ${p.symbol} | اعمال ${f0(p.strike)} | ${p.expiry} (${p.daysLeft} روز)\n`;
+        t += `   💰 خرید: ${f0(p.ask)} | فروش: ${f0(p.bid)} | اسپرد ${p.spreadPct.toFixed(1)}٪\n`;
+        t += `   حجم سرخط خرید: ${(p.askVol || 0).toLocaleString()} سهم\n`;
+        t += `   📊 دلتا ${p.delta.toFixed(2)} | IV ${p.iv ? (p.iv * 100).toFixed(0) + '٪' : '-'}${p.ivHv ? ` (${p.ivHv.toFixed(2)}×HV)` : ''} | OI ${p.oi} | تتا/روز ${f0(p.thetaDay)}\n`;
+        t += `   🎯 هدف آپشن: ${pc(p.profitPct)} | حد ضرر: ${pc(p.lossPct)} | RR ${p.rr.toFixed(2)}\n`;
 
         if (p.positionInfo) {
             const pi = p.positionInfo;
-            t += `   💼 حجم پیشنهادی: ${pi.size} قرارداد\n`;
-            t += `      (ریسک: ${f0(pi.limits.riskAmount)} | سقف نماد: ${f0(pi.limits.maxSymbolExposure)} | درگیری نماد فعلی: ${f0(pi.limits.currentSymbolExposure)})\n`;
-            if (pi.size === 0) {
-                t += `      ⚠️ حجم صفر شد: ${pi.byRisk === 0 ? 'سرمایه برای ریسک کافی نیست' : pi.bySymbol === 0 ? 'سقف درگیری این نماد پر شده' : pi.byTotal === 0 ? 'سقف کل درگیری پر شده' : 'نامشخص'}\n`;
+            if (pi.size > 0) {
+                t += `   💼 حجم پیشنهادی: ${pi.size} قرارداد\n`;
+
+                // پیشنهاد خرید پله‌ای
+                const plan = suggestOrderPlan(p, pi.size);
+                if (plan.note) {
+                    t += `   ⚠️ ${plan.note}\n`;
+                    t += `   📋 پیشنهاد خرید:\n`;
+                    plan.plans.forEach(pl => {
+                        t += `      • ${pl.shares.toLocaleString()} سهم در ${f0(pl.price)}${pl.estimated ? ' (تخمینی)' : ''}\n`;
+                    });
+                } else {
+                    t += `   📋 می‌تونی کل ${(pi.size * (p.size || 1000)).toLocaleString()} سهم رو در ${f0(p.ask)} بخری\n`;
+                }
+
+                if (pi.limitReason) {
+                    t += `   ⚠️ ${pi.limitReason}\n`;
+                }
+            } else {
+                t += `   ⚠️ حجم صفر — ${pi.limitReason || 'محدودیت'}\n`;
             }
         }
     });
+
+    if (portfolio) {
+        t += `\n💰 سرمایه: ${f0(portfolio.totalCapital)} | درگیری فعلی: ${portfolio.exposurePct.toFixed(1)}٪ | نقد: ${f0(portfolio.availableCash)}\n`;
+    }
     return t;
 }
 
-// ---------------- رویداد سیگنال خرید ----------------
-async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1 }) {
+// ======================== رویداد سیگنال خرید ========================
+async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [] }) {
     const s = await getSettings();
     const chain = await fetchChain(60000);
     const sc = await buildScenario(config, price, liveS, indicators, s);
@@ -464,26 +516,25 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
     const res = selectCalls(chain, names, sc, s);
     const portfolio = await getPortfolioState();
 
-    // محاسبه Position Size برای هر pick
+    const signalStrength = { confluence, confirmers };
+
+    // محاسبه Position Size برای هر pick با سه لایه
     for (const p of res.picks) {
         try {
-            const pi = await calcPositionSizeV2({ ...p, underlying: config.symbol }, sc, portfolio);
+            const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol }, sc, portfolio, signalStrength);
             p.positionSize = pi.size;
             p.positionInfo = pi;
         } catch (e) {
-            p.positionSize = 1;
+            p.positionSize = 0;
             p.positionInfo = null;
         }
     }
 
-    await deps.notify(formatRecommendation(
-        config.symbol, sc, res, portfolio,
-        confluence > 1 ? `🎯 انتخاب قرارداد کال (هم‌گرایی ${confluence} استراتژی)` : undefined
-    ));
+    await deps.notify(formatRecommendation(config.symbol, sc, res, portfolio, signalStrength));
 
     if (res.picks.length) {
         const p = res.picks[0];
-        if (!p.positionSize || p.positionSize <= 0) return res; // حجم صفر → پوزیشن ثبت نمی‌شود
+        if (!p.positionSize || p.positionSize <= 0) return res;
 
         const db = deps.getDB();
         const existing = await db.collection('option_positions').findOne({ configId: config._id.toString(), status: 'open' });
@@ -505,6 +556,7 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
             entryDaysLeft: p.daysLeft, size: p.size,
             positionSize: p.positionSize,
             entryValue: p.ask * p.positionSize * (p.size || 1000),
+            level: p.level,
             scenario: sc, paper: true, status: 'open',
             confluence, stagedExits: []
         });
@@ -520,7 +572,7 @@ async function recommendForState(config, state) {
     return { scenario: sc, ...selectCalls(chain, names, sc, s) };
 }
 
-// ---------------- مدیریت موقعیت‌های باز ----------------
+// ======================== مدیریت موقعیت‌های باز ========================
 async function managePositions(chain) {
     const db = deps.getDB(), s = await getSettings();
     const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
@@ -590,7 +642,7 @@ async function managePositions(chain) {
             upd.spreadWarned = true;
         }
         if (isLast30Min && !reason && !p.timeWarned) {
-            warns.push(`⏰ در ۳۰ دقیقه آخر بازار هستیم — خروج یا ورود جدید توصیه نمی‌شود`);
+            warns.push(`⏰ در ۳۰ دقیقه آخر بازار هستیم`);
             upd.timeWarned = true;
         }
 
@@ -599,25 +651,23 @@ async function managePositions(chain) {
                 status: 'closed', exitTime: new Date(),
                 exitBid: exitPx, exitS: c.S, pnlPct, exitReason: reason
             });
-
             let roll = '';
             if (longIds.has(p.configId) && c.daysLeft <= s.closeDaysBefore && p.scenario) {
                 const names = p.underlyingNames && p.underlyingNames.length ? p.underlyingNames : [norm(p.underlying)];
                 const r = selectCalls(chain, names, { ...p.scenario, S: c.S }, s);
                 if (r.picks.length) {
                     const q = r.picks[0];
-                    roll = `\n🔁 پیشنهاد رول: ${q.symbol} اعمال ${f0(q.strike)} سررسید ${q.expiry} (${q.daysLeft} روز) خرید ${f0(q.ask)} دلتا ${q.delta.toFixed(2)}`;
+                    roll = `\n🔁 پیشنهاد رول: ${q.symbol} اعمال ${f0(q.strike)} سررسید ${q.expiry} (${q.daysLeft} روز) خرید ${f0(q.ask)}`;
                 }
             }
-
             await deps.notify(
                 `🔔 بستن کال ${p.symbol} (${p.underlying})\n` +
                 `دلیل: ${reason}\n` +
-                `ورود ${f0(p.entryAsk)} → خروج ${f0(exitPx)} | بازده ${pc(pnlPct)} (پس از کارمزد)\n` +
+                `ورود ${f0(p.entryAsk)} → خروج ${f0(exitPx)} | بازده ${pc(pnlPct)}\n` +
                 `سهم پایه: ${f0(p.entryS)} → ${f0(c.S)} (${pc((c.S / p.entryS - 1) * 100)})${roll}`
             );
         } else if (warns.length) {
-            await deps.notify(`${p.symbol} (${p.underlying}) | بازده فعلی ${pc(pnlPct)}\n${warns.join('\n')}`);
+            await deps.notify(`${p.symbol} (${p.underlying}) | بازده ${pc(pnlPct)}\n${warns.join('\n')}`);
         }
 
         await db.collection('option_positions').updateOne({ _id: p._id }, { $set: upd });
@@ -625,7 +675,7 @@ async function managePositions(chain) {
 }
 const openPositionsCount = () => deps.getDB().collection('option_positions').countDocuments({ status: 'open' });
 
-// ---------------- ذخیره‌ی تاریخچه ----------------
+// ======================== ذخیره‌ی تاریخچه ========================
 const wanted = (c, set) => c.isCall && set.has(c.underlying) && (c.oi > 0 || c.trades > 0);
 
 async function storeSnapshots(chain, monitoredSet) {
@@ -642,14 +692,9 @@ async function storeSnapshots(chain, monitoredSet) {
 async function storeFullOptionHistory(chain, monitoredSet) {
     const time = new Date();
     const docs = chain.filter(c => wanted(c, monitoredSet)).map(c => ({
-        symbol: c.symbol,
-        underlying: c.underlying,
-        strike: c.strike,
-        expiry: c.expiry,
-        daysLeft: c.daysLeft,
-        time,
-        S: c.S,
-        bid: c.bid, ask: c.ask, last: c.last,
+        symbol: c.symbol, underlying: c.underlying, strike: c.strike,
+        expiry: c.expiry, daysLeft: c.daysLeft, time,
+        S: c.S, bid: c.bid, ask: c.ask, last: c.last,
         bidVol: c.bidVol, askVol: c.askVol,
         oi: c.oi, volume: c.volume, trades: c.trades,
         ivApi: c.ivApi, hvApi: c.hvApi,
@@ -658,9 +703,7 @@ async function storeFullOptionHistory(chain, monitoredSet) {
         bsApi: c.bsApi
     }));
     if (docs.length) {
-        try {
-            await deps.getDB().collection('option_history').insertMany(docs, { ordered: false });
-        } catch (e) { /* ممکنه ایندکس یونیک داشته باشه */ }
+        try { await deps.getDB().collection('option_history').insertMany(docs, { ordered: false }); } catch (e) {}
     }
     return docs.length;
 }
@@ -672,15 +715,13 @@ async function storeEOD(chain, monitoredSet) {
         const m = metrics(c, c.S, null);
         await col.updateOne(
             { symbol: c.symbol, date },
-            {
-                $set: {
-                    symbol: c.symbol, underlying: c.underlying, date,
-                    strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft,
-                    S: c.S, last: c.last, final: c.final, bid: c.bid, ask: c.ask,
-                    oi: c.oi, volume: c.volume, value: c.value, trades: c.trades,
-                    iv: m.iv, delta: m.delta, hvApi: c.hvApi
-                }
-            },
+            { $set: {
+                symbol: c.symbol, underlying: c.underlying, date,
+                strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft,
+                S: c.S, last: c.last, final: c.final, bid: c.bid, ask: c.ask,
+                oi: c.oi, volume: c.volume, value: c.value, trades: c.trades,
+                iv: m.iv, delta: m.delta, hvApi: c.hvApi
+            } },
             { upsert: true }
         );
         n++;
@@ -729,19 +770,17 @@ function positionStats(list) {
     const gp = sum(wins), gl = -sum(closed.filter(p => p.pnlPct <= 0));
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
     return {
-        open: list.length - closed.length,
-        closed: closed.length,
+        open: list.length - closed.length, closed: closed.length,
         winRate: closed.length ? wins.length / closed.length * 100 : 0,
         avgPnl: closed.length ? sum(closed) / closed.length : 0,
-        totalPnl: sum(closed),
-        profitFactor: pf,
+        totalPnl: sum(closed), profitFactor: pf,
         avgWin: wins.length ? gp / wins.length : 0,
         avgLoss: closed.length - wins.length ? -gl / (closed.length - wins.length) : 0
     };
 }
 
-// ---------------- بک‌تست تقریبی آپشن ----------------
-const OPT_BT_DEFAULTS = { assumedMaturityDays: 45, ivMultiplier: 1.2, spreadPct: 5 };
+// ======================== بک‌تست ========================
+const OPT_BT_DEFAULTS = { assumedMaturityDays: 30, ivMultiplier: 1.2, spreadPct: 5 };
 
 function historicalHV(closes, uptoIndex, n = 20) {
     const start = Math.max(0, uptoIndex - n), slice = closes.slice(start, uptoIndex + 1);
@@ -760,20 +799,10 @@ async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
     const times = daily.map(r => Math.floor(new Date(r.time).getTime() / 1000));
 
     if (!daily.length) {
-        return {
-            assumptions: p,
-            stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null },
-            trades: [],
-            diagnostic: `کندل روزانه برای ${symbol} وجود ندارد. ابتدا از دکمه‌ی «تاریخچه» استفاده کنید.`
-        };
+        return { assumptions: p, stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null }, trades: [], diagnostic: `کندل روزانه برای ${symbol} وجود ندارد.` };
     }
     if (!closedTrades.length) {
-        return {
-            assumptions: p,
-            stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null },
-            trades: [],
-            diagnostic: 'استراتژی هیچ معامله‌ی بسته‌شده‌ای تولید نکرده است.'
-        };
+        return { assumptions: p, stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null }, trades: [], diagnostic: 'هیچ معامله‌ی بسته‌شده‌ای تولید نشده.' };
     }
 
     const trades = [];
@@ -795,8 +824,7 @@ async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
         trades.push({
             entryTime: t.entryTime, exitTime: t.exitTime,
             stockEntry: t.entryPrice, stockExit: t.exitPrice,
-            strike, hv, sigma,
-            entryDelta: entryTheo.delta,
+            strike, hv, sigma, entryDelta: entryTheo.delta,
             optionEntry: entryTheo.price, optionExit: exitTheo.price,
             pnlPct: (exitProceeds / entryCost - 1) * 100,
             exitReason: t.exitReason
@@ -807,51 +835,42 @@ async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
     const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
     const gp = sum(wins), gl = -sum(trades.filter(x => x.pnlPct <= 0));
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
-
     const result = {
         assumptions: p,
         stats: {
             count: trades.length,
             winRate: trades.length ? wins.length / trades.length * 100 : 0,
             avgPnl: trades.length ? sum(trades) / trades.length : 0,
-            totalPnl: sum(trades),
-            profitFactor: pf
+            totalPnl: sum(trades), profitFactor: pf
         },
         trades
     };
-    if (!trades.length) result.diagnostic = 'هیچ معامله‌ای در بک‌تست تولید نشد.';
+    if (!trades.length) result.diagnostic = 'هیچ معامله‌ای تولید نشد.';
     return result;
 }
 
-// ---------------- بک‌تست دقیق با option_history ----------------
 async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
     const db = deps.getDB();
-    const p = { assumedMaturityDays: 45, deltaMin: 0.35, deltaMax: 0.85, minDays: 20, maxDays: 90, ...opts };
+    const p = { assumedMaturityDays: 30, deltaMin: 0.40, deltaMax: 0.75, minDays: 15, maxDays: 45, ...opts };
 
     const sampleCount = await db.collection('option_history').countDocuments({ underlying: norm(symbol) });
     if (sampleCount < 50) {
-        return {
-            available: false,
-            reason: `دیتای کافی برای بک‌تست دقیق وجود ندارد (${sampleCount} رکورد). از بک‌تست تقریبی استفاده کنید.`
-        };
+        return { available: false, reason: `دیتای کافی نیست (${sampleCount} رکورد)` };
     }
 
     const trades = [];
     for (const t of closedTrades) {
         const entryDate = new Date(t.entryTime * 1000);
         const exitDate = new Date(t.exitTime * 1000);
-
         const entryCandidates = await db.collection('option_history').find({
             underlying: norm(symbol),
             time: { $gte: new Date(entryDate.getTime() - 5 * 60 * 1000), $lte: new Date(entryDate.getTime() + 5 * 60 * 1000) },
             daysLeft: { $gte: p.minDays, $lte: p.maxDays },
-            bid: { $gt: 0 }, ask: { $gt: 0 },
-            oi: { $gt: 0 }
+            bid: { $gt: 0 }, ask: { $gt: 0 }, oi: { $gt: 0 }
         }).toArray();
-
         if (!entryCandidates.length) continue;
 
-        const targetDelta = 0.6;
+        const targetDelta = 0.55;
         let best = null, bestDiff = Infinity;
         for (const c of entryCandidates) {
             const delta = c.deltaApi || 0;
@@ -865,30 +884,24 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
             symbol: best.symbol,
             time: { $gte: new Date(exitDate.getTime() - 5 * 60 * 1000), $lte: new Date(exitDate.getTime() + 5 * 60 * 1000) }
         }).toArray();
-
         let exitBid = null;
-        if (exitRows.length) {
-            exitBid = exitRows[0].bid;
-        } else {
-            const lastRow = await db.collection('option_history').find({
-                symbol: best.symbol,
-                time: { $lt: exitDate }
-            }).sort({ time: -1 }).limit(1).toArray();
+        if (exitRows.length) exitBid = exitRows[0].bid;
+        else {
+            const lastRow = await db.collection('option_history').find({ symbol: best.symbol, time: { $lt: exitDate } }).sort({ time: -1 }).limit(1).toArray();
             if (lastRow.length) exitBid = lastRow[0].bid;
         }
         if (!exitBid) continue;
 
         const entryCost = best.ask * (1 + FEE_BUY);
         const exitProceeds = exitBid * (1 - FEE_SELL);
-        const pnlPct = (exitProceeds / entryCost - 1) * 100;
-
         trades.push({
             entryTime: t.entryTime, exitTime: t.exitTime,
             stockEntry: t.entryPrice, stockExit: t.exitPrice,
             symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
             optionEntry: best.ask, optionExit: exitBid,
             delta: best.deltaApi, iv: best.ivApi, hv: best.hvApi,
-            pnlPct, exitReason: t.exitReason
+            pnlPct: (exitProceeds / entryCost - 1) * 100,
+            exitReason: t.exitReason
         });
     }
 
@@ -896,22 +909,19 @@ async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
     const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
     const gp = sum(wins), gl = -sum(trades.filter(x => x.pnlPct <= 0));
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
-
     return {
         available: true,
         stats: {
             count: trades.length,
             winRate: trades.length ? wins.length / trades.length * 100 : 0,
             avgPnl: trades.length ? sum(trades) / trades.length : 0,
-            totalPnl: sum(trades),
-            profitFactor: pf
+            totalPnl: sum(trades), profitFactor: pf
         },
-        trades,
-        coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
+        trades, coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
     };
 }
 
-// ---------------- روت‌ها ----------------
+// ======================== روت‌ها ========================
 function registerRoutes(app, ObjectId) {
     app.get('/api/options/settings', async (req, res, next) => {
         try {
@@ -946,12 +956,7 @@ function registerRoutes(app, ObjectId) {
         try {
             const chain = await fetchChain(60000), map = new Map();
             chain.filter(c => c.isCall).forEach(c => map.set(c.underlying, (map.get(c.underlying) || 0) + 1));
-            res.json({
-                count: map.size,
-                underlyings: Array.from(map.entries())
-                    .map(([underlying, contracts]) => ({ underlying, contracts }))
-                    .sort((a, b) => a.underlying.localeCompare(b.underlying))
-            });
+            res.json({ count: map.size, underlyings: Array.from(map.entries()).map(([underlying, contracts]) => ({ underlying, contracts })).sort((a, b) => a.underlying.localeCompare(b.underlying)) });
         } catch (e) { next(e); }
     });
 
