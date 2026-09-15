@@ -48,7 +48,7 @@ const DEFAULTS = {
     MULTI_CONFIRMER_TIME_WINDOW: 600,  // ۱۰ دقیقه
 
     // ---- فیلتر هدف سهم ----
-    MIN_TARGET_PCT: 3.5  // حداقل درصد هدف سهم برای سیگنال آپشن
+    MIN_TARGET_PCT: 4.5  // حداقل درصد هدف سهم برای سیگنال آپشن
 };
 
 let values = { ...DEFAULTS };

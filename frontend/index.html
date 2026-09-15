@@ -215,6 +215,11 @@
         #alertContainer { left:10px; right:10px; max-width:none; top:10px; }
         table.data-table th, table.data-table td { padding:5px 5px; font-size:11px; }
         .menu-panel { width:310px; right:-330px; }
+            /* جلوگیری از scroll chaining (اسکرول صفحه پشت مودال‌ها و منو) */
+    .menu-tab-content { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: 40px; }
+    .modal { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    .table-responsive { overscroll-behavior-x: contain; }
+    body.menu-open { overflow: hidden !important; position: fixed; width: 100%; top: 0; left: 0; }
     }
 </style>
 </head>
@@ -412,11 +417,26 @@ const PARAM_LABELS = {
     obLookback:'تعداد کندل جستجوی OB', minSweepPct:'حداقل عمق Sweep (٪)', minConditions:'حداقل شرط‌های ورود',
     threshold:'آستانه مجموع وزن', minAgree:'حداقل تعداد استراتژی موافق',
     wRsi:'وزن RSI', wEma:'وزن EMA', wIchimoku:'وزن Ichimoku',
-    wSmc:'وزن SMC', wSilver:'وزن Silver Bullet', wOb:'وزن OB+Sweep'
+    wSmc:'وزن SMC', wSilver:'وزن Silver Bullet', wOb:'وزن OB+Sweep',
+    minSweepDepthPct:'حداقل عمق شکار نقدینگی (٪)',
+    confirmBars:'تعداد کندل تأیید',
+    volPeriod:'دوره میانگین حجم',
+    volMult:'ضریب حجم نسبی',
+    deltaPeriod:'دوره محاسبه دلتا',
+    deltaThreshold:'آستانه دلتا (بین -1 و 1)',
+    rsiPeriod:'دوره RSI واگرایی',
+    divLookback:'پنجره جستجوی واگرایی',
+    macdFast:'دوره MACD سریع',
+    macdSlow:'دوره MACD کند',
+    macdSignal:'دوره Signal',
+    baseBars:'تعداد کندل پایه',
+    minMovePct:'حداقل حرکت بعد از zone (٪)',
+    zoneLookback:'پنجره جستجوی zone',
+    zoneTouchPct:'درصد نزدیکی به zone',
 };
 
 const IND_LABELS = { rsiFast:'RSI سریع', rsiSlow:'RSI کند', emaFast:'EMA سریع', emaMid:'EMA میانی', emaSlow:'EMA کند', atr:'ATR', stop:'حد ضرر',
-    signal:'Signal', hist:'هیستوگرام', tenkan:'Tenkan', kijun:'Kijun', spanA:'Span A', spanB:'Span B' };
+    signal:'Signal', hist:'هیستوگرام', tenkan:'Tenkan', kijun:'Kijun', spanA:'Span A', spanB:'Span B',    rsi:'RSI', relVol:'حجم نسبی', delta:'دلتا', hist:'هیستوگرام MACD' };
 const OPT_LABELS = { minDays:'حداقل روز تا سررسید', maxDays:'حداکثر روز تا سررسید', maxSpreadPct:'حداکثر اسپرد (٪)', minOI:'حداقل موقعیت باز', minTrades:'حداقل معامله امروز', minPremium:'حداقل پرمیوم', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'R:R هدف', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر آپشن (٪)', take1Pct:'هشدار نیمه‌فروش (٪)', take2Pct:'حد سود کامل (٪)', closeDaysBefore:'بستن X روز قبل سررسید' };
 const TRADING_LABELS = {
     ENTRY_START: 'شروع بازه ورود (HH:MM)', ENTRY_END: 'پایان بازه ورود (HH:MM)',
