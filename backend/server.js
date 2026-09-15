@@ -580,12 +580,16 @@ app.get('/api/backtest-option/:configId', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ✅ بک‌تست مقایسه‌ای با تنظیمات per-strategy
+// ✅ بک‌تست مقایسه‌ای با تنظیمات per-strategy + بررسی داده کافی
 app.post('/api/backtest-compare', async (req, res, next) => {
     try {
         const { symbols, strategies, useRealOption } = req.body || {};
         if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد انتخاب کنید' });
         if (!Array.isArray(strategies) || !strategies.length) return res.status(400).json({ error: 'حداقل یک استراتژی انتخاب کنید' });
+
+        // ✅ تایم‌اوت طولانی‌تر برای بک‌تست
+        req.setTimeout(5 * 60 * 1000);
+        res.setTimeout(5 * 60 * 1000);
 
         const results = [];
         for (const symbol of symbols) {
@@ -600,6 +604,25 @@ app.post('/api/backtest-compare', async (req, res, next) => {
                     params: { ...def.defaultParams, ...(s.params || {}) }
                 };
                 try {
+                    const tf = cfg.timeframe, htf = cfg.htfTimeframe;
+                    // ✅ بررسی داده کافی قبل از اجرای بک‌تست
+                    const allCandles = await getCandles(cfg.symbol, tf);
+                    const allHtf = await getCandles(cfg.symbol, htf);
+                    const closedCandles = closedOnly(allCandles, tf);
+                    const closedHtf = closedOnly(allHtf, htf);
+                    const required = getRequiredCandles(cfg.strategyId, cfg.params);
+                    const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
+
+                    if (closedCandles.length < required || closedHtf.length < requiredHtf) {
+                        results.push({
+                            symbol, strategyId: s.id, strategyName: def.name,
+                            timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType,
+                            error: `داده کافی نیست (کندل ورود: ${closedCandles.length}/${required}، کندل روند: ${closedHtf.length}/${requiredHtf})`,
+                            insufficientData: true
+                        });
+                        continue;
+                    }
+
                     const { trades } = await computeStockBacktestTrades(cfg);
                     const closedTrades = trades.filter(t => t.status === 'closed');
                     const stockWins = closedTrades.filter(t => t.pnlPct > 0);
@@ -640,7 +663,6 @@ app.post('/api/backtest-compare', async (req, res, next) => {
         res.json({ count: results.length, results });
     } catch (e) { next(e); }
 });
-
 // ---------------- ارزیابی استراتژی ----------------
 async function evaluateStrategyConfig(config, marketInfo) {
     const def = STRATEGIES[config.strategyId]; if (!def) return;

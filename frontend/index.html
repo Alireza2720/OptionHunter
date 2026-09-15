@@ -1046,6 +1046,7 @@ async function runBacktestCompare() {
     const strategyChecks = Array.from(document.querySelectorAll('.bt-strategy-check:checked'));
     if (!symbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
     if (!strategyChecks.length) return showAlert('حداقل یک استراتژی انتخاب کن', 'warn');
+
     const useRealOption = document.getElementById('btRealOption').checked;
     const strategies = strategyChecks.map(chk => {
         const id = chk.value;
@@ -1057,28 +1058,100 @@ async function runBacktestCompare() {
         });
         return { id, timeframe: s.defaultTimeframe, htfTimeframe: s.htfTimeframe || '1d', candleType: 'heikin', params: { ...s.defaultParams, ...params } };
     });
-    const btn = document.getElementById('btRunBtn');
-    btn.disabled = true; btn.textContent = 'در حال محاسبه...';
-    document.getElementById('btResults').innerHTML = '<div style="text-align:center;padding:20px;"><div style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px;"></div></div>';
-    try {
-        const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols, strategies, useRealOption }) }, 0);
-        if (!r.results || !r.results.length) { document.getElementById('btResults').innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>'; return; }
-        const rows = r.results.map((x, i) => {
-            if (x.error) return `<tr><td>${i+1}</td><td>${esc(x.symbol)}</td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="7" style="color:var(--bad);">${esc(x.error)}</td></tr>`;
-            const o = x.option || {}; const s = x.stock || {};
-            return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td></tr>`;
-        }).join('');
-        document.getElementById('btResults').innerHTML = `
-            <div class="hint">${r.count} نتیجه — مرتب‌شده بر اساس PF آپشن</div>
-            <div class="table-responsive"><table class="data-table">
-                <thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th></tr>
-                <tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead>
-                <tbody>${rows}</tbody>
-            </table></div>`;
-    } catch (e) { document.getElementById('btResults').innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`; }
-    finally { btn.disabled = false; btn.textContent = 'اجرای بک‌تست'; }
-}
 
+    const btn = document.getElementById('btRunBtn');
+    btn.disabled = true;
+    btn.textContent = 'در حال محاسبه...';
+
+    const total = symbols.length;
+    const resultsDiv = document.getElementById('btResults');
+
+    // ✅ نمایش progress
+    const renderProgress = (done, current) => {
+        const percent = Math.round(done / total * 100);
+        resultsDiv.innerHTML = `
+            <div style="padding:16px;">
+                <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">
+                    در حال پردازش ${done} از ${total} نماد ${current ? '— ' + esc(current) : ''}
+                </div>
+                <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">
+                    <div style="height:100%;width:${percent}%;background:var(--accent);transition:width .2s;"></div>
+                </div>
+                <div style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">${percent}٪</div>
+            </div>`;
+    };
+    renderProgress(0, null);
+
+    // ✅ ارسال per-symbol برای جلوگیری از timeout
+    const allResults = [];
+    for (let i = 0; i < symbols.length; i++) {
+        const symbol = symbols[i];
+        renderProgress(i, symbol);
+        try {
+            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbols: [symbol], strategies, useRealOption })
+            }, 0);
+            if (r.results) allResults.push(...r.results);
+        } catch (e) {
+            allResults.push({
+                symbol,
+                strategyId: '_error',
+                strategyName: 'خطا در دریافت',
+                error: e.message
+            });
+        }
+    }
+    renderProgress(total, null);
+
+    // ✅ رندر نتیجه نهایی
+    if (!allResults.length) {
+        resultsDiv.innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>';
+        btn.disabled = false; btn.textContent = 'اجرای بک‌تست';
+        return;
+    }
+
+    // مرتب‌سازی
+    allResults.sort((a, b) => {
+        const pfA = a.option && a.option.profitFactor != null ? a.option.profitFactor : -1;
+        const pfB = b.option && b.option.profitFactor != null ? b.option.profitFactor : -1;
+        return pfB - pfA;
+    });
+
+    const validCount = allResults.filter(x => !x.error && !x.insufficientData).length;
+    const insufficientCount = allResults.filter(x => x.insufficientData).length;
+    const errorCount = allResults.filter(x => x.error && !x.insufficientData).length;
+
+    const rows = allResults.map((x, i) => {
+        if (x.insufficientData) {
+            return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--warn);font-size:11.5px;">⚠️ ${esc(x.error)}</td></tr>`;
+        }
+        if (x.error) {
+            return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--bad);font-size:11.5px;">❌ ${esc(x.error)}</td></tr>`;
+        }
+        const o = x.option || {}; const s = x.stock || {};
+        return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td></tr>`;
+    }).join('');
+
+    const summary = `<div class="hint" style="margin-bottom:10px;">
+        ${allResults.length} ترکیب — 
+        <span style="color:var(--good);">${validCount} موفق</span> · 
+        <span style="color:var(--warn);">${insufficientCount} داده ناکافی</span> · 
+        <span style="color:var(--bad);">${errorCount} خطا</span>
+    </div>`;
+
+    resultsDiv.innerHTML = summary + `
+        <div class="table-responsive"><table class="data-table">
+            <thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th></tr>
+            <tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>
+        <div class="hint" style="margin-top:10px;">💡 ردیف‌های زرد یعنی استراتژی هنوز داده‌ی کافی برای اجرا ندارد. از دکمه «دریافت تاریخچه روزانه» در بخش نمادهای زیر نظر استفاده کن.</div>`;
+
+    btn.disabled = false;
+    btn.textContent = 'اجرای بک‌تست';
+}
 function guideFull() {
     const stratBlock = (name, wr, pf, tf, htf, desc, good) => `
         <div class="strat-block">
