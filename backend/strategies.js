@@ -141,7 +141,13 @@
     const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
     // ==================== ۱. RSI Pullback ====================
-    const RSI_DEFAULTS = { rsiFastPeriod: 2, rsiSlowPeriod: 50, rsiOversold: 10, rsiOverbought: 75, lookback: 4, maxHoldBars: 15, cooldownBars: 2, atrPeriod: 14, atrMult: 1.8, requireNoLowerWick: 0, htfEma: 20, htfRsiPeriod: 14 };
+    const RSI_DEFAULTS = {
+        rsiFastPeriod: 2, rsiSlowPeriod: 50,
+        rsiOversold: 10, rsiOverbought: 75,
+        lookback: 4, maxHoldBars: 15, cooldownBars: 2,
+        atrPeriod: 14, atrMult: 1.8, requireNoLowerWick: 0,
+        htfEma: 20, htfRsiPeriod: 14
+    };
     function runRSIPullback(candles, params, ctx) {
         const p = { ...RSI_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -190,7 +196,13 @@
     }
 
     // ==================== ۲. EMA Pullback ====================
-    const EMA_DEFAULTS = { emaFast: 25, emaMid: 50, emaSlow: 100, pullbackPct: 1.0, lookback: 5, exitBufferPct: 0.8, maxHoldBars: 30, cooldownBars: 3, atrPeriod: 14, atrMult: 2.0, requireNoLowerWick: 0, htfEma: 20, htfRsiPeriod: 14 };
+    const EMA_DEFAULTS = {
+        emaFast: 25, emaMid: 50, emaSlow: 100,
+        pullbackPct: 1.0, lookback: 5, exitBufferPct: 0.8,
+        maxHoldBars: 30, cooldownBars: 3,
+        atrPeriod: 14, atrMult: 2.0, requireNoLowerWick: 0,
+        htfEma: 20, htfRsiPeriod: 14
+    };
     function runEMAPullback(candles, params, ctx) {
         const p = { ...EMA_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -244,7 +256,12 @@
     }
 
     // ==================== ۳. Ichimoku ====================
-    const ICHIMOKU_DEFAULTS = { tenkanPeriod: 9, kijunPeriod: 26, senkouBPeriod: 52, maxHoldBars: 25, cooldownBars: 3, atrPeriod: 14, atrMult: 2.0, requireNoLowerWick: 0, htfEma: 20, htfRsiPeriod: 14 };
+    const ICHIMOKU_DEFAULTS = {
+        tenkanPeriod: 9, kijunPeriod: 26, senkouBPeriod: 52,
+        maxHoldBars: 25, cooldownBars: 3,
+        atrPeriod: 14, atrMult: 2.0, requireNoLowerWick: 0,
+        htfEma: 20, htfRsiPeriod: 14
+    };
     function runIchimoku(candles, params, ctx) {
         const p = { ...ICHIMOKU_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -296,20 +313,20 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۴. SMC Unicorn (سست‌تر) ====================
+    // ==================== ۴. SMC Unicorn ====================
     const SMC_DEFAULTS = {
-        swingLength: 2,        // 3 → 2
+        swingLength: 2,
         htfEma: 20, htfRsiPeriod: 14,
-        fvgMinGapPct: 0.01,    // 0.02 → 0.01
+        fvgMinGapPct: 0.01,
         useOTE: 0, oteLow: 0.5, oteHigh: 0.886,
         atrPeriod: 14, atrMult: 1.5,
         maxHoldBars: 20, cooldownBars: 3,
         useBreakEven: 1, tp1R: 1, tp2R: 2, tp3R: 3,
-        minLiquiditySweepPct: 0.01,   // 0.03 → 0.01
+        minLiquiditySweepPct: 0.01,
         requireVolumeFilter: 0, useKillzone: 0,
         killzone1Start: 9.5, killzone1End: 10.5,
         killzone2Start: 11.5, killzone2End: 12.0,
-        minConfluence: 1     // ⭐ 2 → 1 (فقط یک شرط کافی!)
+        minConfluence: 1
     };
     function runSMCUnicorn(candles, params, ctx) {
         const p = { ...SMC_DEFAULTS, ...(params || {}) };
@@ -326,6 +343,7 @@
         function detectLiquiditySweep(i) { if (i < p.swingLength + 1) return null; const prevLow = findSwingLow(i - 1, p.swingLength); const c = candles[i], prev = candles[i - 1]; const swept = (c.low < prevLow.price || prev.low < prevLow.price); const reclaimed = c.close > prevLow.price; if (swept && reclaimed) { const depthPct = (prevLow.price - Math.min(c.low, prev.low)) / prevLow.price * 100; if (depthPct >= p.minLiquiditySweepPct) return { sweptLevel: prevLow.price, depthPct, idx: i, sweepLow: Math.min(c.low, prev.low) }; } return null; }
         function calcOTE(swingLow, swingHigh) { const range = swingHigh - swingLow; return { low: swingLow + range * (1 - p.oteHigh), high: swingLow + range * (1 - p.oteLow) }; }
         function inKillzone(timeSec) { if (!p.useKillzone) return true; const h = hourFloatOfDay(timeSec); return (h >= p.killzone1Start && h <= p.killzone1End) || (h >= p.killzone2Start && h <= p.killzone2End); }
+        function checkVolumeFilter(i) { if (!p.requireVolumeFilter) return true; const start = Math.max(0, i - 20); let sum = 0, count = 0; for (let k = start; k < i; k++) { sum += (candles[k].volume || 0); count++; } if (!count) return true; const avg = sum / count; return avg > 0 && (candles[i].volume || 0) >= avg * 1.5; }
         for (let i = 0; i < candles.length; i++) {
             const c = candles[i], h = ha[i];
             const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
@@ -348,7 +366,7 @@
                 }
             } else {
                 if (cooldown > 0) cooldown--;
-                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow) && inKillzone(c.time)) {
+                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow) && inKillzone(c.time) && checkVolumeFilter(i)) {
                     const sweep = detectLiquiditySweep(i), bb = detectBullishBreaker(i), fvg = detectBullishFVG(i);
                     const condCount = [!!sweep, !!bb, !!fvg].filter(Boolean).length;
                     if (condCount >= p.minConfluence) {
@@ -387,7 +405,18 @@
     }
 
     // ==================== ۵. ICT Silver Bullet ====================
-    const SB_DEFAULTS = { htfEma: 20, htfRsiPeriod: 14, fvgMinGapPct: 0.05, atrPeriod: 14, atrMult: 1.2, maxHoldBars: 20, cooldownBars: 2, targetR: 4.0, sb1Start: 9.5, sb1End: 10.5, sb2Start: 10.5, sb2End: 11.5, sb3Start: 11.5, sb3End: 12.0, useSessionEndExit: 1, requireDisplacement: 1, displacementMult: 1.1 };
+    const SB_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        fvgMinGapPct: 0.05,
+        atrPeriod: 14, atrMult: 1.2,
+        maxHoldBars: 20, cooldownBars: 2,
+        targetR: 4.0,
+        sb1Start: 9.5, sb1End: 10.5,
+        sb2Start: 10.5, sb2End: 11.5,
+        sb3Start: 11.5, sb3End: 12.0,
+        useSessionEndExit: 1,
+        requireDisplacement: 1, displacementMult: 1.1
+    };
     function runSilverBullet(candles, params, ctx) {
         const p = { ...SB_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -438,13 +467,14 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۶. OB + Sweep (OR کامل) ====================
+    // ==================== ۶. OB + Sweep ====================
     const OB_DEFAULTS = {
         swingLength: 5, htfEma: 20, htfRsiPeriod: 14,
-        atrPeriod: 14, atrMult: 1.5, maxHoldBars: 25, cooldownBars: 3,
-        tp1R: 1.5, tp2R: 3.0, obLookback: 5,
-        minSweepPct: 0.02,       // 0.05 → 0.02
-        minConditions: 1         // ⭐ 2 → 1 (فقط یکی کافیه!)
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 25, cooldownBars: 3,
+        tp1R: 1.5, tp2R: 3.0,
+        obLookback: 5, minSweepPct: 0.02,
+        minConditions: 1
     };
     function runOBSweep(candles, params, ctx) {
         const p = { ...OB_DEFAULTS, ...(params || {}) };
@@ -507,7 +537,15 @@
     }
 
     // ==================== ۷. Ensemble ====================
-    const ENSEMBLE_DEFAULTS = { threshold: 1.2, minAgree: 2, wRsi: 0.85, wEma: 0.95, wIchimoku: 1.00, wSmc: 1.30, wSilver: 1.25, wOb: 0.70, cooldownBars: 3, maxHoldBars: 30, atrPeriod: 14, atrMult: 2.0, htfEma: 20, htfRsiPeriod: 14 };
+    const ENSEMBLE_DEFAULTS = {
+        threshold: 1.2, minAgree: 2,
+        wRsi: 0.85, wEma: 0.95, wIchimoku: 1.00,
+        wSmc: 1.30, wSilver: 1.25, wOb: 0.70,
+        wSD: 1.20,
+        cooldownBars: 3, maxHoldBars: 30,
+        atrPeriod: 14, atrMult: 2.0,
+        htfEma: 20, htfRsiPeriod: 14
+    };
     function runEnsemble(candles, params, ctx) {
         const p = { ...ENSEMBLE_DEFAULTS, ...(params || {}) };
         const subStrategies = [
@@ -516,7 +554,8 @@
             { id: 'ichimoku_cloud', weight: p.wIchimoku, run: runIchimoku, defaults: ICHIMOKU_DEFAULTS },
             { id: 'smc_unicorn', weight: p.wSmc, run: runSMCUnicorn, defaults: SMC_DEFAULTS },
             { id: 'silver_bullet', weight: p.wSilver, run: runSilverBullet, defaults: SB_DEFAULTS },
-            { id: 'ob_sweep', weight: p.wOb, run: runOBSweep, defaults: OB_DEFAULTS }
+            { id: 'ob_sweep', weight: p.wOb, run: runOBSweep, defaults: OB_DEFAULTS },
+            { id: 'supply_demand', weight: p.wSD, run: runSupplyDemand, defaults: SDZ_DEFAULTS }
         ];
         const subCtx = { ...ctx, entryWindow: ctx && ctx.entryWindow };
         const results = {};
@@ -570,13 +609,12 @@
         return { ha: firstHa, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۸. Liquidity Hunt & Run (جدید) ====================
-    // منطق: شکار نقدینگی + حرکت انفجاری در جهت مخالف (بدون انتظار retest)
+    // ==================== ۸. Liquidity Hunt & Run ====================
     const LHR_DEFAULTS = {
-        swingLength: 3,
+        swingLength: 2,
         htfEma: 20, htfRsiPeriod: 14,
-        minSweepDepthPct: 0.05,
-        confirmBars: 2,         // تأیید در این تعداد کندل بعد از sweep
+        minSweepDepthPct: 0.02,
+        confirmBars: 1,
         atrPeriod: 14, atrMult: 1.5,
         maxHoldBars: 25, cooldownBars: 2,
         tp1R: 1.5, tp2R: 3.0
@@ -590,8 +628,16 @@
         let position = null, entry = null, cooldown = 0, lastTrend = null;
         function findSwingLow(idx, len) { const start = Math.max(0, idx - len); let lo = Infinity, loIdx = -1; for (let i = start; i <= idx; i++) { if (candles[i].low < lo) { lo = candles[i].low; loIdx = i; } } return { price: lo, idx: loIdx }; }
         function findSwingHigh(idx, len) { const start = Math.max(0, idx - len); let hi = -Infinity, hiIdx = -1; for (let i = start; i <= idx; i++) { if (candles[i].high > hi) { hi = candles[i].high; hiIdx = i; } } return { price: hi, idx: hiIdx }; }
-        // شکار نقدینگی: کندل قبلی کف سوئینگ را شکسته، کندل فعلی بالای آن بسته شده
-        function detectSweep(i) { if (i < p.swingLength + 1) return null; const prevLow = findSwingLow(i - 1, p.swingLength); const c = candles[i], prev = candles[i - 1]; if (prev.low < prevLow.price && c.close > prevLow.price && c.close > c.open) { const depthPct = (prevLow.price - prev.low) / prevLow.price * 100; if (depthPct >= p.minSweepDepthPct) return { sweptLevel: prevLow.price, sweepLow: prev.low, idx: i }; } return null; }
+        function detectSweep(i) {
+            if (i < p.swingLength + 1) return null;
+            const prevLow = findSwingLow(i - 1, p.swingLength);
+            const c = candles[i], prev = candles[i - 1];
+            if (prev.low < prevLow.price && c.close > prevLow.price && c.bullish) {
+                const depthPct = (prevLow.price - prev.low) / prevLow.price * 100;
+                if (depthPct >= p.minSweepDepthPct) return { sweptLevel: prevLow.price, sweepLow: prev.low, idx: i };
+            }
+            return null;
+        }
         for (let i = 0; i < candles.length; i++) {
             const c = candles[i], h = ha[i];
             const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
@@ -615,7 +661,6 @@
                 else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
                     const sweep = detectSweep(i);
                     if (sweep && h.bullish) {
-                        // تأیید: قیمت باید بالای کف شکار شده بمونه
                         const entryPrice = c.close;
                         const stopPrice = sweep.sweepLow - p.atrMult * atr[i];
                         const risk = entryPrice - stopPrice;
@@ -633,13 +678,10 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۹. Relative Volume + Order Flow (جدید) ====================
-    // منطق: حجم نسبی بالا + فشار خرید غالب (تقریب order flow از دلتای کندل)
+    // ==================== ۹. Volume + Flow (غیرفعال در رجیستری — برای آینده) ====================
     const RVF_DEFAULTS = {
-        volPeriod: 20,          // پنجره میانگین حجم
-        volMult: 1.5,           // حداقل نسبت حجم به میانگین
-        deltaPeriod: 10,        // پنجره دلتا
-        deltaThreshold: 0.3,    // آستانه دلتا (بین -1 و 1)
+        volPeriod: 20, volMult: 1.5,
+        deltaPeriod: 10, deltaThreshold: 0.3,
         atrPeriod: 14, atrMult: 2,
         maxHoldBars: 20, cooldownBars: 2,
         htfEma: 20, htfRsiPeriod: 14
@@ -651,7 +693,6 @@
         const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
         const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
-        // دلتا: نسبت حجم خرید به کل حجم در پنجره (تقریبی)
         function computeDelta(i) {
             const start = Math.max(0, i - p.deltaPeriod + 1);
             let upVol = 0, downVol = 0;
@@ -695,7 +736,6 @@
             } else {
                 if (cooldown > 0) cooldown--;
                 else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
-                    // حجم بالا + دلتای مثبت قوی + کندل صعودی
                     if (relVol >= p.volMult && delta >= p.deltaThreshold && h.bullish) {
                         position = 'LONG'; signalType = 'BUY';
                         entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
@@ -710,11 +750,10 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۱۰. RSI Divergence + MACD (جدید) ====================
-    // منطق: واگرایی صعودی RSI + تأیید MACD
+    // ==================== ۱۰. RSI Divergence + MACD ====================
     const RSID_DEFAULTS = {
-        rsiPeriod: 14, rsiOversold: 40,
-        divLookback: 20,        // پنجره برای پیدا کردن کف قبلی
+        rsiPeriod: 14, rsiOversold: 50,
+        divLookback: 10,
         macdFast: 12, macdSlow: 26, macdSignal: 9,
         atrPeriod: 14, atrMult: 2,
         maxHoldBars: 20, cooldownBars: 2,
@@ -730,21 +769,15 @@
         const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
         const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
-        // پیدا کردن کف قبلی در پنجره قبل از i
         function findPrevLow(i) {
             const start = Math.max(0, i - p.divLookback);
             let loIdx = -1, loPrice = Infinity;
             for (let k = start; k < i - 2; k++) {
-                // کف محلی: low کمتر از دو طرف
                 if (k > 0 && k < candles.length - 1 && candles[k].low < candles[k - 1].low && candles[k].low < candles[k + 1].low) {
                     if (candles[k].low < loPrice) { loPrice = candles[k].low; loIdx = k; }
                 }
             }
             return loIdx >= 0 ? { idx: loIdx, price: loPrice } : null;
-        }
-        // کف فعلی
-        function isLocalLow(i) {
-            return i > 0 && i < candles.length - 1 && candles[i].low < candles[i - 1].low && candles[i].low < candles[i + 1].low;
         }
         for (let i = 0; i < candles.length; i++) {
             const c = candles[i], h = ha[i];
@@ -767,17 +800,14 @@
             } else {
                 if (cooldown > 0) cooldown--;
                 else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
-                    // کف فعلی باید کف محلی باشه
-                    if (isLocalLow(i) && rsi[i] < p.rsiOversold) {
+                    if (rsi[i] !== null && rsi[i] < p.rsiOversold && h.bullish) {
                         const prevLow = findPrevLow(i);
                         if (prevLow) {
-                            // واگرایی: قیمت کف پایین‌تر ولی RSI کف بالاتر
-                            const priceLowerLow = candles[i].low < prevLow.price;
+                            const priceLowerLow = candles[i].low < prevLow.price || candles[i].low <= candles[prevLow.idx].low * 1.005;
                             const rsiHigherLow = rsi[i] > rsi[prevLow.idx];
                             if (priceLowerLow && rsiHigherLow) {
-                                // تأیید MACD: هیستوگرام در حال بهبود باشه
-                                const macdTurning = histogram[i] > histogram[i - 1] || macdLine[i] > macdLine[i - 1];
-                                if (macdTurning && h.bullish) {
+                                const macdTurning = histogram[i] !== null && histogram[i - 1] !== null && histogram[i] > histogram[i - 1];
+                                if (macdTurning) {
                                     position = 'LONG'; signalType = 'BUY';
                                     entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
                                     ind.stop = round(entry.stop);
@@ -794,13 +824,10 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۱۱. Supply & Demand Zones (جدید) ====================
-    // منطق: شناسایی ناحیه تقاضا (کندل‌های پایه قبل از حرکت صعودی) و ورود در بازگشت
+    // ==================== ۱۱. Supply & Demand Zones ====================
     const SDZ_DEFAULTS = {
-        baseBars: 2,            // تعداد کندل‌های پایه
-        minMovePct: 1.5,        // حداقل حرکت بعد از zone
-        zoneLookback: 30,       // پنجره جستجوی zone
-        zoneTouchPct: 0.5,      // درصد نزدیکی به zone
+        baseBars: 2, minMovePct: 1.5,
+        zoneLookback: 30, zoneTouchPct: 0.5,
         atrPeriod: 14, atrMult: 2,
         maxHoldBars: 25, cooldownBars: 2,
         htfEma: 20, htfRsiPeriod: 14
@@ -812,26 +839,20 @@
         const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
         const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
-        // پیدا کردن ناحیه تقاضا: کندل پایه + حرکت صعودی بعدش
         function findDemandZone(i) {
             const start = Math.max(0, i - p.zoneLookback);
             for (let k = start; k < i - p.baseBars; k++) {
-                // k: کندل پایه (کوچک). بعد از اون حرکت صعودی
                 const baseEnd = k + p.baseBars - 1;
                 if (baseEnd >= i) break;
-                // کندل‌های پایه کوچیک باشن
                 let baseHigh = -Infinity, baseLow = Infinity;
                 for (let b = k; b <= baseEnd; b++) { baseHigh = Math.max(baseHigh, candles[b].high); baseLow = Math.min(baseLow, candles[b].low); }
                 const baseRange = (baseHigh - baseLow) / baseLow * 100;
-                if (baseRange > 1.5) continue; // کندل پایه بزرگ نباشه
-                // حرکت صعودی بعد از base
+                if (baseRange > 1.5) continue;
                 const moveCandle = candles[baseEnd + 1];
                 if (!moveCandle) continue;
                 const movePct = (moveCandle.close - baseLow) / baseLow * 100;
                 if (movePct < p.minMovePct) continue;
-                // آیا در i داریم به این zone برمی‌گردیم؟
                 const zoneTop = baseHigh, zoneBottom = baseLow;
-                const distance = Math.abs(candles[i].low - zoneTop) / zoneTop * 100;
                 if (candles[i].low >= zoneBottom - 0.01 && candles[i].low <= zoneTop * (1 + p.zoneTouchPct / 100)) {
                     return { top: zoneTop, bottom: zoneBottom, idx: k, moveIdx: baseEnd + 1 };
                 }
@@ -887,11 +908,11 @@
         silver_bullet: { id: 'silver_bullet', name: 'ICT Silver Bullet', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: SB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSilverBullet },
         ob_sweep: { id: 'ob_sweep', name: 'OB + Sweep', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: OB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runOBSweep },
         ensemble: { id: 'ensemble', name: 'Ensemble (ترکیبی)', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: ENSEMBLE_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runEnsemble },
-        // === جدید ===
+        // === استراتژی‌های اضافی ===
         liquidity_run: { id: 'liquidity_run', name: 'Liquidity Hunt & Run', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: LHR_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runLiquidityHuntAndRun },
-        rel_vol_flow: { id: 'rel_vol_flow', name: 'Volume + Flow', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: RVF_DEFAULTS, indicators: { overlay: ['stop'], panel: ['relVol', 'delta'] }, run: runRelVolFlow },
         rsi_divergence: { id: 'rsi_divergence', name: 'RSI Divergence + MACD', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: RSID_DEFAULTS, indicators: { overlay: ['stop'], panel: ['rsi', 'hist'] }, run: runRSIDivergence },
         supply_demand: { id: 'supply_demand', name: 'Supply & Demand', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: SDZ_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSupplyDemand }
+        // rel_vol_flow حذف شد — برای آینده در فایل باقی مانده ولی در رجیستری نیست
     };
 
     function getRequiredCandles(id, params) {
