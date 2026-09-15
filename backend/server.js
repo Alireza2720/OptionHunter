@@ -17,7 +17,7 @@ const STARTED_AT = new Date();
 const app = express();
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v7.0-multiconf-capital3L';
+const SERVER_VERSION = 'v8.0-auto-config';
 let holidayDate = null, inactiveTicks = 0;
 
 const API_KEYS = [process.env.BRSAPI_KEY_1 || process.env.BRSAPI_KEY, process.env.BRSAPI_KEY_2, process.env.BRSAPI_KEY_3].filter(Boolean);
@@ -73,7 +73,6 @@ app.put('/api/strategy-defaults', async (req, res, next) => {
     try {
         const { overrides } = req.body || {};
         if (!overrides || typeof overrides !== 'object') return res.status(400).json({ error: 'ساختار نامعتبر' });
-        // validate: هر کلید باید strategyId معتبر باشه
         const clean = {};
         for (const [sid, params] of Object.entries(overrides)) {
             if (!STRATEGIES[sid]) continue;
@@ -180,13 +179,11 @@ async function fetchAllSymbolsRawCached(maxAgeMs = 15000) {
     rawSymbolsCache = { at: Date.now(), data };
     return data;
 }
-
 app.get('/api/quotes', (req, res) => {
     const out = {};
     for (const [sym, q] of lastQuotes) out[sym] = { price: q.price, queue: q.queue, at: q.at };
     res.json(out);
 });
-
 async function refreshSymbolData(symbol) {
     try {
         const raw = await fetchAllSymbolsRawCached(60000);
@@ -206,10 +203,7 @@ async function refreshSymbolData(symbol) {
         await upsertLiveCandle(symbol, bucket1, price, 0);
         await upsertDailyCandle(symbol, dayTime, s);
         return true;
-    } catch (e) {
-        console.error('❌ refreshSymbolData:', e.message);
-        return false;
-    }
+    } catch (e) { console.error('❌ refreshSymbolData:', e.message); return false; }
 }
 
 // ======================== تلگرام ========================
@@ -267,7 +261,7 @@ async function sendDailySummary() {
         const capital = Settings.capital();
         portfolioLine = `\n💼 سرمایه: ${Math.round(capital).toLocaleString()} | درگیری: ${Math.round(totalExposure).toLocaleString()} (${capital > 0 ? (totalExposure/capital*100).toFixed(1) : 0}٪)`;
     } catch (e) {}
-    await notify(`📊 خلاصه‌ی روز ${today}\nتیک: موفق ${st.ticksOk || 0} | ناموفق ${st.ticksFail || 0}\nسیگنال: ${st.signals || 0} | لغو: ${st.cancels || 0}${optLine}${portfolioLine}\nAPI: ${usage.total}/${usage.totalLimit}${storLine}`);
+    await notify(`📊 خلاصه روز ${today}\nتیک: موفق ${st.ticksOk || 0} | ناموفق ${st.ticksFail || 0}\nسیگنال: ${st.signals || 0} | لغو: ${st.cancels || 0}${optLine}${portfolioLine}\nAPI: ${usage.total}/${usage.totalLimit}${storLine}`);
 }
 
 // ======================== بکاپ ========================
@@ -701,6 +695,212 @@ app.post('/api/backtest-compare', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
+// ======================== Auto-Configure (جدید) ========================
+// بر اساس بک‌تست، بهترین استراتژی‌ها رو برای هر نماد انتخاب می‌کنه
+function scoreStrategyForAuto(res) {
+    // امتیازدهی: ترکیب PF + وین‌ریت + تعداد معامله
+    if (!res || res.error || res.insufficientData) return -Infinity;
+    const s = res.stock || {};
+    const o = res.option || {};
+    const tradeCount = s.closed || 0;
+    if (tradeCount < 1) return -Infinity;
+    // PF آپشن (اگر موجود) + PF سهم
+    const optPF = (o.profitFactor !== null && o.profitFactor !== undefined && isFinite(o.profitFactor)) ? o.profitFactor : 0;
+    const stockPF = computeStockPF(res);
+    // وین‌ریت
+    const winRate = (s.winRate || 0) / 100;
+    // میانگین بازده آپشن
+    const optAvg = o.avgPnl || 0;
+    // امتیاز = PF×0.4 + وین‌ریت×0.3 + تعداد×0.1 + بازده آپشن×0.2
+    const score = optPF * 0.4 + winRate * 0.3 + Math.min(tradeCount, 20) / 20 * 0.1 + Math.max(-1, Math.min(2, optAvg / 50)) * 0.2;
+    return score;
+}
+function computeStockPF(res) {
+    if (!res.stock || !res.stock.total) return 0;
+    // تقریب: از وین‌ریت و میانگین
+    const wr = (res.stock.winRate || 0) / 100;
+    const avg = res.stock.avgPnl || 0;
+    return wr * Math.abs(avg) / 10;
+}
+
+app.post('/api/auto-configure', async (req, res, next) => {
+    try {
+        req.setTimeout(5 * 60 * 1000);
+        res.setTimeout(5 * 60 * 1000);
+
+        const { symbols, maxConfirmers = 2, dryRun = false } = req.body || {};
+        if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد انتخاب کنید' });
+
+        const db = getDB();
+        const plan = [];
+
+        for (const symbol of symbols) {
+            // چک کنیم نماد در monitored هست
+            const monitored = await db.collection('monitored_symbols').findOne({ symbol });
+            if (!monitored) { plan.push({ symbol, error: 'نماد در لیست پایش نیست' }); continue; }
+
+            // اجرای بک‌تست روی همه استراتژی‌ها
+            const strategies = Object.values(STRATEGIES).filter(s => s.id !== 'ensemble');
+            const results = [];
+
+            for (const def of strategies) {
+                const cfg = {
+                    symbol, strategyId: def.id,
+                    timeframe: def.defaultTimeframe,
+                    htfTimeframe: def.htfTimeframe || '1d',
+                    candleType: 'heikin',
+                    params: { ...def.defaultParams, ...Settings.getStrategyDefaults(def.id) }
+                };
+                try {
+                    const tf = cfg.timeframe, htf = cfg.htfTimeframe;
+                    const closedCandles = closedOnly(await getCandles(symbol, tf), tf);
+                    const closedHtf = closedOnly(await getCandles(symbol, htf), htf);
+                    const required = getRequiredCandles(cfg.strategyId, cfg.params);
+                    const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
+                    if (closedCandles.length < required || closedHtf.length < requiredHtf) {
+                        results.push({ strategyId: def.id, strategyName: def.name, error: 'داده ناکافی', insufficientData: true, score: -Infinity });
+                        continue;
+                    }
+                    const { trades } = await computeStockBacktestTrades(cfg);
+                    const closedTrades = trades.filter(t => t.status === 'closed');
+                    const stockWins = closedTrades.filter(t => t.pnlPct > 0);
+                    const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
+                    const approx = await Options.runApproxOptionBacktest(symbol, closedTrades);
+
+                    const r = {
+                        strategyId: def.id, strategyName: def.name,
+                        timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe,
+                        stock: {
+                            total: trades.length, closed: closedTrades.length,
+                            winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0,
+                            avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0,
+                            totalPnl: stockSum
+                        },
+                        option: approx.stats
+                    };
+                    r.score = scoreStrategyForAuto(r);
+                    results.push(r);
+                } catch (e) {
+                    results.push({ strategyId: def.id, strategyName: def.name, error: e.message, score: -Infinity });
+                }
+            }
+
+            // انتخاب بهترین لیدر و تأییدکننده‌ها
+            const valid = results.filter(r => isFinite(r.score) && r.score > -Infinity).sort((a, b) => b.score - a.score);
+            if (!valid.length) { plan.push({ symbol, error: 'هیچ استراتژی معتبری پیدا نشد', results }); continue; }
+
+            const leader = valid[0];
+            const confirmers = valid.slice(1, 1 + maxConfirmers);
+
+            plan.push({
+                symbol,
+                leader: { strategyId: leader.strategyId, strategyName: leader.strategyName, timeframe: leader.timeframe, htfTimeframe: leader.htfTimeframe, score: Math.round(leader.score * 100) / 100, stats: leader },
+                confirmers: confirmers.map(c => ({ strategyId: c.strategyId, strategyName: c.strategyName, timeframe: c.timeframe, htfTimeframe: c.htfTimeframe, score: Math.round(c.score * 100) / 100, stats: c })),
+                allResults: valid.map(v => ({ strategyId: v.strategyId, strategyName: v.strategyName, score: Math.round(v.score * 100) / 100, trades: v.stock.closed, winRate: v.stock.winRate, optAvg: v.option.avgPnl }))
+            });
+        }
+
+        if (dryRun) return res.json({ plan, applied: false });
+
+        // اعمال (حذف تنظیمات قدیمی و ایجاد جدید)
+        const applied = [];
+        for (const p of plan) {
+            if (p.error || !p.leader) { applied.push({ symbol: p.symbol, error: p.error || 'بدون leader' }); continue; }
+
+            // حذف تنظیمات قبلی این نماد
+            const old = await db.collection('strategy_configs').find({ symbol: p.symbol }).toArray();
+            const oldIds = old.map(o => o._id.toString());
+            await db.collection('strategy_configs').deleteMany({ symbol: p.symbol });
+            await db.collection('signals_state').deleteMany({ configId: { $in: oldIds } });
+
+            // ایجاد leader
+            const leaderDoc = {
+                symbol: p.symbol,
+                strategyId: p.leader.strategyId,
+                timeframe: p.leader.timeframe,
+                htfTimeframe: p.leader.htfTimeframe,
+                candleType: 'heikin',
+                params: { ...STRATEGIES[p.leader.strategyId].defaultParams, ...Settings.getStrategyDefaults(p.leader.strategyId) },
+                enabled: true,
+                role: 'leader',
+                autoConfigured: true,
+                createdAt: new Date()
+            };
+            const r1 = await db.collection('strategy_configs').insertOne(leaderDoc);
+
+            // ایجاد confirmers
+            const created = [r1.insertedId.toString()];
+            for (const c of p.confirmers) {
+                const cDoc = {
+                    symbol: p.symbol,
+                    strategyId: c.strategyId,
+                    timeframe: c.timeframe,
+                    htfTimeframe: c.htfTimeframe,
+                    candleType: 'heikin',
+                    params: { ...STRATEGIES[c.strategyId].defaultParams, ...Settings.getStrategyDefaults(c.strategyId) },
+                    enabled: true,
+                    role: 'confirmer',
+                    autoConfigured: true,
+                    createdAt: new Date()
+                };
+                const r2 = await db.collection('strategy_configs').insertOne(cDoc);
+                created.push(r2.insertedId.toString());
+            }
+
+            applied.push({ symbol: p.symbol, leader: p.leader.strategyId, confirmers: p.confirmers.map(c => c.strategyId), created: created.length });
+        }
+
+        await notify(`🤖 تنظیم خودکار انجام شد\n${applied.filter(a => !a.error).map(a => `• ${a.symbol}: لیدر ${a.leader} + ${a.confirmers.length} تأییدکننده`).join('\n')}`).catch(() => {});
+        res.json({ plan, applied: true, results: applied });
+    } catch (e) { next(e); }
+});
+
+app.get('/api/auto-configure/preview/:symbol', async (req, res, next) => {
+    try {
+        req.setTimeout(5 * 60 * 1000);
+        res.setTimeout(5 * 60 * 1000);
+        const symbol = req.params.symbol;
+        const db = getDB();
+        const strategies = Object.values(STRATEGIES).filter(s => s.id !== 'ensemble');
+        const results = [];
+        for (const def of strategies) {
+            const cfg = {
+                symbol, strategyId: def.id,
+                timeframe: def.defaultTimeframe,
+                htfTimeframe: def.htfTimeframe || '1d',
+                candleType: 'heikin',
+                params: { ...def.defaultParams, ...Settings.getStrategyDefaults(def.id) }
+            };
+            try {
+                const tf = cfg.timeframe, htf = cfg.htfTimeframe;
+                const closedCandles = closedOnly(await getCandles(symbol, tf), tf);
+                const closedHtf = closedOnly(await getCandles(symbol, htf), htf);
+                const required = getRequiredCandles(cfg.strategyId, cfg.params);
+                const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
+                if (closedCandles.length < required || closedHtf.length < requiredHtf) {
+                    results.push({ strategyId: def.id, strategyName: def.name, error: 'داده ناکافی', score: -Infinity });
+                    continue;
+                }
+                const { trades } = await computeStockBacktestTrades(cfg);
+                const closedTrades = trades.filter(t => t.status === 'closed');
+                const stockWins = closedTrades.filter(t => t.pnlPct > 0);
+                const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
+                const approx = await Options.runApproxOptionBacktest(symbol, closedTrades);
+                const r = {
+                    strategyId: def.id, strategyName: def.name,
+                    timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe,
+                    stock: { total: trades.length, closed: closedTrades.length, winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0, avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0 },
+                    option: approx.stats
+                };
+                r.score = scoreStrategyForAuto(r);
+                results.push(r);
+            } catch (e) { results.push({ strategyId: def.id, strategyName: def.name, error: e.message, score: -Infinity }); }
+        }
+        results.sort((a, b) => (b.score || -Infinity) - (a.score || -Infinity));
+        res.json({ symbol, results: results.map(r => ({ ...r, score: isFinite(r.score) ? Math.round(r.score * 100) / 100 : null })) });
+    } catch (e) { next(e); }
+});
+
 // ======================== ارزیابی استراتژی ========================
 async function evaluateStrategyConfig(config, marketInfo) {
     const def = STRATEGIES[config.strategyId]; if (!def) return;
@@ -715,18 +915,14 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const base = { configId, symbol: config.symbol, strategyId: config.strategyId, timeframe: config.timeframe, htfTimeframe: htfTf, candleCount: candles.length, requiredCandles: required, htfCandleCount: htfCandles.length, requiredHtfCandles: requiredHtf, updatedAt: new Date(), queue: info ? info.queue : null, livePrice: info ? info.price : null };
 
     if (candles.length < required || htfCandles.length < requiredHtf) {
-        await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: true, position: null } }, { upsert: true });
-        return;
+        await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: true, position: null } }, { upsert: true }); return;
     }
-
     let result;
     try { result = def.run(candles, { ...config.params, candleType: config.candleType }, { htfCandles, htfTimeframe: htfTf, entryWindow: { start: ENTRY_START, end: ENTRY_END } }); }
     catch (e) { console.error(`❌ استراتژی ${config.symbol}:`, e.message); return; }
-
     const prev = await stateColl.findOne({ configId });
     const latest = result.signals[result.signals.length - 1]; if (!latest) return;
     const prevNotified = prev && prev.lastNotifiedTime || 0;
-
     let last = latest;
     for (let i = result.signals.length - 1, k = 0; i >= 0 && k < 5; i--, k--) {
         const s = result.signals[i];
@@ -735,21 +931,17 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const late = last !== latest;
     const lastPrice = candles[candles.length - 1].close;
 
-    // ذخیره وضعیت (با آخرین قیمت)
     await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: false, position: latest.position, indicators: latest.indicators, price: lastPrice, lastCandleTime: latest.time, htfTrend: result.htfTrend || null, reason: latest.reason || null } }, { upsert: true });
 
     const label = `${config.symbol} | ${def.name} | ${config.timeframe}→${htfTf}`;
     const lastHa = result.ha.find(h => h.time === last.time);
     const incompleteTag = lastHa && lastHa.complete === false ? '\n⚠️ کندل ناقص' : '';
-
-    // لغو سیگنال
     if (prev && prev.position === 'LONG' && latest.position !== 'LONG' && last.signalType !== 'EXIT_LONG') {
         if (!isConfirmer) {
             await notify(`⚠️ لغو سیگنال\n${label}\nموقعیت خرید قبلی وجود ندارد.`);
             await bumpDayStat('cancels');
         }
     }
-
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
@@ -757,9 +949,9 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const nowMin = minuteOfDay(getTehranParts());
     const inWindow = nowMin >= ENTRY_START && nowMin <= ENTRY_END;
     const queueTag = info && info.queue === 'buy' ? '\n⚠️ صف خرید' : info && info.queue === 'sell' ? '\n⚠️ صف فروش' : '';
-    const windowTag = last.signalType === 'BUY' && !inWindow ? `\n⏸ خارج از بازه (${fmtMin(ENTRY_START)}–${fmtMin(ENTRY_END)})` : '';
+    const windowTag = last.signalType === 'BUY' && !inWindow ? `\n⏸ خارج از بازه` : '';
 
-    // ======================== Confluence (اصلاح‌شده) ========================
+    // Confluence (اصلاح‌شده)
     let confluence = 1;
     let confirmersList = [];
     if (last.signalType === 'BUY') {
@@ -770,17 +962,13 @@ async function evaluateStrategyConfig(config, marketInfo) {
             const stateMap = new Map(otherStates.map(s => [s.configId, s]));
             const timeWindowSec = Settings.confluenceTimeWindow();
             const nowSec = Math.floor(Date.now() / 1000);
-
             for (const oc of otherConfigs) {
                 const ost = stateMap.get(oc._id.toString());
                 if (!ost || ost.position !== 'LONG') continue;
-
-                // اگه پنجره زمانی فعاله، چک کن
                 if (timeWindowSec > 0) {
                     const diff = Math.abs(nowSec - (ost.updatedAt ? Math.floor(new Date(ost.updatedAt).getTime() / 1000) : 0));
                     if (diff > timeWindowSec) continue;
                 }
-
                 confluence++;
                 if (oc.role === 'confirmer') {
                     const cfDef = STRATEGIES[oc.strategyId];
@@ -792,35 +980,27 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const confluenceTag = confluence > 1 ? `\n🔥 هم‌گرایی ${confluence} استراتژی` : '';
     const confirmersTag = confirmersList.length ? `\n✅ تأیید: ${confirmersList.join('، ')}` : '';
 
-    // ======================== ذخیره در تاریخچه ========================
     await stateColl.updateOne({ configId }, { $set: { lastNotifiedTime: last.time, lastNotifiedType: last.signalType } });
 
-    // ======================== پیام مستقل چند تأییدکننده ========================
-    // اگه این config تأییدکننده هست ولی 2+ تأییدکننده هم‌زمان سیگنال دادن → پیام مستقل
+    // چند-تأییدکننده: اگه ۲+ تأییدکننده هم‌زمان سیگنال بدن → پیام مستقل
     let shouldNotifyConfirmer = false;
     if (isConfirmer && last.signalType === 'BUY' && confirmersList.length >= Settings.multiConfirmerMin()) {
         shouldNotifyConfirmer = true;
     }
 
-    // ======================== اگه confirmer هستیم و شرط بالا نیست، خروج ========================
     if (isConfirmer && !shouldNotifyConfirmer) {
         await db.collection('signal_history').insertOne({
             configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name,
             timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time,
-            reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow,
-            queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false),
-            confluence, role: 'confirmer', createdAt: new Date()
+            reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null,
+            incomplete: !!(lastHa && lastHa.complete === false), confluence, role: 'confirmer', createdAt: new Date()
         });
         return;
     }
 
-    // ======================== ساخت پیام ========================
     let title;
-    if (isConfirmer) {
-        title = `🔔 سیگنال چند-تأییدکننده (${confirmersList.length} تأیید)`;
-    } else {
-        title = (last.signalType === 'BUY' ? '📈 سیگنال خرید (کال)' : '🔔 خروج از خرید (بستن کال)') + (late ? ' ⏰' : '');
-    }
+    if (isConfirmer) title = `🔔 سیگنال چند-تأییدکننده (${confirmersList.length} تأیید)`;
+    else title = (last.signalType === 'BUY' ? '📈 سیگنال خرید (کال)' : '🔔 خروج از خرید (بستن کال)') + (late ? ' ⏰' : '');
     const roleTag = isConfirmer ? '[چند-تأیید]' : '[لیدر]';
     const text = `${title}\n${label} ${roleTag}\nروند ${htfTf}: ${result.htfTrend || '-'}\nقیمت: ${lastPrice.toLocaleString()}${info ? ` | لحظه‌ای: ${info.price.toLocaleString()}` : ''}\nدلیل: ${last.reason || '-'}${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
     await notify(text);
@@ -828,40 +1008,31 @@ async function evaluateStrategyConfig(config, marketInfo) {
     await db.collection('signal_history').insertOne({
         configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name,
         timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time,
-        reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow,
-        queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false),
-        confluence, role: isConfirmer ? 'multi-confirmer' : 'leader', confirmers: confirmersList, createdAt: new Date()
+        reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null,
+        incomplete: !!(lastHa && lastHa.complete === false), confluence, role: isConfirmer ? 'multi-confirmer' : 'leader',
+        confirmers: confirmersList, createdAt: new Date()
     });
     await bumpDayStat('signals');
 
-    // ======================== ارسال به Options با فیلتر هدف ========================
     if (last.signalType === 'BUY') {
         if (!inWindow || (info && info.queue === 'buy')) {
             await notify(`ℹ️ ${config.symbol}: به‌دلیل ${!inWindow ? 'خارج از بازه' : 'صف خرید'} آپشن پیشنهاد نشد.`);
             return;
         }
-
-        // فیلتر هدف سهم
         const stop = last.indicators && last.indicators.stop;
         const atr = last.indicators && last.indicators.atr;
         const risk = stop && stop < lastPrice ? lastPrice - stop : (atr ? 2 * atr : lastPrice * 0.03);
-        const targetPct = (risk * 3.0 / lastPrice) * 100;  // با R:R = 3.0
+        const targetPct = (risk * 3.0 / lastPrice) * 100;
         const minTarget = Settings.minTargetPct();
-
         if (targetPct < minTarget) {
             await notify(`ℹ️ ${config.symbol}: هدف سهم فقط ${targetPct.toFixed(1)}٪ — کمتر از حداقل ${minTarget}٪ برای آپشن.`);
             return;
         }
-
         try {
             await Options.onBuySignal({
-                config,
-                indicators: last.indicators,
-                price: lastPrice,
-                liveS: info ? info.price : null,
-                tradeId: null,
-                confluence,
-                confirmers: confirmersList
+                config, indicators: last.indicators, price: lastPrice,
+                liveS: info ? info.price : null, tradeId: null,
+                confluence, confirmers: confirmersList
             });
         } catch (e) {
             console.error('❌ انتخاب آپشن:', e.message);
@@ -874,7 +1045,6 @@ async function evaluateAll(marketInfo) {
     const configs = await getDB().collection('strategy_configs').find({ enabled: true }).toArray();
     const leaders = configs.filter(c => c.role !== 'confirmer');
     const confirmers = configs.filter(c => c.role === 'confirmer');
-    // اول confirmerها (تا وضعیت‌شون آماده باشه)، بعد leaderها
     for (const c of confirmers) await evaluateStrategyConfig(c, marketInfo);
     for (const c of leaders) await evaluateStrategyConfig(c, marketInfo);
     return configs.length;
