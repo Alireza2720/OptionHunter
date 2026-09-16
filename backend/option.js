@@ -1,4 +1,4 @@
-// ======================== option.js (v6 — realistic modeling + per-trade fallback) ========================
+// ======================== option.js (v7 — realistic v3 + tuned vol crush) ========================
 'use strict';
 const fetch = require('node-fetch');
 const Settings = require('./settings.js');
@@ -50,7 +50,6 @@ async function saveSettings(values) {
     return getSettings(true);
 }
 
-// ======================== نرمال‌سازی ========================
 const norm = s => String(s || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/[\u200c\u200f\s]/g, '').trim();
 const num = v => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
 const first = s => num(String(s || '').split('/')[0]);
@@ -81,7 +80,6 @@ function parseContract(r) {
     };
 }
 
-// ======================== Black-Scholes ========================
 function normCdf(x) {
     const t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989423 * Math.exp(-x * x / 2);
     const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
@@ -117,7 +115,6 @@ async function hvFromDaily(symbol, n = 20) {
     return Math.sqrt(v * TRADING_DAYS);
 }
 
-// ======================== Chain ========================
 let chainCache = { at: 0, list: [] };
 async function fetchChain(maxAgeMs = 60000) {
     if (Date.now() - chainCache.at < maxAgeMs && chainCache.list.length) return chainCache.list;
@@ -130,7 +127,6 @@ async function fetchChain(maxAgeMs = 60000) {
 }
 const chainAge = () => chainCache.at ? Math.round((Date.now() - chainCache.at) / 1000) : null;
 
-// ======================== Metrics ========================
 function metrics(c, S, hv) {
     const T = Math.max(c.daysLeft, 0.5) / 365;
     const mid = c.bid > 0 && c.ask > 0 ? (c.bid + c.ask) / 2 : 0;
@@ -418,7 +414,6 @@ async function managePositions(chain) {
     if (!open.length) return;
     const map = new Map(chain.map(c => [c.symbol, c]));
     const longIds = new Set((await db.collection('signals_state').find({ position: 'LONG' }).project({ configId: 1 }).toArray()).map(x => x.configId));
-    // ✅ Bug F fix: چک صف فروش برای خروج
     const monitored = await db.collection('monitored_symbols').find({}).toArray();
     const sellQueueSet = new Set();
     for (const m of monitored) {
@@ -448,7 +443,6 @@ async function managePositions(chain) {
         else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}٪)`;
         else if (pnlPct >= s.take2Pct && taken2) reason = `حد سود کامل (${pnlPct.toFixed(0)}٪)`;
         const warns = [];
-        // ✅ Bug F: هشدار صف فروش
         if (sellQueueSet.has(p.underlying)) warns.push(`🚫 نماد پایه در صف فروش است — برای بستن آپشن باید منتظر باز شدن صف بمانی`);
         if (!reason && pnlPct >= s.take1Pct && !p.take1Notified) { warns.push(`💰 سود ${pnlPct.toFixed(0)}٪ — پیشنهاد: فروش نیمی`); upd.take1Notified = true; }
         if (!reason && p.entryIv && iv && iv < p.entryIv * 0.8 && !p.ivWarned) { warns.push(`📉 IV از ${(p.entryIv * 100).toFixed(0)}٪ به ${(iv * 100).toFixed(0)}٪ افت کرد`); upd.ivWarned = true; }
@@ -524,19 +518,23 @@ function positionStats(list) {
     return { open: list.length - closed.length, closed: closed.length, winRate: closed.length ? wins.length / closed.length * 100 : 0, avgPnl: closed.length ? sum(closed) / closed.length : 0, totalPnl: sum(closed), profitFactor: pf, avgWin: wins.length ? gp / wins.length : 0, avgLoss: closed.length - wins.length ? -gl / (closed.length - wins.length) : 0 };
 }
 
-// ======================== Backtest — Realistic v6 ========================
+// ======================== Backtest — Realistic v7 ========================
+// ✅ تغییرات این نسخه:
+// - volCrushFactor: 2.0 → 3.0 (IV تندتر می‌ریزد)
+// - minIvCrush: 0.55 → 0.35 (کف افت بیشتر)
+// - maxReturnPct: 250 → 150 (سقف پایین‌تر)
 const OPT_BT_DEFAULTS = {
     assumedMaturityDays: 30,
     ivMultiplier: 1.20,
     spreadPct: 10,
     deltaMin: 0.40, deltaMax: 0.75,
     minDays: 15, maxDays: 45,
-    // ✅ محدودکننده‌های واقع‌گرایی جدید
-    volCrushFactor: 2.0,   // با جهش ۲۵٪ سهم، IV تقریباً نصف می‌شود
-    spreadMoveMult: 3.0,   // اسپرد با جهش باز می‌شود
-    maxReturnPct: 250,     // سقف بازده واقع‌گرایانه
-    minExitDays: 0.5,      // حداقل روز باقی‌مانده در خروج
-    realEnabled: true      // ✅ per-trade real attempt
+    volCrushFactor: 3.0,
+    minIvCrush: 0.35,
+    spreadMoveMult: 3.0,
+    maxReturnPct: 150,
+    minExitDays: 0.5,
+    realEnabled: true
 };
 
 function historicalHV(closes, uptoIndex, n = 20) {
@@ -593,7 +591,6 @@ async function tryGetRealTradeData(symbol, t, p) {
     };
 }
 
-// ✅ v6: مدل تقریبی با vol crush، اسپرد پویا، سقف بازده
 function tryGetApproxTradeData(t, closes, times, p) {
     let idx = -1;
     for (let i = 0; i < times.length; i++) { if (times[i] <= t.entryTime) idx = i; else break; }
@@ -601,12 +598,11 @@ function tryGetApproxTradeData(t, closes, times, p) {
     const sigmaBase = Math.max(hv * p.ivMultiplier, 0.05);
     const daysHeld = Math.max((t.exitTime - t.entryTime) / 86400, 0.1);
 
-    // ✅ vol crush: با جهش قیمت، IV افت می‌کند
+    // ✅ vol crush تهاجمی‌تر: با جهش ۳۳٪ سهم، IV به کف می‌رسد
     const moveRatio = Math.abs(t.exitPrice / t.entryPrice - 1);
-    const ivCrushFactor = Math.max(0.55, 1 - moveRatio * p.volCrushFactor);
+    const ivCrushFactor = Math.max(p.minIvCrush, 1 - moveRatio * p.volCrushFactor);
     const sigmaExit = sigmaBase * ivCrushFactor;
 
-    // ✅ اسپرد پویا
     const dynamicSpreadPct = p.spreadPct * (1 + moveRatio * p.spreadMoveMult);
     const halfSpreadEntry = p.spreadPct / 200;
     const halfSpreadExit = dynamicSpreadPct / 200;
@@ -622,7 +618,6 @@ function tryGetApproxTradeData(t, closes, times, p) {
     if (!(entryCost > 0) || !isFinite(exitProceeds)) return null;
 
     let pnlPct = (exitProceeds / entryCost - 1) * 100;
-    // ✅ سقف بازده
     if (pnlPct > p.maxReturnPct) pnlPct = p.maxReturnPct;
 
     return {
@@ -638,7 +633,6 @@ function tryGetApproxTradeData(t, closes, times, p) {
     };
 }
 
-// ✅ v6: per-trade fallback + بدون gate sampleCount
 async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     const db = deps.getDB();
     const p = { ...OPT_BT_DEFAULTS, ...opts };
@@ -651,8 +645,6 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             diagnostic: 'هیچ معامله‌ی بسته‌شده‌ای تولید نشده.'
         };
     }
-
-    // ✅ فقط > 0 کافی است — نه >= 20
     const sampleCount = await db.collection('option_history').countDocuments({ underlying: norm(symbol) });
     const hasAnyOptionData = sampleCount > 0;
     const realEnabled = p.realEnabled !== false;
@@ -666,13 +658,11 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
 
     for (const t of closedTrades) {
         let result = null;
-        // ✅ per-trade: اول تلاش برای real
         if (realEnabled && hasAnyOptionData) {
             try { result = await tryGetRealTradeData(symbol, t, p); } catch (e) { result = null; }
         }
         if (result) { trades.push(result); realUsed++; }
         else {
-            // ✅ fallback per-trade
             const approx = tryGetApproxTradeData(t, closes, times, p);
             if (approx) { trades.push(approx); approxUsed++; }
         }
@@ -696,9 +686,9 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
     };
     if (!trades.length) result.diagnostic = 'هیچ معامله‌ای در بک‌تست تولید نشد.';
-    else if (realUsed > 0 && approxUsed > 0) result.diagnostic = `ترکیبی: ${realUsed} واقعی + ${approxUsed} تقریبی (اسپرد پایه ${p.spreadPct}٪)`;
+    else if (realUsed > 0 && approxUsed > 0) result.diagnostic = `ترکیبی: ${realUsed} واقعی + ${approxUsed} تقریبی`;
     else if (realUsed > 0) result.diagnostic = `همه ${realUsed} معامله از دیتای واقعی`;
-    else result.diagnostic = `همه ${approxUsed} معامله تقریبی (اسپرد ${p.spreadPct}٪، volCrush ${p.volCrushFactor})`;
+    else result.diagnostic = `همه ${approxUsed} معامله تقریبی (volCrush ${p.volCrushFactor}، سقف ${p.maxReturnPct}٪)`;
     return result;
 }
 
@@ -706,7 +696,6 @@ async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
     return runHybridOptionBacktest(symbol, closedTrades, { ...opts, realEnabled: false });
 }
 
-// ✅ v6: بدون gate — همان hybrid
 async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
     return runHybridOptionBacktest(symbol, closedTrades, { ...opts, realEnabled: true });
 }

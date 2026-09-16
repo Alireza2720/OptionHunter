@@ -17,7 +17,7 @@ const STARTED_AT = new Date();
 const app = express();
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v9.0-realistic-bt';
+const SERVER_VERSION = 'v9.1-inWindow-fix';
 let holidayDate = null, inactiveTicks = 0;
 
 const API_KEYS = [process.env.BRSAPI_KEY_1 || process.env.BRSAPI_KEY, process.env.BRSAPI_KEY_2, process.env.BRSAPI_KEY_3].filter(Boolean);
@@ -86,7 +86,6 @@ app.delete('/api/strategy-defaults/:strategyId?', async (req, res, next) => { tr
 app.get('/ping', (req, res) => res.json({ pong: true, time: new Date().toISOString() }));
 app.get('/strategies.js', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'strategies.js')); });
 
-// ======================== زمان تهران ========================
 function getTehranParts(date = new Date()) {
     const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, weekday: 'short' });
     const map = {}; fmt.formatToParts(date).forEach(p => { map[p.type] = p.value; });
@@ -121,7 +120,6 @@ async function getAllUsage() {
 }
 app.get('/api/usage', async (req, res, next) => { try { res.json(await getAllUsage()); } catch (e) { next(e); } });
 
-// ======================== نمادها ========================
 let symbolsCache = [];
 async function fetchAllSymbolsRaw() {
     if (!API_KEYS.length) throw new Error('هیچ کلید BrsApi تنظیم نشده است.');
@@ -153,7 +151,6 @@ function getUnderlyingNames(symbol) {
     return Array.from(names);
 }
 
-// ======================== Quotes ========================
 const lastQuotes = new Map();
 let rawSymbolsCache = { at: 0, data: null };
 async function fetchAllSymbolsRawCached(maxAgeMs = 15000) {
@@ -189,7 +186,6 @@ async function refreshSymbolData(symbol) {
     } catch (e) { console.error('❌ refreshSymbolData:', e.message); return false; }
 }
 
-// ======================== Telegram ========================
 async function telegramSend(text) {
     if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('تلگرام تنظیم نشده است');
     const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text }), timeout: 15000 });
@@ -210,7 +206,6 @@ async function flushOutbox() {
 async function notify(text) { await getDB().collection('telegram_outbox').insertOne({ text, createdAt: new Date(), attempts: 0, sentAt: null }); flushOutbox().catch(() => {}); }
 app.post('/api/telegram/test', async (req, res, next) => { try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== Health ========================
 const health = { consecutiveFailures: 0, alerted: false, lastError: null, lastTickAt: null };
 async function bumpDayStat(field, n = 1) {
     const today = todayDateString(getTehranParts());
@@ -242,7 +237,6 @@ async function sendDailySummary() {
     await notify(`📊 خلاصه روز ${today}\nتیک: موفق ${st.ticksOk || 0} | ناموفق ${st.ticksFail || 0}\nسیگنال: ${st.signals || 0} | لغو: ${st.cancels || 0}${optLine}${portfolioLine}\nAPI: ${usage.total}/${usage.totalLimit}${storLine}`);
 }
 
-// ======================== Backup ========================
 async function telegramSendBackup(filename, jsonObj) {
     if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('تلگرام تنظیم نشده است');
     const blob = new Blob([JSON.stringify(jsonObj, null, 2)], { type: 'application/json' });
@@ -265,7 +259,6 @@ async function sendWeeklyBackup() {
 }
 app.post('/api/backup/run', async (req, res, next) => { try { await sendWeeklyBackup(); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== Holiday ========================
 async function markHoliday(t) {
     holidayDate = todayDateString(t);
     await getDB().collection('meta').updateOne({ _id: 'holiday' }, { $set: { date: holidayDate } }, { upsert: true });
@@ -273,7 +266,6 @@ async function markHoliday(t) {
 }
 app.delete('/api/holiday', async (req, res, next) => { try { holidayDate = null; inactiveTicks = 0; await getDB().collection('meta').deleteOne({ _id: 'holiday' }); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== Candles ========================
 async function getBaseCandles(symbol) {
     const base = await getDB().collection('candles_base').find({ symbol }).sort({ time: 1 }).toArray();
     return base.map(c => ({ time: Math.floor(c.time.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }));
@@ -383,35 +375,26 @@ app.get('/api/chart-data/:configId', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== ✅ Data Coverage Tool ========================
 app.get('/api/data-coverage', async (req, res, next) => {
     try {
         const db = getDB();
         const monitored = await db.collection('monitored_symbols').find({}).toArray();
         const symbols = [];
         for (const m of monitored) {
-            const row = { symbol: m.symbol, timeframes: {}, optionHistory: 0, requirements: {} };
-            // Intraday counts
+            const row = { symbol: m.symbol, timeframes: {}, optionHistory: 0, optionDaily: 0, requirements: {} };
             const tfs = Object.keys(TF).filter(t => t !== '1d');
             for (const tf of tfs) {
                 const count = await db.collection('candles_tf').countDocuments({ symbol: m.symbol, tf });
                 const oldest = await db.collection('candles_tf').find({ symbol: m.symbol, tf }).sort({ time: 1 }).limit(1).toArray();
                 const newest = await db.collection('candles_tf').find({ symbol: m.symbol, tf }).sort({ time: -1 }).limit(1).toArray();
-                row.timeframes[tf] = {
-                    count,
-                    from: oldest[0] ? oldest[0].time : null,
-                    to: newest[0] ? newest[0].time : null
-                };
+                row.timeframes[tf] = { count, from: oldest[0] ? oldest[0].time : null, to: newest[0] ? newest[0].time : null };
             }
-            // Daily
             const dailyCount = await db.collection('candles_daily').countDocuments({ symbol: m.symbol });
             const dOld = await db.collection('candles_daily').find({ symbol: m.symbol }).sort({ time: 1 }).limit(1).toArray();
             const dNew = await db.collection('candles_daily').find({ symbol: m.symbol }).sort({ time: -1 }).limit(1).toArray();
             row.timeframes['1d'] = { count: dailyCount, from: dOld[0]?.time || null, to: dNew[0]?.time || null };
-            // Option
             row.optionHistory = await db.collection('option_history').countDocuments({ underlying: Options.norm(m.symbol) });
             row.optionDaily = await db.collection('option_daily').countDocuments({ underlying: Options.norm(m.symbol) });
-            // Requirements per strategy
             for (const sid of Object.keys(STRATEGIES)) {
                 const def = STRATEGIES[sid];
                 const tf = def.defaultTimeframe;
@@ -425,7 +408,6 @@ app.get('/api/data-coverage', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== import-daily ========================
 function jalaliToGregorian(jy, jm, jd) {
     let gy; jy += 1595;
     let days = -355668 + (365 * jy) + (Math.floor(jy / 33) * 8) + Math.floor(((jy % 33) + 3) / 4) + jd + ((jm < 7) ? (jm - 1) * 31 : ((jm - 7) * 30) + 186);
@@ -467,7 +449,6 @@ app.post('/api/import-daily/:symbol', async (req, res) => {
     catch (e) { console.error('❌ import-daily:', e.message); res.status(400).json({ error: e.message }); }
 });
 
-// ======================== monitored-symbols ========================
 app.get('/api/monitored-symbols', async (req, res, next) => {
     try {
         const db = getDB();
@@ -501,7 +482,6 @@ app.delete('/api/monitored-symbols/:id', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== strategy-configs ========================
 app.get('/api/strategy-configs', async (req, res, next) => { try { res.json(await getDB().collection('strategy_configs').find({}).sort({ createdAt: 1 }).toArray()); } catch (e) { next(e); } });
 app.post('/api/strategy-configs', async (req, res, next) => {
     try {
@@ -562,12 +542,10 @@ app.post('/api/strategy-configs/bulk-update', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== status / history ========================
 app.get('/api/status', async (req, res, next) => { try { res.json(await getDB().collection('signals_state').find({}).toArray()); } catch (e) { next(e); } });
 app.get('/api/signal-history', async (req, res, next) => { try { res.json(await getDB().collection('signal_history').find({}).sort({ createdAt: -1 }).limit(300).toArray()); } catch (e) { next(e); } });
 app.delete('/api/signal-history', async (req, res, next) => { try { await getDB().collection('signal_history').deleteMany({}); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== portfolio ========================
 app.get('/api/portfolio', async (req, res, next) => {
     try {
         const s = Settings.get();
@@ -584,7 +562,6 @@ app.get('/api/portfolio', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-// ======================== بک‌تست سهم ========================
 async function computeStockBacktestTrades(cfg) {
     const def = STRATEGIES[cfg.strategyId]; const htfTf = cfg.htfTimeframe || '1d';
     const candles = closedOnly(await getCandlesFull(cfg.symbol, cfg.timeframe), cfg.timeframe);
@@ -610,31 +587,6 @@ app.get('/api/backtest-option/:configId', async (req, res, next) => {
         res.json({ stockTradesCount: trades.length, stockClosedCount: closedTrades.length, ...result });
     } catch (e) { next(e); }
 });
-
-// ======================== ✅ بک‌تست مقایسه‌ای + Aggregation ========================
-function mkStatsAgg(o) {
-    return {
-        stock: {
-            trades: o.stockTrades,
-            winRate: o.stockTrades ? o.stockWins / o.stockTrades * 100 : 0,
-            avgPnl: o.stockTrades ? o.stockSumPnl / o.stockTrades : 0,
-            totalPnl: o.stockSumPnl
-        },
-        option: {
-            trades: o.optTrades,
-            winRate: o.optTrades ? o.optWins / o.optTrades * 100 : 0,
-            avgPnl: o.optTrades ? o.optSumPnl / o.optTrades : 0,
-            totalPnl: o.optSumPnl,
-            realUsed: o.optReal,
-            approxUsed: o.optApprox,
-            profitFactor: (() => {
-                // نیاز به wins/losses جداگانه داریم
-                return o.optPF;
-            })()
-        },
-        combos: o.combos
-    };
-}
 
 app.post('/api/backtest-compare', async (req, res, next) => {
     try {
@@ -662,7 +614,6 @@ app.post('/api/backtest-compare', async (req, res, next) => {
                     const stockWins = closedTrades.filter(t => t.pnlPct > 0);
                     const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
 
-                    // ✅ v6: همیشه hybrid (per-trade fallback)
                     const h = await Options.runHybridOptionBacktest(symbol, closedTrades, { realEnabled: !!useRealOption });
                     const optStats = h.stats;
                     optStats.realUsed = h.realUsed;
@@ -686,14 +637,12 @@ app.post('/api/backtest-compare', async (req, res, next) => {
             const pfB = b.option && b.option.profitFactor != null ? b.option.profitFactor : -1;
             return pfB - pfA;
         });
-
-        // ✅ تجمیع: total + bySymbol + byStrategy
-        const agg = (arr) => {
+        const validResults = results.filter(r => !r.error && !r.insufficientData);
+        const computeAgg = (arr) => {
             let stockTrades = 0, stockWins = 0, stockSum = 0;
             let optTrades = 0, optWins = 0, optSum = 0, optReal = 0, optApprox = 0;
-            let optGp = 0, optGl = 0;
+            let optGrossWin = 0, optGrossLoss = 0;
             for (const r of arr) {
-                if (r.error || r.insufficientData) continue;
                 const st = r.stock || {}, ot = r.option || {};
                 stockTrades += st.closed || 0;
                 stockWins += ((st.closed || 0) * (st.winRate || 0) / 100);
@@ -703,93 +652,39 @@ app.post('/api/backtest-compare', async (req, res, next) => {
                 optSum += ot.totalPnl || 0;
                 optReal += ot.realUsed || 0;
                 optApprox += ot.approxUsed || 0;
+                if (ot.trades && Array.isArray(ot.trades)) {
+                    for (const t of ot.trades) {
+                        if (t.pnlPct > 0) optGrossWin += t.pnlPct;
+                        else optGrossLoss += Math.abs(t.pnlPct);
+                    }
+                }
             }
-            // PF for option: sum of positive vs negative per-trade pnl not available here; approximate from winRate/avgPnl
-            const optPF = (() => {
-                if (optTrades === 0) return null;
-                const winsCount = optWins, lossesCount = optTrades - winsCount;
-                const avgWin = winsCount > 0 ? optSum / optTrades * (1 / (optWins / optTrades || 1)) : 0; // rough
-                // Actually avgWin and avgLoss need per-trade data; we'll just compute a rough PF
-                // Since we have sum and winRate, we can estimate:
-                const totalPnl = optSum;
-                if (lossesCount === 0) return totalPnl > 0 ? Infinity : 0;
-                const grossWin = totalPnl > 0 ? totalPnl / (1 - lossesCount / optTrades) : 0;
-                const grossLoss = Math.abs(totalPnl) * (lossesCount / optTrades) / (1 - lossesCount / optTrades) || 0;
-                return grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
-            })();
+            const pf = optGrossLoss > 0 ? optGrossWin / optGrossLoss : (optGrossWin > 0 ? null : 0);
             return {
-                stock: {
-                    trades: stockTrades,
-                    winRate: stockTrades ? stockWins / stockTrades * 100 : 0,
-                    avgPnl: stockTrades ? stockSum / stockTrades : 0,
-                    totalPnl: stockSum
-                },
-                option: {
-                    trades: optTrades,
-                    winRate: optTrades ? optWins / optTrades * 100 : 0,
-                    avgPnl: optTrades ? optSum / optTrades : 0,
-                    totalPnl: optSum,
-                    realUsed: optReal,
-                    approxUsed: optApprox,
-                    profitFactor: optPF
-                },
-                combos: arr.filter(r => !r.error && !r.insufficientData).length
+                stock: { trades: stockTrades, winRate: stockTrades ? stockWins / stockTrades * 100 : 0, avgPnl: stockTrades ? stockSum / stockTrades : 0, totalPnl: stockSum },
+                option: { trades: optTrades, winRate: optTrades ? optWins / optTrades * 100 : 0, avgPnl: optTrades ? optSum / optTrades : 0, totalPnl: optSum, realUsed: optReal, approxUsed: optApprox, profitFactor: pf },
+                combos: arr.length
             };
         };
-
-        const validResults = results.filter(r => !r.error && !r.insufficientData);
-
-        // by symbol
-        const bySymbolMap = {};
-        for (const r of validResults) {
-            if (!bySymbolMap[r.symbol]) bySymbolMap[r.symbol] = [];
-            bySymbolMap[r.symbol].push(r);
-        }
-        const bySymbol = Object.entries(bySymbolMap).map(([sym, arr]) => ({ symbol: sym, ...agg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
-
-        // by strategy
-        const byStrategyMap = {};
-        for (const r of validResults) {
-            if (!byStrategyMap[r.strategyId]) byStrategyMap[r.strategyId] = [];
-            byStrategyMap[r.strategyId].push(r);
-        }
-        const byStrategy = Object.entries(byStrategyMap).map(([sid, arr]) => ({ strategyId: sid, strategyName: arr[0].strategyName, ...agg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
-
-        // by timeframe
-        const byTfMap = {};
-        for (const r of validResults) {
-            if (!byTfMap[r.timeframe]) byTfMap[r.timeframe] = [];
-            byTfMap[r.timeframe].push(r);
-        }
-        const byTimeframe = Object.entries(byTfMap).map(([tf, arr]) => ({ timeframe: tf, ...agg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
-
-        res.json({
-            count: results.length,
-            results,
-            aggregate: {
-                total: agg(validResults),
-                bySymbol,
-                byStrategy,
-                byTimeframe
-            }
-        });
+        const total = computeAgg(validResults);
+        const bySymbol = Object.entries(validResults.reduce((acc, r) => { (acc[r.symbol] = acc[r.symbol] || []).push(r); return acc; }, {})).map(([sym, arr]) => ({ symbol: sym, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+        const byStrategy = Object.entries(validResults.reduce((acc, r) => { (acc[r.strategyId] = acc[r.strategyId] || []).push(r); return acc; }, {})).map(([sid, arr]) => ({ strategyId: sid, strategyName: arr[0].strategyName, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+        const byTimeframe = Object.entries(validResults.reduce((acc, r) => { (acc[r.timeframe] = acc[r.timeframe] || []).push(r); return acc; }, {})).map(([tf, arr]) => ({ timeframe: tf, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+        res.json({ count: results.length, results, aggregate: { total, bySymbol, byStrategy, byTimeframe } });
     } catch (e) { next(e); }
 });
 
 // ======================== Auto-Configure ========================
-// ✅ v6: آستانه‌ها سخت‌گیرانه‌تر
+// ✅ v7: آستانه‌ها: ۷ معامله سهم + ۳ معامله آپشن + PF > 1.1
 function scoreStrategyForAuto(res) {
     if (!res || res.error || res.insufficientData) return -Infinity;
     const s = res.stock || {};
     const o = res.option || {};
     const tradeCount = s.closed || 0;
-    // ✅ حداقل ۱۰ معامله سهم
-    if (tradeCount < 10) return -Infinity;
+    if (tradeCount < 7) return -Infinity;
     const optCount = o.count || 0;
-    // ✅ حداقل ۵ معامله آپشن
-    if (optCount < 5) return -Infinity;
+    if (optCount < 3) return -Infinity;
     const optPF = (o.profitFactor !== null && o.profitFactor !== undefined && isFinite(o.profitFactor)) ? o.profitFactor : 0;
-    // ✅ PF حداقل ۱.۱
     if (optPF < 1.1) return -Infinity;
     const winRate = (s.winRate || 0) / 100;
     const optAvg = o.avgPnl || 0;
@@ -838,20 +733,19 @@ async function autoConfigureSingle(symbol, maxConfirmers) {
 
     const valid = results.filter(r => isFinite(r.score) && r.score > -Infinity).sort((a, b) => b.score - a.score);
     if (!valid.length) {
-        // ✅ جزئیات چرا هیچ‌کدام قبول نشدند
         const rejectionReasons = results.map(r => {
             const reasons = [];
             if (r.insufficientData) reasons.push('داده ناکافی');
             else if (r.error) reasons.push(r.error);
             else {
                 const s = r.stock || {}, o = r.option || {};
-                if ((s.closed || 0) < 10) reasons.push(`معامله سهم ${s.closed || 0}<10`);
-                else if ((o.count || 0) < 5) reasons.push(`معامله آپشن ${o.count || 0}<5`);
-                else if ((o.profitFactor || 0) < 1.1) reasons.push(`PF ${(o.profitFactor || 0).toFixed(2)}<1.1`);
+                if ((s.closed || 0) < 7) reasons.push(`معامله سهم ${s.closed || 0} < 7`);
+                else if ((o.count || 0) < 3) reasons.push(`معامله آپشن ${o.count || 0} < 3`);
+                else if ((o.profitFactor || 0) < 1.1) reasons.push(`PF ${(o.profitFactor || 0).toFixed(2)} < 1.1`);
             }
             return { strategyId: r.strategyId, strategyName: r.strategyName, reasons };
         });
-        return { symbol, error: 'هیچ استراتژی معتبری پیدا نشد (معیار: ۱۰ معامله سهم + ۵ معامله آپشن + PF>1.1)', results, rejectionReasons };
+        return { symbol, error: 'هیچ استراتژی معتبری پیدا نشد (معیار: ۷ معامله سهم + ۳ معامله آپشن + PF>1.1)', results, rejectionReasons };
     }
 
     const leader = valid[0];
@@ -901,7 +795,7 @@ app.post('/api/auto-configure', async (req, res, next) => {
             applied.push({ symbol: p.symbol, leader: p.leader.strategyId, leaderName: p.leader.strategyName, leaderScore: p.leader.score, confirmers: p.confirmers.map(c => ({ id: c.strategyId, name: c.strategyName, score: c.score })), created: created.length });
         }
 
-        await notify(`🤖 تنظیم خودکار انجام شد\n${applied.filter(a => !a.error).map(a => `• ${a.symbol}: لیدر ${a.leaderName} (امتیاز ${a.leaderScore}) + ${a.confirmers.length} تأییدکننده`).join('\n')}`).catch(() => {});
+        await notify(`🤖 تنظیم خودکار انجام شد\n${applied.filter(a => !a.error).map(a => `• ${a.symbol}: لیدر ${a.leaderName} (${a.leaderScore}) + ${a.confirmers.length} تأییدکننده`).join('\n')}`).catch(() => {});
         res.json({ plans, applied: true, results: applied });
     } catch (e) { next(e); }
 });
@@ -942,7 +836,7 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const prev = await stateColl.findOne({ configId });
     const latest = result.signals[result.signals.length - 1]; if (!latest) return;
 
-    // ✅ Bug B fix: warm-up — اولین اجرا سیگنال نمی‌فرستد
+    // ✅ Warm-up: اولین اجرا سیگنال نمی‌فرستد
     if (!prev) {
         await stateColl.updateOne({ configId }, { $set: {
             ...base, insufficientData: false,
@@ -961,7 +855,6 @@ async function evaluateStrategyConfig(config, marketInfo) {
 
     const prevNotified = prev.lastNotifiedTime || 0;
     let last = latest;
-    // ✅ Bug A fix: k++ (نه k--)
     for (let i = result.signals.length - 1, k = 0; i >= 0 && k < 5; i--, k++) {
         const s = result.signals[i];
         if ((s.signalType === 'BUY' || s.signalType === 'EXIT_LONG') && s.time > prevNotified) { last = s; break; }
@@ -971,18 +864,25 @@ async function evaluateStrategyConfig(config, marketInfo) {
     await stateColl.updateOne({ configId }, { $set: { ...base, insufficientData: false, position: latest.position, indicators: latest.indicators, price: lastPrice, lastCandleTime: latest.time, htfTrend: result.htfTrend || null, reason: latest.reason || null } }, { upsert: true });
     const label = `${config.symbol} | ${def.name} | ${config.timeframe}→${htfTf}`;
     const lastHa = result.ha.find(h => h.time === last.time);
-    // ✅ Bug D: فقط اگر کندل هنوز در حال تشکیل است
+
+    // ✅ تگ ناقص فقط برای کندل در حال تشکیل
     const tfMin = TF[config.timeframe] || 30;
-    const isForming = lastHa && lastHa.time + tfMin * 60 > Date.now() / 1000;
-    const incompleteTag = (isForming && lastHa.complete === false) ? '\n⏳ کندل در حال تشکیل' : '';
+    const isFormingNow = lastHa && (lastHa.time + tfMin * 60) > (Date.now() / 1000);
+    const isIncomplete = isFormingNow && !!(lastHa && lastHa.complete === false);
+    const incompleteTag = isIncomplete ? '\n⏳ کندل در حال تشکیل' : '';
+
     if (prev && prev.position === 'LONG' && latest.position !== 'LONG' && last.signalType !== 'EXIT_LONG') {
         if (!isConfirmer) { await notify(`⚠️ لغو سیگنال\n${label}\nموقعیت خرید قبلی وجود ندارد.`); await bumpDayStat('cancels'); }
     }
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
-    const nowMin = minuteOfDay(getTehranParts());
-    const inWindow = nowMin >= ENTRY_START && nowMin <= ENTRY_END;
+
+    // ✅ FIX: استفاده از زمان سیگنال (نه زمان فعلی)
+    const signalT = getTehranParts(new Date(last.time * 1000));
+    const signalMin = signalT.hour * 60 + signalT.minute;
+    const inWindow = signalMin >= ENTRY_START && signalMin <= ENTRY_END;
+
     const queueTag = info && info.queue === 'buy' ? '\n⚠️ صف خرید' : info && info.queue === 'sell' ? '\n⚠️ صف فروش' : '';
     const windowTag = last.signalType === 'BUY' && !inWindow ? `\n⏸ خارج از بازه` : '';
 
@@ -1013,7 +913,7 @@ async function evaluateStrategyConfig(config, marketInfo) {
     if (isConfirmer && last.signalType === 'BUY' && confirmersList.length >= Settings.multiConfirmerMin()) shouldNotifyConfirmer = true;
 
     if (isConfirmer && !shouldNotifyConfirmer) {
-        await db.collection('signal_history').insertOne({ configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name, timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time, reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false), confluence, role: 'confirmer', createdAt: new Date() });
+        await db.collection('signal_history').insertOne({ configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name, timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time, reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null, incomplete: isIncomplete, confluence, role: 'confirmer', createdAt: new Date() });
         return;
     }
 
@@ -1023,7 +923,7 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const roleTag = isConfirmer ? '[چند-تأیید]' : '[لیدر]';
     const text = `${title}\n${label} ${roleTag}\nروند ${htfTf}: ${result.htfTrend || '-'}\nقیمت: ${lastPrice.toLocaleString()}${info ? ` | لحظه‌ای: ${info.price.toLocaleString()}` : ''}\nدلیل: ${last.reason || '-'}${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
     await notify(text);
-    await db.collection('signal_history').insertOne({ configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name, timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time, reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null, incomplete: !!(lastHa && lastHa.complete === false), confluence, role: isConfirmer ? 'multi-confirmer' : 'leader', confirmers: confirmersList, createdAt: new Date() });
+    await db.collection('signal_history').insertOne({ configId, symbol: config.symbol, strategyId: config.strategyId, strategyName: def.name, timeframe: config.timeframe, signalType: last.signalType, price: lastPrice, time: last.time, reason: last.reason || null, htfTrend: result.htfTrend || null, inWindow, queue: info ? info.queue : null, incomplete: isIncomplete, confluence, role: isConfirmer ? 'multi-confirmer' : 'leader', confirmers: confirmersList, createdAt: new Date() });
     await bumpDayStat('signals');
 
     if (last.signalType === 'BUY') {
@@ -1046,7 +946,6 @@ async function evaluateAll(marketInfo) {
     return configs.length;
 }
 
-// ======================== Tick ========================
 const lastSnap = new Map(); let tickRunning = false;
 async function tick() {
     if (tickRunning) return; tickRunning = true;
@@ -1123,7 +1022,6 @@ async function ensureIndexes() {
     await Log.ensureIndexes(db);
 }
 
-// ✅ Bug C: حذف configs یتیم
 async function cleanOrphanConfigs() {
     const db = getDB();
     const validIds = Object.keys(STRATEGIES);
@@ -1145,7 +1043,6 @@ async function start() {
     await reloadEntryWindow();
     if (typeof Options.reloadFromSettings === 'function') Options.reloadFromSettings();
     await ensureIndexes();
-    // ✅ getQuote جدید برای managePositions
     Options.init({
         getDB, notify,
         TIMEFRAME_MINUTES: Strat.TIMEFRAME_MINUTES,
@@ -1190,7 +1087,6 @@ async function start() {
     cron.schedule('35 12 * * 6,0,1,2,3', () => { if (holidayDate !== todayDateString(getTehranParts())) sendDailySummary().catch(() => {}); }, { timezone: 'Asia/Tehran' });
     cron.schedule('0 10 * * 4', () => { sendWeeklyBackup().catch(e => console.error('❌ بکاپ:', e.message)); }, { timezone: 'Asia/Tehran' });
 
-    // ✅ افزایش timeout سرور
     const server = app.listen(PORT, () => console.log(`🚀 ${SERVER_VERSION} | port ${PORT} | keys ${API_KEYS.length}`));
     server.keepAliveTimeout = 10 * 60 * 1000;
     server.headersTimeout = 11 * 60 * 1000;

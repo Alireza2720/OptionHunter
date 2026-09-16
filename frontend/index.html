@@ -1563,9 +1563,14 @@ async function openAutoConfigure() {
         const symbolsHtml = monitoredSymbols.map(s => `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="ac-symbol" value="${esc(s.symbol)}" checked> ${esc(s.symbol)}</label>`).join('');
         if (!symbolsHtml) return openModal('تنظیم خودکار', '<div class="empty-note">ابتدا نماد اضافه کنید.</div>');
         openModal('🤖 تنظیم خودکار', `
-            <div class="hint">
-                برای هر نماد، همه استراتژی‌ها بک‌تست می‌شوند. معیار انتخاب: <b>حداقل ۱۰ معامله سهم</b> + <b>حداقل ۵ معامله آپشن</b> + <b>PF آپشن ≥ ۱.۱</b>. سپس بهترین استراتژی به‌عنوان لیدر + N تأییدکننده انتخاب می‌شود.
-            </div>
+            <h4>🤖 تنظیم خودکار</h4>
+            <p>معیار انتخاب لیدر:</p>
+            <ul>
+                <li>حداقل <b>۷ معامله سهم</b></li>
+                <li>حداقل <b>۳ معامله آپشن</b></li>
+                <li><b>PF ≥ ۱.۱</b></li>
+            </ul>
+            <p>اگر هیچ استراتژی‌ای قبول نشود، دلایل رد هرکدام نمایش داده می‌شود.</p>
             <div class="warn" style="background:rgba(217,83,79,.1);border-right:3px solid var(--bad);padding:10px 12px;border-radius:6px;font-size:12.5px;margin:10px 0;">
                 ⚠️ تنظیمات فعلی این نمادها <b>حذف و جایگزین</b> می‌شوند.
             </div>
