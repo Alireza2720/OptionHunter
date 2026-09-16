@@ -1,4 +1,4 @@
-// ======================== option.js (v5 — hybrid backtest + pessimistic defaults) ========================
+// ======================== option.js (v6 — realistic modeling + per-trade fallback) ========================
 'use strict';
 const fetch = require('node-fetch');
 const Settings = require('./settings.js');
@@ -418,6 +418,13 @@ async function managePositions(chain) {
     if (!open.length) return;
     const map = new Map(chain.map(c => [c.symbol, c]));
     const longIds = new Set((await db.collection('signals_state').find({ position: 'LONG' }).project({ configId: 1 }).toArray()).map(x => x.configId));
+    // ✅ Bug F fix: چک صف فروش برای خروج
+    const monitored = await db.collection('monitored_symbols').find({}).toArray();
+    const sellQueueSet = new Set();
+    for (const m of monitored) {
+        const q = deps.getQuote ? deps.getQuote(m.symbol) : null;
+        if (q && q.queue === 'sell') sellQueueSet.add(m.symbol);
+    }
     const now = new Date();
     const tehranMin = now.getUTCHours() * 60 + now.getUTCMinutes() + 210;
     const isLast30Min = tehranMin >= 720 && tehranMin <= 750;
@@ -441,6 +448,8 @@ async function managePositions(chain) {
         else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}٪)`;
         else if (pnlPct >= s.take2Pct && taken2) reason = `حد سود کامل (${pnlPct.toFixed(0)}٪)`;
         const warns = [];
+        // ✅ Bug F: هشدار صف فروش
+        if (sellQueueSet.has(p.underlying)) warns.push(`🚫 نماد پایه در صف فروش است — برای بستن آپشن باید منتظر باز شدن صف بمانی`);
         if (!reason && pnlPct >= s.take1Pct && !p.take1Notified) { warns.push(`💰 سود ${pnlPct.toFixed(0)}٪ — پیشنهاد: فروش نیمی`); upd.take1Notified = true; }
         if (!reason && p.entryIv && iv && iv < p.entryIv * 0.8 && !p.ivWarned) { warns.push(`📉 IV از ${(p.entryIv * 100).toFixed(0)}٪ به ${(iv * 100).toFixed(0)}٪ افت کرد`); upd.ivWarned = true; }
         if (!reason && spreadPct !== null && spreadPct > 15 && !p.spreadWarned) { warns.push(`⚠️ اسپرد ${spreadPct.toFixed(0)}٪`); upd.spreadWarned = true; }
@@ -515,14 +524,19 @@ function positionStats(list) {
     return { open: list.length - closed.length, closed: closed.length, winRate: closed.length ? wins.length / closed.length * 100 : 0, avgPnl: closed.length ? sum(closed) / closed.length : 0, totalPnl: sum(closed), profitFactor: pf, avgWin: wins.length ? gp / wins.length : 0, avgLoss: closed.length - wins.length ? -gl / (closed.length - wins.length) : 0 };
 }
 
-// ======================== Backtest ========================
-// ✅ مقادیر بدبینانه برای fallback
+// ======================== Backtest — Realistic v6 ========================
 const OPT_BT_DEFAULTS = {
     assumedMaturityDays: 30,
-    ivMultiplier: 1.25,   // 1.2 → 1.25 (بدبینانه‌تر)
-    spreadPct: 12,        // 5 → 12 (بدبینانه - نصفش هر طرف)
+    ivMultiplier: 1.20,
+    spreadPct: 10,
     deltaMin: 0.40, deltaMax: 0.75,
-    minDays: 15, maxDays: 45
+    minDays: 15, maxDays: 45,
+    // ✅ محدودکننده‌های واقع‌گرایی جدید
+    volCrushFactor: 2.0,   // با جهش ۲۵٪ سهم، IV تقریباً نصف می‌شود
+    spreadMoveMult: 3.0,   // اسپرد با جهش باز می‌شود
+    maxReturnPct: 250,     // سقف بازده واقع‌گرایانه
+    minExitDays: 0.5,      // حداقل روز باقی‌مانده در خروج
+    realEnabled: true      // ✅ per-trade real attempt
 };
 
 function historicalHV(closes, uptoIndex, n = 20) {
@@ -535,7 +549,6 @@ function historicalHV(closes, uptoIndex, n = 20) {
     return Math.sqrt(v * TRADING_DAYS);
 }
 
-// ✅ تسک ۳: تلاش برای یافتن قرارداد واقعی در تاریخ مشخص
 async function tryGetRealTradeData(symbol, t, p) {
     const db = deps.getDB();
     const entryDate = new Date(t.entryTime * 1000);
@@ -580,112 +593,122 @@ async function tryGetRealTradeData(symbol, t, p) {
     };
 }
 
-// ✅ تسک ۳: تقریبی بدبینانه
+// ✅ v6: مدل تقریبی با vol crush، اسپرد پویا، سقف بازده
 function tryGetApproxTradeData(t, closes, times, p) {
     let idx = -1;
     for (let i = 0; i < times.length; i++) { if (times[i] <= t.entryTime) idx = i; else break; }
     const hv = (idx >= 0 ? historicalHV(closes, idx) : null) || 0.4;
-    const sigma = Math.max(hv * p.ivMultiplier, 0.05);
+    const sigmaBase = Math.max(hv * p.ivMultiplier, 0.05);
     const daysHeld = Math.max((t.exitTime - t.entryTime) / 86400, 0.1);
+
+    // ✅ vol crush: با جهش قیمت، IV افت می‌کند
+    const moveRatio = Math.abs(t.exitPrice / t.entryPrice - 1);
+    const ivCrushFactor = Math.max(0.55, 1 - moveRatio * p.volCrushFactor);
+    const sigmaExit = sigmaBase * ivCrushFactor;
+
+    // ✅ اسپرد پویا
+    const dynamicSpreadPct = p.spreadPct * (1 + moveRatio * p.spreadMoveMult);
+    const halfSpreadEntry = p.spreadPct / 200;
+    const halfSpreadExit = dynamicSpreadPct / 200;
+
     const Tentry = p.assumedMaturityDays / 365;
-    const Texit = Math.max(p.assumedMaturityDays - daysHeld, 0.5) / 365;
+    const Texit = Math.max(p.assumedMaturityDays - daysHeld, p.minExitDays) / 365;
     const strike = Math.round(t.entryPrice);
-    const entryTheo = bsCall(t.entryPrice, strike, Tentry, RISK_FREE, sigma);
-    const exitTheo = bsCall(t.exitPrice, strike, Texit, RISK_FREE, sigma);
-    const halfSpread = p.spreadPct / 200;
-    const entryCost = entryTheo.price * (1 + halfSpread) * (1 + FEE_BUY);
-    const exitProceeds = exitTheo.price * (1 - halfSpread) * (1 - FEE_SELL);
+
+    const entryTheo = bsCall(t.entryPrice, strike, Tentry, RISK_FREE, sigmaBase);
+    const exitTheo = bsCall(t.exitPrice, strike, Texit, RISK_FREE, sigmaExit);
+    const entryCost = entryTheo.price * (1 + halfSpreadEntry) * (1 + FEE_BUY);
+    const exitProceeds = exitTheo.price * (1 - halfSpreadExit) * (1 - FEE_SELL);
     if (!(entryCost > 0) || !isFinite(exitProceeds)) return null;
+
+    let pnlPct = (exitProceeds / entryCost - 1) * 100;
+    // ✅ سقف بازده
+    if (pnlPct > p.maxReturnPct) pnlPct = p.maxReturnPct;
+
     return {
         entryTime: t.entryTime, exitTime: t.exitTime,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
-        strike, hv, sigma, entryDelta: entryTheo.delta,
+        strike, hv,
+        sigma: sigmaBase, sigmaExit, ivCrushFactor,
+        dynamicSpreadPct,
+        entryDelta: entryTheo.delta,
         optionEntry: entryTheo.price, optionExit: exitTheo.price,
-        pnlPct: (exitProceeds / entryCost - 1) * 100,
+        pnlPct,
         exitReason: t.exitReason, source: 'approximate'
     };
 }
 
-// ✅ تابع جدید hybrid
+// ✅ v6: per-trade fallback + بدون gate sampleCount
 async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     const db = deps.getDB();
     const p = { ...OPT_BT_DEFAULTS, ...opts };
     if (!closedTrades.length) {
-        return { assumptions: p, stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null }, trades: [], mode: 'hybrid', diagnostic: 'هیچ معامله‌ی بسته‌شده‌ای تولید نشده.' };
+        return {
+            assumptions: p,
+            stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null },
+            trades: [], mode: 'hybrid',
+            realUsed: 0, approxUsed: 0, hasAnyOptionData: false,
+            diagnostic: 'هیچ معامله‌ی بسته‌شده‌ای تولید نشده.'
+        };
     }
+
+    // ✅ فقط > 0 کافی است — نه >= 20
     const sampleCount = await db.collection('option_history').countDocuments({ underlying: norm(symbol) });
-    const hasRealData = sampleCount >= 20;
+    const hasAnyOptionData = sampleCount > 0;
+    const realEnabled = p.realEnabled !== false;
+
     const daily = await db.collection('candles_daily').find({ symbol }).sort({ time: 1 }).toArray();
     const closes = daily.map(r => r.close);
     const times = daily.map(r => Math.floor(new Date(r.time).getTime() / 1000));
+
     const trades = [];
     let realUsed = 0, approxUsed = 0;
+
     for (const t of closedTrades) {
         let result = null;
-        if (hasRealData) result = await tryGetRealTradeData(symbol, t, p);
+        // ✅ per-trade: اول تلاش برای real
+        if (realEnabled && hasAnyOptionData) {
+            try { result = await tryGetRealTradeData(symbol, t, p); } catch (e) { result = null; }
+        }
         if (result) { trades.push(result); realUsed++; }
         else {
+            // ✅ fallback per-trade
             const approx = tryGetApproxTradeData(t, closes, times, p);
             if (approx) { trades.push(approx); approxUsed++; }
         }
     }
+
     const wins = trades.filter(x => x.pnlPct > 0);
     const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
     const gp = sum(wins), gl = -sum(trades.filter(x => x.pnlPct <= 0));
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
     const result = {
         assumptions: p,
-        stats: { count: trades.length, winRate: trades.length ? wins.length / trades.length * 100 : 0, avgPnl: trades.length ? sum(trades) / trades.length : 0, totalPnl: sum(trades), profitFactor: pf },
-        trades, mode: 'hybrid', realUsed, approxUsed, hasRealData,
+        stats: {
+            count: trades.length,
+            winRate: trades.length ? wins.length / trades.length * 100 : 0,
+            avgPnl: trades.length ? sum(trades) / trades.length : 0,
+            totalPnl: sum(trades),
+            profitFactor: pf
+        },
+        trades, mode: 'hybrid',
+        realUsed, approxUsed, hasAnyOptionData,
         coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
     };
     if (!trades.length) result.diagnostic = 'هیچ معامله‌ای در بک‌تست تولید نشد.';
-    else if (realUsed > 0 && approxUsed > 0) result.diagnostic = `ترکیبی: ${realUsed} واقعی + ${approxUsed} تقریبی (اسپرد ${p.spreadPct}٪)`;
+    else if (realUsed > 0 && approxUsed > 0) result.diagnostic = `ترکیبی: ${realUsed} واقعی + ${approxUsed} تقریبی (اسپرد پایه ${p.spreadPct}٪)`;
     else if (realUsed > 0) result.diagnostic = `همه ${realUsed} معامله از دیتای واقعی`;
-    else result.diagnostic = `همه ${approxUsed} معامله تقریبی (اسپرد ${p.spreadPct}٪ بدبینانه)`;
+    else result.diagnostic = `همه ${approxUsed} معامله تقریبی (اسپرد ${p.spreadPct}٪، volCrush ${p.volCrushFactor})`;
     return result;
 }
 
-// تابع قدیمی (برای سازگاری) — از تابع hybrid استفاده می‌کنه اگه real=false
 async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
-    const db = deps.getDB();
-    const p = { ...OPT_BT_DEFAULTS, ...opts };
-    const daily = await db.collection('candles_daily').find({ symbol }).sort({ time: 1 }).toArray();
-    const closes = daily.map(r => r.close);
-    const times = daily.map(r => Math.floor(new Date(r.time).getTime() / 1000));
-    if (!daily.length) return { assumptions: p, stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null }, trades: [], diagnostic: `کندل روزانه ندارد` };
-    if (!closedTrades.length) return { assumptions: p, stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null }, trades: [], diagnostic: 'معامله بسته‌شده‌ای نیست.' };
-    const trades = [];
-    for (const t of closedTrades) {
-        const r = tryGetApproxTradeData(t, closes, times, p);
-        if (r) trades.push(r);
-    }
-    const wins = trades.filter(x => x.pnlPct > 0);
-    const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
-    const gp = sum(wins), gl = -sum(trades.filter(x => x.pnlPct <= 0));
-    const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
-    return { assumptions: p, stats: { count: trades.length, winRate: trades.length ? wins.length / trades.length * 100 : 0, avgPnl: trades.length ? sum(trades) / trades.length : 0, totalPnl: sum(trades), profitFactor: pf }, trades, mode: 'approximate' };
+    return runHybridOptionBacktest(symbol, closedTrades, { ...opts, realEnabled: false });
 }
 
+// ✅ v6: بدون gate — همان hybrid
 async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
-    const db = deps.getDB();
-    const p = { ...OPT_BT_DEFAULTS, ...opts };
-    const sampleCount = await db.collection('option_history').countDocuments({ underlying: norm(symbol) });
-    if (sampleCount < 20) return { available: false, reason: `دیتای کافی نیست (${sampleCount} رکورد)` };
-    const trades = [];
-    for (const t of closedTrades) {
-        const r = await tryGetRealTradeData(symbol, t, p);
-        if (r) trades.push(r);
-    }
-    const wins = trades.filter(x => x.pnlPct > 0);
-    const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
-    const gp = sum(wins), gl = -sum(trades.filter(x => x.pnlPct <= 0));
-    const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
-    return {
-        available: true,
-        stats: { count: trades.length, winRate: trades.length ? wins.length / trades.length * 100 : 0, avgPnl: trades.length ? sum(trades) / trades.length : 0, totalPnl: sum(trades), profitFactor: pf },
-        trades, coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
-    };
+    return runHybridOptionBacktest(symbol, closedTrades, { ...opts, realEnabled: true });
 }
 
 // ======================== Routes ========================

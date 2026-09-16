@@ -26,6 +26,8 @@ async function ensureIndexes(database) {
     await database.collection('signal_history').createIndex({ createdAt: -1 });
     await database.collection('signals_state').createIndex({ configId: 1 }, { unique: true });
     await database.collection('notify_queue').createIndex({ createdAt: 1 });
+    await database.collection('option_history').createIndex({ underlying: 1, time: 1 });
+    await database.collection('option_history').createIndex({ symbol: 1, time: 1 });
 
     console.log('✅ ایندکس‌های دیتابیس بررسی/ساخته شدند.');
 }

@@ -143,6 +143,8 @@
     .stat { background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:8px 10px; }
     .stat small { display:block; color:var(--text-dim); font-size:11px; }
     .stat b { font-size:15px; font-weight:600; color:var(--text-bright); }
+    .stat.highlight-good { border-color:var(--good); }
+    .stat.highlight-bad { border-color:var(--bad); }
 
     .chart-placeholder { display:flex; align-items:center; justify-content:center; min-height:280px; background:var(--bg-input); border-radius:8px; color:var(--text-dim); font-size:13px; text-align:center; padding:20px; }
     #priceChart, #panelChart { border-radius:8px; overflow:hidden; }
@@ -151,7 +153,7 @@
     .legend i { display:inline-block; width:10px; height:3px; border-radius:2px; margin-left:5px; vertical-align:middle; }
     .chart-title { font-size:12.5px; color:var(--text-dim); margin-bottom:6px; }
 
-    #alertContainer { position:fixed; top:20px; left:20px; z-index:999; display:flex; flex-direction:column; gap:8px; max-width:360px; }
+    #alertContainer { position:fixed; top:20px; left:20px; z-index:2000; display:flex; flex-direction:column; gap:8px; max-width:360px; }
     .alert-box { padding:12px 16px; border-radius:8px; font-size:13px; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:slideIn .2s ease; cursor:pointer; }
     .alert-box.error { background:#4a2323; border:1px solid #8a3d3d; color:#f0c9c9; }
     .alert-box.warn { background:#4a3d23; border:1px solid #8a733d; color:#f0e3c9; }
@@ -159,6 +161,13 @@
     .alert-box.info { background:#1f2b3d; border:1px solid #3d7dd8; color:#c9dcf0; }
     @keyframes slideIn { from { opacity:0; transform:translateX(-20px);} to { opacity:1; transform:translateX(0);} }
     @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ✅ Global loader */
+    #globalLoader { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1900; display:none; align-items:center; justify-content:center; flex-direction:column; gap:14px; backdrop-filter:blur(3px); }
+    #globalLoader.show { display:flex; }
+    .loader-spinner { width:44px; height:44px; border:4px solid rgba(255,255,255,.15); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+    .loader-text { color:#fff; font-size:13.5px; text-align:center; max-width:80%; }
+    .loader-sub { color:rgba(255,255,255,.65); font-size:11.5px; text-align:center; }
 
     .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:900; display:none; align-items:center; justify-content:center; padding:16px; }
     .modal-bg.open { display:flex; }
@@ -211,6 +220,20 @@
     .auto-role-label.leader { background: rgba(61,125,216,.15); color: var(--accent); }
     .auto-role-label.confirmer { background: rgba(125,133,144,.15); color: var(--text-dim); }
     .auto-score { font-size: 11.5px; color: var(--text-dim); margin-left: auto; }
+    .auto-rejected { font-size: 12px; color: var(--text-dim); padding: 6px 10px; background: var(--bg-input); border: 1px dashed var(--border); border-radius: 6px; margin-top: 6px; }
+
+    /* ✅ Coverage tool */
+    .coverage-ok { color: var(--good); font-weight: 600; }
+    .coverage-low { color: var(--warn); font-weight: 600; }
+    .coverage-none { color: var(--bad); font-weight: 600; }
+    .coverage-tf-row { padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; flex-wrap: wrap; gap: 8px; }
+
+    /* ✅ Dashboard summary cards */
+    .dash-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-bottom:14px; }
+    .dash-card { background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+    .dash-card .label { font-size:11px; color:var(--text-dim); margin-bottom:4px; }
+    .dash-card .value { font-size:17px; font-weight:600; color:var(--text-bright); }
+    .dash-card .sub { font-size:11px; color:var(--text-dim); margin-top:4px; }
 
     ::-webkit-scrollbar { width:7px; height:7px; }
     ::-webkit-scrollbar-thumb { background:var(--border-light); border-radius:4px; }
@@ -237,6 +260,7 @@
     <p id="bootMessage" style="color:var(--text-dim); font-size:13.5px;">در حال اتصال به سرور...</p>
     <button class="btn small" id="bootRetryBtn" style="display:none;" onclick="location.reload()">تلاش مجدد</button>
 </div>
+<div id="globalLoader"><div class="loader-spinner"></div><div class="loader-text" id="loaderText"></div><div class="loader-sub" id="loaderSub"></div></div>
 <div id="alertContainer"></div>
 
 <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()">
@@ -280,6 +304,7 @@
         <div class="menu-label">ابزار</div>
         <button class="menu-item" onclick="openBacktestCompare(); toggleMenu();">بک‌تست مقایسه‌ای</button>
         <button class="menu-item" onclick="openAutoConfigure(); toggleMenu();">🤖 تنظیم خودکار</button>
+        <button class="menu-item" onclick="openCoverage(); toggleMenu();">📊 پوشش داده</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-guide" style="display:none;">
@@ -436,7 +461,6 @@ const PARAM_LABELS = {
     requireReversalCandle:'نیاز به کندل بازگشتی (1/0)',
     wPdh:'وزن PDH/PDL Sweep', wLb:'وزن London Breakout',
     wObas:'وزن OB After Sweep', wEsd:'وزن EMA200 + S/D',
-    // جدید
     rangeMinutes:'طول بازه آغازین (دقیقه)',
     requireVolume:'نیاز به حجم بالا (1/0)',
     minBreakPct:'حداقل درصد شکست (٪)',
@@ -513,6 +537,18 @@ function toggleCard(id) { document.getElementById(id).classList.toggle('open'); 
 function openModal(title, html) { document.getElementById('modalTitle').textContent = title; document.getElementById('modalBody').innerHTML = html; document.getElementById('modalBg').classList.add('open'); }
 function closeModal() { document.getElementById('modalBg').classList.remove('open'); }
 
+// ✅ Global loader
+function showLoader(text, sub) {
+    document.getElementById('loaderText').textContent = text || 'در حال پردازش...';
+    document.getElementById('loaderSub').textContent = sub || '';
+    document.getElementById('globalLoader').classList.add('show');
+}
+function updateLoader(text, sub) {
+    if (text) document.getElementById('loaderText').textContent = text;
+    if (sub !== undefined) document.getElementById('loaderSub').textContent = sub;
+}
+function hideLoader() { document.getElementById('globalLoader').classList.remove('show'); }
+
 const activeAlerts = new Set();
 function showAlert(msg, type='error', dur=7000) {
     if (activeAlerts.has(msg)) return; activeAlerts.add(msg);
@@ -562,26 +598,39 @@ function clearToken() { localStorage.removeItem('adminToken'); showAlert('توک
 async function testTelegram() { try { await apiFetch(`${BACKEND_URL}/api/telegram/test`, { method:'POST' }); showAlert('پیام تست ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function runBackupNow() { try { await apiFetch(`${BACKEND_URL}/api/backup/run`, { method:'POST' }); showAlert('بکاپ ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 
-async function apiFetch(url, options={}, retries=1) {
+// ✅ apiFetch با retry و backoff نمایی
+async function apiFetch(url, options={}, retries=2) {
     options.headers = { ...(options.headers||{}), 'x-admin-token': getToken() };
-    let lastErr;
+    let lastErr = null;
+    const delays = [800, 2000, 4000];
     for (let a = 0; a <= retries; a++) {
         try {
             const res = await fetch(url, options);
             const ct = res.headers.get('content-type') || '';
-            if (!ct.includes('application/json')) throw new Error('پاسخ نامعتبر');
+            if (!ct.includes('application/json')) throw new Error('پاسخ نامعتبر از سرور');
             const data = await res.json();
             if (res.status === 401) { promptToken(); throw new Error('توکن ادمین نامعتبر'); }
-            if (!res.ok) throw new Error(data.error || 'خطای نامشخص');
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
             return data;
-        } catch (e) { lastErr = e; if (a < retries) await new Promise(r => setTimeout(r, 1500)); }
+        } catch (e) {
+            lastErr = e;
+            const isNetwork = /Failed to fetch|NetworkError|load failed/i.test(e.message || '');
+            // فقط روی خطای شبکه retry کن
+            if (a < retries && (isNetwork || e.message === 'پاسخ نامعتبر از سرور')) {
+                const wait = delays[Math.min(a, delays.length - 1)];
+                console.warn(`⏳ retry ${a+1}/${retries} در ${wait}ms — ${e.message}`);
+                await new Promise(r => setTimeout(r, wait));
+                continue;
+            }
+            break;
+        }
     }
-    throw lastErr;
+    throw lastErr || new Error('خطای نامشخص');
 }
 
 async function waitForBackend(max=12, delay=3000) {
     for (let i = 0; i < max; i++) {
-        try { await apiFetch(`${BACKEND_URL}/ping`); return true; }
+        try { await apiFetch(`${BACKEND_URL}/ping`, {}, 0); return true; }
         catch { document.getElementById('bootMessage').textContent = `در حال اتصال... (${i+1}/${max})`; await new Promise(r => setTimeout(r, delay)); }
     }
     return false;
@@ -598,7 +647,7 @@ async function loadStrategiesLibrary(max=5) {
 let warnedTelegram = false, warnedToken = false;
 async function checkBackendStatus() {
     try {
-        const d = await apiFetch(`${BACKEND_URL}/`);
+        const d = await apiFetch(`${BACKEND_URL}/`, {}, 0);
         const bs = document.getElementById('backendStatus');
         bs.textContent = d.apiKeysConfigured ? 'متصل' : 'قطع';
         bs.style.color = d.apiKeysConfigured ? 'var(--good)' : 'var(--bad)';
@@ -611,7 +660,7 @@ async function checkBackendStatus() {
         else { hs.textContent = 'سالم'; hs.style.color = 'var(--good)'; }
         if (!d.telegramConfigured && !warnedTelegram) { warnedTelegram = true; showAlert('تلگرام تنظیم نشده.', 'warn', 12000); }
         if (!d.adminRequired && !warnedToken) { warnedToken = true; showAlert('ADMIN_TOKEN تنظیم نشده.', 'warn', 12000); }
-        const u = await apiFetch(`${BACKEND_URL}/api/usage`);
+        const u = await apiFetch(`${BACKEND_URL}/api/usage`, {}, 0);
         document.getElementById('usageAllSymbols').textContent = `${u.total}/${u.totalLimit}`;
     } catch (e) { const bs = document.getElementById('backendStatus'); bs.textContent = 'قطع'; bs.style.color = 'var(--bad)'; }
 }
@@ -622,7 +671,7 @@ document.getElementById('symbolSearchInput').addEventListener('input', e => {
     const list = document.getElementById('autocompleteList'); if (!q) { list.style.display = 'none'; return; }
     searchTimeout = setTimeout(async () => {
         try {
-            const r = await apiFetch(`${BACKEND_URL}/api/symbols/search?q=${encodeURIComponent(q)}`);
+            const r = await apiFetch(`${BACKEND_URL}/api/symbols/search?q=${encodeURIComponent(q)}`, {}, 0);
             if (!r.length) { list.style.display = 'none'; return; }
             list.innerHTML = r.map(x => `<div onclick="selectSymbol('${esc(x.symbol)}')">${esc(x.symbol)} <small>${esc(x.name||'')}</small></div>`).join(''); list.style.display = 'block';
         } catch (e) {}
@@ -641,13 +690,13 @@ async function addMonitoredSymbol() {
 }
 async function loadMonitoredSymbols() {
     try {
-        monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`);
-        try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`); } catch (e) {}
+        monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, {}, 0);
+        try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); } catch (e) {}
         renderMonitoredSymbols(); renderConfigSymbolOptions();
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function refreshQuotesOnly() {
-    try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`); if (monitoredSymbols.length) renderMonitoredSymbols(); } catch (e) {}
+    try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); if (monitoredSymbols.length) renderMonitoredSymbols(); } catch (e) {}
 }
 function renderMonitoredSymbols() {
     const g = document.getElementById('symbolGrid');
@@ -674,6 +723,7 @@ function renderMonitoredSymbols() {
             <div class="sym-actions">
                 <button class="sym-btn auto" onclick="autoConfigureOne('${esc(s.symbol)}')">🤖 تنظیم خودکار</button>
                 <button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button>
+                <button class="sym-btn" onclick="viewCoverage('${esc(s.symbol)}')">📊 پوشش</button>
                 <button class="sym-btn" onclick="importDaily('${esc(s.symbol)}')">تاریخچه روزانه</button>
                 <button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">×</button>
             </div>
@@ -685,21 +735,22 @@ async function deleteMonitoredSymbol(id, sym) {
     try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function importDaily(sym) {
-    showAlert(`در حال دریافت «${sym}»...`, 'info', 4000);
+    showLoader(`دریافت تاریخچه «${sym}»...`, 'ممکن است چند ثانیه طول بکشد');
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/import-daily/${encodeURIComponent(sym)}`, { method:'POST' }, 0);
+        const r = await apiFetch(`${BACKEND_URL}/api/import-daily/${encodeURIComponent(sym)}`, { method:'POST' }, 1);
         showAlert(`«${sym}»: ${r.added} کندل اضافه شد.`, 'success', 8000);
         await Promise.all([loadMonitoredSymbols(), loadConfigs()]);
     } catch (e) { showAlert('خطا: ' + e.message, 'error', 10000); }
+    finally { hideLoader(); }
 }
 
 async function loadTimeframes() {
-    const tfs = await apiFetch(`${BACKEND_URL}/api/timeframes`);
+    const tfs = await apiFetch(`${BACKEND_URL}/api/timeframes`, {}, 0);
     document.getElementById('timeframeSelect').innerHTML = tfs.map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join('');
     document.getElementById('htfSelect').innerHTML = tfs.filter(t => TF_MIN[t] >= 15).map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join('');
 }
 async function loadStrategies() {
-    strategiesInfo = await apiFetch(`${BACKEND_URL}/api/strategies`);
+    strategiesInfo = await apiFetch(`${BACKEND_URL}/api/strategies`, {}, 0);
     const sel = document.getElementById('strategySelect');
     sel.innerHTML = strategiesInfo.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
     onStrategyChange();
@@ -738,7 +789,7 @@ async function addStrategyConfig() {
 }
 async function loadConfigs() {
     try {
-        const [c, st] = await Promise.all([apiFetch(`${BACKEND_URL}/api/strategy-configs`), apiFetch(`${BACKEND_URL}/api/status`)]);
+        const [c, st] = await Promise.all([apiFetch(`${BACKEND_URL}/api/strategy-configs`, {}, 0), apiFetch(`${BACKEND_URL}/api/status`, {}, 0)]);
         configs = c; statusMap = {}; st.forEach(x => statusMap[x.configId] = x); renderConfigs();
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
@@ -858,32 +909,33 @@ async function runOptionBacktest(id) {
     const it = configs.find(c => c._id === id); if (!it) return;
     openModal(`بک‌تست ${it.symbol}`, '<div style="text-align:center;padding:30px;"><div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>در حال محاسبه...</div>');
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}`);
+        const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}`, {}, 2);
         const a = r.assumptions;
         let diag = '';
         if (r.diagnostic) diag = `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);">ℹ️ ${esc(r.diagnostic)}</div>`;
-        if (r.skipped && r.skipped.examples && r.skipped.examples.length) {
-            diag += `<div class="msg-warn" style="display:block;background:rgba(61,125,216,.08);color:var(--accent);font-size:11.5px;">نمونه‌های skip:<br>${r.skipped.examples.map(esc).join('<br>')}</div>`;
-        }
-        const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV = ${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪.</div>
+        const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}×HV، اسپرد پایه ${a.spreadPct}٪، volCrush ${a.volCrushFactor}×، سقف بازده ${a.maxReturnPct}٪</div>
             <div class="stats-grid">
                 <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
                 <div class="stat"><small>بسته‌شده</small><b>${r.stockClosedCount||0}</b></div>
-                <div class="stat"><small>آپشن</small><b>${r.stats.count}</b></div>
+                <div class="stat"><small>آپشن (real/approx)</small><b>${r.stats.count} <small>(${r.realUsed||0}/${r.approxUsed||0})</small></b></div>
                 <div class="stat"><small>وین‌ریت</small><b>${r.stats.count ? r.stats.winRate.toFixed(0)+'٪' : '-'}</b></div>
                 <div class="stat"><small>بازده کل</small><b>${r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
                 <div class="stat"><small>میانگین</small><b>${r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
                 <div class="stat"><small>PF</small><b>${r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
             </div>`;
-        const rows = r.trades.length ? r.trades.slice().reverse().map(t => `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${(t.hv*100).toFixed(0)}٪</td><td>${t.entryDelta.toFixed(2)}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`).join('') : '<tr class="empty-row"><td colspan="8">معامله‌ای یافت نشد</td></tr>';
-        openModal(`بک‌تست ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>HV</th><th>دلتا</th><th>پرمیوم</th><th>بازده</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`);
+        const rows = r.trades.length ? r.trades.slice().reverse().map(t => {
+            const srcBadge = t.source === 'real' ? '<span class="badge long">واقعی</span>' : '<span class="badge warn">تقریبی</span>';
+            const extra = t.source === 'real' ? `دلتا ${(t.delta||0).toFixed(2)}` : `دلتا ${(t.entryDelta||0).toFixed(2)} | IVCrush ${t.ivCrushFactor ? t.ivCrushFactor.toFixed(2) : '-'}`;
+            return `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${extra}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td>${srcBadge}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`;
+        }).join('') : '<tr class="empty-row"><td colspan="8">معامله‌ای یافت نشد</td></tr>';
+        openModal(`بک‌تست ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>مدل</th><th>پرمیوم</th><th>بازده</th><th>منبع</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
 let signalHistoryLimit = 5;
 let signalHistoryCache = null;
 async function loadSignalHistory() {
-    try { const h = await apiFetch(`${BACKEND_URL}/api/signal-history`); signalHistoryCache = h; signalHistoryLimit = 5; renderSignalHistory(); }
+    try { const h = await apiFetch(`${BACKEND_URL}/api/signal-history`, {}, 0); signalHistoryCache = h; signalHistoryLimit = 5; renderSignalHistory(); }
     catch (e) { showAlert('خطا: ' + e.message); }
 }
 function renderSignalHistory() {
@@ -941,7 +993,7 @@ async function viewChart(id) {
     selectedConfigId = id;
     const insuf = document.getElementById('insufficientDataMsg'), legend = document.getElementById('chartLegend');
     try {
-        const d = await apiFetch(`${BACKEND_URL}/api/chart-data/${id}`);
+        const d = await apiFetch(`${BACKEND_URL}/api/chart-data/${id}`, {}, 0);
         const cfg = d.config, s = strategiesInfo.find(x => x.id === cfg.strategyId), def = TradingStrategies.STRATEGIES[cfg.strategyId];
         document.getElementById('chartSymbolLabel').textContent = `- ${cfg.symbol} (${s?s.name:cfg.strategyId} / ${TF_LABELS[cfg.timeframe]} → ${TF_LABELS[d.htfTimeframe]})`;
         const all = d.candles, closed = all.slice(0, d.closedCount);
@@ -989,7 +1041,7 @@ async function viewChart(id) {
 async function openSettings() {
     openModal('تنظیمات عمومی', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
     try {
-        const [t, o] = await Promise.all([apiFetch(`${BACKEND_URL}/api/trading-settings`), apiFetch(`${BACKEND_URL}/api/options/settings`)]);
+        const [t, o] = await Promise.all([apiFetch(`${BACKEND_URL}/api/trading-settings`, {}, 0), apiFetch(`${BACKEND_URL}/api/options/settings`, {}, 0)]);
         window._tsKeys = Object.keys(t.defaults);
         window._optKeys = Object.keys(o.defaults);
         const tradingKeys = ['ENTRY_START','ENTRY_END','OPTION_FEE_BUY','OPTION_FEE_SELL','RISK_FREE_RATE'];
@@ -1062,7 +1114,7 @@ async function saveOptionSettings() {
 async function openStrategyDefaults() {
     openModal('پیش‌فرض استراتژی‌ها', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
     try {
-        const d = await apiFetch(`${BACKEND_URL}/api/strategy-defaults`);
+        const d = await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, {}, 0);
         const defaults = d.defaults, overrides = d.overrides;
         let html = `<div class="hint">مقادیر پایه‌ای که همه‌جا استفاده می‌شن.</div>`;
         for (const s of strategiesInfo) {
@@ -1111,7 +1163,107 @@ async function resetAllStrategyDefaults() {
     try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, { method: 'DELETE' }); showAlert('همه بازگردانی شد.', 'success', 3000); await openStrategyDefaults(); await loadStrategies(); } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
-// ======================== بک‌تست مقایسه‌ای ========================
+// ======================== ✅ پوشش داده (Coverage) ========================
+async function openCoverage() {
+    openModal('📊 پوشش داده', '<div style="text-align:center;padding:30px;"><div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>در حال دریافت...</div>');
+    try {
+        const d = await apiFetch(`${BACKEND_URL}/api/data-coverage`, {}, 1);
+        const syms = d.symbols || [];
+        if (!syms.length) return openModal('پوشش داده', '<div class="empty-note">نمادی ثبت نشده.</div>');
+
+        // Compute totals
+        const totals = { symbols: syms.length, optionSymbols: 0, readyStrategies: 0, totalStrategies: 0 };
+        for (const s of syms) {
+            if (s.optionHistory > 0) totals.optionSymbols++;
+            for (const sid of Object.keys(s.requirements || {})) {
+                totals.totalStrategies++;
+                if (s.requirements[sid].ok) totals.readyStrategies++;
+            }
+        }
+
+        const summaryHtml = `
+            <div class="dash-grid">
+                <div class="dash-card"><div class="label">نمادهای پایش</div><div class="value">${totals.symbols}</div></div>
+                <div class="dash-card"><div class="label">نمادهای دارای دیتای آپشن</div><div class="value ${totals.optionSymbols===0?'coverage-none':totals.optionSymbols<totals.symbols?'coverage-low':'coverage-ok'}">${totals.optionSymbols} / ${totals.symbols}</div><div class="sub">از option_history</div></div>
+                <div class="dash-card"><div class="label">استراتژی‌های آماده</div><div class="value">${totals.readyStrategies} / ${totals.totalStrategies}</div><div class="sub">(سهم × استراتژی)</div></div>
+            </div>`;
+
+        const rows = syms.map(s => {
+            const tfCells = ['1m','5m','15m','30m','1h','1d'].map(tf => {
+                const v = s.timeframes[tf] || { count: 0 };
+                const req = 200;
+                const cls = v.count === 0 ? 'coverage-none' : v.count < req ? 'coverage-low' : 'coverage-ok';
+                return `<td class="${cls}">${v.count}</td>`;
+            }).join('');
+            const optCls = s.optionHistory === 0 ? 'coverage-none' : 'coverage-ok';
+            const readyCount = Object.values(s.requirements || {}).filter(r => r.ok).length;
+            const totalReq = Object.values(s.requirements || {}).length;
+            return `<tr>
+                <td><b>${esc(s.symbol)}</b></td>
+                ${tfCells}
+                <td class="${optCls}">${s.optionHistory}</td>
+                <td>${readyCount} / ${totalReq}</td>
+                <td><button class="btn tiny outline" onclick="viewCoverage('${esc(s.symbol)}')">جزئیات</button></td>
+            </tr>`;
+        }).join('');
+
+        openModal('📊 پوشش داده', `
+            ${summaryHtml}
+            <div class="hint">ستون‌ها: تعداد کندل‌های موجود در هر تایم‌فریم. آستانه‌ی نمایش: ۲۰۰ کندل. آخرین بروزرسانی: ${new Date(d.generatedAt).toLocaleString('fa-IR')}</div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead><tr>
+                        <th>نماد</th><th>1m</th><th>5m</th><th>15m</th><th>30m</th><th>1h</th><th>1d</th><th>آپشن</th><th>آمادگی استراتژی</th><th></th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`);
+    } catch (e) { openModal('پوشش داده', `<div class="empty-note">${esc(e.message)}</div>`); }
+}
+
+async function viewCoverage(symbol) {
+    try {
+        const d = await apiFetch(`${BACKEND_URL}/api/data-coverage`, {}, 1);
+        const s = (d.symbols || []).find(x => x.symbol === symbol);
+        if (!s) return showAlert('نماد یافت نشد', 'warn');
+        const tfList = ['1m','5m','15m','30m','1h','1d'];
+        const tfRows = tfList.map(tf => {
+            const v = s.timeframes[tf] || { count: 0, from: null, to: null };
+            const cls = v.count === 0 ? 'coverage-none' : v.count < 200 ? 'coverage-low' : 'coverage-ok';
+            const fromStr = v.from ? new Date(v.from).toLocaleDateString('fa-IR') : '-';
+            const toStr = v.to ? new Date(v.to).toLocaleDateString('fa-IR') : '-';
+            return `<div class="coverage-tf-row">
+                <b>${TF_LABELS[tf]}</b>
+                <span class="${cls}">${v.count} کندل</span>
+                <span style="color:var(--text-dim);font-size:11.5px;">${fromStr} → ${toStr}</span>
+            </div>`;
+        }).join('');
+        const reqRows = Object.entries(s.requirements || {}).map(([sid, r]) => {
+            const cls = r.ok ? 'coverage-ok' : 'coverage-low';
+            return `<tr>
+                <td>${esc(r.name || sid)}</td>
+                <td>${TF_LABELS[r.tf] || r.tf}</td>
+                <td class="${cls}">${r.have} / ${r.required}</td>
+                <td>${r.ok ? '<span class="badge long">آماده</span>' : '<span class="badge warn">ناکافی</span>'}</td>
+            </tr>`;
+        }).join('');
+        openModal(`پوشش داده — ${esc(symbol)}`, `
+            <div class="dash-grid">
+                <div class="dash-card"><div class="label">دیتای آپشن</div><div class="value ${s.optionHistory===0?'coverage-none':'coverage-ok'}">${s.optionHistory}</div><div class="sub">option_history</div></div>
+                <div class="dash-card"><div class="label">آپشن روزانه</div><div class="value">${s.optionDaily || 0}</div></div>
+                <div class="dash-card"><div class="label">کندل‌های پایه</div><div class="value">${(s.timeframes['1m'] || {}).count || 0}</div></div>
+            </div>
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">کندل‌ها به تفکیک تایم‌فریم</h4>
+            ${tfRows}
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">آمادگی استراتژی‌ها</h4>
+            <div class="table-responsive"><table class="data-table">
+                <thead><tr><th>استراتژی</th><th>تایم‌فریم</th><th>کندل</th><th>وضعیت</th></tr></thead>
+                <tbody>${reqRows}</tbody>
+            </table></div>`);
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+
+// ======================== ✅ بک‌تست مقایسه‌ای — با تب‌بندی و aggregation ========================
 async function openBacktestCompare() {
     try {
         const symbolsHtml = monitoredSymbols.map(s => `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="bt-symbol" value="${esc(s.symbol)}"> ${esc(s.symbol)}</label>`).join('');
@@ -1123,10 +1275,10 @@ async function openBacktestCompare() {
                 <button class="tab" onclick="switchBtTab('advanced', this)">تنظیمات پیشرفته</button>
             </div>
             <div id="btTab-default">
-                <div class="hint">هر استراتژی با تایم‌فریم، کندل و پارامترهای پیش‌فرض خودش اجرا می‌شود.</div>
-                <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">نمادها</div><div>${symbolsHtml}</div></div>
-                <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">استراتژی‌ها</div><div>${stratList}</div></div>
-                <div style="margin:14px 0;"><label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="btRealOption"> استفاده از دیتای واقعی آپشن</label></div>
+                <div class="hint">هر استراتژی با تایم‌فریم، کندل و پارامترهای پیش‌فرض خودش اجرا می‌شود. سیستم به‌صورت خودکار برای هر معامله تلاش می‌کند از دیتای واقعی آپشن استفاده کند و در صورت نبود، از مدل تقریبی (با vol crush) استفاده می‌کند.</div>
+                <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">نمادها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=true)">انتخاب همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=false)">لغو همه</button></div><div style="margin-top:6px;">${symbolsHtml}</div></div>
+                <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">استراتژی‌ها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=true)">انتخاب همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=false)">لغو همه</button></div><div style="margin-top:6px;">${stratList}</div></div>
+                <div style="margin:14px 0;"><label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="btRealOption" checked> استفاده از دیتای واقعی آپشن (در صورت نبود، مدل تقریبی جایگزین می‌شود)</label></div>
                 <button class="btn" id="btRunBtn" onclick="runBacktestCompare()">اجرای بک‌تست</button>
                 <div id="btResults" style="margin-top:16px;"></div>
             </div>
@@ -1157,6 +1309,7 @@ function buildBtAdvancedParams() {
         </div>`;
     }).join('');
 }
+
 async function runBacktestCompare() {
     const symbols = Array.from(document.querySelectorAll('.bt-symbol:checked')).map(c => c.value);
     const strategyChecks = Array.from(document.querySelectorAll('.bt-strategy-check:checked'));
@@ -1183,49 +1336,238 @@ async function runBacktestCompare() {
     };
     renderProgress(0, null);
     const allResults = [];
+    const allAggregates = { total: null, bySymbol: [], byStrategy: [], byTimeframe: [] };
     for (let i = 0; i < symbols.length; i++) {
         const symbol = symbols[i];
         renderProgress(i, symbol);
         try {
-            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: [symbol], strategies, useRealOption }) }, 0);
+            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: [symbol], strategies, useRealOption }) }, 2);
             if (r.results) allResults.push(...r.results);
-        } catch (e) { allResults.push({ symbol, strategyId: '_err', strategyName: 'خطا', error: e.message }); }
+            if (r.aggregate) {
+                if (r.aggregate.bySymbol) allAggregates.bySymbol.push(...r.aggregate.bySymbol);
+                if (r.aggregate.byStrategy) {
+                    // merge by strategyId
+                    for (const bs of r.aggregate.byStrategy) {
+                        const existing = allAggregates.byStrategy.find(x => x.strategyId === bs.strategyId);
+                        if (!existing) allAggregates.byStrategy.push({ ...bs });
+                        else {
+                            existing.stock.trades += bs.stock.trades;
+                            existing.stock.totalPnl += bs.stock.totalPnl;
+                            existing.option.trades += bs.option.trades;
+                            existing.option.totalPnl += bs.option.totalPnl;
+                            existing.option.realUsed += bs.option.realUsed || 0;
+                            existing.option.approxUsed += bs.option.approxUsed || 0;
+                            existing.combos += bs.combos;
+                        }
+                    }
+                }
+                if (r.aggregate.byTimeframe) {
+                    for (const btf of r.aggregate.byTimeframe) {
+                        const existing = allAggregates.byTimeframe.find(x => x.timeframe === btf.timeframe);
+                        if (!existing) allAggregates.byTimeframe.push({ ...btf });
+                        else {
+                            existing.stock.trades += btf.stock.trades;
+                            existing.stock.totalPnl += btf.stock.totalPnl;
+                            existing.option.trades += btf.option.trades;
+                            existing.option.totalPnl += btf.option.totalPnl;
+                            existing.option.realUsed += btf.option.realUsed || 0;
+                            existing.option.approxUsed += btf.option.approxUsed || 0;
+                            existing.combos += btf.combos;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            allResults.push({ symbol, strategyId: '_err', strategyName: 'خطا', error: e.message });
+        }
     }
+    // recompute total from allResults
+    const validResults = allResults.filter(r => !r.error && !r.insufficientData);
+    const computeAgg = (arr) => {
+        let stockTrades = 0, stockWins = 0, stockSum = 0;
+        let optTrades = 0, optWins = 0, optSum = 0, optReal = 0, optApprox = 0;
+        let optWinsCount = 0, optLossesCount = 0, optGrossWin = 0, optGrossLoss = 0;
+        for (const r of arr) {
+            const st = r.stock || {}, ot = r.option || {};
+            stockTrades += st.closed || 0;
+            stockWins += ((st.closed || 0) * (st.winRate || 0) / 100);
+            stockSum += st.totalPnl || 0;
+            optTrades += ot.count || 0;
+            optWins += ((ot.count || 0) * (ot.winRate || 0) / 100);
+            optSum += ot.totalPnl || 0;
+            optReal += ot.realUsed || 0;
+            optApprox += ot.approxUsed || 0;
+            if (ot.trades && Array.isArray(ot.trades)) {
+                for (const t of ot.trades) {
+                    if (t.pnlPct > 0) { optWinsCount++; optGrossWin += t.pnlPct; }
+                    else { optLossesCount++; optGrossLoss += Math.abs(t.pnlPct); }
+                }
+            }
+        }
+        const pf = optGrossLoss > 0 ? optGrossWin / optGrossLoss : (optGrossWin > 0 ? null : 0);
+        return {
+            stock: {
+                trades: stockTrades,
+                winRate: stockTrades ? stockWins / stockTrades * 100 : 0,
+                avgPnl: stockTrades ? stockSum / stockTrades : 0,
+                totalPnl: stockSum
+            },
+            option: {
+                trades: optTrades,
+                winRate: optTrades ? optWins / optTrades * 100 : 0,
+                avgPnl: optTrades ? optSum / optTrades : 0,
+                totalPnl: optSum,
+                realUsed: optReal,
+                approxUsed: optApprox,
+                profitFactor: pf
+            },
+            combos: arr.length
+        };
+    };
+    allAggregates.total = computeAgg(validResults);
+    // recompute bySymbol (accurate)
+    allAggregates.bySymbol = Object.entries(
+        validResults.reduce((acc, r) => { (acc[r.symbol] = acc[r.symbol] || []).push(r); return acc; }, {})
+    ).map(([sym, arr]) => ({ symbol: sym, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+    allAggregates.byStrategy = Object.entries(
+        validResults.reduce((acc, r) => { (acc[r.strategyId] = acc[r.strategyId] || []).push(r); return acc; }, {})
+    ).map(([sid, arr]) => ({ strategyId: sid, strategyName: arr[0].strategyName, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+    allAggregates.byTimeframe = Object.entries(
+        validResults.reduce((acc, r) => { (acc[r.timeframe] = acc[r.timeframe] || []).push(r); return acc; }, {})
+    ).map(([tf, arr]) => ({ timeframe: tf, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+
     renderProgress(total, null);
-    if (!allResults.length) { resultsDiv.innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>'; btn.disabled = false; btn.textContent = 'اجرای بک‌تست'; return; }
-    allResults.sort((a, b) => {
-        const pA = a.option && a.option.profitFactor != null ? a.option.profitFactor : -1;
-        const pB = b.option && b.option.profitFactor != null ? b.option.profitFactor : -1;
-        return pB - pA;
-    });
-    const insufficientCount = allResults.filter(x => x.insufficientData).length;
-    const errorCount = allResults.filter(x => x.error && !x.insufficientData).length;
-    const validCount = allResults.filter(x => !x.error && !x.insufficientData).length;
-    const rows = allResults.map((x, i) => {
-        if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--warn);font-size:11.5px;">⚠️ ${esc(x.error)}</td></tr>`;
-        if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="8" style="color:var(--bad);font-size:11.5px;">❌ ${esc(x.error)}</td></tr>`;
-        const o = x.option || {}, s = x.stock || {};
-        let optCell = `${o.count || 0}`;
-        if (o.diagnostic) optCell += ` <span class="badge warn" title="${esc(o.diagnostic)}" style="cursor:help;">!</span>`;
-        if (o.skipped && o.skipped.count > 0) optCell += `<br><small style="color:var(--text-dim);font-size:10px;">${o.skipped.count} skip</small>`;
-        return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${optCell}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td></tr>`;
-    }).join('');
-    resultsDiv.innerHTML = `<div class="hint" style="margin-bottom:10px;">${allResults.length} ترکیب — <span style="color:var(--good);">${validCount} موفق</span> · <span style="color:var(--warn);">${insufficientCount} داده ناکافی</span> · <span style="color:var(--bad);">${errorCount} خطا</span></div><div class="table-responsive"><table class="data-table"><thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th></tr><tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    renderBacktestResults(allResults, allAggregates);
     btn.disabled = false;
     btn.textContent = 'اجرای بک‌تست';
 }
 
-// ======================== Auto-Configure UI ========================
+function renderBacktestResults(allResults, aggregates) {
+    const resultsDiv = document.getElementById('btResults');
+    if (!allResults.length) { resultsDiv.innerHTML = '<div class="empty-note">نتیجه‌ای یافت نشد.</div>'; return; }
+
+    const insufficientCount = allResults.filter(x => x.insufficientData).length;
+    const errorCount = allResults.filter(x => x.error && !x.insufficientData).length;
+    const validCount = allResults.filter(x => !x.error && !x.insufficientData).length;
+
+    const aggCard = (label, agg, sub) => `
+        <div class="dash-card">
+            <div class="label">${label}${sub ? ` <span style="font-weight:400;">${sub}</span>` : ''}</div>
+            <div class="value">${agg.stock.trades} سهم · ${agg.option.trades} آپشن</div>
+            <div class="sub">
+                سهم: وین‌ریت ${agg.stock.winRate.toFixed(0)}٪ | میانگین ${pct(agg.stock.avgPnl)} | کل ${pct(agg.stock.totalPnl)}<br>
+                آپشن: وین‌ریت ${agg.option.winRate.toFixed(0)}٪ | میانگین ${pct(agg.option.avgPnl)} | کل ${pct(agg.option.totalPnl)} | PF ${fmtPF(agg.option.profitFactor)}<br>
+                منبع آپشن: <span class="coverage-ok">${agg.option.realUsed} واقعی</span> · <span class="coverage-low">${agg.option.approxUsed} تقریبی</span>
+            </div>
+        </div>`;
+
+    const totalAgg = aggregates.total;
+    const summary = `
+        <div class="hint" style="margin-bottom:10px;">${allResults.length} ترکیب — <span style="color:var(--good);">${validCount} موفق</span> · <span style="color:var(--warn);">${insufficientCount} داده ناکافی</span> · <span style="color:var(--bad);">${errorCount} خطا</span></div>
+        <div class="dash-grid">${aggCard('📊 جمع کل', totalAgg, `(${totalAgg.combos} ترکیب)`)}</div>`;
+
+    // By Symbol table
+    const bySymbolRows = aggregates.bySymbol.map((b, i) => `<tr>
+        <td>${i+1}</td><td><b>${esc(b.symbol)}</b></td>
+        <td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}٪</td><td>${pct(b.stock.avgPnl)}</td><td>${pct(b.stock.totalPnl)}</td>
+        <td>${b.option.trades}</td><td>${b.option.winRate.toFixed(1)}٪</td><td>${pct(b.option.avgPnl)}</td><td>${pct(b.option.totalPnl)}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td>
+        <td><small>${b.option.realUsed}R / ${b.option.approxUsed}A</small></td>
+    </tr>`).join('');
+
+    // By Strategy table
+    const byStrategyRows = aggregates.byStrategy.map((b, i) => `<tr>
+        <td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td>
+        <td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}٪</td><td>${pct(b.stock.avgPnl)}</td><td>${pct(b.stock.totalPnl)}</td>
+        <td>${b.option.trades}</td><td>${b.option.winRate.toFixed(1)}٪</td><td>${pct(b.option.avgPnl)}</td><td>${pct(b.option.totalPnl)}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td>
+        <td><small>${b.option.realUsed}R / ${b.option.approxUsed}A</small></td>
+    </tr>`).join('');
+
+    // By Timeframe table
+    const byTimeframeRows = aggregates.byTimeframe.map((b, i) => `<tr>
+        <td>${i+1}</td><td><b>${TF_LABELS[b.timeframe]||b.timeframe}</b></td>
+        <td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}٪</td><td>${pct(b.stock.totalPnl)}</td>
+        <td>${b.option.trades}</td><td>${b.option.winRate.toFixed(1)}٪</td><td>${pct(b.option.totalPnl)}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td>
+    </tr>`).join('');
+
+    // Details
+    const sortedResults = [...allResults].sort((a, b) => {
+        const pA = a.option && a.option.profitFactor != null ? a.option.profitFactor : -1;
+        const pB = b.option && b.option.profitFactor != null ? b.option.profitFactor : -1;
+        return pB - pA;
+    });
+    const detailRows = sortedResults.map((x, i) => {
+        if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="9" style="color:var(--warn);font-size:11.5px;">⚠️ ${esc(x.error)}</td></tr>`;
+        if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td colspan="9" style="color:var(--bad);font-size:11.5px;">❌ ${esc(x.error)}</td></tr>`;
+        const o = x.option || {}, s = x.stock || {};
+        const diag = o.diagnostic ? `<span class="badge warn" title="${esc(o.diagnostic)}" style="cursor:help;">ℹ️</span>` : '';
+        return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}${diag}</td><td>${TF_LABELS[x.timeframe]||'-'}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}٪</td><td>${s.avgPnl !== undefined ? pct(s.avgPnl) : '-'}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}٪</td><td>${o.avgPnl !== undefined ? pct(o.avgPnl) : '-'}</td><td>${o.totalPnl !== undefined ? pct(o.totalPnl) : '-'}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`;
+    }).join('');
+
+    resultsDiv.innerHTML = `
+        <div class="tabs" style="margin-top:14px;">
+            <button class="tab active" onclick="switchBtResultTab('summary', this)">📊 خلاصه</button>
+            <button class="tab" onclick="switchBtResultTab('bySymbol', this)">به تفکیک نماد</button>
+            <button class="tab" onclick="switchBtResultTab('byStrategy', this)">به تفکیک استراتژی</button>
+            <button class="tab" onclick="switchBtResultTab('byTimeframe', this)">به تفکیک تایم‌فریم</button>
+            <button class="tab" onclick="switchBtResultTab('details', this)">جزئیات کامل</button>
+        </div>
+        <div id="btRes-summary">
+            ${summary}
+            <div class="hint" style="margin-top:12px;">آپشن: R = تعداد معاملات از دیتای واقعی، A = تعداد معاملات از مدل تقریبی (با vol crush).</div>
+        </div>
+        <div id="btRes-bySymbol" style="display:none;">
+            <div class="hint">جمع‌بندی به تفکیک نماد — همه استراتژی‌ها با هم.</div>
+            <div class="table-responsive"><table class="data-table">
+                <thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th colspan="4" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th><th rowspan="2">منبع</th></tr>
+                <tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead>
+                <tbody>${bySymbolRows || '<tr class="empty-row"><td colspan="12">داده‌ای نیست</td></tr>'}</tbody>
+            </table></div>
+        </div>
+        <div id="btRes-byStrategy" style="display:none;">
+            <div class="hint">جمع‌بندی به تفکیک استراتژی — همه نمادها با هم.</div>
+            <div class="table-responsive"><table class="data-table">
+                <thead><tr><th rowspan="2">#</th><th rowspan="2">استراتژی</th><th colspan="4" style="background:var(--bg-input);">سهم پایه</th><th colspan="5" style="background:var(--bg-input);">آپشن</th><th rowspan="2">منبع</th></tr>
+                <tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead>
+                <tbody>${byStrategyRows || '<tr class="empty-row"><td colspan="12">داده‌ای نیست</td></tr>'}</tbody>
+            </table></div>
+        </div>
+        <div id="btRes-byTimeframe" style="display:none;">
+            <div class="hint">جمع‌بندی به تفکیک تایم‌فریم.</div>
+            <div class="table-responsive"><table class="data-table">
+                <thead><tr><th rowspan="2">#</th><th rowspan="2">تایم‌فریم</th><th colspan="3" style="background:var(--bg-input);">سهم</th><th colspan="4" style="background:var(--bg-input);">آپشن</th></tr>
+                <tr><th>معامله</th><th>وین‌ریت</th><th>کل</th><th>معامله</th><th>وین‌ریت</th><th>کل</th><th>PF</th></tr></thead>
+                <tbody>${byTimeframeRows || '<tr class="empty-row"><td colspan="9">داده‌ای نیست</td></tr>'}</tbody>
+            </table></div>
+        </div>
+        <div id="btRes-details" style="display:none;">
+            <div class="hint">همه ترکیب‌ها — مرتب‌شده بر اساس PF آپشن.</div>
+            <div class="table-responsive"><table class="data-table">
+                <thead><tr><th rowspan="2">#</th><th rowspan="2">نماد</th><th rowspan="2">استراتژی</th><th rowspan="2">TF</th><th colspan="3" style="background:var(--bg-input);">سهم</th><th colspan="5" style="background:var(--bg-input);">آپشن</th><th rowspan="2">منبع</th></tr>
+                <tr><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>معامله</th><th>وین‌ریت</th><th>میانگین</th><th>کل</th><th>PF</th></tr></thead>
+                <tbody>${detailRows}</tbody>
+            </table></div>
+        </div>`;
+}
+function switchBtResultTab(which, btn) {
+    ['summary','bySymbol','byStrategy','byTimeframe','details'].forEach(w => {
+        const el = document.getElementById(`btRes-${w}`);
+        if (el) el.style.display = w === which ? 'block' : 'none';
+    });
+    document.querySelectorAll('#btResults > .tabs > .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+// ======================== ✅ Auto-Configure UI ========================
 async function openAutoConfigure() {
     try {
         const symbolsHtml = monitoredSymbols.map(s => `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="ac-symbol" value="${esc(s.symbol)}" checked> ${esc(s.symbol)}</label>`).join('');
         if (!symbolsHtml) return openModal('تنظیم خودکار', '<div class="empty-note">ابتدا نماد اضافه کنید.</div>');
         openModal('🤖 تنظیم خودکار', `
             <div class="hint">
-                سیستم برای هر نماد، بهترین استراتژی‌ها را از طریق بک‌تست پیدا می‌کند و به‌عنوان لیدر + تأییدکننده در لیست پایش قرار می‌دهد.
+                برای هر نماد، همه استراتژی‌ها بک‌تست می‌شوند. معیار انتخاب: <b>حداقل ۱۰ معامله سهم</b> + <b>حداقل ۵ معامله آپشن</b> + <b>PF آپشن ≥ ۱.۱</b>. سپس بهترین استراتژی به‌عنوان لیدر + N تأییدکننده انتخاب می‌شود.
             </div>
             <div class="warn" style="background:rgba(217,83,79,.1);border-right:3px solid var(--bad);padding:10px 12px;border-radius:6px;font-size:12.5px;margin:10px 0;">
-                ⚠️ تنظیمات فعلی این نمادها <b>حذف و جایگزین</b> می‌شوند. مطمئن شو دیتای کافی (تاریخچه روزانه) داری.
+                ⚠️ تنظیمات فعلی این نمادها <b>حذف و جایگزین</b> می‌شوند.
             </div>
 
             <div style="margin:14px 0;">
@@ -1268,7 +1610,7 @@ async function previewAutoConfigure() {
     const total = symbols.length;
     const renderProgress = (done, current) => {
         const percent = Math.round(done / total * 100);
-        resultsDiv.innerHTML = `<div style="padding:16px;"><div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">پردازش ${done}/${total} ${current?'— '+esc(current):''}</div><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:var(--accent);transition:width .2s;"></div></div><div style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">${percent}٪</div></div>`;
+        resultsDiv.innerHTML = `<div style="padding:16px;"><div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">پردازش ${done}/${total} ${current?'— '+esc(current):''}</div><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:var(--accent);transition:width .2s;"></div></div></div>`;
     };
     renderProgress(0, null);
     const allPlans = [];
@@ -1279,7 +1621,7 @@ async function previewAutoConfigure() {
             const r = await apiFetch(`${BACKEND_URL}/api/auto-configure/preview`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ symbol, maxConfirmers })
-            }, 0);
+            }, 2);
             if (r.plans) allPlans.push(...r.plans);
         } catch (e) {
             allPlans.push({ symbol, error: e.message });
@@ -1301,7 +1643,7 @@ async function applyAutoConfigure() {
     const total = symbols.length;
     const renderProgress = (done, current) => {
         const percent = Math.round(done / total * 100);
-        resultsDiv.innerHTML = `<div style="padding:16px;"><div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">اعمال ${done}/${total} ${current?'— '+esc(current):''}</div><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:var(--good);transition:width .2s;"></div></div><div style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">${percent}٪</div></div>`;
+        resultsDiv.innerHTML = `<div style="padding:16px;"><div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">اعمال ${done}/${total} ${current?'— '+esc(current):''}</div><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:var(--good);transition:width .2s;"></div></div></div>`;
     };
     renderProgress(0, null);
     const allPlans = [], allApplied = [];
@@ -1312,7 +1654,7 @@ async function applyAutoConfigure() {
             const r = await apiFetch(`${BACKEND_URL}/api/auto-configure`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ symbol, maxConfirmers, dryRun: false })
-            }, 0);
+            }, 2);
             if (r.plans) allPlans.push(...r.plans);
             if (r.results) allApplied.push(...r.results);
         } catch (e) {
@@ -1332,26 +1674,39 @@ function renderAutoPlan(plan, mode, maxConfirmers, results) {
     if (mode === 'applied' && results) {
         html += `<div class="hint" style="margin-bottom:12px;">✅ اعمال شد: ${results.filter(r => !r.error).length} از ${results.length}</div>`;
     }
+    const success = plan.filter(p => !p.error && p.leader);
+    const failed = plan.filter(p => p.error);
+    if (success.length) {
+        html += `<div class="dash-grid">
+            <div class="dash-card"><div class="label">نمادهای موفق</div><div class="value coverage-ok">${success.length}</div></div>
+            <div class="dash-card"><div class="label">نمادهای ناموفق</div><div class="value ${failed.length?'coverage-none':'coverage-ok'}">${failed.length}</div></div>
+            <div class="dash-card"><div class="label">کل تأییدکننده‌ها</div><div class="value">${success.reduce((s,p)=>s+p.confirmers.length,0)}</div></div>
+        </div>`;
+    }
     for (const p of plan) {
         if (p.error) {
-            html += `<div class="auto-plan-card"><h5>⚠️ ${esc(p.symbol)}</h5><div style="color:var(--bad);font-size:12.5px;">${esc(p.error)}</div></div>`;
+            let rejectedHtml = '';
+            if (p.rejectionReasons && p.rejectionReasons.length) {
+                rejectedHtml = `<div class="auto-rejected"><b>دلایل رد استراتژی‌ها:</b><br>${p.rejectionReasons.map(r => `• <b>${esc(r.strategyName)}</b>: ${esc((r.reasons||[]).join(' · '))}`).join('<br>')}</div>`;
+            }
+            html += `<div class="auto-plan-card"><h5>⚠️ ${esc(p.symbol)}</h5><div style="color:var(--bad);font-size:12.5px;">${esc(p.error)}</div>${rejectedHtml}</div>`;
             continue;
         }
-        const leaderScore = p.leader && p.leader.score !== null ? p.leader.score : '-';
         const leaderName = p.leader ? (strategiesInfo.find(s => s.id === p.leader.strategyId)?.name || p.leader.strategyName) : '-';
+        const leaderStats = p.leader && p.leader.stats ? p.leader.stats : null;
         html += `<div class="auto-plan-card">
             <h5>📊 ${esc(p.symbol)} <span style="font-size:12px;color:var(--text-dim);">(لیدر: ${esc(leaderName)} + ${p.confirmers.length} تأیید)</span></h5>
             <div class="auto-role-row">
                 <span class="auto-role-label leader">لیدر</span>
                 <b>${esc(leaderName)}</b>
                 <span style="font-size:11.5px;color:var(--text-dim);">${TF_LABELS[p.leader.timeframe]||''} → ${TF_LABELS[p.leader.htfTimeframe]||''}</span>
-                <span class="auto-score" title="امتیاز ترکیبی از PF، وین‌ریت، تعداد و بازده آپشن">امتیاز: ${leaderScore}</span>
+                <span class="auto-score" title="امتیاز ترکیبی">امتیاز: ${p.leader.score}</span>
             </div>`;
-        if (p.leader.stats && p.leader.stats.stock) {
-            const st = p.leader.stats;
-            html += `<div style="font-size:11.5px;color:var(--text-dim);margin:6px 12px 10px;">سهم: ${st.stock.closed} معامله | وین‌ریت ${(st.stock.winRate||0).toFixed(0)}٪ | بازده ${(st.stock.avgPnl||0).toFixed(2)}٪`;
-            if (st.option) html += ` — آپشن: ${st.option.count||0} | وین‌ریت ${(st.option.winRate||0).toFixed(0)}٪ | میانگین ${(st.option.avgPnl||0).toFixed(1)}٪`;
-            html += `</div>`;
+        if (leaderStats) {
+            html += `<div style="font-size:11.5px;color:var(--text-dim);margin:6px 12px 10px;">
+                سهم: ${leaderStats.stock.closed} معامله | وین‌ریت ${(leaderStats.stock.winRate||0).toFixed(0)}٪ | بازده کل ${(leaderStats.stock.totalPnl||0).toFixed(2)}٪
+                ${leaderStats.option ? `<br>آپشن: ${leaderStats.option.count||0} معامله | وین‌ریت ${(leaderStats.option.winRate||0).toFixed(0)}٪ | PF ${fmtPF(leaderStats.option.profitFactor)} | منبع ${leaderStats.option.realUsed||0}R/${leaderStats.option.approxUsed||0}A` : ''}
+            </div>`;
         }
         for (const c of p.confirmers) {
             const cName = strategiesInfo.find(s => s.id === c.strategyId)?.name || c.strategyName;
@@ -1362,6 +1717,9 @@ function renderAutoPlan(plan, mode, maxConfirmers, results) {
                 <span class="auto-score">امتیاز: ${c.score}</span>
             </div>`;
         }
+        if (p.rejected && p.rejected.length) {
+            html += `<div class="auto-rejected"><b>استراتژی‌های رد‌شده (${p.rejected.length}):</b><br>${p.rejected.slice(0, 6).map(r => `• ${esc(r.strategyName)}: ${esc(r.reason)}`).join('<br>')}${p.rejected.length > 6 ? `<br>... و ${p.rejected.length - 6} مورد دیگر` : ''}</div>`;
+        }
         html += `</div>`;
     }
     resultsDiv.innerHTML = html;
@@ -1369,21 +1727,24 @@ function renderAutoPlan(plan, mode, maxConfirmers, results) {
 
 async function autoConfigureOne(symbol) {
     if (!confirm(`تنظیم خودکار برای «${symbol}»؟ تنظیمات فعلی این نماد حذف می‌شود.`)) return;
-    showAlert(`در حال محاسبه بهترین استراتژی‌ها برای «${symbol}»...`, 'info', 5000);
+    showLoader(`تنظیم خودکار «${symbol}»...`, 'بک‌تست همه استراتژی‌ها — ممکن است ۳۰ ثانیه طول بکشد');
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/auto-configure`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbols: [symbol], maxConfirmers: 2, dryRun: false })
-        }, 0);
+        }, 2);
         const applied = r.results && r.results[0];
         if (applied && !applied.error) {
-            showAlert(`✅ «${symbol}»: لیدر ${applied.leader} + ${applied.confirmers.length} تأییدکننده`, 'success', 6000);
+            showAlert(`✅ «${symbol}»: لیدر ${applied.leaderName || applied.leader} (امتیاز ${applied.leaderScore}) + ${applied.confirmers.length} تأییدکننده`, 'success', 8000);
         } else {
-            showAlert(`⚠️ «${symbol}»: ${applied ? applied.error : 'خطا'}`, 'warn', 6000);
+            const reason = applied ? applied.error : 'خطا';
+            const rej = applied && applied.rejectionReasons ? '\n' + applied.rejectionReasons.slice(0,3).map(x => `${x.strategyName}: ${(x.reasons||[]).join('، ')}`).join('\n') : '';
+            showAlert(`⚠️ «${symbol}»: ${reason}${rej}`, 'warn', 12000);
         }
         await loadConfigs();
     } catch (e) { showAlert('خطا: ' + e.message, 'error', 8000); }
+    finally { hideLoader(); }
 }
 
 // ======================== راهنما ========================
@@ -1402,9 +1763,19 @@ function guideFull() {
             <li>استراتژی بساز (لیدر یا تأییدکننده) یا از «تنظیم خودکار» استفاده کن.</li>
             <li>منتظر سیگنال در تلگرام بمان.</li>
         </ol>
-        <h4>🤖 تنظیم خودکار</h4>
-        <p>با کلیک روی «تنظیم خودکار» در هر نماد، سیستم بک‌تست روی همه استراتژی‌ها می‌زند و بهترین‌ها را انتخاب می‌کند:
-        لیدر (بالاترین امتیاز) + ۲ تأییدکننده. امتیاز بر اساس PF آپشن، وین‌ریت، تعداد معامله و بازده محاسبه می‌شود.</p>
+        <h4>🤖 تنظیم خودکار (جدید)</h4>
+        <p>معیار انتخاب لیدر:</p>
+        <ul>
+            <li>حداقل <b>۱۰ معامله سهم</b></li>
+            <li>حداقل <b>۵ معامله آپشن</b></li>
+            <li><b>PF ≥ ۱.۱</b></li>
+        </ul>
+        <p>اگر هیچ استراتژی‌ای قبول نشود، دلایل رد هرکدام نمایش داده می‌شود.</p>
+        <h4>📊 پوشش داده (جدید)</h4>
+        <p>با کلیک روی «پوشش داده» در منو، می‌توانی ببینی هر نماد چند کندل در هر تایم‌فریم دارد و آیا برای هر استراتژی آماده است یا نه.</p>
+        <h4>🎯 بک‌تست مقایسه‌ای (جدید)</h4>
+        <p>نتایج در ۵ تب نمایش داده می‌شوند: خلاصه کل، به تفکیک نماد، به تفکیک استراتژی، به تفکیک تایم‌فریم، و جزئیات کامل.</p>
+        <p><b>مدل آپشن:</b> برای هر معامله، سیستم اول تلاش می‌کند از دیتای واقعی آپشن استفاده کند؛ اگر نبود، از مدل تقریبی با <code>vol crush</code> و <code>اسپرد پویا</code> استفاده می‌کند. سقف بازده ۲۵۰٪ اعمال می‌شود.</p>
         <h4>منطق لیدری و تأییدکننده</h4>
         <p><b>لیدر</b>: سیگنال مستقل به تلگرام می‌فرستد.</p>
         <p><b>تأییدکننده</b>: پیام مستقل نمی‌فرستد، ولی وضعیتش ذخیره می‌شود و اگر با لیدر هم‌جهت باشد، در پیام لیدر نشان داده می‌شود.</p>
@@ -1413,19 +1784,14 @@ function guideFull() {
         <p>حجم = پایه × ضریب سیگنال × ضریب سطح × ضریب IV</p>
         <h4>استراتژی‌ها</h4>
         ${stratBlock('RSI', '۴۷-۵۵٪', '~۱.۴', '۳۰ دقیقه', 'روزانه', 'پولبک RSI در روند', 'بازار رنج')}
-        ${stratBlock('EMA', '۴۹-۶۳٪', '~۱.۶', '۱۵ دقیقه', 'روزانه', 'پولبک به EMA', 'روند پایدار')}
-        ${stratBlock('Ichimoku', '۳۹-۵۸٪', '~۱.۵', '۳۰ دقیقه', 'روزانه', 'ابر + کراس T/K', 'روند کم‌نوسان')}
         ${stratBlock('SMC Unicorn', '۵۰-۶۴٪', '~۲.۵', '۱ ساعت', 'روزانه', 'شکار نقدینگی + BB + FVG', 'حرکات بزرگ')}
         ${stratBlock('OB + Sweep', '۴۰-۵۰٪', '~۱.۵', '۱ ساعت', 'روزانه', 'Sweep + MSS + OB', 'برگشت ناگهانی')}
         ${stratBlock('Supply & Demand', '۴۵-۵۵٪', '~۱.۸', '۳۰ دقیقه', 'روزانه', 'بازگشت به ناحیه تقاضا', 'همه شرایط')}
         ${stratBlock('OB After Sweep', '۶۰-۷۰٪', '~۲.۰', '۱ ساعت', 'روزانه', 'ترتیب Sweep → OB', 'حرکات بزرگ')}
         ${stratBlock('London Breakout', '۵۰-۶۵٪', '~۱.۵', '۱۵ دقیقه', 'روزانه', 'شکست رنج آغازین', 'ابتدای بازار')}
         ${stratBlock('ORB', '۵۰-۶۰٪', '~۱.۵', '۱۵ دقیقه', 'روزانه', 'شکست بازه ۳۰ دقیقه', 'ابتدای بازار')}
-        ${stratBlock('False Breakout', '۴۵-۵۵٪', '~۱.۵', '۱۵ دقیقه', 'روزانه', 'شکار شکست نادرست', 'نقدشوندگی بالا')}
-        ${stratBlock('Inside Bar', '۴۵-۵۵٪', '~۱.۴', '۱۵ دقیقه', 'روزانه', 'شکست Inside Bar', 'تداوم روند')}
         ${stratBlock('Pin Bar Reversal', '۵۰-۶۰٪', '~۱.۶', '۱۵ دقیقه', 'روزانه', 'شکار Pin Bar صعودی', 'برگشت از کف')}
-        ${stratBlock('EMA200 + S/D', '۵۰-۶۰٪', '~۱.۵', '۳۰ دقیقه', 'روزانه', 'فیلتر EMA200 + تقاضا', 'روند قوی')}
-        ${stratBlock('Ensemble', '۵۵-۷۰٪', 'بالا', '۳۰ دقیقه', 'روزانه', 'رأی‌گیری وزنی از ۱۲ استراتژی', 'همه شرایط')}
+        ${stratBlock('Ensemble', '۵۵-۷۰٪', 'بالا', '۳۰ دقیقه', 'روزانه', 'رأی‌گیری وزنی', 'همه شرایط')}
         <h4>مدیریت ریسک</h4>
         <p>حد ضرر آپشن: ۲۰٪ | هدف: ۱۰۰٪ | خروج پله‌ای در ۵۰٪ و ۱۰۰٪</p>
         <h4>اصطلاحات آپشن</h4>
@@ -1434,6 +1800,7 @@ function guideFull() {
             <dt>تتا</dt><dd>کاهش روزانه ارزش آپشن</dd>
             <dt>IV / HV</dt><dd>نوسان ضمنی / تاریخی</dd>
             <dt>OI</dt><dd>تعداد قرارداد باز</dd>
+            <dt>vol crush</dt><dd>افت IV پس از جهش قیمت سهم</dd>
             <dt>سطح A+/A/B/C/D</dt><dd>کیفیت قرارداد (OI، اسپرد، دلتا، IV)</dd>
         </dl>`;
 }
@@ -1442,7 +1809,7 @@ function guideFull() {
 async function viewChain(sym) {
     openModal(`زنجیره ${sym}`, '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
     try {
-        const d = await apiFetch(`${BACKEND_URL}/api/options/chain/${encodeURIComponent(sym)}`);
+        const d = await apiFetch(`${BACKEND_URL}/api/options/chain/${encodeURIComponent(sym)}`, {}, 1);
         if (!d.rows.length) return openModal(`زنجیره ${sym}`, `<div class="empty-note">قراردادی یافت نشد.</div>`);
         const rows = d.rows.map(r => {
             const ivApiShow = r.ivApi ? (r.ivApi*100).toFixed(1)+'٪' : '-';
@@ -1459,7 +1826,7 @@ async function recommendOption(id) {
     const it = configs.find(c => c._id === id); if (!it) return;
     openModal(`پیشنهاد آپشن ${it.symbol}`, '<div style="text-align:center;padding:30px;">در حال محاسبه...</div>');
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/options/recommend/${id}`);
+        const r = await apiFetch(`${BACKEND_URL}/api/options/recommend/${id}`, {}, 1);
         const sc = r.scenario;
         const head = `<div class="hint">سناریو: ورود ${fmtN(sc.entry)} · حد ضرر ${fmtN(sc.stop)} · هدف ${fmtN(sc.target)} · افق ~${sc.horizonDays} روز</div>`;
         let picks = r.picks.length ? r.picks.map((p,i) => `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)} (${p.spreadPct.toFixed(1)}٪)</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.oi}</td><td>${p.rr.toFixed(2)}</td></tr>`).join('') : `<tr class="empty-row"><td colspan="9">قراردادی نیست</td></tr>`;
@@ -1471,7 +1838,7 @@ let optPositionsLimit = 5;
 let optPositionsCache = null;
 async function loadOptionPositions() {
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/options/positions`), s = r.stats;
+        const r = await apiFetch(`${BACKEND_URL}/api/options/positions`, {}, 0), s = r.stats;
         optPositionsCache = r.positions; optPositionsLimit = 5;
         document.getElementById('optStats').innerHTML = (s.open + s.closed) ? `<div class="stat"><small>باز / بسته</small><b>${s.open} / ${s.closed}</b></div><div class="stat"><small>وین‌ریت</small><b>${s.winRate.toFixed(0)}٪</b></div><div class="stat"><small>بازده کل</small><b>${pct(s.totalPnl)}</b></div><div class="stat"><small>میانگین</small><b>${pct(s.avgPnl)}</b></div><div class="stat"><small>PF</small><b>${fmtPF(s.profitFactor)}</b></div>` : '<div class="empty-note">موقعیتی ثبت نشده</div>';
         renderOptPositions();
@@ -1499,7 +1866,7 @@ async function openLogs(source='memory') {
     try {
         let rows;
         if (source === 'client') rows = clientLogs.slice().reverse();
-        else { const r = await apiFetch(`${BACKEND_URL}/api/logs?source=${source}&limit=300`); rows = r.logs; }
+        else { const r = await apiFetch(`${BACKEND_URL}/api/logs?source=${source}&limit=300`, {}, 1); rows = r.logs; }
         const tab = (k, l) => `<button class="btn small ${source===k?'':'outline'}" onclick="openLogs('${k}')">${l}</button>`;
         const tabs = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${tab('memory','سرور')}${tab('db','خطاها')}${tab('client','مرورگر')}</div>`;
         const body = rows.length ? rows.map(l => `<div style="font-family:monospace;font-size:11.5px;direction:ltr;text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);white-space:pre-wrap;word-break:break-all;color:${l.level==='error'?'var(--bad)':l.level==='warn'?'var(--warn)':'var(--text-dim)'}">${new Date(l.at).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})} [${l.level}] ${esc(l.msg)}</div>`).join('') : '<div class="empty-note">لاگی نیست</div>';
