@@ -142,7 +142,7 @@
     .bf-day.FAILED { background:var(--bad); color:#fff; }
     .bf-day.PENDING { background:var(--border); color:var(--text-dim); }
     .bf-day.NO_TRADES { background:rgba(125,133,144,.3); color:var(--text-dim); }
-    .bf-day.IN_PROGRESS { background:var(--warn); color:#fff; }
+    .bf-day.RETRYING { background:rgba(201,151,61,.4); color:#fff; }
     .bf-legend { display:flex; gap:14px; font-size:11.5px; color:var(--text-dim); margin-top:10px; flex-wrap:wrap; }
     .bf-legend span { display:flex; align-items:center; gap:4px; }
     .bf-legend i { display:inline-block; width:12px; height:12px; border-radius:3px; }
@@ -916,8 +916,9 @@ async function renderBackfillManager() {
                 <div class="bf-job-stats">
                     <span>📅 ${esc(dateRange)}</span>
                     <span>✅ ${j.stats.done}/${j.stats.total} روز (${pct}٪)</span>
-                    ${j.stats.failed > 0 ? `<span style="color:var(--bad);">❌ ${j.stats.failed} خطا</span>` : ''}
-                    ${j.stats.noTrades > 0 ? `<span>⚪ ${j.stats.noTrades} بدون معامله</span>` : ''}
+                    ${j.stats.noTrades > 0 ? `<span style="color:var(--text-dim);">⚪ ${j.stats.noTrades} بدون معامله</span>` : ''}
+                    ${j.stats.retrying > 0 ? `<span style="color:var(--warn);">🔄 ${j.stats.retrying} در انتظار تلاش مجدد</span>` : ''}
+                    ${j.stats.failed > 0 ? `<span style="color:var(--bad);">❌ ${j.stats.failed} خطای نهایی</span>` : ''}
                 </div>
             </div>`;
         }).join('') : '<div class="empty-note">هنوز هیچ Jobی ساخته نشده. از دکمه «📥 Backfill» هر نماد استفاده کنید.</div>';
@@ -1008,8 +1009,12 @@ async function viewBackfillDetail(id) {
         const pct = j.stats.total > 0 ? Math.round((j.stats.done / j.stats.total) * 100) : 0;
         const daysHtml = j.days.map((d, i) => {
             const st = d.status || 'PENDING';
-            const title = `${d.date} — ${st}${d.candles ? ' (' + d.candles + ' کندل)' : ''}${d.error ? ' — ' + d.error : ''}`;
-            return `<div class="bf-day ${st}" title="${esc(title)}">${i + 1}</div>`;
+            let displayStatus = st;
+            // FAILED با attempts کم رو به RETRYING نشون بده
+            if (st === 'FAILED' && (d.attempts || 0) < 8) displayStatus = 'RETRYING';
+            const att = d.attempts ? ` (تلاش ${d.attempts})` : '';
+            const title = `${d.date} — ${displayStatus}${att}${d.candles ? ' — ' + d.candles + ' کندل' : ''}${d.error ? ' — ' + d.error : ''}`;
+            return `<div class="bf-day ${displayStatus}" title="${esc(title)}">${i + 1}</div>`;
         }).join('');
         openModal(`📋 جزئیات Backfill — ${esc(j.symbol)}`, `
             <div class="bf-stats-grid">
@@ -1020,10 +1025,11 @@ async function viewBackfillDetail(id) {
             </div>
             <div class="hint">بازه: ${j.startDate} → ${j.endDate} (${j.lookbackMonths} ماه)</div>
             <div class="bf-legend">
-                <span><i style="background:var(--good)"></i> انجام شده (${j.stats.done})</span>
-                <span><i style="background:var(--bad)"></i> خطا (${j.stats.failed})</span>
+                <span><i style="background:var(--good)"></i> انجام شده (${j.stats.done - (j.stats.noTrades || 0)})</span>
+                <span><i style="background:rgba(125,133,144,.3)"></i> بدون معامله (${j.stats.noTrades || 0})</span>
+                <span><i style="background:var(--warn)"></i> در انتظار تلاش مجدد (${j.stats.retrying || 0})</span>
+                <span><i style="background:var(--bad)"></i> خطای نهایی (${j.stats.failed})</span>
                 <span><i style="background:var(--border)"></i> در نوبت (${j.stats.pending})</span>
-                <span><i style="background:rgba(125,133,144,.3)"></i> بدون معامله</span>
             </div>
             <div class="bf-calendar" style="max-height:340px; overflow-y:auto;">${daysHtml}</div>
             <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">

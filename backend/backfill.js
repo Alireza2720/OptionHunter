@@ -163,18 +163,50 @@ async function createOptionJobs(underlying, options = {}) {
   return { created: created.length, skipped, jobs: created };
 }
 
+// چک می‌کنه آیا این روز واقعاً معامله وجود داشته یا نه
+// برمی‌گردونه: true (بازار فعال) / false (واقعاً بدون معامله) / null (نمی‌دونیم)
+async function hasMarketActivity(symbol, dateInt) {
+  try {
+    const db = deps.getDB();
+    const y = Math.floor(dateInt / 10000);
+    const mo = Math.floor((dateInt % 10000) / 100);
+    const d = dateInt % 100;
+    const utcDayStart = new Date(Date.UTC(y, mo - 1, d, 0, 0, 0) - 3.5 * 3600 * 1000);
+    const utcDayEnd = new Date(utcDayStart.getTime() + 24 * 3600 * 1000);
+    const row = await db.collection('candles_daily').findOne({
+      symbol,
+      time: { $gte: utcDayStart, $lt: utcDayEnd }
+    });
+    if (!row) return null;
+    return (row.volume || 0) > 0 || (row.trades || 0) > 0;
+  } catch (e) {
+    return null;
+  }
+}
 // ---------- پردازش یک روز ----------
 async function processDay(job, dayInfo) {
   const db = deps.getDB();
   try {
     const trades = await Tsetmc.getTradeHistory(job.insCode, dayInfo.date, 3);
+
     if (!trades || !trades.length) {
+      // 🔍 چک کن آیا این روز واقعاً معامله داشته
+      const checkSymbol = job.type === 'stock' ? job.symbol : (job.underlying || job.symbol);
+      const marketActive = await hasMarketActivity(checkSymbol, dayInfo.date);
+
+      if (job.type === 'stock' && marketActive === true) {
+        // سهم معامله داشته ولی TSETMC خالی داد → intermittent
+        return { status: 'FAILED', error: 'TSETMC خالی داد (سهم معامله داشته — intermittent)' };
+      }
+      // یا سهم واقعاً بدون معامله بوده، یا آپشن بوده (آپشن‌ها کم‌نقدشوندگی طبیعی)
       return { status: 'NO_TRADES', candles: 0 };
     }
+
     const candles = Tsetmc.aggregateTo1m(trades, dayInfo.date);
     if (!candles.length) {
       return { status: 'NO_TRADES', candles: 0 };
     }
+
     let saved = 0;
     for (const c of candles) {
       await db.collection('candles_base').updateOne(
@@ -221,15 +253,16 @@ async function runBackfillTick(force) {
     const results = [];
 
     for (let i = 0; i < batchSize; i++) {
-      // پیدا کردن روز بعدی PENDING از cursor
+      // پیدا کردن روز بعدی PENDING یا FAILED با attempts کم
+      const MAX_ATTEMPTS = 8;
+      const isRetryable = (d) => d.status === 'PENDING' || (d.status === 'FAILED' && (d.attempts || 0) < MAX_ATTEMPTS);
       let dayIdx = -1;
       for (let k = job.cursor; k < job.days.length; k++) {
-        if (job.days[k].status === 'PENDING') { dayIdx = k; break; }
+        if (isRetryable(job.days[k])) { dayIdx = k; break; }
       }
-      // اگه از cursor به بعد نبود، از ابتدا بگرد
       if (dayIdx === -1) {
         for (let k = 0; k < job.days.length; k++) {
-          if (job.days[k].status === 'PENDING') { dayIdx = k; break; }
+          if (isRetryable(job.days[k])) { dayIdx = k; break; }
         }
       }
       if (dayIdx === -1) break;
@@ -254,11 +287,15 @@ async function runBackfillTick(force) {
     }
 
     // محاسبه آمار جدید
-    const stats = { total: job.days.length, done: 0, failed: 0, pending: 0, noTrades: 0 };
+    const MAX_ATTEMPTS = 8;
+    const stats = { total: job.days.length, done: 0, failed: 0, pending: 0, noTrades: 0, retrying: 0 };
     for (const d of job.days) {
       if (d.status === 'DONE') stats.done++;
-      else if (d.status === 'FAILED') stats.failed++;
       else if (d.status === 'NO_TRADES') { stats.noTrades++; stats.done++; }
+      else if (d.status === 'FAILED') {
+        if ((d.attempts || 0) >= MAX_ATTEMPTS) stats.failed++;
+        else { stats.retrying++; stats.pending++; }
+      }
       else stats.pending++;
     }
 
@@ -365,13 +402,15 @@ async function runJobNow(id, ObjectId) {
   const results = [];
 
   for (let i = 0; i < batchSize; i++) {
+    const MAX_ATTEMPTS = 8;
+    const isRetryable = (d) => d.status === 'PENDING' || (d.status === 'FAILED' && (d.attempts || 0) < MAX_ATTEMPTS);
     let dayIdx = -1;
     for (let k = job.cursor; k < job.days.length; k++) {
-      if (job.days[k].status === 'PENDING') { dayIdx = k; break; }
+      if (isRetryable(job.days[k])) { dayIdx = k; break; }
     }
     if (dayIdx === -1) {
       for (let k = 0; k < job.days.length; k++) {
-        if (job.days[k].status === 'PENDING') { dayIdx = k; break; }
+        if (isRetryable(job.days[k])) { dayIdx = k; break; }
       }
     }
     if (dayIdx === -1) break;
@@ -396,13 +435,17 @@ async function runJobNow(id, ObjectId) {
   }
 
   // آمار
-  const stats = { total: job.days.length, done: 0, failed: 0, pending: 0, noTrades: 0 };
-  for (const d of job.days) {
-    if (d.status === 'DONE') stats.done++;
-    else if (d.status === 'FAILED') stats.failed++;
-    else if (d.status === 'NO_TRADES') { stats.noTrades++; stats.done++; }
-    else stats.pending++;
-  }
+    const MAX_ATTEMPTS = 8;
+    const stats = { total: job.days.length, done: 0, failed: 0, pending: 0, noTrades: 0, retrying: 0 };
+    for (const d of job.days) {
+      if (d.status === 'DONE') stats.done++;
+      else if (d.status === 'NO_TRADES') { stats.noTrades++; stats.done++; }
+      else if (d.status === 'FAILED') {
+        if ((d.attempts || 0) >= MAX_ATTEMPTS) stats.failed++;
+        else { stats.retrying++; stats.pending++; }
+      }
+      else stats.pending++;
+    }
 
   let newCursor = job.days.length;
   for (let k = 0; k < job.days.length; k++) {
