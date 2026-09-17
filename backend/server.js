@@ -10,6 +10,7 @@ const Strat = require('./strategies.js');
 const { STRATEGIES, aggregateCandles, getRequiredCandles } = Strat;
 const Options = require('./option.js');
 const Tsetmc = require('./tsetmc.js');
+const Backfill = require('./backfill.js');
 const Log = require('./log.js');
 const Settings = require('./settings.js');
 Log.patchConsole();
@@ -18,7 +19,7 @@ const STARTED_AT = new Date();
 const app = express();
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
-const SERVER_VERSION = 'v9.1-inWindow-fix';
+const SERVER_VERSION = 'v9.2-backfill';
 let holidayDate = null, inactiveTicks = 0;
 
 const API_KEYS = [process.env.BRSAPI_KEY_1 || process.env.BRSAPI_KEY, process.env.BRSAPI_KEY_2, process.env.BRSAPI_KEY_3].filter(Boolean);
@@ -32,45 +33,10 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const TF = Object.fromEntries(Object.entries(Strat.TIMEFRAME_MINUTES).filter(([k]) => k !== '4h'));
 
-// 🆕 تایم‌فریم‌های اضافی برای نمودار (aggregate از روزانه)
+// 🆕 تایم‌فریم‌های اضافی برای نمودار
 const CHART_EXTRA_TF = { '1w': true, '1M': true, '1Y': true };
 const ALL_CHART_TF = { ...TF, '1w': 10080, '1M': 43200, '1Y': 525600 };
 
-// تبدیل دیتای روزانه به هفتگی/ماهانه/سالانه (تقویم UTC)
-function aggregateDailyForChart(rows, tf) {
-    if (tf === '1d') return rows;
-    const groups = new Map();
-    for (const r of rows) {
-        const d = new Date(r.time * 1000);
-        let key;
-        if (tf === '1w') {
-            // هفته از شنبه شروع می‌شه
-            const day = d.getUTCDay(); // 0=Sun..6=Sat
-            const daysFromSat = (day + 1) % 7;
-            const sat = new Date(d.getTime() - daysFromSat * 86400000);
-            key = sat.getUTCFullYear() + '-' + sat.getUTCMonth() + '-' + sat.getUTCDate();
-        } else if (tf === '1M') {
-            key = d.getUTCFullYear() + '-' + d.getUTCMonth();
-        } else {
-            key = '' + d.getUTCFullYear();
-        }
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(r);
-    }
-    const result = [];
-    for (const arr of groups.values()) {
-        const first = arr[0], last = arr[arr.length - 1];
-        result.push({
-            time: first.time,
-            open: first.open,
-            high: Math.max.apply(null, arr.map(x => x.high)),
-            low: Math.min.apply(null, arr.map(x => x.low)),
-            close: last.close,
-            volume: arr.reduce((s, x) => s + (x.volume || 0), 0)
-        });
-    }
-    return result.sort((a, b) => a.time - b.time);
-}
 const SESSION_START = 9 * 60, SESSION_END = 12 * 60 + 30;
 const toMin = s => { const [h, m] = String(s).split(':').map(Number); return h * 60 + (m || 0); };
 const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -82,7 +48,7 @@ app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/backtest') || req.path.startsWith('/api/auto-configure')) {
+    if (req.path.startsWith('/api/backtest') || req.path.startsWith('/api/auto-configure') || req.path.startsWith('/api/backfill')) {
         req.setTimeout(10 * 60 * 1000);
         res.setTimeout(10 * 60 * 1000);
     }
@@ -248,108 +214,96 @@ async function flushOutbox() {
 async function notify(text) { await getDB().collection('telegram_outbox').insertOne({ text, createdAt: new Date(), attempts: 0, sentAt: null }); flushOutbox().catch(() => {}); }
 app.post('/api/telegram/test', async (req, res, next) => { try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== TSETMC — دریافت ریزدیتا ========================
-const TSETMC_MAX_FAILS_PER_DAY = 50;
-let tsetmcFetchRunning = false;
-
-async function tryFetchTsetmcIntraday(symbol, force) {
-    const db = getDB();
-    const today = todayDateString(getTehranParts());
-
-    if (!force) {
-        const successLog = await db.collection('tsetmc_fetch_log').findOne({ symbol, date: today, status: 'SUCCESS' });
-        if (successLog) return { symbol, status: 'SKIP', reason: 'قبلاً موفق' };
-        const failCount = await db.collection('tsetmc_fetch_log').countDocuments({ symbol, date: today, status: 'FAILED' });
-        if (failCount >= TSETMC_MAX_FAILS_PER_DAY) return { symbol, status: 'SKIP', reason: 'بیش از حد مجاز ناموفق' };
-    }
-
-    const logDoc = { symbol, date: today, createdAt: new Date(), status: 'PENDING', insCode: null, candlesAdded: 0, candlesFetched: 0, trades: 0, error: null };
-
-    try {
-        const list = await Tsetmc.searchInstrument(symbol);
-        const found = list.find(x => x.lVal18AFC === symbol) || list[0];
-        if (!found || !found.insCode) {
-            logDoc.status = 'FAILED';
-            logDoc.error = 'insCode پیدا نشد';
-            await db.collection('tsetmc_fetch_log').insertOne(logDoc);
-            return { symbol, status: 'FAILED', reason: logDoc.error };
-        }
-        logDoc.insCode = String(found.insCode);
-
-        const gregDate = Tsetmc.gregorianString(new Date());
-
-        let trades;
-        try {
-            trades = await Tsetmc.getTradeHistory(found.insCode, gregDate, 1);
-        } catch (e) {
-            logDoc.status = 'FAILED';
-            logDoc.error = 'TradeHistory: ' + e.message;
-            await db.collection('tsetmc_fetch_log').insertOne(logDoc);
-            return { symbol, status: 'FAILED', reason: logDoc.error };
-        }
-
-        if (!trades || !trades.length) {
-            logDoc.status = 'FAILED';
-            logDoc.error = 'TSETMC دیتای معاملات را برنگرداند';
-            await db.collection('tsetmc_fetch_log').insertOne(logDoc);
-            return { symbol, status: 'FAILED', reason: logDoc.error };
-        }
-
-        logDoc.trades = trades.length;
-        const candles = Tsetmc.aggregateTo1m(trades);
-        logDoc.candlesFetched = candles.length;
-
-        let added = 0, updated = 0;
-        for (const c of candles) {
-            const r = await db.collection('candles_base').updateOne(
-                { symbol, time: c.time },
-                {
-                    $set: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume, trades: c.trades, source: 'tsetmc' },
-                    $setOnInsert: { symbol, time: c.time }
-                },
-                { upsert: true }
-            );
-            if (r.upsertedCount) added++;
-            else if (r.modifiedCount) updated++;
-        }
-        logDoc.candlesAdded = added + updated;
-        logDoc.status = 'SUCCESS';
-        await db.collection('tsetmc_fetch_log').insertOne(logDoc);
-        console.log('✅ TSETMC ' + symbol + ': ' + added + ' جدید + ' + updated + ' آپدیت (' + trades.length + ' معامله)');
-        return { symbol, status: 'SUCCESS', added, updated, trades: trades.length };
-    } catch (e) {
-        logDoc.status = 'FAILED';
-        logDoc.error = e.message;
-        await db.collection('tsetmc_fetch_log').insertOne(logDoc);
-        console.error('❌ TSETMC ' + symbol + ':', e.message);
-        return { symbol, status: 'FAILED', reason: e.message };
-    }
-}
-
-async function tryFetchTsetmcAll(force) {
-    if (tsetmcFetchRunning) return { error: 'در حال اجرا' };
-    tsetmcFetchRunning = true;
-    try {
-        const db = getDB();
-        const symbols = await db.collection('monitored_symbols').find({}).toArray();
-        const results = [];
-        for (const s of symbols) {
-            const r = await tryFetchTsetmcIntraday(s.symbol, !!force);
-            results.push(r);
-            await new Promise(resolve => setTimeout(resolve, 800));
-        }
-        return { results };
-    } finally {
-        tsetmcFetchRunning = false;
-    }
-}
-
-app.post('/api/tsetmc/fetch-intraday/:symbol', async (req, res, next) => {
-    try { res.json(await tryFetchTsetmcIntraday(req.params.symbol, true)); } catch (e) { next(e); }
+// ======================== Backfill — مدیریت دریافت دیتای تاریخی ========================
+app.get('/api/backfill/settings', async (req, res, next) => {
+    try { res.json({ values: await Backfill.getSettings() }); } catch (e) { next(e); }
 });
 
-app.post('/api/tsetmc/fetch-all-intraday', async (req, res, next) => {
-    try { res.json(await tryFetchTsetmcAll(true)); } catch (e) { next(e); }
+app.put('/api/backfill/settings', async (req, res, next) => {
+    try { res.json(await Backfill.saveSettings(req.body || {})); } catch (e) { next(e); }
+});
+
+app.get('/api/backfill/jobs', async (req, res, next) => {
+    try {
+        const filter = {};
+        if (req.query.type) filter.type = req.query.type;
+        if (req.query.status) filter.status = req.query.status;
+        res.json({ jobs: await Backfill.listJobs(filter) });
+    } catch (e) { next(e); }
+});
+
+app.get('/api/backfill/jobs/:id', async (req, res, next) => {
+    try {
+        const job = await Backfill.getJob(req.params.id, ObjectId);
+        if (!job) return res.status(404).json({ error: 'Job یافت نشد' });
+        res.json({ job });
+    } catch (e) { next(e); }
+});
+
+app.post('/api/backfill/stock/:symbol', async (req, res, next) => {
+    try {
+        const { months, priority } = req.body || {};
+        res.json(await Backfill.createStockJob(req.params.symbol, { months, priority }));
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/backfill/options/:underlying', async (req, res, next) => {
+    try {
+        const { months, priority } = req.body || {};
+        res.json(await Backfill.createOptionJobs(req.params.underlying, { months, priority }));
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/backfill/jobs/:id/pause', async (req, res, next) => {
+    try { await Backfill.pauseJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
+});
+
+app.post('/api/backfill/jobs/:id/resume', async (req, res, next) => {
+    try { await Backfill.resumeJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
+});
+
+app.post('/api/backfill/jobs/:id/reset', async (req, res, next) => {
+    try { await Backfill.resetJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
+});
+
+app.delete('/api/backfill/jobs/:id', async (req, res, next) => {
+    try { await Backfill.deleteJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
+});
+
+app.put('/api/backfill/jobs/:id/priority', async (req, res, next) => {
+    try {
+        const p = parseFloat(req.body.priority);
+        if (!Number.isFinite(p)) return res.status(400).json({ error: 'priority نامعتبر' });
+        await Backfill.setPriority(req.params.id, p, ObjectId);
+        res.json({ success: true });
+    } catch (e) { next(e); }
+});
+
+app.post('/api/backfill/run-now', async (req, res, next) => {
+    try { res.json(await Backfill.runBackfillTick(true)); } catch (e) { next(e); }
+});
+
+app.get('/api/backfill/stats', async (req, res, next) => {
+    try {
+        const db = getDB();
+        const jobs = await db.collection('tsetmc_backfill').find({}).toArray();
+        const stats = {
+            total: jobs.length,
+            byStatus: { PENDING: 0, IN_PROGRESS: 0, PAUSED: 0, DONE: 0 },
+            byType: { stock: 0, option: 0 },
+            totalDays: 0, doneDays: 0, pendingDays: 0, failedDays: 0
+        };
+        for (const j of jobs) {
+            stats.byStatus[j.status] = (stats.byStatus[j.status] || 0) + 1;
+            stats.byType[j.type] = (stats.byType[j.type] || 0) + 1;
+            stats.totalDays += (j.stats && j.stats.total) || 0;
+            stats.doneDays += (j.stats && j.stats.done) || 0;
+            stats.pendingDays += (j.stats && j.stats.pending) || 0;
+            stats.failedDays += (j.stats && j.stats.failed) || 0;
+        }
+        stats.progressPct = stats.totalDays > 0 ? Math.round(stats.doneDays / stats.totalDays * 100) : 0;
+        res.json(stats);
+    } catch (e) { next(e); }
 });
 
 app.get('/api/tsetmc/fetch-log', async (req, res, next) => {
@@ -359,21 +313,6 @@ app.get('/api/tsetmc/fetch-log', async (req, res, next) => {
         const filter = req.query.symbol ? { symbol: req.query.symbol } : {};
         const logs = await db.collection('tsetmc_fetch_log').find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
         res.json({ logs });
-    } catch (e) { next(e); }
-});
-
-app.get('/api/tsetmc/fetch-status', async (req, res, next) => {
-    try {
-        const db = getDB();
-        const today = todayDateString(getTehranParts());
-        const symbols = await db.collection('monitored_symbols').find({}).toArray();
-        const status = [];
-        for (const s of symbols) {
-            const lastLog = await db.collection('tsetmc_fetch_log').find({ symbol: s.symbol }).sort({ createdAt: -1 }).limit(1).toArray();
-            const successToday = await db.collection('tsetmc_fetch_log').findOne({ symbol: s.symbol, date: today, status: 'SUCCESS' });
-            status.push({ symbol: s.symbol, successToday: !!successToday, last: lastLog[0] || null });
-        }
-        res.json({ today, status });
     } catch (e) { next(e); }
 });
 
@@ -526,6 +465,41 @@ async function backfillDailyFromBase() {
     }
 }
 
+// تبدیل دیتای روزانه به هفتگی/ماهانه/سالانه
+function aggregateDailyForChart(rows, tf) {
+    if (tf === '1d') return rows;
+    const groups = new Map();
+    for (const r of rows) {
+        const d = new Date(r.time * 1000);
+        let key;
+        if (tf === '1w') {
+            const day = d.getUTCDay();
+            const daysFromSat = (day + 1) % 7;
+            const sat = new Date(d.getTime() - daysFromSat * 86400000);
+            key = sat.getUTCFullYear() + '-' + sat.getUTCMonth() + '-' + sat.getUTCDate();
+        } else if (tf === '1M') {
+            key = d.getUTCFullYear() + '-' + d.getUTCMonth();
+        } else {
+            key = '' + d.getUTCFullYear();
+        }
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+    }
+    const result = [];
+    for (const arr of groups.values()) {
+        const first = arr[0], last = arr[arr.length - 1];
+        result.push({
+            time: first.time,
+            open: first.open,
+            high: Math.max.apply(null, arr.map(x => x.high)),
+            low: Math.min.apply(null, arr.map(x => x.low)),
+            close: last.close,
+            volume: arr.reduce((s, x) => s + (x.volume || 0), 0)
+        });
+    }
+    return result.sort((a, b) => a.time - b.time);
+}
+
 app.get('/api/timeframes', (req, res) => res.json(Object.keys(TF)));
 app.get('/api/strategies', (req, res) => {
     const overrides = Settings.getAllStrategyDefaults();
@@ -546,7 +520,6 @@ app.get('/api/chart/:symbol/:timeframe', async (req, res, next) => {
 
         if (isDailyPlus) {
             let daily = await db.collection('candles_daily').find({ symbol }).sort({ time: 1 }).toArray();
-            // اگه کمتر از ۵۰ کندل داریم، از TSETMC بگیر
             if (daily.length < 50) {
                 try {
                     const found = await Tsetmc.searchInstrument(symbol);
@@ -568,26 +541,23 @@ app.get('/api/chart/:symbol/:timeframe', async (req, res, next) => {
             return res.json({ symbol, timeframe, candles, count: candles.length });
         }
 
-        // Intraday
         const candles = await getCandles(symbol, timeframe);
         res.json({ symbol, timeframe, candles, count: candles.length });
     } catch (e) { next(e); }
 });
 
-// 🆕 جستجوی نماد برای نمودار (ترکیب monitored + TSETMC)
+// 🆕 جستجوی نماد برای نمودار
 app.get('/api/chart/search', async (req, res, next) => {
     try {
         const q = (req.query.q || '').trim();
         if (!q) return res.json({ results: [] });
         const results = [];
-        // اول از کش لوکال
         for (const s of symbolsCache) {
             if (s.symbol.includes(q) || (s.name && s.name.includes(q))) {
                 results.push({ symbol: s.symbol, name: s.name, source: 'local' });
                 if (results.length >= 15) break;
             }
         }
-        // اگه کم بود، از TSETMC
         if (results.length < 10) {
             try {
                 const list = await Tsetmc.searchInstrument(q);
@@ -597,7 +567,7 @@ app.get('/api/chart/search', async (req, res, next) => {
                     }
                     if (results.length >= 20) break;
                 }
-            } catch (e) { /* ignore */ }
+            } catch (e) {}
         }
         res.json({ results });
     } catch (e) { next(e); }
@@ -619,7 +589,7 @@ app.get('/api/data-coverage', async (req, res, next) => {
         const monitored = await db.collection('monitored_symbols').find({}).toArray();
         const symbols = [];
         for (const m of monitored) {
-            const row = { symbol: m.symbol, timeframes: {}, optionHistory: 0, optionDaily: 0, requirements: {} };
+            const row = { symbol: m.symbol, timeframes: {}, optionHistory: 0, optionDaily: 0, requirements: {}, backfill: null };
             const tfs = Object.keys(TF).filter(t => t !== '1d');
             for (const tf of tfs) {
                 const count = await db.collection('candles_tf').countDocuments({ symbol: m.symbol, tf });
@@ -633,6 +603,19 @@ app.get('/api/data-coverage', async (req, res, next) => {
             row.timeframes['1d'] = { count: dailyCount, from: dOld[0]?.time || null, to: dNew[0]?.time || null };
             row.optionHistory = await db.collection('option_history').countDocuments({ underlying: Options.norm(m.symbol) });
             row.optionDaily = await db.collection('option_daily').countDocuments({ underlying: Options.norm(m.symbol) });
+
+            // 🆕 اطلاعات backfill
+            const stockJob = await db.collection('tsetmc_backfill').findOne({ type: 'stock', symbol: m.symbol });
+            if (stockJob) {
+                row.backfill = {
+                    status: stockJob.status,
+                    stats: stockJob.stats,
+                    startDate: stockJob.startDate,
+                    endDate: stockJob.endDate,
+                    lookbackMonths: stockJob.lookbackMonths
+                };
+            }
+
             for (const sid of Object.keys(STRATEGIES)) {
                 const def = STRATEGIES[sid];
                 const tf = def.defaultTimeframe;
@@ -690,13 +673,22 @@ app.post('/api/import-daily/:symbol', async (req, res) => {
 app.get('/api/monitored-symbols', async (req, res, next) => {
     try {
         const db = getDB();
-        const [symbols, counts, dcounts] = await Promise.all([
+        const [symbols, counts, dcounts, baseCounts] = await Promise.all([
             db.collection('monitored_symbols').find({}).sort({ addedAt: 1 }).toArray(),
             db.collection('candles_base').aggregate([{ $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray(),
-            db.collection('candles_daily').aggregate([{ $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray()
+            db.collection('candles_daily').aggregate([{ $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray(),
+            db.collection('candles_base').aggregate([{ $match: { source: 'tsetmc-backfill' } }, { $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray()
         ]);
-        const cm = new Map(counts.map(c => [c._id, c.c])), dm = new Map(dcounts.map(c => [c._id, c.c]));
-        res.json(symbols.map(s => ({ ...s, candleCount: cm.get(s.symbol) || 0, dailyCount: dm.get(s.symbol) || 0 })));
+        const cm = new Map(counts.map(c => [c._id, c.c])), dm = new Map(dcounts.map(c => [c._id, c.c])), bm = new Map(baseCounts.map(c => [c._id, c.c]));
+        const jobs = await db.collection('tsetmc_backfill').find({ type: 'stock' }).toArray();
+        const jm = new Map(jobs.map(j => [j.symbol, j]));
+        res.json(symbols.map(s => ({
+            ...s,
+            candleCount: cm.get(s.symbol) || 0,
+            dailyCount: dm.get(s.symbol) || 0,
+            backfilledCandleCount: bm.get(s.symbol) || 0,
+            backfillJob: jm.get(s.symbol) ? { _id: jm.get(s.symbol)._id, status: jm.get(s.symbol).status, stats: jm.get(s.symbol).stats, lookbackMonths: jm.get(s.symbol).lookbackMonths } : null
+        })));
     } catch (e) { next(e); }
 });
 app.post('/api/monitored-symbols', async (req, res, next) => {
@@ -913,7 +905,6 @@ app.post('/api/backtest-compare', async (req, res, next) => {
 });
 
 // ======================== Auto-Configure ========================
-// ✅ v7: آستانه‌ها: ۷ معامله سهم + ۳ معامله آپشن + PF > 1.1
 function scoreStrategyForAuto(res) {
     if (!res || res.error || res.insufficientData) return -Infinity;
     const s = res.stock || {};
@@ -1074,7 +1065,6 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const prev = await stateColl.findOne({ configId });
     const latest = result.signals[result.signals.length - 1]; if (!latest) return;
 
-    // ✅ Warm-up: اولین اجرا سیگنال نمی‌فرستد
     if (!prev) {
         await stateColl.updateOne({ configId }, { $set: {
             ...base, insufficientData: false,
@@ -1093,7 +1083,7 @@ async function evaluateStrategyConfig(config, marketInfo) {
 
     const prevNotified = prev.lastNotifiedTime || 0;
     let last = latest;
-    for (let i = result.signals.length - 1, k = 0; i >= 0 && k < 5; i--, k++) {
+    for (let i = result.signals.length - 1, k = 0; i >= 0 && k < 5; i--, k--) {
         const s = result.signals[i];
         if ((s.signalType === 'BUY' || s.signalType === 'EXIT_LONG') && s.time > prevNotified) { last = s; break; }
     }
@@ -1103,7 +1093,6 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const label = `${config.symbol} | ${def.name} | ${config.timeframe}→${htfTf}`;
     const lastHa = result.ha.find(h => h.time === last.time);
 
-    // ✅ تگ ناقص فقط برای کندل در حال تشکیل
     const tfMin = TF[config.timeframe] || 30;
     const isFormingNow = lastHa && (lastHa.time + tfMin * 60) > (Date.now() / 1000);
     const isIncomplete = isFormingNow && !!(lastHa && lastHa.complete === false);
@@ -1116,7 +1105,6 @@ async function evaluateStrategyConfig(config, marketInfo) {
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
 
-    // ✅ FIX: استفاده از زمان سیگنال (نه زمان فعلی)
     const signalT = getTehranParts(new Date(last.time * 1000));
     const signalMin = signalT.hour * 60 + signalT.minute;
     const inWindow = signalMin >= ENTRY_START && signalMin <= ENTRY_END;
@@ -1257,6 +1245,11 @@ async function ensureIndexes() {
     await db.collection('telegram_outbox').createIndex({ sentAt: 1, createdAt: 1 });
     try { await db.collection('telegram_outbox').dropIndex('sentAt_1'); } catch (e) {}
     try { await db.collection('telegram_outbox').dropIndex('createdAt_1'); } catch (e) {}
+    // ایندکس برای backfill
+    await db.collection('tsetmc_backfill').createIndex({ status: 1, priority: -1, createdAt: 1 });
+    await db.collection('tsetmc_backfill').createIndex({ type: 1, status: 1 });
+    await db.collection('tsetmc_backfill').createIndex({ symbol: 1 });
+    await db.collection('tsetmc_backfill').createIndex({ insCode: 1 });
     await Log.ensureIndexes(db);
 }
 
@@ -1288,6 +1281,7 @@ async function start() {
         archiveStats: async () => [],
         getQuote: (sym) => lastQuotes.get(sym)
     });
+    Backfill.init({ getDB, notify });
     await Options.ensureIndexes();
     await cleanOrphanConfigs();
     await backfillDailyFromBase();
@@ -1325,14 +1319,17 @@ async function start() {
     cron.schedule('35 12 * * 6,0,1,2,3', () => { if (holidayDate !== todayDateString(getTehranParts())) sendDailySummary().catch(() => {}); }, { timezone: 'Asia/Tehran' });
     cron.schedule('0 10 * * 4', () => { sendWeeklyBackup().catch(e => console.error('❌ بکاپ:', e.message)); }, { timezone: 'Asia/Tehran' });
 
-    // 🆕 TSETMC — هر ۶۰ دقیقه تلاش برای دریافت ریزدیتا
-    cron.schedule('0 * * * *', async () => {
+    // 🆕 Backfill — هر ۲۰ دقیقه یک tick
+    cron.schedule('*/20 * * * *', async () => {
         try {
             const t = getTehranParts();
             const m = minuteOfDay(t);
             if (m < 540 || m > 1320) return;
-            await tryFetchTsetmcAll(false);
-        } catch (e) { console.error('❌ Cron TSETMC:', e.message); }
+            const r = await Backfill.runBackfillTick(false);
+            if (r && !r.idle && !r.busy) {
+                console.log('🔄 Backfill: ' + r.symbol + ' (' + r.type + ') | batch=' + r.batch + ' | پیشرفت ' + r.stats.done + '/' + r.stats.total + (r.done ? ' ✅ تکمیل' : ''));
+            }
+        } catch (e) { console.error('❌ Cron Backfill:', e.message); }
     }, { timezone: 'Asia/Tehran' });
 
     const server = app.listen(PORT, () => console.log(`🚀 ${SERVER_VERSION} | port ${PORT} | keys ${API_KEYS.length}`));
