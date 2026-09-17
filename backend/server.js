@@ -31,6 +31,46 @@ const TELEGRAM_API_BASE = process.env.TELEGRAM_API_BASE || 'https://api.telegram
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 const TF = Object.fromEntries(Object.entries(Strat.TIMEFRAME_MINUTES).filter(([k]) => k !== '4h'));
+
+// 🆕 تایم‌فریم‌های اضافی برای نمودار (aggregate از روزانه)
+const CHART_EXTRA_TF = { '1w': true, '1M': true, '1Y': true };
+const ALL_CHART_TF = { ...TF, '1w': 10080, '1M': 43200, '1Y': 525600 };
+
+// تبدیل دیتای روزانه به هفتگی/ماهانه/سالانه (تقویم UTC)
+function aggregateDailyForChart(rows, tf) {
+    if (tf === '1d') return rows;
+    const groups = new Map();
+    for (const r of rows) {
+        const d = new Date(r.time * 1000);
+        let key;
+        if (tf === '1w') {
+            // هفته از شنبه شروع می‌شه
+            const day = d.getUTCDay(); // 0=Sun..6=Sat
+            const daysFromSat = (day + 1) % 7;
+            const sat = new Date(d.getTime() - daysFromSat * 86400000);
+            key = sat.getUTCFullYear() + '-' + sat.getUTCMonth() + '-' + sat.getUTCDate();
+        } else if (tf === '1M') {
+            key = d.getUTCFullYear() + '-' + d.getUTCMonth();
+        } else {
+            key = '' + d.getUTCFullYear();
+        }
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+    }
+    const result = [];
+    for (const arr of groups.values()) {
+        const first = arr[0], last = arr[arr.length - 1];
+        result.push({
+            time: first.time,
+            open: first.open,
+            high: Math.max.apply(null, arr.map(x => x.high)),
+            low: Math.min.apply(null, arr.map(x => x.low)),
+            close: last.close,
+            volume: arr.reduce((s, x) => s + (x.volume || 0), 0)
+        });
+    }
+    return result.sort((a, b) => a.time - b.time);
+}
 const SESSION_START = 9 * 60, SESSION_END = 12 * 60 + 30;
 const toMin = s => { const [h, m] = String(s).split(':').map(Number); return h * 60 + (m || 0); };
 const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -494,6 +534,73 @@ app.get('/api/strategies', (req, res) => {
 app.get('/api/candles/:symbol/:timeframe', async (req, res, next) => {
     const { symbol, timeframe } = req.params; if (!TF[timeframe]) return res.status(400).json({ error: 'تایم‌فریم نامعتبر' });
     try { res.json(await getCandles(symbol, timeframe)); } catch (e) { next(e); }
+});
+
+// 🆕 نمودار مستقل — برای هر نماد (حتی پایش‌نشده)
+app.get('/api/chart/:symbol/:timeframe', async (req, res, next) => {
+    const { symbol, timeframe } = req.params;
+    if (!ALL_CHART_TF[timeframe]) return res.status(400).json({ error: 'تایم‌فریم نامعتبر' });
+    try {
+        const db = getDB();
+        const isDailyPlus = ['1d', '1w', '1M', '1Y'].includes(timeframe);
+
+        if (isDailyPlus) {
+            let daily = await db.collection('candles_daily').find({ symbol }).sort({ time: 1 }).toArray();
+            // اگه کمتر از ۵۰ کندل داریم، از TSETMC بگیر
+            if (daily.length < 50) {
+                try {
+                    const found = await Tsetmc.searchInstrument(symbol);
+                    if (found && found.length) {
+                        const hist = await Tsetmc.getDailyHistory(found[0].insCode);
+                        for (const r of hist) {
+                            await db.collection('candles_daily').updateOne(
+                                { symbol, time: r.time },
+                                { $setOnInsert: { symbol, time: r.time, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume, trades: r.trades, source: 'tsetmc-chart' } },
+                                { upsert: true }
+                            );
+                        }
+                        daily = await db.collection('candles_daily').find({ symbol }).sort({ time: 1 }).toArray();
+                    }
+                } catch (e) { console.error('❌ chart fetch:', e.message); }
+            }
+            const rows = daily.map(c => ({ time: Math.floor(new Date(c.time).getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }));
+            const candles = aggregateDailyForChart(rows, timeframe);
+            return res.json({ symbol, timeframe, candles, count: candles.length });
+        }
+
+        // Intraday
+        const candles = await getCandles(symbol, timeframe);
+        res.json({ symbol, timeframe, candles, count: candles.length });
+    } catch (e) { next(e); }
+});
+
+// 🆕 جستجوی نماد برای نمودار (ترکیب monitored + TSETMC)
+app.get('/api/chart/search', async (req, res, next) => {
+    try {
+        const q = (req.query.q || '').trim();
+        if (!q) return res.json({ results: [] });
+        const results = [];
+        // اول از کش لوکال
+        for (const s of symbolsCache) {
+            if (s.symbol.includes(q) || (s.name && s.name.includes(q))) {
+                results.push({ symbol: s.symbol, name: s.name, source: 'local' });
+                if (results.length >= 15) break;
+            }
+        }
+        // اگه کم بود، از TSETMC
+        if (results.length < 10) {
+            try {
+                const list = await Tsetmc.searchInstrument(q);
+                for (const x of list) {
+                    if (!results.find(r => r.symbol === x.lVal18AFC)) {
+                        results.push({ symbol: x.lVal18AFC, name: x.lVal30, source: 'tsetmc' });
+                    }
+                    if (results.length >= 20) break;
+                }
+            } catch (e) { /* ignore */ }
+        }
+        res.json({ results });
+    } catch (e) { next(e); }
 });
 app.get('/api/chart-data/:configId', async (req, res, next) => {
     try {
@@ -1223,7 +1330,6 @@ async function start() {
         try {
             const t = getTehranParts();
             const m = minuteOfDay(t);
-            // فقط بین 9:00 تا 22:00 تهران
             if (m < 540 || m > 1320) return;
             await tryFetchTsetmcAll(false);
         } catch (e) { console.error('❌ Cron TSETMC:', e.message); }

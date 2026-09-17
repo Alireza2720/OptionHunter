@@ -366,7 +366,51 @@
             <div style="margin-top:6px;"><button class="btn" onclick="addStrategyConfig()">ایجاد استراتژی</button></div>
         </div>
     </div>
+    <div class="card" id="cardChart">
+        <h2>
+            <span class="h2-title">📊 نمودار <span id="chartSymbolLabel" style="color:var(--text-dim); font-weight:400;"></span></span>
+            <button class="btn small outline" onclick="resetZoom()">فیت</button>
+        </h2>
 
+        <div class="form-row" style="margin-top:12px; align-items:end;">
+            <div class="field" style="flex:1; min-width:180px; position:relative;">
+                <label>نماد</label>
+                <input type="text" id="chartSymbolInput" placeholder="مثلاً خودرو" autocomplete="off">
+                <div class="autocomplete-list" id="chartSymbolAutocomplete"></div>
+            </div>
+            <div class="field">
+                <label>تایم‌فریم</label>
+                <select id="chartTfSelect">
+                    <option value="1m">۱ دقیقه</option>
+                    <option value="3m">۳ دقیقه</option>
+                    <option value="5m">۵ دقیقه</option>
+                    <option value="15m">۱۵ دقیقه</option>
+                    <option value="30m">۳۰ دقیقه</option>
+                    <option value="1h">۱ ساعت</option>
+                    <option value="1d" selected>روزانه</option>
+                    <option value="1w">هفتگی</option>
+                    <option value="1M">ماهانه</option>
+                    <option value="1Y">سالانه</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>نوع کندل</label>
+                <select id="chartCandleType">
+                    <option value="simple">ساده</option>
+                    <option value="heikin">هیکن آشی</option>
+                </select>
+            </div>
+            <button class="btn" onclick="loadChart()">نمایش</button>
+        </div>
+
+        <div class="msg-warn" id="chartMsg" style="display:none;"></div>
+        <div class="legend" id="chartLegend"></div>
+        <div id="priceChartWrapper"><div class="chart-placeholder">نمادی انتخاب کنید و «نمایش» رو بزنید.</div></div>
+        <div id="panelChartWrapper" style="display:none; margin-top:18px;">
+            <div class="chart-title" id="panelTitle"></div>
+            <div id="panelChart" style="height:180px;"></div>
+        </div>
+    </div>
     <div class="card collapsible open" id="cardConfigs">
         <h2 onclick="toggleCard('cardConfigs')">
             <span class="h2-title">لیست پایش فعال <span class="count-pill" id="configsCountLabel">0</span></span>
@@ -391,17 +435,6 @@
                 <tbody id="configsBody"><tr class="empty-row"><td colspan="10">تنظیمی ایجاد نشده است</td></tr></tbody>
             </table>
             </div>
-        </div>
-    </div>
-
-    <div class="card">
-        <h2>نمودار <span id="chartSymbolLabel" style="color:var(--text-dim); font-weight:400;"></span><button class="btn small outline" onclick="resetZoom()">فیت</button></h2>
-        <div class="msg-warn" id="insufficientDataMsg"></div>
-        <div class="legend" id="chartLegend"></div>
-        <div id="priceChartWrapper"><div class="chart-placeholder">برای مشاهده، در جدول بالا روی «نمودار» کلیک کنید.</div></div>
-        <div id="panelChartWrapper" style="display:none; margin-top:18px;">
-            <div class="chart-title" id="panelTitle"></div>
-            <div id="panelChart" style="height:180px;"></div>
         </div>
     </div>
 
@@ -1027,6 +1060,86 @@ function buildCharts(meta) {
 }
 function resetZoom() { priceChart && priceChart.timeScale().fitContent(); panelChart && panelChart.timeScale().fitContent(); }
 const seriesData = (signals, k) => signals.filter(s => s.indicators && typeof s.indicators[k] === 'number' && !Number.isNaN(s.indicators[k])).map(s => ({ time:s.time, value:s.indicators[k] }));
+
+// ======================== نمودار مستقل ========================
+let chartSearchTimeout = null;
+document.getElementById('chartSymbolInput').addEventListener('input', e => {
+    const q = e.target.value.trim();
+    clearTimeout(chartSearchTimeout);
+    const list = document.getElementById('chartSymbolAutocomplete');
+    if (!q) { list.style.display = 'none'; return; }
+    chartSearchTimeout = setTimeout(async () => {
+        try {
+            const r = await apiFetch(`${BACKEND_URL}/api/chart/search?q=${encodeURIComponent(q)}`, {}, 0);
+            if (!r.results || !r.results.length) { list.style.display = 'none'; return; }
+            list.innerHTML = r.results.map(x => `<div onclick="selectChartSymbol('${esc(x.symbol)}')">${esc(x.symbol)} <small>${esc(x.name || '')}</small></div>`).join('');
+            list.style.display = 'block';
+        } catch (e) { list.style.display = 'none'; }
+    }, 300);
+});
+
+function selectChartSymbol(s) {
+    document.getElementById('chartSymbolInput').value = s;
+    document.getElementById('chartSymbolAutocomplete').style.display = 'none';
+    loadChart();
+}
+
+async function loadChart() {
+    const symbol = document.getElementById('chartSymbolInput').value.trim();
+    const tf = document.getElementById('chartTfSelect').value;
+    const candleType = document.getElementById('chartCandleType').value;
+    if (!symbol) return showAlert('نماد رو وارد کنید.', 'warn');
+
+    document.getElementById('chartMsg').style.display = 'block';
+    document.getElementById('chartMsg').textContent = '⏳ در حال دریافت دیتا...';
+    document.getElementById('chartSymbolLabel').textContent = `- ${symbol} (${TF_LABELS[tf] || tf})`;
+
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/chart/${encodeURIComponent(symbol)}/${tf}`, {}, 0);
+        if (!r.candles || r.candles.length < 2) {
+            document.getElementById('chartMsg').textContent = `دیتایی یافت نشد (تعداد: ${r.candles ? r.candles.length : 0})`;
+            document.getElementById('priceChartWrapper').innerHTML = '<div class="chart-placeholder">دیتایی برای این نماد و تایم‌فریم یافت نشد.</div>';
+            return;
+        }
+        document.getElementById('chartMsg').style.display = 'none';
+        renderStandaloneChart(r.candles, candleType, `${symbol} — ${TF_LABELS[tf] || tf}`, r.count);
+    } catch (e) {
+        document.getElementById('chartMsg').textContent = 'خطا: ' + e.message;
+    }
+}
+
+function renderStandaloneChart(candles, candleType, title, count) {
+    destroyCharts();
+    document.getElementById('priceChartWrapper').innerHTML = '<div id="priceChart" style="height:500px;"></div>';
+    const pc = document.getElementById('priceChart');
+    priceChart = LightweightCharts.createChart(pc, chartOpts(pc, 500));
+    candleSeries = priceChart.addCandlestickSeries({ upColor:'#2ea88a', downColor:'#d9534f', borderVisible:false, wickUpColor:'#2ea88a', wickDownColor:'#d9534f', priceLineVisible:false, lastValueVisible:false });
+
+    // تبدیل به Heikin Ashi اگه لازمه
+    let display = candles.slice();
+    if (candleType === 'heikin') {
+        display = [];
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i];
+            const haClose = (c.open + c.high + c.low + c.close) / 4;
+            const haOpen = i === 0 ? (c.open + c.close) / 2 : (display[i-1].open + display[i-1].close) / 2;
+            const haHigh = Math.max(c.high, haOpen, haClose);
+            const haLow = Math.min(c.low, haOpen, haClose);
+            display.push({ time: c.time, open: haOpen, high: haHigh, low: haLow, close: haClose });
+        }
+    }
+    candleSeries.setData(display);
+
+    document.getElementById('chartLegend').innerHTML = `<span>تعداد کندل: ${count || candles.length}</span>`;
+
+    panelChart = null;
+    document.getElementById('panelChartWrapper').style.display = 'none';
+
+    requestAnimationFrame(() => {
+        priceChart.applyOptions({ width: pc.clientWidth });
+        priceChart.timeScale().fitContent();
+    });
+}
 
 async function viewChart(id) {
     if (!window.TradingStrategies) return showAlert('کتابخانه بارگذاری نشده.');
