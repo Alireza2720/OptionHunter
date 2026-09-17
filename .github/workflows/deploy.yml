@@ -16,10 +16,13 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
+          command_timeout: 10m
           script: |
             set -e
             cd ~/apps/OptionHunter
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd -e ecosystem.config.js -e package-lock.json -e node_modules -e .env -e logs
             npm install --prefix .
             pm2 startOrRestart ecosystem.config.js --update-env
             pm2 save

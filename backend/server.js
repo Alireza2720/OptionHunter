@@ -27,6 +27,7 @@ const HISTORY_PER_KEY_LIMIT = 10;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_API_BASE = process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 const TF = Object.fromEntries(Object.entries(Strat.TIMEFRAME_MINUTES).filter(([k]) => k !== '4h'));
@@ -189,7 +190,7 @@ async function refreshSymbolData(symbol) {
 
 async function telegramSend(text) {
     if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('تلگرام تنظیم نشده است');
-    const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text }), timeout: 15000 });
+    const r = await fetch(`${TELEGRAM_API_BASE}/bot${TELEGRAM_TOKEN}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text }), timeout: 15000 });
     const d = await r.json(); if (!d.ok) throw new Error(d.description || 'خطای تلگرام');
 }
 let flushing = false;
@@ -374,7 +375,7 @@ async function telegramSendBackup(filename, jsonObj) {
     form.append('chat_id', TELEGRAM_CHAT_ID);
     form.append('caption', `💾 بکاپ (${todayDateString(getTehranParts())})`);
     form.append('document', blob, filename);
-    const r = await globalThis.fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument`, { method: 'POST', body: form });
+    const r = await globalThis.fetch(`${TELEGRAM_API_BASE}/bot${TELEGRAM_TOKEN}/sendDocument`, { method: 'POST', body: form });
     const d = await r.json(); if (!d.ok) throw new Error(d.description || 'خطای بکاپ');
 }
 async function sendWeeklyBackup() {
