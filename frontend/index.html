@@ -342,6 +342,7 @@
                     <div class="autocomplete-list" id="autocompleteList"></div>
                 </div>
                 <button class="btn" onclick="addMonitoredSymbol()">افزودن</button>
+                <button class="btn outline" id="btnFetchAll" onclick="fetchTsetmcAll(this)">📥 دریافت ریزدیتا برای همه</button>
             </div>
             <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div>
         </div>
@@ -725,6 +726,7 @@ function renderMonitoredSymbols() {
                 <button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button>
                 <button class="sym-btn" onclick="viewCoverage('${esc(s.symbol)}')">📊 پوشش</button>
                 <button class="sym-btn" onclick="importDaily('${esc(s.symbol)}')">تاریخچه روزانه</button>
+                <button class="sym-btn" onclick="fetchTsetmcIntraday('${esc(s.symbol)}', this)">📥 دریافت ریزدیتا</button>
                 <button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">×</button>
             </div>
         </div>`;
@@ -742,6 +744,44 @@ async function importDaily(sym) {
         await Promise.all([loadMonitoredSymbols(), loadConfigs()]);
     } catch (e) { showAlert('خطا: ' + e.message, 'error', 10000); }
     finally { hideLoader(); }
+}
+
+async function fetchTsetmcIntraday(symbol, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ دریافت...'; }
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/tsetmc/fetch-intraday/${encodeURIComponent(symbol)}`, { method: 'POST' }, 0);
+        if (r.status === 'SUCCESS') {
+            showAlert(`✅ ${symbol}: ${r.added} جدید + ${r.updated} به‌روزرسانی (${r.trades} معامله)`, 'success', 6000);
+        } else if (r.status === 'SKIP') {
+            showAlert(`ℹ️ ${symbol}: ${r.reason}`, 'info', 4000);
+        } else {
+            showAlert(`⚠️ ${symbol}: ${r.reason || 'خطا'}`, 'warn', 6000);
+        }
+        await loadMonitoredSymbols();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error', 8000);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📥 دریافت ریزدیتا'; }
+    }
+}
+
+async function fetchTsetmcAll(btn) {
+    if (!confirm('برای همه نمادها تلاش برای دریافت ریزدیتا از TSETMC؟\nممکنه چند دقیقه طول بکشه.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ در حال دریافت...'; }
+    showLoader('دریافت ریزدیتا از TSETMC...', 'ممکنه ۲ تا ۵ دقیقه طول بکشه');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/tsetmc/fetch-all-intraday`, { method: 'POST' }, 0);
+        const success = (r.results || []).filter(x => x.status === 'SUCCESS').length;
+        const failed = (r.results || []).filter(x => x.status === 'FAILED').length;
+        const skipped = (r.results || []).filter(x => x.status === 'SKIP').length;
+        showAlert(`✅ موفق: ${success} | ❌ ناموفق: ${failed} | ⏭️ رد‌شده: ${skipped}`, 'info', 10000);
+        await loadMonitoredSymbols();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error', 10000);
+    } finally {
+        hideLoader();
+        if (btn) { btn.disabled = false; btn.textContent = '📥 دریافت ریزدیتا برای همه'; }
+    }
 }
 
 async function loadTimeframes() {

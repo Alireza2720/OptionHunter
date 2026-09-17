@@ -9,6 +9,7 @@ const { connectDB, getDB } = require('./db');
 const Strat = require('./strategies.js');
 const { STRATEGIES, aggregateCandles, getRequiredCandles } = Strat;
 const Options = require('./option.js');
+const Tsetmc = require('./tsetmc.js');
 const Log = require('./log.js');
 const Settings = require('./settings.js');
 Log.patchConsole();
@@ -205,6 +206,135 @@ async function flushOutbox() {
 }
 async function notify(text) { await getDB().collection('telegram_outbox').insertOne({ text, createdAt: new Date(), attempts: 0, sentAt: null }); flushOutbox().catch(() => {}); }
 app.post('/api/telegram/test', async (req, res, next) => { try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); } });
+
+// ======================== TSETMC — دریافت ریزدیتا ========================
+const TSETMC_MAX_FAILS_PER_DAY = 50;
+let tsetmcFetchRunning = false;
+
+async function tryFetchTsetmcIntraday(symbol, force) {
+    const db = getDB();
+    const today = todayDateString(getTehranParts());
+
+    if (!force) {
+        const successLog = await db.collection('tsetmc_fetch_log').findOne({ symbol, date: today, status: 'SUCCESS' });
+        if (successLog) return { symbol, status: 'SKIP', reason: 'قبلاً موفق' };
+        const failCount = await db.collection('tsetmc_fetch_log').countDocuments({ symbol, date: today, status: 'FAILED' });
+        if (failCount >= TSETMC_MAX_FAILS_PER_DAY) return { symbol, status: 'SKIP', reason: 'بیش از حد مجاز ناموفق' };
+    }
+
+    const logDoc = { symbol, date: today, createdAt: new Date(), status: 'PENDING', insCode: null, candlesAdded: 0, candlesFetched: 0, trades: 0, error: null };
+
+    try {
+        const list = await Tsetmc.searchInstrument(symbol);
+        const found = list.find(x => x.lVal18AFC === symbol) || list[0];
+        if (!found || !found.insCode) {
+            logDoc.status = 'FAILED';
+            logDoc.error = 'insCode پیدا نشد';
+            await db.collection('tsetmc_fetch_log').insertOne(logDoc);
+            return { symbol, status: 'FAILED', reason: logDoc.error };
+        }
+        logDoc.insCode = String(found.insCode);
+
+        const gregDate = Tsetmc.gregorianString(new Date());
+
+        let trades;
+        try {
+            trades = await Tsetmc.getTradeHistory(found.insCode, gregDate, 1);
+        } catch (e) {
+            logDoc.status = 'FAILED';
+            logDoc.error = 'TradeHistory: ' + e.message;
+            await db.collection('tsetmc_fetch_log').insertOne(logDoc);
+            return { symbol, status: 'FAILED', reason: logDoc.error };
+        }
+
+        if (!trades || !trades.length) {
+            logDoc.status = 'FAILED';
+            logDoc.error = 'TSETMC دیتای معاملات را برنگرداند';
+            await db.collection('tsetmc_fetch_log').insertOne(logDoc);
+            return { symbol, status: 'FAILED', reason: logDoc.error };
+        }
+
+        logDoc.trades = trades.length;
+        const candles = Tsetmc.aggregateTo1m(trades);
+        logDoc.candlesFetched = candles.length;
+
+        let added = 0, updated = 0;
+        for (const c of candles) {
+            const r = await db.collection('candles_base').updateOne(
+                { symbol, time: c.time },
+                {
+                    $set: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume, trades: c.trades, source: 'tsetmc' },
+                    $setOnInsert: { symbol, time: c.time }
+                },
+                { upsert: true }
+            );
+            if (r.upsertedCount) added++;
+            else if (r.modifiedCount) updated++;
+        }
+        logDoc.candlesAdded = added + updated;
+        logDoc.status = 'SUCCESS';
+        await db.collection('tsetmc_fetch_log').insertOne(logDoc);
+        console.log('✅ TSETMC ' + symbol + ': ' + added + ' جدید + ' + updated + ' آپدیت (' + trades.length + ' معامله)');
+        return { symbol, status: 'SUCCESS', added, updated, trades: trades.length };
+    } catch (e) {
+        logDoc.status = 'FAILED';
+        logDoc.error = e.message;
+        await db.collection('tsetmc_fetch_log').insertOne(logDoc);
+        console.error('❌ TSETMC ' + symbol + ':', e.message);
+        return { symbol, status: 'FAILED', reason: e.message };
+    }
+}
+
+async function tryFetchTsetmcAll(force) {
+    if (tsetmcFetchRunning) return { error: 'در حال اجرا' };
+    tsetmcFetchRunning = true;
+    try {
+        const db = getDB();
+        const symbols = await db.collection('monitored_symbols').find({}).toArray();
+        const results = [];
+        for (const s of symbols) {
+            const r = await tryFetchTsetmcIntraday(s.symbol, !!force);
+            results.push(r);
+            await new Promise(resolve => setTimeout(resolve, 800));
+        }
+        return { results };
+    } finally {
+        tsetmcFetchRunning = false;
+    }
+}
+
+app.post('/api/tsetmc/fetch-intraday/:symbol', async (req, res, next) => {
+    try { res.json(await tryFetchTsetmcIntraday(req.params.symbol, true)); } catch (e) { next(e); }
+});
+
+app.post('/api/tsetmc/fetch-all-intraday', async (req, res, next) => {
+    try { res.json(await tryFetchTsetmcAll(true)); } catch (e) { next(e); }
+});
+
+app.get('/api/tsetmc/fetch-log', async (req, res, next) => {
+    try {
+        const db = getDB();
+        const limit = Math.min(+req.query.limit || 100, 500);
+        const filter = req.query.symbol ? { symbol: req.query.symbol } : {};
+        const logs = await db.collection('tsetmc_fetch_log').find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
+        res.json({ logs });
+    } catch (e) { next(e); }
+});
+
+app.get('/api/tsetmc/fetch-status', async (req, res, next) => {
+    try {
+        const db = getDB();
+        const today = todayDateString(getTehranParts());
+        const symbols = await db.collection('monitored_symbols').find({}).toArray();
+        const status = [];
+        for (const s of symbols) {
+            const lastLog = await db.collection('tsetmc_fetch_log').find({ symbol: s.symbol }).sort({ createdAt: -1 }).limit(1).toArray();
+            const successToday = await db.collection('tsetmc_fetch_log').findOne({ symbol: s.symbol, date: today, status: 'SUCCESS' });
+            status.push({ symbol: s.symbol, successToday: !!successToday, last: lastLog[0] || null });
+        }
+        res.json({ today, status });
+    } catch (e) { next(e); }
+});
 
 const health = { consecutiveFailures: 0, alerted: false, lastError: null, lastTickAt: null };
 async function bumpDayStat(field, n = 1) {
@@ -1086,6 +1216,17 @@ async function start() {
 
     cron.schedule('35 12 * * 6,0,1,2,3', () => { if (holidayDate !== todayDateString(getTehranParts())) sendDailySummary().catch(() => {}); }, { timezone: 'Asia/Tehran' });
     cron.schedule('0 10 * * 4', () => { sendWeeklyBackup().catch(e => console.error('❌ بکاپ:', e.message)); }, { timezone: 'Asia/Tehran' });
+
+    // 🆕 TSETMC — هر ۶۰ دقیقه تلاش برای دریافت ریزدیتا
+    cron.schedule('0 * * * *', async () => {
+        try {
+            const t = getTehranParts();
+            const m = minuteOfDay(t);
+            // فقط بین 9:00 تا 22:00 تهران
+            if (m < 540 || m > 1320) return;
+            await tryFetchTsetmcAll(false);
+        } catch (e) { console.error('❌ Cron TSETMC:', e.message); }
+    }, { timezone: 'Asia/Tehran' });
 
     const server = app.listen(PORT, () => console.log(`🚀 ${SERVER_VERSION} | port ${PORT} | keys ${API_KEYS.length}`));
     server.keepAliveTimeout = 10 * 60 * 1000;

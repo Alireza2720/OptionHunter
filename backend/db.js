@@ -29,6 +29,11 @@ async function ensureIndexes(database) {
     await database.collection('option_history').createIndex({ underlying: 1, time: 1 });
     await database.collection('option_history').createIndex({ symbol: 1, time: 1 });
 
+    // 🆕 لاگ تلاش‌های دریافت ریزدیتا از TSETMC
+    await database.collection('tsetmc_fetch_log').createIndex({ symbol: 1, date: 1 });
+    await database.collection('tsetmc_fetch_log').createIndex({ createdAt: -1 });
+    await database.collection('tsetmc_fetch_log').createIndex({ symbol: 1, date: 1, status: 1 });
+
     console.log('✅ ایندکس‌های دیتابیس بررسی/ساخته شدند.');
 }
 
