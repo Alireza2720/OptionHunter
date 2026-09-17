@@ -403,6 +403,16 @@
             <button class="btn" onclick="loadChart()">نمایش</button>
         </div>
 
+        <div class="chart-indicators" style="display:flex; gap:14px; flex-wrap:wrap; padding:10px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin-bottom:12px; font-size:12.5px; align-items:center;">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_ma" onchange="loadChart()" checked> MA <input type="number" id="ma_period" value="20" min="2" style="width:55px; padding:3px 6px;" onchange="loadChart()"></label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_ema" onchange="loadChart()"> EMA <input type="number" id="ema_period" value="50" min="2" style="width:55px; padding:3px 6px;" onchange="loadChart()"></label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_bb" onchange="loadChart()"> BB <input type="number" id="bb_period" value="20" min="2" style="width:50px; padding:3px 6px;" onchange="loadChart()"> <input type="number" id="bb_std" value="2" step="0.5" min="0.5" style="width:45px; padding:3px 6px;" onchange="loadChart()"></label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_ichimoku" onchange="loadChart()"> Ichimoku</label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_vol" onchange="loadChart()" checked> Volume</label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_rsi" onchange="loadChart()"> RSI <input type="number" id="rsi_period" value="14" min="2" style="width:50px; padding:3px 6px;" onchange="loadChart()"></label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_macd" onchange="loadChart()"> MACD <input type="number" id="macd_fast" value="12" min="2" style="width:45px; padding:3px 6px;" onchange="loadChart()"> <input type="number" id="macd_slow" value="26" min="2" style="width:45px; padding:3px 6px;" onchange="loadChart()"> <input type="number" id="macd_signal" value="9" min="2" style="width:45px; padding:3px 6px;" onchange="loadChart()"></label>
+        </div>
+
         <div class="msg-warn" id="chartMsg" style="display:none;"></div>
         <div class="legend" id="chartLegend"></div>
         <div id="priceChartWrapper"><div class="chart-placeholder">نمادی انتخاب کنید و «نمایش» رو بزنید.</div></div>
@@ -1110,12 +1120,18 @@ async function loadChart() {
 
 function renderStandaloneChart(candles, candleType, title, count) {
     destroyCharts();
-    document.getElementById('priceChartWrapper').innerHTML = '<div id="priceChart" style="height:500px;"></div>';
-    const pc = document.getElementById('priceChart');
-    priceChart = LightweightCharts.createChart(pc, chartOpts(pc, 500));
+    const pc = document.getElementById('priceChartWrapper');
+    pc.innerHTML = '<div id="priceChart" style="height:400px;"></div>'
+        + '<div id="volumeChart" style="height:100px; margin-top:6px; display:none;"></div>'
+        + '<div id="rsiChart" style="height:120px; margin-top:6px; display:none;"></div>'
+        + '<div id="macdChart" style="height:140px; margin-top:6px; display:none;"></div>';
+
+    // ---- main chart ----
+    const mainEl = document.getElementById('priceChart');
+    priceChart = LightweightCharts.createChart(mainEl, chartOpts(mainEl, 400));
     candleSeries = priceChart.addCandlestickSeries({ upColor:'#2ea88a', downColor:'#d9534f', borderVisible:false, wickUpColor:'#2ea88a', wickDownColor:'#d9534f', priceLineVisible:false, lastValueVisible:false });
 
-    // تبدیل به Heikin Ashi اگه لازمه
+    // Heikin Ashi
     let display = candles.slice();
     if (candleType === 'heikin') {
         display = [];
@@ -1123,22 +1139,142 @@ function renderStandaloneChart(candles, candleType, title, count) {
             const c = candles[i];
             const haClose = (c.open + c.high + c.low + c.close) / 4;
             const haOpen = i === 0 ? (c.open + c.close) / 2 : (display[i-1].open + display[i-1].close) / 2;
-            const haHigh = Math.max(c.high, haOpen, haClose);
-            const haLow = Math.min(c.low, haOpen, haClose);
-            display.push({ time: c.time, open: haOpen, high: haHigh, low: haLow, close: haClose });
+            display.push({ time: c.time, open: haOpen, high: Math.max(c.high, haOpen, haClose), low: Math.min(c.low, haOpen, haClose), close: haClose });
         }
     }
     candleSeries.setData(display);
 
-    document.getElementById('chartLegend').innerHTML = `<span>تعداد کندل: ${count || candles.length}</span>`;
+    const closes = candles.map(c => c.close);
+    const S = LightweightCharts;
+    const legendItems = [`<span>کندل: ${count || candles.length}</span>`];
 
-    panelChart = null;
-    document.getElementById('panelChartWrapper').style.display = 'none';
+    // ---- Overlays ----
+    if (document.getElementById('ind_ma').checked) {
+        const p = +document.getElementById('ma_period').value || 20;
+        const ma = [];
+        for (let i = p - 1; i < closes.length; i++) {
+            const avg = closes.slice(i - p + 1, i + 1).reduce((a,b)=>a+b,0) / p;
+            ma.push({ time: candles[i].time, value: avg });
+        }
+        priceChart.addLineSeries({ color:'#3d7dd8', lineWidth:2, priceLineVisible:false, lastValueVisible:false, title:'MA' }).setData(ma);
+        legendItems.push('<span style="color:#3d7dd8">MA(' + p + ')</span>');
+    }
+    if (document.getElementById('ind_ema').checked) {
+        const p = +document.getElementById('ema_period').value || 50;
+        const ema = TradingStrategies.calculateEMA(closes, p);
+        const data = [];
+        for (let i = 0; i < ema.length; i++) if (ema[i] !== null) data.push({ time: candles[i].time, value: ema[i] });
+        priceChart.addLineSeries({ color:'#c9973d', lineWidth:2, priceLineVisible:false, lastValueVisible:false }).setData(data);
+        legendItems.push('<span style="color:#c9973d">EMA(' + p + ')</span>');
+    }
+    if (document.getElementById('ind_bb').checked) {
+        const p = +document.getElementById('bb_period').value || 20;
+        const std = +document.getElementById('bb_std').value || 2;
+        const bb = TradingStrategies.calculateBollingerBands(closes, p, std);
+        const up = [], mid = [], low = [];
+        for (let i = 0; i < bb.upper.length; i++) {
+            if (bb.upper[i] !== null) {
+                up.push({ time: candles[i].time, value: bb.upper[i] });
+                mid.push({ time: candles[i].time, value: bb.middle[i] });
+                low.push({ time: candles[i].time, value: bb.lower[i] });
+            }
+        }
+        priceChart.addLineSeries({ color:'#7d8590', lineWidth:1, priceLineVisible:false, lastValueVisible:false, lineStyle:2 }).setData(up);
+        priceChart.addLineSeries({ color:'#7d8590', lineWidth:1, priceLineVisible:false, lastValueVisible:false }).setData(mid);
+        priceChart.addLineSeries({ color:'#7d8590', lineWidth:1, priceLineVisible:false, lastValueVisible:false, lineStyle:2 }).setData(low);
+        legendItems.push('<span style="color:#7d8590">BB(' + p + ',' + std + ')</span>');
+    }
+    if (document.getElementById('ind_ichimoku').checked) {
+        const ich = TradingStrategies.calculateIchimoku(candles, 9, 26, 52);
+        const mk = (arr, color, w, style) => {
+            const d = [];
+            for (let i = 0; i < arr.length; i++) if (arr[i] !== null) d.push({ time: candles[i].time, value: arr[i] });
+            priceChart.addLineSeries({ color, lineWidth:w, priceLineVisible:false, lastValueVisible:false, lineStyle:style||0 }).setData(d);
+        };
+        mk(ich.tenkan, '#d9534f', 2);
+        mk(ich.kijun, '#2ea88a', 2);
+        mk(ich.senkouA, '#2ea88a', 1, 2);
+        mk(ich.senkouB, '#d9534f', 1, 2);
+        mk(ich.chikou, '#7d8590', 1, 2);
+        legendItems.push('<span style="color:#d9534f">Tenkan</span><span style="color:#2ea88a">Kijun</span><span style="color:#7d8590">Senkou/Chikou</span>');
+    }
+
+    // ---- Volume ----
+    let hasPanel = false;
+    if (document.getElementById('ind_vol').checked) {
+        hasPanel = true;
+        const vcEl = document.getElementById('volumeChart');
+        vcEl.style.display = 'block';
+        panelChart = LightweightCharts.createChart(vcEl, chartOpts(vcEl, 100));
+        const volSeries = panelChart.addHistogramSeries({ priceFormat:{ type:'volume' }, priceLineVisible:false, lastValueVisible:false });
+        volSeries.setData(candles.map(c => ({ time: c.time, value: c.volume || 0, color: c.close >= c.open ? 'rgba(46,168,138,.6)' : 'rgba(217,83,79,.6)' })));
+    }
+
+    // ---- RSI ----
+    if (document.getElementById('ind_rsi').checked) {
+        hasPanel = true;
+        const rsiEl = document.getElementById('rsiChart');
+        rsiEl.style.display = 'block';
+        const rsiPeriod = +document.getElementById('rsi_period').value || 14;
+        const rsiChart = LightweightCharts.createChart(rsiEl, chartOpts(rsiEl, 120));
+        const rsiSeries = rsiChart.addLineSeries({ color:'#c9973d', lineWidth:2, priceLineVisible:false, lastValueVisible:true });
+        const rsiVals = TradingStrategies.calculateRSI(closes, rsiPeriod);
+        const data = [];
+        for (let i = 0; i < rsiVals.length; i++) if (rsiVals[i] !== null) data.push({ time: candles[i].time, value: rsiVals[i] });
+        rsiSeries.setData(data);
+        rsiChart.addLineSeries({ color:'rgba(217,83,79,.4)', lineWidth:1, priceLineVisible:false, lastValueVisible:false, lineStyle:2 }).setData(data.map(d => ({ time: d.time, value: 70 })));
+        rsiChart.addLineSeries({ color:'rgba(46,168,138,.4)', lineWidth:1, priceLineVisible:false, lastValueVisible:false, lineStyle:2 }).setData(data.map(d => ({ time: d.time, value: 30 })));
+        if (panelChart) linkCharts(priceChart, rsiChart); else panelChart = rsiChart;
+        legendItems.push(`<span>RSI(${rsiPeriod})</span>`);
+    }
+
+    // ---- MACD ----
+    if (document.getElementById('ind_macd').checked) {
+        hasPanel = true;
+        const mEl = document.getElementById('macdChart');
+        mEl.style.display = 'block';
+        const fast = +document.getElementById('macd_fast').value || 12;
+        const slow = +document.getElementById('macd_slow').value || 26;
+        const sigP = +document.getElementById('macd_signal').value || 9;
+        const macdChart = LightweightCharts.createChart(mEl, chartOpts(mEl, 140));
+        const mData = TradingStrategies.calculateMACD(closes, fast, slow, sigP);
+        const macdSeries = macdChart.addLineSeries({ color:'#3d7dd8', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
+        const sigSeries = macdChart.addLineSeries({ color:'#c9973d', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
+        const histSeries = macdChart.addHistogramSeries({ priceLineVisible:false, lastValueVisible:false });
+        const md = [], sd = [], hd = [];
+        for (let i = 0; i < mData.macd.length; i++) {
+            if (mData.macd[i] !== null) md.push({ time: candles[i].time, value: mData.macd[i] });
+            if (mData.signal[i] !== null) sd.push({ time: candles[i].time, value: mData.signal[i] });
+            if (mData.hist[i] !== null) hd.push({ time: candles[i].time, value: mData.hist[i], color: mData.hist[i] >= 0 ? 'rgba(46,168,138,.6)' : 'rgba(217,83,79,.6)' });
+        }
+        macdSeries.setData(md);
+        sigSeries.setData(sd);
+        histSeries.setData(hd);
+        if (panelChart) linkCharts(priceChart, macdChart); else panelChart = macdChart;
+        legendItems.push(`<span>MACD(${fast},${slow},${sigP})</span>`);
+    }
+
+    if (!hasPanel) document.getElementById('panelChartWrapper').style.display = 'none';
+
+    document.getElementById('chartLegend').innerHTML = legendItems.join('');
 
     requestAnimationFrame(() => {
-        priceChart.applyOptions({ width: pc.clientWidth });
+        priceChart.applyOptions({ width: mainEl.clientWidth });
+        if (panelChart) panelChart.applyOptions({ width: mainEl.clientWidth });
         priceChart.timeScale().fitContent();
     });
+}
+
+// اتصال اسکرول/زوم بین دو چارت
+function linkCharts(a, b) {
+    let lock = false;
+    const sync = (src, dst) => src.timeScale().subscribeVisibleLogicalRangeChange(r => {
+        if (lock || !r) return;
+        lock = true;
+        try { dst.timeScale().setVisibleLogicalRange(r); } catch (e) {}
+        lock = false;
+    });
+    sync(a, b); sync(b, a);
 }
 
 async function viewChart(id) {

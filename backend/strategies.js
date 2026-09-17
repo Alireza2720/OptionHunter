@@ -80,6 +80,77 @@
         return atr;
     }
 
+    // 🆕 MACD
+    function calculateMACD(closes, fastPeriod, slowPeriod, signalPeriod) {
+        const emaFast = calculateEMA(closes, fastPeriod);
+        const emaSlow = calculateEMA(closes, slowPeriod);
+        const macdLine = new Array(closes.length).fill(null);
+        for (let i = 0; i < closes.length; i++) {
+            if (emaFast[i] !== null && emaSlow[i] !== null) macdLine[i] = emaFast[i] - emaSlow[i];
+        }
+        const filled = macdLine.map(x => x === null ? 0 : x);
+        const rawSignal = calculateEMA(filled, signalPeriod);
+        const signal = rawSignal.map((v, i) => macdLine[i] === null ? null : v);
+        const hist = macdLine.map((v, i) => (v === null || signal[i] === null) ? null : v - signal[i]);
+        return { macd: macdLine, signal, hist };
+    }
+
+    // 🆕 Bollinger Bands
+    function calculateBollingerBands(closes, period, stdDevMult) {
+        const upper = new Array(closes.length).fill(null);
+        const middle = new Array(closes.length).fill(null);
+        const lower = new Array(closes.length).fill(null);
+        for (let i = period - 1; i < closes.length; i++) {
+            const slice = closes.slice(i - period + 1, i + 1);
+            const mean = slice.reduce((a, b) => a + b, 0) / period;
+            const variance = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / period;
+            const sd = Math.sqrt(variance);
+            middle[i] = mean;
+            upper[i] = mean + stdDevMult * sd;
+            lower[i] = mean - stdDevMult * sd;
+        }
+        return { upper, middle, lower };
+    }
+
+    // 🆕 Ichimoku Cloud
+    function calculateIchimoku(candles, tenkanPeriod, kijunPeriod, senkouBPeriod) {
+        const n = candles.length;
+        const tenkan = new Array(n).fill(null);
+        const kijun = new Array(n).fill(null);
+        const senkouA = new Array(n).fill(null);
+        const senkouB = new Array(n).fill(null);
+        const chikou = new Array(n).fill(null);
+        const highLow = (start, end) => {
+            let hi = -Infinity, lo = Infinity;
+            for (let i = start; i <= end; i++) {
+                if (candles[i].high > hi) hi = candles[i].high;
+                if (candles[i].low < lo) lo = candles[i].low;
+            }
+            return { hi, lo };
+        };
+        for (let i = tenkanPeriod - 1; i < n; i++) {
+            const { hi, lo } = highLow(i - tenkanPeriod + 1, i);
+            tenkan[i] = (hi + lo) / 2;
+        }
+        for (let i = kijunPeriod - 1; i < n; i++) {
+            const { hi, lo } = highLow(i - kijunPeriod + 1, i);
+            kijun[i] = (hi + lo) / 2;
+        }
+        for (let i = 0; i < n; i++) {
+            if (tenkan[i] !== null && kijun[i] !== null) {
+                const idx = i + kijunPeriod;
+                if (idx < n) senkouA[idx] = (tenkan[i] + kijun[i]) / 2;
+            }
+            if (i >= senkouBPeriod - 1) {
+                const { hi, lo } = highLow(i - senkouBPeriod + 1, i);
+                const idx = i + kijunPeriod;
+                if (idx < n) senkouB[idx] = (hi + lo) / 2;
+            }
+            const cIdx = i - kijunPeriod;
+            if (cIdx >= 0) chikou[cIdx] = candles[i].close;
+        }
+        return { tenkan, kijun, senkouA, senkouB, chikou };
+    }
     function htfCloseTime(c, htfMin) {
         const t = getTehranParts(new Date(c.time * 1000));
         if (htfMin >= 1440 || (htfMin === 60 && t.hour === 11)) return Math.floor(tehranPartsToUTC(t.year, t.month, t.day, 12, 30).getTime() / 1000);
@@ -774,6 +845,7 @@
     return {
         calculateHeikinAshi, calculateSimpleCandles, getDisplayCandles,
         calculateRSI, calculateEMA, calculateATR,
+        calculateMACD, calculateBollingerBands, calculateIchimoku,
         aggregateCandles, TIMEFRAME_MINUTES, getRequiredCandles, getRequiredHtfCandles,
         runRSIPullback, runSMCUnicorn, runOBSweep, runSupplyDemand,
         runOBAfterSweep, runLondonBreakout, runORB, runPinBarReversal, runEnsemble,
