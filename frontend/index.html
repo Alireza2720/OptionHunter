@@ -905,6 +905,7 @@ async function renderBackfillManager() {
                     <span class="badge ${statusColors[j.status] || 'none'}">${statusLabels[j.status] || j.status}</span>
                     <div class="bf-job-actions">
                         <button class="btn tiny outline" onclick="viewBackfillDetail('${j._id}')">جزئیات</button>
+                        ${j.status !== 'DONE' ? `<button class="btn tiny success" onclick="bfRunJobNow('${j._id}', this)" title="اجرای فوری خارج از cron">▶️</button>` : ''}
                         ${j.status === 'IN_PROGRESS' ? `<button class="btn tiny outline" onclick="bfPause('${j._id}')">⏸</button>` : ''}
                         ${j.status === 'PAUSED' || j.status === 'PENDING' ? `<button class="btn tiny outline" onclick="bfResume('${j._id}')">▶️</button>` : ''}
                         <button class="btn tiny outline" onclick="bfReset('${j._id}')">🔄</button>
@@ -974,6 +975,27 @@ async function saveBfSettings() {
     } catch (e) { showAlert('خطا: ' + e.message, 'error', 5000); }
 }
 
+async function bfRunJobNow(id, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    showAlert('⏳ اجرای فوری شروع شد...', 'info', 3000);
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/backfill/jobs/${id}/run-now`, { method: 'POST' }, 1);
+        if (r.busy) showAlert('⏳ یه tick دیگه در حال اجراست.', 'warn', 4000);
+        else {
+            const stats = r.stats || {};
+            const doneTag = r.done ? ' ✅ تکمیل' : '';
+            const okCount = (r.results || []).filter(x => x.status === 'DONE').length;
+            const failCount = (r.results || []).filter(x => x.status === 'FAILED').length;
+            showAlert(`✅ ${r.symbol} | ${r.batch} روز (${okCount} موفق، ${failCount} خطا)${doneTag}\nپیشرفت: ${stats.done || 0}/${stats.total || 0}`, 'success', 7000);
+        }
+        await renderBackfillManager();
+        await loadMonitoredSymbols();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error', 7000);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '▶️'; }
+    }
+}
 async function bfPause(id) { try { await apiFetch(`${BACKEND_URL}/api/backfill/jobs/${id}/pause`, { method: 'POST' }); await renderBackfillManager(); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function bfResume(id) { try { await apiFetch(`${BACKEND_URL}/api/backfill/jobs/${id}/resume`, { method: 'POST' }); await renderBackfillManager(); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function bfReset(id) { if (!confirm('Progress پاک بشه؟')) return; try { await apiFetch(`${BACKEND_URL}/api/backfill/jobs/${id}/reset`, { method: 'POST' }); await renderBackfillManager(); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
@@ -1004,9 +1026,10 @@ async function viewBackfillDetail(id) {
                 <span><i style="background:rgba(125,133,144,.3)"></i> بدون معامله</span>
             </div>
             <div class="bf-calendar" style="max-height:340px; overflow-y:auto;">${daysHtml}</div>
-            <div style="margin-top:14px;">
+            <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+                ${j.status !== 'DONE' ? `<button class="btn small success" onclick="bfRunJobNow('${j._id}', this)">▶️ اجرای فوری</button>` : ''}
                 <button class="btn small outline" onclick="bfReset('${j._id}')">🔄 ریست</button>
-                ${j.status === 'PAUSED' || j.status === 'PENDING' ? `<button class="btn small outline" onclick="bfResume('${j._id}')">▶️ ادامه</button>` : ''}
+                ${j.status === 'PAUSED' || j.status === 'PENDING' ? `<button class="btn small outline" onclick="bfResume('${j._id}')">▶️ ادامه عادی</button>` : ''}
                 ${j.status === 'IN_PROGRESS' ? `<button class="btn small outline" onclick="bfPause('${j._id}')">⏸ توقف</button>` : ''}
             </div>
         `);

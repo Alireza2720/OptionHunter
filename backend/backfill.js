@@ -340,6 +340,100 @@ async function setPriority(id, priority, ObjectId) {
   );
 }
 
+// اجرای فوری یه Job خاص (مستقل از cron)
+async function runJobNow(id, ObjectId) {
+  const db = deps.getDB();
+  const job = await db.collection('tsetmc_backfill').findOne({ _id: new ObjectId(id) });
+  if (!job) throw new Error('Job یافت نشد');
+
+  const settings = await getSettings();
+  const batchSize = settings.batchSize;
+
+  // اگه status DONE بود، خطا
+  if (job.status === 'DONE') throw new Error('این Job قبلاً تکمیل شده');
+
+  // اگه PAUSED بود، موقتاً به IN_PROGRESS تغییر بده (فقط برای این batch)
+  const originalStatus = job.status;
+  if (job.status === 'PAUSED' || job.status === 'PENDING') {
+    await db.collection('tsetmc_backfill').updateOne(
+      { _id: job._id },
+      { $set: { status: 'IN_PROGRESS', startedAt: job.startedAt || new Date() } }
+    );
+    job.status = 'IN_PROGRESS';
+  }
+
+  const results = [];
+
+  for (let i = 0; i < batchSize; i++) {
+    let dayIdx = -1;
+    for (let k = job.cursor; k < job.days.length; k++) {
+      if (job.days[k].status === 'PENDING') { dayIdx = k; break; }
+    }
+    if (dayIdx === -1) {
+      for (let k = 0; k < job.days.length; k++) {
+        if (job.days[k].status === 'PENDING') { dayIdx = k; break; }
+      }
+    }
+    if (dayIdx === -1) break;
+
+    const dayInfo = job.days[dayIdx];
+    const r = await processDay(job, dayInfo);
+
+    const setFields = {};
+    setFields['days.' + dayIdx + '.status'] = r.status;
+    setFields['days.' + dayIdx + '.candles'] = r.candles || 0;
+    setFields['days.' + dayIdx + '.attempts'] = (dayInfo.attempts || 0) + 1;
+    setFields['days.' + dayIdx + '.error'] = r.error || null;
+    setFields['days.' + dayIdx + '.fetchedAt'] = new Date();
+    await db.collection('tsetmc_backfill').updateOne({ _id: job._id }, { $set: setFields });
+
+    job.days[dayIdx].status = r.status;
+    results.push({ date: dayInfo.date, ...r });
+
+    if (i < batchSize - 1) {
+      await new Promise(resolve => setTimeout(resolve, settings.delayBetweenRequests * 1000));
+    }
+  }
+
+  // آمار
+  const stats = { total: job.days.length, done: 0, failed: 0, pending: 0, noTrades: 0 };
+  for (const d of job.days) {
+    if (d.status === 'DONE') stats.done++;
+    else if (d.status === 'FAILED') stats.failed++;
+    else if (d.status === 'NO_TRADES') { stats.noTrades++; stats.done++; }
+    else stats.pending++;
+  }
+
+  let newCursor = job.days.length;
+  for (let k = 0; k < job.days.length; k++) {
+    if (job.days[k].status === 'PENDING') { newCursor = k; break; }
+  }
+
+  const allDone = stats.pending === 0;
+  // اگه PAUSED بود و کارش تموم نشده، به PAUSED برگردون
+  const finalStatus = allDone ? 'DONE' : (originalStatus === 'PAUSED' ? 'PAUSED' : 'IN_PROGRESS');
+
+  await db.collection('tsetmc_backfill').updateOne({ _id: job._id }, {
+    $set: {
+      cursor: newCursor,
+      stats,
+      status: finalStatus,
+      updatedAt: new Date(),
+      finishedAt: allDone ? new Date() : null,
+      lastBatch: { at: new Date(), count: results.length, results: results.slice(0, 4), manual: true }
+    }
+  });
+
+  return {
+    jobId: String(job._id),
+    symbol: job.symbol,
+    type: job.type,
+    batch: results.length,
+    stats,
+    done: allDone,
+    results
+  };
+}
 // لاگ تلاش‌ها (برای نمایش در UI)
 async function getDayLogs(symbol, limit = 100) {
   const db = deps.getDB();
@@ -352,6 +446,6 @@ module.exports = {
   createStockJob, createOptionJobs,
   runBackfillTick,
   listJobs, getJob,
-  pauseJob, resumeJob, resetJob, deleteJob, setPriority,
+  pauseJob, resumeJob, resetJob, deleteJob, setPriority, runJobNow,
   getDayLogs
 };

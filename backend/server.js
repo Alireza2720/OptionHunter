@@ -283,6 +283,9 @@ app.post('/api/backfill/run-now', async (req, res, next) => {
     try { res.json(await Backfill.runBackfillTick(true)); } catch (e) { next(e); }
 });
 
+app.post('/api/backfill/jobs/:id/run-now', async (req, res, next) => {
+    try { res.json(await Backfill.runJobNow(req.params.id, ObjectId)); } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.get('/api/backfill/stats', async (req, res, next) => {
     try {
         const db = getDB();
