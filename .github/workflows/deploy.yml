@@ -20,7 +20,6 @@ jobs:
             set -e
             cd ~/apps/OptionHunter
             git pull origin main
-            npm install --prefix backend
-            cd backend
-            pm2 restart ecosystem.config.js --update-env
+            npm install --prefix .
+            pm2 startOrRestart ecosystem.config.js --update-env
             pm2 save
