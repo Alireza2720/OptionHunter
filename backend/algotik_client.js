@@ -101,10 +101,13 @@ async function cancelJob(jobId) {
     try { return await apiCall('POST', '/jobs/' + jobId + '/cancel', null, 10000); }
     catch (e) { return { ok: false, error: e.message }; }
 }
-
+async function fetchOptionsDaily(underlyings) {
+    return startOptionsDailyJob(underlyings, false);
+}
 module.exports = {
     isOnline, getStatus, getLogs,
     fetchStocks, fetchOptions, backfillAll,
     startOptionsDailyJob, getJobStatus, listJobs, cancelJob,
-    fetchChart, fetchOptionsHistoryBulk
+    fetchChart, fetchOptionsHistoryBulk,
+    fetchOptionsDaily
 };
