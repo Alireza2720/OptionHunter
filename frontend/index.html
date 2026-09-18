@@ -122,6 +122,23 @@
     .algotik-log-row.ok { color:var(--good); }
     .algotik-log-row.err { color:var(--bad); }
     .algotik-log-row.info { color:var(--text-dim); }
+    .progress-bar { width:100%; height:8px; background:var(--bg-input); border-radius:4px; overflow:hidden; margin-top:6px; }
+    .progress-fill { height:100%; background:var(--accent); transition:width .3s; }
+    .job-card { background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+    .job-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+    .job-type { font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600; }
+    .job-type.backtest { background:rgba(61,125,216,.15); color:var(--accent); }
+    .job-type.autoconfig { background:rgba(46,168,138,.15); color:var(--good); }
+    .job-type.collector { background:rgba(201,151,61,.15); color:var(--warn); }
+    .job-status { font-size:11px; padding:2px 8px; border-radius:10px; }
+    .job-status.QUEUED { background:rgba(125,133,144,.15); color:var(--text-dim); }
+    .job-status.RUNNING { background:rgba(201,151,61,.15); color:var(--warn); }
+    .job-status.DONE { background:rgba(46,168,138,.15); color:var(--good); }
+    .job-status.FAILED, .job-status.CANCELLED { background:rgba(217,83,79,.15); color:var(--bad); }
+    .job-msg { font-size:11.5px; color:var(--text-dim); margin-top:4px; }
+    .source-tag { font-size:10.5px; padding:1px 6px; border-radius:8px; background:rgba(125,133,144,.15); color:var(--text-dim); margin-right:6px; }
+    .source-tag.online { background:rgba(46,168,138,.15); color:var(--good); }
+    .source-tag.cache { background:rgba(61,125,216,.15); color:var(--accent); }
     .date-range-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin:10px 0; font-size:13px; }
     .date-range-row label { display:flex; align-items:center; gap:6px; }
     .date-range-row input[type="date"] { padding:6px 10px; background:var(--bg); border:1px solid var(--border-light); color:var(--text); border-radius:6px; font-family:inherit; font-size:12.5px; }
@@ -453,6 +470,7 @@
 
         <div class="msg-warn" id="chartMsg" style="display:none;"></div>
         <div class="legend" id="chartLegend"></div>
+        <div id="chartSourceInfo" class="hint" style="display:none; margin-bottom:8px;"></div>
         <div id="priceChartWrapper"><div class="chart-placeholder">نمادی انتخاب کنید و «نمایش» رو بزنید.</div></div>
         <div id="panelChartWrapper" style="display:none; margin-top:18px;">
             <div class="chart-title" id="panelTitle"></div>
@@ -472,11 +490,16 @@
             </div>
 
             <div class="algotik-actions">
-                <button class="btn success" onclick="algotikBackfillAll(this)">📥 دریافت همه (۶ ماه)</button>
+                <div class="field" style="min-width:100px; flex:0 0 100px;">
+                    <label>بازه (ماه)</label>
+                    <input type="number" id="algotikMonths" value="6" min="1" max="24">
+                </div>
+                <button class="btn success" onclick="algotikBackfillAll(this)">📥 دریافت همه سهام</button>
                 <button class="btn outline" onclick="algotikFetchOptions(this)">📸 Snapshot آپشن</button>
-                <button class="btn outline" onclick="algotikFetchOptionsDaily(this)">📊 آپشن روزانه</button>
+                <button class="btn outline" id="btnOptDaily" onclick="algotikFetchOptionsDaily(this)">📊 آپشن روزانه (بک‌گراند)</button>
+                <button class="btn outline" onclick="openJobsPanel()">📋 Jobs</button>
                 <button class="btn outline" onclick="algotikRefresh()">🔃 رفرش</button>
-                <button class="btn outline" onclick="algotikShowLogs()">📋 لاگ Collector</button>
+                <button class="btn outline" onclick="algotikShowLogs()">📋 لاگ</button>
             </div>
 
             <div style="margin-top:12px;">
@@ -982,6 +1005,126 @@ function algotikToggleAuto() {
         }, 10000);
     }
 }
+
+
+// ======================== Job Tracking ========================
+const jobTrackers = new Map();
+const jobTrackersTimers = new Map();
+
+function trackJob(jobId, onUpdate) {
+    if (jobTrackersTimers.has(jobId)) return;
+    const tick = async () => {
+        try {
+            const job = await apiFetch(`${BACKEND_URL}/api/jobs/${jobId}`, {}, 0);
+            jobTrackers.set(jobId, job);
+            if (onUpdate) onUpdate(job);
+            if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') {
+                clearInterval(jobTrackersTimers.get(jobId));
+                jobTrackersTimers.delete(jobId);
+            }
+        } catch (e) { /* ignore */ }
+    };
+    tick();
+    const t = setInterval(tick, 3000);
+    jobTrackersTimers.set(jobId, t);
+}
+
+function renderJobProgress(job) {
+    const pct = job.progress && job.progress.total > 0 ? Math.round(job.progress.current / job.progress.total * 100) : 0;
+    const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم خودکار' };
+    return `<div class="job-card">
+        <div class="job-header">
+            <span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span>
+            <span class="job-status ${job.status}">${job.status}</span>
+            <span class="job-msg" style="margin-right:auto;">${esc(job.progress ? job.progress.message : '')}</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <div class="job-msg">${job.progress ? job.progress.current : 0} / ${job.progress ? job.progress.total : '?'} (${pct}٪)</div>
+    </div>`;
+}
+
+// ======================== Jobs Panel ========================
+async function openJobsPanel() {
+    openModal('📋 Jobs در حال اجرا', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    await refreshJobsPanel();
+    const timer = setInterval(() => {
+        const modal = document.getElementById('modalBg');
+        if (modal && modal.classList.contains('open') && document.getElementById('modalBody').innerHTML.includes('jobs-panel-container')) {
+            refreshJobsPanel().catch(() => {});
+        } else {
+            clearInterval(timer);
+        }
+    }, 3000);
+}
+
+async function refreshJobsPanel() {
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs?limit=30`, {}, 0);
+        const jobs = (r.jobs || []).filter(j => ['QUEUED', 'RUNNING'].includes(j.status) || (j.finishedAt && Date.now() - new Date(j.finishedAt).getTime() < 3600000));
+        const rows = jobs.length ? jobs.map(j => renderJobProgress(j)).join('') : '<div class="empty-note">هیچ Job فعالی نیست</div>';
+        openModal('📋 Jobs در حال اجرا', `<div class="jobs-panel-container">${rows}<div class="hint" style="margin-top:14px;">Jobs بعد از ۱ ساعت از لیست حذف می‌شوند.</div></div>`);
+    } catch (e) { openModal('Jobs', `<div class="empty-note">${esc(e.message)}</div>`); }
+}
+
+// ======================== AlgoTik New Functions ========================
+async function algotikFetchOptionsDaily(btn) {
+    const months = parseInt(document.getElementById('algotikMonths').value) || 6;
+    if (!confirm(`دریافت دیتای روزانه همه قراردادهای آپشن فعال؟\nبازه: ${months} ماه\n\nدر پس‌زمینه اجرا می‌شود.`)) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ شروع...'; }
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/options-daily-job`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: false })
+        }, 0);
+        if (r.job_id) {
+            showAlert(`✅ Job روزانه شروع شد. برای پیگیری روی «📋 Jobs» بزنید.`, 'success', 6000);
+            pollCollectorJob(r.job_id);
+        } else {
+            showAlert(`ℹ️ ${r.message || 'شروع شد'}`, 'info', 5000);
+        }
+    } catch (e) { showAlert('خطا: ' + e.message, 'error', 6000); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = '📊 آپشن روزانه (بک‌گراند)'; } }
+}
+
+async function pollCollectorJob(jobId) {
+    const maxTime = 60 * 60 * 1000;
+    const start = Date.now();
+    const tick = async () => {
+        if (Date.now() - start > maxTime) return;
+        try {
+            const r = await fetch(`${BACKEND_URL}/api/algotik/job/${jobId}`).then(x => x.json());
+            if (r.status === 'DONE' || r.status === 'FAILED') {
+                showAlert(r.status === 'DONE'
+                    ? `✅ آپشن روزانه: ${r.records || 0} رکورد`
+                    : `❌ خطا: ${r.error || 'نامعلوم'}`, r.status === 'DONE' ? 'success' : 'error', 8000);
+                await algotikRefresh();
+                return;
+            }
+            setTimeout(tick, 5000);
+        } catch (e) { setTimeout(tick, 10000); }
+    };
+    tick();
+}
+
+async function algotikBackfillAll(btn) {
+    const months = parseInt(document.getElementById('algotikMonths').value) || 6;
+    if (!confirm(`دریافت ${months} ماه دیتای ۱ دقیقه‌ای برای همه نمادها؟\nممکنه ${months * 3} دقیقه طول بکشه.`)) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ در حال دریافت...'; }
+    showLoader(`دریافت ${months} ماه دیتای تاریخی...`, 'در پس‌زمینه اجرا می‌شود');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/backfill-all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ months, withOptions: true })
+        }, 0);
+        const stockOk = (r.stocks?.results || []).filter(x => x.status === 'ok').length;
+        showAlert(`✅ ${stockOk} نماد دریافت شد | آپشن: ${r.options?.total_contracts || 0} قرارداد`, 'success', 8000);
+        await algotikRefresh();
+    } catch (e) { showAlert('خطا: ' + e.message, 'error', 8000); }
+    finally { hideLoader(); if (btn) { btn.disabled = false; btn.textContent = '📥 دریافت همه سهام'; } }
+}
+
 function openAlgotikFromMenu() {
     const card = document.getElementById('cardAlgotik');
     if (!card.classList.contains('open')) card.classList.add('open');
@@ -1331,11 +1474,35 @@ async function runOptionBacktest(id) {
                 <button class="btn tiny outline" onclick="setBtRange(6)">۶ ماه</button>
                 <button class="btn tiny outline" onclick="setBtRange(12)">۱ سال</button>
                 <button class="btn tiny outline" onclick="setBtRange(24)">۲ سال</button>
+                <button class="btn tiny outline" onclick="setBtRangeAll('${id}')">کل دیتای موجود</button>
             </div>
-            <button class="btn small" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button>
         </div>
+        <div style="display:flex; gap:16px; margin:10px 0; font-size:13px;">
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" id="btRealOption" checked> استفاده از دیتای واقعی آپشن
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" id="btUseOnline"> دریافت آنلاین آپشن‌ها (کندتر)
+            </label>
+        </div>
+        <button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا در پس‌زمینه</button>
+        <div id="btJobArea" style="margin-top:14px;"></div>
         <div id="btResultArea"></div>
     `);
+}
+
+async function setBtRangeAll(id) {
+    const it = configs.find(c => c._id === id); if (!it) return;
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/data-coverage`, {}, 0);
+        const s = (r.symbols || []).find(x => x.symbol === it.symbol);
+        if (!s || !s.timeframes) return showAlert('دیتای این نماد یافت نشد', 'warn');
+        const tf = it.timeframe || '30m';
+        const range = s.timeframes[tf] || s.timeframes['1d'];
+        if (!range || !range.from || !range.to) return showAlert('بازه دیتا یافت نشد', 'warn');
+        document.getElementById('btFrom').value = new Date(range.from).toISOString().slice(0, 10);
+        document.getElementById('btTo').value = new Date(range.to).toISOString().slice(0, 10);
+    } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
 function setBtRange(months) {
@@ -1352,36 +1519,66 @@ async function execBtSingle(id) {
     if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
     const fromTs = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
     const toTs = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
+    const useRealOption = document.getElementById('btRealOption').checked;
+    const useOnlineData = document.getElementById('btUseOnline').checked;
 
     const btn = document.getElementById('btRunOne');
-    btn.disabled = true; btn.textContent = '⏳...';
-    document.getElementById('btResultArea').innerHTML = '<div style="text-align:center;padding:30px;"><div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>در حال محاسبه...</div>';
+    btn.disabled = true; btn.textContent = '⏳ شروع...';
+    const jobArea = document.getElementById('btJobArea');
+    const resultArea = document.getElementById('btResultArea');
+    resultArea.innerHTML = '';
 
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}?from=${fromTs}&to=${toTs}`, {}, 2);
-        const a = r.assumptions;
-        let diag = '';
-        if (r.diagnostic) diag = `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);">ℹ️ ${esc(r.diagnostic)}</div>`;
-        const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪، volCrush ${a.volCrushFactor}×، سقف ${a.maxReturnPct}٪</div>
-            <div class="stats-grid">
-                <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
-                <div class="stat"><small>بسته‌شده</small><b>${r.stockClosedCount||0}</b></div>
-                <div class="stat"><small>آپشن (real/approx)</small><b>${r.stats.count} <small>(${r.realUsed||0}/${r.approxUsed||0})</small></b></div>
-                <div class="stat"><small>وین‌ریت</small><b>${r.stats.count ? r.stats.winRate.toFixed(0)+'٪' : '-'}</b></div>
-                <div class="stat"><small>بازده کل</small><b>${r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
-                <div class="stat"><small>میانگین</small><b>${r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
-                <div class="stat"><small>PF</small><b>${r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
-            </div>`;
-        const rows = r.trades.length ? r.trades.slice().reverse().map(t => {
-            const srcBadge = t.source === 'real' ? '<span class="badge long">واقعی</span>' : '<span class="badge warn">تقریبی</span>';
-            return `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td>${srcBadge}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`;
-        }).join('') : '<tr class="empty-row"><td colspan="7">معامله‌ای در این بازه یافت نشد</td></tr>';
-        document.getElementById('btResultArea').innerHTML = head + `<div class="table-responsive" style="max-height:400px; overflow-y:auto;"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>پرمیوم</th><th>بازده</th><th>منبع</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs/backtest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ configId: id, from: fromTs, to: toTs, useRealOption, useOnlineData })
+        }, 0);
+
+        if (r.fromCache) {
+            jobArea.innerHTML = `<div class="job-card"><span class="source-tag cache">از Cache</span> نتیجه آماده است</div>`;
+            renderBtResult(r.result);
+            btn.disabled = false; btn.textContent = 'اجرا در پس‌زمینه';
+            return;
+        }
+
+        jobArea.innerHTML = renderJobProgress({ _id: r.jobId, status: 'QUEUED', progress: { current: 0, total: 0, message: 'در صف...' } });
+        trackJob(r.jobId, (job) => {
+            jobArea.innerHTML = renderJobProgress(job);
+            if (job.status === 'DONE') {
+                renderBtResult(job.result);
+                btn.disabled = false; btn.textContent = 'اجرا در پس‌زمینه';
+            } else if (job.status === 'FAILED') {
+                resultArea.innerHTML = `<div class="empty-note">❌ ${esc(job.error || 'خطا')}</div>`;
+                btn.disabled = false; btn.textContent = 'اجرا در پس‌زمینه';
+            }
+        });
     } catch (e) {
-        document.getElementById('btResultArea').innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
-    } finally {
-        btn.disabled = false; btn.textContent = 'اجرا';
+        jobArea.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
+        btn.disabled = false; btn.textContent = 'اجرا در پس‌زمینه';
     }
+}
+
+function renderBtResult(r) {
+    const a = r.assumptions || {};
+    let diag = '';
+    if (r.diagnostic) diag = `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);">ℹ️ ${esc(r.diagnostic)}</div>`;
+    const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪، volCrush ${a.volCrushFactor}×، سقف ${a.maxReturnPct}٪</div>
+        <div class="stats-grid">
+            <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
+            <div class="stat"><small>بسته‌شده</small><b>${r.stockClosedCount||0}</b></div>
+            <div class="stat"><small>آپشن (real/approx)</small><b>${(r.stats && r.stats.count) || 0} <small>(${r.realUsed||0}/${r.approxUsed||0})</small></b></div>
+            <div class="stat"><small>وین‌ریت</small><b>${r.stats && r.stats.count ? r.stats.winRate.toFixed(0)+'٪' : '-'}</b></div>
+            <div class="stat"><small>بازده کل</small><b>${r.stats && r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
+            <div class="stat"><small>میانگین</small><b>${r.stats && r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
+            <div class="stat"><small>PF</small><b>${r.stats && r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
+        </div>`;
+    const trades = (r.trades || []);
+    const rows = trades.length ? trades.slice().reverse().map(t => {
+        const srcBadge = t.source === 'real' ? '<span class="badge long">واقعی</span>' : '<span class="badge warn">تقریبی</span>';
+        return `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td>${srcBadge}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`;
+    }).join('') : '<tr class="empty-row"><td colspan="7">معامله‌ای یافت نشد</td></tr>';
+    document.getElementById('btResultArea').innerHTML = head + `<div class="table-responsive" style="max-height:400px; overflow-y:auto;"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>پرمیوم</th><th>بازده</th><th>منبع</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 let signalHistoryLimit = 5;
 let signalHistoryCache = null;
@@ -1491,6 +1688,16 @@ async function loadChart() {
             return;
         }
         document.getElementById('chartMsg').style.display = 'none';
+        const srcInfo = document.getElementById('chartSourceInfo');
+        if (r.source === 'algotik-online') {
+            srcInfo.style.display = 'block';
+            srcInfo.innerHTML = '<span class="source-tag online">📡 آنلاین از AlgoTik</span> دیتای لوکال کم بود، از سرور آنلاین گرفته شد';
+        } else if (r.source === 'limited') {
+            srcInfo.style.display = 'block';
+            srcInfo.innerHTML = '<span class="source-tag">⚠️ دیتای محدود</span> فقط ' + r.count + ' کندل موجود است';
+        } else {
+            srcInfo.style.display = 'none';
+        }
         renderStandaloneChart(r.candles, candleType, `${symbol} — ${TF_LABELS[tf] || tf}`, r.count);
     } catch (e) {
         document.getElementById('chartMsg').textContent = 'خطا: ' + e.message;
@@ -1869,7 +2076,7 @@ async function runBacktestCompare() {
     const useRealOption = document.getElementById('btRealOption').checked;
     const fromStr = document.getElementById('btcFrom').value;
     const toStr = document.getElementById('btcTo').value;
-    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
+    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کن', 'warn');
     const dateFrom = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
     const dateTo = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
     const strategies = strategyChecks.map(chk => {
@@ -1880,22 +2087,23 @@ async function runBacktestCompare() {
     const btn = document.getElementById('btRunBtn');
     btn.disabled = true; btn.textContent = 'در حال محاسبه...';
     const resultsDiv = document.getElementById('btResults');
-    const total = symbols.length;
-    const renderProgress = (done, current) => {
-        const percent = Math.round(done / total * 100);
-        resultsDiv.innerHTML = `<div style="padding:16px;"><div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">پردازش ${done}/${total} ${current?'— '+esc(current):''}</div><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:var(--accent);transition:width .2s;"></div></div></div>`;
-    };
-    renderProgress(0, null);
+    resultsDiv.innerHTML = '<div style="padding:16px;">در حال اجرا...</div>';
+
+    // Parallel via Promise.all - هر نماد یک درخواست
+    const promises = symbols.map(symbol =>
+        apiFetch(`${BACKEND_URL}/api/backtest-compare`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbols: [symbol], strategies, useRealOption, dateFrom, dateTo })
+        }, 2).catch(e => ({ error: e.message, symbol }))
+    );
+    const responses = await Promise.all(promises);
     const allResults = [];
-    for (let i = 0; i < symbols.length; i++) {
-        const symbol = symbols[i];
-        renderProgress(i, symbol);
-        try {
-            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: [symbol], strategies, useRealOption, dateFrom, dateTo }) }, 2);
-            if (r.results) allResults.push(...r.results);
-        } catch (e) { allResults.push({ symbol, strategyId: '_err', strategyName: 'خطا', error: e.message }); }
+    for (const r of responses) {
+        if (r.error) allResults.push({ symbol: r.symbol || '?', strategyId: '_err', strategyName: 'خطا', error: r.error });
+        else if (r.results) allResults.push(...r.results);
     }
-    renderProgress(total, null);
+
     const validResults = allResults.filter(r => !r.error && !r.insufficientData);
     const insufficientCount = allResults.filter(x => x.insufficientData).length;
     const errorCount = allResults.filter(x => x.error && !x.insufficientData).length;
@@ -2007,23 +2215,35 @@ async function previewAutoConfigure() {
     const maxConfirmers = parseInt(document.getElementById('acMaxConfirmers').value);
     const fromStr = document.getElementById('acFrom').value;
     const toStr = document.getElementById('acTo').value;
-    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
+    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کن', 'warn');
     const dateFrom = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
     const dateTo = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
-    const btn = document.getElementById('acPreviewBtn'); btn.disabled = true; btn.textContent = 'در حال محاسبه...';
+    const btn = document.getElementById('acPreviewBtn'); btn.disabled = true; btn.textContent = 'در حال شروع...';
     const resultsDiv = document.getElementById('acResults');
-    const total = symbols.length;
-    const allPlans = [];
-    for (let i = 0; i < symbols.length; i++) {
-        const symbol = symbols[i];
-        resultsDiv.innerHTML = `<div style="padding:16px;">پردازش ${i+1}/${total} — ${esc(symbol)}</div>`;
-        try {
-            const r = await apiFetch(`${BACKEND_URL}/api/auto-configure/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, maxConfirmers, dateFrom, dateTo }) }, 2);
-            if (r.plans) allPlans.push(...r.plans);
-        } catch (e) { allPlans.push({ symbol, error: e.message }); }
-    }
-    renderAutoPlan(allPlans, 'preview');
-    btn.disabled = false; btn.textContent = 'پیش‌نمایش';
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs/auto-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbols, maxConfirmers, from: dateFrom, to: dateTo, dryRun: true })
+        }, 0);
+        if (r.fromCache) {
+            resultsDiv.innerHTML = `<div class="job-card"><span class="source-tag cache">از Cache</span></div>`;
+            renderAutoPlan(r.result.plans, 'preview');
+            btn.disabled = false; btn.textContent = 'پیش‌نمایش';
+            return;
+        }
+        resultsDiv.innerHTML = renderJobProgress({ _id: r.jobId, status: 'QUEUED', progress: { current: 0, total: symbols.length, message: 'در صف...' } });
+        trackJob(r.jobId, (job) => {
+            resultsDiv.innerHTML = renderJobProgress(job);
+            if (job.status === 'DONE') {
+                renderAutoPlan(job.result.plans, 'preview');
+                btn.disabled = false; btn.textContent = 'پیش‌نمایش';
+            } else if (job.status === 'FAILED') {
+                resultsDiv.innerHTML = `<div class="empty-note">❌ ${esc(job.error)}</div>`;
+                btn.disabled = false; btn.textContent = 'پیش‌نمایش';
+            }
+        });
+    } catch (e) { resultsDiv.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = 'پیش‌نمایش'; }
 }
 async function applyAutoConfigure() {
     const symbols = Array.from(document.querySelectorAll('.ac-symbol:checked')).map(c => c.value);
@@ -2032,24 +2252,36 @@ async function applyAutoConfigure() {
     const maxConfirmers = parseInt(document.getElementById('acMaxConfirmers').value);
     const fromStr = document.getElementById('acFrom').value;
     const toStr = document.getElementById('acTo').value;
-    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
+    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کن', 'warn');
     const dateFrom = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
     const dateTo = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
-    const btn = document.getElementById('acApplyBtn'); btn.disabled = true; btn.textContent = 'در حال اعمال...';
+    const btn = document.getElementById('acApplyBtn'); btn.disabled = true; btn.textContent = 'در حال شروع...';
     const resultsDiv = document.getElementById('acResults');
-    const allPlans = [], allApplied = [];
-    for (let i = 0; i < symbols.length; i++) {
-        const symbol = symbols[i];
-        resultsDiv.innerHTML = `<div style="padding:16px;">اعمال ${i+1}/${symbols.length} — ${esc(symbol)}</div>`;
-        try {
-            const r = await apiFetch(`${BACKEND_URL}/api/auto-configure`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, maxConfirmers, dryRun: false, dateFrom, dateTo }) }, 2);
-            if (r.plans) allPlans.push(...r.plans);
-            if (r.results) allApplied.push(...r.results);
-        } catch (e) { allPlans.push({ symbol, error: e.message }); }
-    }
-    renderAutoPlan(allPlans, 'applied', allApplied);
-    btn.disabled = false; btn.textContent = 'اعمال';
-    await loadConfigs();
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs/auto-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbols, maxConfirmers, from: dateFrom, to: dateTo, dryRun: false })
+        }, 0);
+        if (r.fromCache) {
+            renderAutoPlan(r.result.plans, 'applied', r.result.results);
+            btn.disabled = false; btn.textContent = 'اعمال';
+            await loadConfigs();
+            return;
+        }
+        resultsDiv.innerHTML = renderJobProgress({ _id: r.jobId, status: 'QUEUED', progress: { current: 0, total: symbols.length, message: 'در صف...' } });
+        trackJob(r.jobId, (job) => {
+            resultsDiv.innerHTML = renderJobProgress(job);
+            if (job.status === 'DONE') {
+                renderAutoPlan(job.result.plans, 'applied', job.result.results);
+                btn.disabled = false; btn.textContent = 'اعمال';
+                loadConfigs();
+            } else if (job.status === 'FAILED') {
+                resultsDiv.innerHTML = `<div class="empty-note">❌ ${esc(job.error)}</div>`;
+                btn.disabled = false; btn.textContent = 'اعمال';
+            }
+        });
+    } catch (e) { resultsDiv.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = 'اعمال'; }
 }
 function renderAutoPlan(plan, mode, results) {
     const resultsDiv = document.getElementById('acResults');

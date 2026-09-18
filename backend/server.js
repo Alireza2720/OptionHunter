@@ -11,6 +11,7 @@ const { STRATEGIES, aggregateCandles, getRequiredCandles } = Strat;
 const Options = require('./option.js');
 const Tsetmc = require('./tsetmc.js');
 const AlgotikClient = require('./algotik_client.js');
+const BtService = require('./backtest_service.js');
 const Log = require('./log.js');
 const Settings = require('./settings.js');
 Log.patchConsole();
@@ -267,7 +268,30 @@ app.post('/api/algotik/backfill-all', async (req, res, next) => {
         res.json(result);
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
+app.post('/api/algotik/options-daily-job', async (req, res, next) => {
+    try {
+        const { underlyings, force } = req.body || {};
+        const list = underlyings && underlyings.length ? underlyings : (await getDB().collection('monitored_symbols').find({}).toArray()).map(s => s.symbol);
+        const r = await AlgotikClient.startOptionsDailyJob(list, !!force);
+        res.json(r);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
+app.get('/api/algotik/job/:id', async (req, res, next) => {
+    try { res.json(await AlgotikClient.getJobStatus(req.params.id)); } catch (e) { next(e); }
+});
+
+app.get('/api/algotik/jobs', async (req, res, next) => {
+    try { res.json(await AlgotikClient.listJobs(+req.query.limit || 20)); } catch (e) { next(e); }
+});
+
+app.post('/api/algotik/options-history', async (req, res, next) => {
+    try {
+        const { symbol, months } = req.body || {};
+        if (!symbol) return res.status(400).json({ error: 'symbol الزامی' });
+        res.json(await AlgotikClient.fetchOptionsHistoryBulk(symbol, months || 6));
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.get('/api/algotik/stats', async (req, res, next) => {
     try {
         const db = getDB();
@@ -402,13 +426,25 @@ async function persistTfCandles() {
         const base = await getBaseCandles(m.symbol); if (!base.length) continue;
         for (const tf of tfs) {
             const candles = mergeSessionTail(aggregateCandles(base, TF[tf]), TF[tf]);
+            const bulkOps = [];
             for (const c of candles) {
                 if (c.time >= todayStart) continue;
-                await db.collection('candles_tf').updateOne({ symbol: m.symbol, tf, time: new Date(c.time * 1000) },
-                    { $set: { symbol: m.symbol, tf, time: new Date(c.time * 1000), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0, complete: c.complete } }, { upsert: true });
+                bulkOps.push({
+                    updateOne: {
+                        filter: { symbol: m.symbol, tf, time: new Date(c.time * 1000) },
+                        update: { $set: { symbol: m.symbol, tf, time: new Date(c.time * 1000), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0, complete: c.complete } },
+                        upsert: true
+                    }
+                });
+                if (bulkOps.length >= 500) {
+                    await db.collection('candles_tf').bulkWrite(bulkOps, { ordered: false });
+                    bulkOps.length = 0;
+                }
             }
+            if (bulkOps.length) await db.collection('candles_tf').bulkWrite(bulkOps, { ordered: false });
         }
     }
+    await BtService.bumpDataVersion();
 }
 function isCandleClosed(timeSec, tfMin, now = new Date()) {
     const t = getTehranParts(new Date(timeSec * 1000));
@@ -433,10 +469,22 @@ async function backfillDailyFromBase() {
     const symbols = await db.collection('monitored_symbols').find({}).toArray();
     for (const m of symbols) {
         const daily = aggregateCandles(await getBaseCandles(m.symbol), 1440);
+        const ops = [];
         for (const c of daily) {
             const time = new Date(c.time * 1000);
-            await db.collection('candles_daily').updateOne({ symbol: m.symbol, time }, { $setOnInsert: { symbol: m.symbol, time, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0, source: 'backfill' } }, { upsert: true });
+            ops.push({
+                updateOne: {
+                    filter: { symbol: m.symbol, time },
+                    update: { $setOnInsert: { symbol: m.symbol, time, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0, source: 'backfill' } },
+                    upsert: true
+                }
+            });
+            if (ops.length >= 500) {
+                await db.collection('candles_daily').bulkWrite(ops, { ordered: false });
+                ops.length = 0;
+            }
         }
+        if (ops.length) await db.collection('candles_daily').bulkWrite(ops, { ordered: false });
     }
 }
 
@@ -493,6 +541,20 @@ app.get('/api/chart/:symbol/:timeframe', async (req, res, next) => {
         const db = getDB();
         const isDailyPlus = ['1d', '1w', '1M', '1Y'].includes(timeframe);
 
+        // 🆕 اگه دیتا لوکال کمه و تایم‌فریم intraday هست، از AlgoTik آنلاین بگیر
+        if (!isDailyPlus) {
+            const localCount = await db.collection('candles_base').countDocuments({ symbol });
+            if (localCount < 100) {
+                try {
+                    const akInterval = ['1m','3m','5m','10m','15m','30m','1h'].includes(timeframe) ? timeframe : '1m';
+                    const ak = await AlgotikClient.fetchChart(symbol, akInterval, 6);
+                    if (ak && ak.candles && ak.candles.length > 0) {
+                        return res.json({ symbol, timeframe, candles: ak.candles, count: ak.candles.length, source: 'algotik-online' });
+                    }
+                } catch (e) { console.error('AlgoTik chart online:', e.message); }
+            }
+        }
+
         if (isDailyPlus) {
             let daily = await db.collection('candles_daily').find({ symbol }).sort({ time: 1 }).toArray();
             if (daily.length < 50) {
@@ -516,8 +578,17 @@ app.get('/api/chart/:symbol/:timeframe', async (req, res, next) => {
             return res.json({ symbol, timeframe, candles, count: candles.length });
         }
 
-        const candles = await getCandles(symbol, timeframe);
-        res.json({ symbol, timeframe, candles, count: candles.length });
+        let candles = await getCandles(symbol, timeframe);
+        // اگه دیتا خالی یا کم بود، از AlgoTik آنلاین بگیر
+        if (candles.length < 50) {
+            try {
+                const ak = await AlgotikClient.fetchStocks([symbol], 6);
+                if (ak && ak.results && ak.results[0] && ak.results[0].status === 'ok') {
+                    candles = await getCandles(symbol, timeframe);
+                }
+            } catch (e) { console.error('AlgoTik chart fallback:', e.message); }
+        }
+        res.json({ symbol, timeframe, candles, count: candles.length, source: candles.length >= 50 ? 'local' : 'limited' });
     } catch (e) { next(e); }
 });
 
@@ -1256,7 +1327,132 @@ app.get('/api/logs', async (req, res, next) => {
         res.json({ logs: Log.recent(limit, req.query.level || undefined) });
     } catch (e) { next(e); }
 });
+
+// ======================== Backtest Job Handlers ========================
+async function runBacktestJob(job) {
+    const { configId, from, to, useRealOption, useOnlineData } = job.payload;
+    const db = getDB();
+    const cfg = await db.collection('strategy_configs').findOne({ _id: new ObjectId(configId) });
+    if (!cfg) throw new Error('config یافت نشد');
+
+    await BtService.updateProgress(job._id, 10, 100, 'دریافت کندل‌ها...');
+    const dateFrom = from ? parseInt(from) : null;
+    const dateTo = to ? parseInt(to) : null;
+
+    const { trades, candles } = await computeStockBacktestTrades(cfg, dateFrom, dateTo);
+
+    await BtService.updateProgress(job._id, 40, 100, `محاسبه ${trades.length} معامله...`);
+
+    const closedTrades = trades.filter(t => t.status === 'closed');
+
+    // Online data fallback: اگر تعداد معاملات کم بود و useOnlineData فعال
+    let optionResult;
+    if (useOnlineData) {
+        // تلاش برای دریافت دیتای واقعی از AlgoTik
+        const onlineChain = await fetchAlgotikOptions(cfg.symbol).catch(() => null);
+        optionResult = await Options.runHybridOptionBacktest(cfg.symbol, closedTrades, { realEnabled: !!useRealOption, onlineChain });
+    } else {
+        optionResult = await Options.runHybridOptionBacktest(cfg.symbol, closedTrades, { realEnabled: !!useRealOption });
+    }
+
+    await BtService.updateProgress(job._id, 100, 100, 'تکمیل');
+    return {
+        stockTradesCount: trades.length,
+        stockClosedCount: closedTrades.length,
+        dateRange: { from: dateFrom, to: dateTo },
+        ...optionResult
+    };
+}
+
+async function runAutoConfigJob(job) {
+    const { symbols, maxConfirmers, from, to, dryRun } = job.payload;
+    const fromTs = from ? parseInt(from) : null;
+    const toTs = to ? parseInt(to) : null;
+
+    const plans = [];
+    for (let i = 0; i < symbols.length; i++) {
+        const sym = symbols[i];
+        await BtService.updateProgress(job._id, i, symbols.length, `پردازش ${sym}...`);
+        const p = await autoConfigureSingle(sym, maxConfirmers || 2, fromTs, toTs);
+        plans.push(p);
+    }
+
+    await BtService.updateProgress(job._id, symbols.length, symbols.length, 'اعمال...');
+
+    if (dryRun) return { plans, applied: false };
+
+    const db = getDB();
+    const applied = [];
+    for (const p of plans) {
+        if (p.error || !p.leader) {
+            applied.push({ symbol: p.symbol, error: p.error || 'بدون leader', rejectionReasons: p.rejectionReasons });
+            continue;
+        }
+        const old = await db.collection('strategy_configs').find({ symbol: p.symbol }).toArray();
+        const oldIds = old.map(o => o._id.toString());
+        await db.collection('strategy_configs').deleteMany({ symbol: p.symbol });
+        await db.collection('signals_state').deleteMany({ configId: { $in: oldIds } });
+
+        const leaderDoc = {
+            symbol: p.symbol, strategyId: p.leader.strategyId, timeframe: p.leader.timeframe,
+            htfTimeframe: p.leader.htfTimeframe, candleType: 'heikin',
+            params: { ...STRATEGIES[p.leader.strategyId].defaultParams, ...Settings.getStrategyDefaults(p.leader.strategyId) },
+            enabled: true, role: 'leader', autoConfigured: true, createdAt: new Date()
+        };
+        const r1 = await db.collection('strategy_configs').insertOne(leaderDoc);
+        const created = [r1.insertedId.toString()];
+        for (const c of p.confirmers) {
+            const cDoc = {
+                symbol: p.symbol, strategyId: c.strategyId, timeframe: c.timeframe,
+                htfTimeframe: c.htfTimeframe, candleType: 'heikin',
+                params: { ...STRATEGIES[c.strategyId].defaultParams, ...Settings.getStrategyDefaults(c.strategyId) },
+                enabled: true, role: 'confirmer', autoConfigured: true, createdAt: new Date()
+            };
+            const r2 = await db.collection('strategy_configs').insertOne(cDoc);
+            created.push(r2.insertedId.toString());
+        }
+        applied.push({
+            symbol: p.symbol, leader: p.leader.strategyId, leaderName: p.leader.strategyName,
+            leaderScore: p.leader.score,
+            confirmers: p.confirmers.map(c => ({ id: c.strategyId, name: c.strategyName, score: c.score })),
+            created: created.length
+        });
+    }
+
+    // پس از افزودن config جدید، candles_tf ساخته شود
+    await persistTfCandles().catch(e => console.error('persistTfCandles:', e.message));
+
+    await notify(`🤖 تنظیم خودکار انجام شد\n${applied.filter(a => !a.error).map(a => `• ${a.symbol}: لیدر ${a.leaderName}`).join('\n')}`).catch(() => {});
+    return { plans, applied: true, results: applied };
+}
+
+async function fetchAlgotikOptions(symbol) {
+    try {
+        const db = getDB();
+        const rows = await db.collection('option_snapshots_algotik')
+            .find({ underlying: symbol })
+            .sort({ timestamp: -1 })
+            .limit(100)
+            .toArray();
+        if (!rows.length) return null;
+        // تبدیل به فرمت option chain
+        return rows.map(r => ({
+            symbol: r.symbol, strike: r.strike, isCall: r.option_type === 'call',
+            underlying: r.underlying, S: r.underlying_last,
+            expiry: r.end_date, daysLeft: r.days_to_expiry,
+            bid: r.bid_price, ask: r.ask_price, last: r.last, close: r.close,
+            bidVol: r.bid_volume, askVol: r.ask_volume,
+            oi: r.open_interest, volume: r.volume, trades: r.trade_count,
+            size: r.contract_size || 1000,
+            timestamp: r.timestamp
+        }));
+    } catch (e) {
+        return null;
+    }
+}
+
 Options.registerRoutes(app, ObjectId);
+BtService.registerRoutes(app);
 
 app.use((req, res) => { Log.push('warn', `404 ${req.method} ${req.originalUrl}`); res.status(404).json({ error: 'مسیر یافت نشد' }); });
 app.use((err, req, res, next) => { console.error('❌', err.message); res.status(500).json({ error: err.message || 'خطای داخلی' }); });
@@ -1267,6 +1463,9 @@ async function ensureIndexes() {
     await db.collection('telegram_outbox').createIndex({ sentAt: 1, createdAt: 1 });
     try { await db.collection('telegram_outbox').dropIndex('sentAt_1'); } catch (e) {}
     try { await db.collection('telegram_outbox').dropIndex('createdAt_1'); } catch (e) {}
+    await db.collection('backtest_jobs').createIndex({ status: 1, createdAt: 1 });
+    await db.collection('backtest_jobs').createIndex({ createdAt: -1 });
+    await db.collection('backtest_cache').createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 86400 });
     await Log.ensureIndexes(db);
 }
 
@@ -1291,6 +1490,11 @@ async function start() {
     await reloadEntryWindow();
     if (typeof Options.reloadFromSettings === 'function') Options.reloadFromSettings();
     await ensureIndexes();
+        BtService.init({
+        getDB,
+        runBacktestJob,
+        runAutoConfigJob
+    });
     Options.init({
         getDB, notify,
         TIMEFRAME_MINUTES: Strat.TIMEFRAME_MINUTES,
@@ -1334,6 +1538,10 @@ async function start() {
 
     cron.schedule('35 12 * * 6,0,1,2,3', () => { if (holidayDate !== todayDateString(getTehranParts())) sendDailySummary().catch(() => {}); }, { timezone: 'Asia/Tehran' });
     cron.schedule('0 10 * * 4', () => { sendWeeklyBackup().catch(e => console.error('❌ بکاپ:', e.message)); }, { timezone: 'Asia/Tehran' });
+    // 🆕 هر ۱۰ دقیقه candles_tf رو آپدیت کن
+    cron.schedule('*/10 * * * *', async () => {
+        try { await persistTfCandles(); } catch (e) { console.error('❌ persistTf:', e.message); }
+    }, { timezone: 'Asia/Tehran' });
 
     // 🆕 AlgoTik — snapshot آپشن هر ۳۰ دقیقه در ساعات بازار
     cron.schedule('5,35 9-12 * * 6,0,1,2,3', async () => {
