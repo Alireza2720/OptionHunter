@@ -662,7 +662,7 @@ async function importDailyHistory(symbol) {
     for (const row of data) {
         const time = parseJalaliDate(row.date); if (!time) continue;
         const close = +row.pl || +row.pc || 0; if (!(close > 0)) continue;
-        const doc = { symbol, time, open: +row.pf || close, high: +row.pmax || close, low: +row.pmin || close, close, volume: +row.tvol || 0, source: 'brsapi-history' };
+        const doc = { symbol, time, open: +row.pf || close, high: +row.pmax || close, low: +row.pmin || close, close, volume: +row.tvol || 0, trades: +row.tno || 0, source: 'brsapi-history' };
         const res = await col.updateOne({ symbol, time }, { $setOnInsert: doc }, { upsert: true });
         if (res.upsertedCount) added++;
     }
