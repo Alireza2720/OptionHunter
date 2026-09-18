@@ -20,9 +20,15 @@ jobs:
           script: |
             set -e
             cd ~/apps/OptionHunter
+            echo "=== Fetching ==="
             git fetch origin main
+            echo "=== Reset ==="
             git reset --hard origin/main
+            echo "=== Clean ==="
             git clean -fd -e ecosystem.config.js -e package-lock.json -e node_modules -e .env -e logs
-            npm install --prefix .
+            echo "=== npm install ==="
+            npm install --prefix . --no-audit --no-fund --prefer-offline --loglevel=error
+            echo "=== PM2 restart ==="
             pm2 startOrRestart ecosystem.config.js --update-env
             pm2 save
+            echo "=== Done ==="
