@@ -146,11 +146,7 @@
     .bf-legend { display:flex; gap:14px; font-size:11.5px; color:var(--text-dim); margin-top:10px; flex-wrap:wrap; }
     .bf-legend span { display:flex; align-items:center; gap:4px; }
     .bf-legend i { display:inline-block; width:12px; height:12px; border-radius:3px; }
-        .date-range-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin:10px 0; font-size:13px; }
-    .date-range-row label { display:flex; align-items:center; gap:6px; }
-    .date-range-row input[type="date"] { padding:6px 10px; background:var(--bg); border:1px solid var(--border-light); color:var(--text); border-radius:6px; font-family:inherit; font-size:12.5px; }
-    .range-presets { display:flex; gap:6px; flex-wrap:wrap; }
-        .date-range-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin:10px 0; font-size:13px; }
+    .date-range-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin:10px 0; font-size:13px; }
     .date-range-row label { display:flex; align-items:center; gap:6px; }
     .date-range-row input[type="date"] { padding:6px 10px; background:var(--bg); border:1px solid var(--border-light); color:var(--text); border-radius:6px; font-family:inherit; font-size:12.5px; }
     .range-presets { display:flex; gap:6px; flex-wrap:wrap; }
@@ -1331,30 +1327,6 @@ async function execBtSingle(id) {
         btn.disabled = false; btn.textContent = 'اجرا';
     }
 }
-    try {
-        const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}`, {}, 2);
-        const a = r.assumptions;
-        let diag = '';
-        if (r.diagnostic) diag = `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);">ℹ️ ${esc(r.diagnostic)}</div>`;
-        const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}×HV، اسپرد پایه ${a.spreadPct}٪، volCrush ${a.volCrushFactor}×، سقف بازده ${a.maxReturnPct}٪</div>
-            <div class="stats-grid">
-                <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
-                <div class="stat"><small>بسته‌شده</small><b>${r.stockClosedCount||0}</b></div>
-                <div class="stat"><small>آپشن (real/approx)</small><b>${r.stats.count} <small>(${r.realUsed||0}/${r.approxUsed||0})</small></b></div>
-                <div class="stat"><small>وین‌ریت</small><b>${r.stats.count ? r.stats.winRate.toFixed(0)+'٪' : '-'}</b></div>
-                <div class="stat"><small>بازده کل</small><b>${r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
-                <div class="stat"><small>میانگین</small><b>${r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
-                <div class="stat"><small>PF</small><b>${r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
-            </div>`;
-        const rows = r.trades.length ? r.trades.slice().reverse().map(t => {
-            const srcBadge = t.source === 'real' ? '<span class="badge long">واقعی</span>' : '<span class="badge warn">تقریبی</span>';
-            const extra = t.source === 'real' ? `دلتا ${(t.delta||0).toFixed(2)}` : `دلتا ${(t.entryDelta||0).toFixed(2)} | IVCrush ${t.ivCrushFactor ? t.ivCrushFactor.toFixed(2) : '-'}`;
-            return `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${extra}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td>${srcBadge}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`;
-        }).join('') : '<tr class="empty-row"><td colspan="8">معامله‌ای یافت نشد</td></tr>';
-        openModal(`بک‌تست ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>مدل</th><th>پرمیوم</th><th>بازده</th><th>منبع</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`);
-    } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
-
-
 let signalHistoryLimit = 5;
 let signalHistoryCache = null;
 async function loadSignalHistory() {
