@@ -11,6 +11,7 @@ const { STRATEGIES, aggregateCandles, getRequiredCandles } = Strat;
 const Options = require('./option.js');
 const Tsetmc = require('./tsetmc.js');
 const Backfill = require('./backfill.js');
+const AlgotikClient = require('./algotik_client.js');
 const Log = require('./log.js');
 const Settings = require('./settings.js');
 Log.patchConsole();
