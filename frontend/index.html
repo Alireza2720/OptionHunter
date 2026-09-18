@@ -1914,6 +1914,12 @@ function switchBtResultTab(which, btn) {
     btn.classList.add('active');
 }
 
+function setAcRange(months) {
+    const to = new Date();
+    const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months);
+    document.getElementById('acTo').value = to.toISOString().slice(0, 10);
+    document.getElementById('acFrom').value = from.toISOString().slice(0, 10);
+}
 // ======================== Auto-Configure UI ========================
 async function openAutoConfigure() {
     try {
@@ -1925,6 +1931,16 @@ async function openAutoConfigure() {
             <div class="warn" style="background:rgba(217,83,79,.1);border-right:3px solid var(--bad);padding:10px 12px;border-radius:6px;font-size:12.5px;margin:10px 0;">⚠️ تنظیمات فعلی این نمادها حذف و جایگزین می‌شوند.</div>
             <div style="margin:14px 0;"><div class="menu-label">نمادها</div><div style="margin-bottom:8px;"><button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=false)">لغو</button></div><div>${symbolsHtml}</div></div>
             <div class="form-row"><div class="field"><label>تعداد تأییدکننده</label><select id="acMaxConfirmers"><option value="1">۱</option><option value="2" selected>۲</option><option value="3">۳</option></select></div></div>
+            <div class="date-range-row">
+                <label>از: <input type="date" id="acFrom" value="${new Date(Date.now() - 180*86400000).toISOString().slice(0,10)}"></label>
+                <label>تا: <input type="date" id="acTo" value="${new Date().toISOString().slice(0,10)}"></label>
+                <div class="range-presets">
+                    <button class="btn tiny outline" onclick="setAcRange(1)">۱ ماه</button>
+                    <button class="btn tiny outline" onclick="setAcRange(3)">۳ ماه</button>
+                    <button class="btn tiny outline" onclick="setAcRange(6)">۶ ماه</button>
+                    <button class="btn tiny outline" onclick="setAcRange(12)">۱ سال</button>
+                </div>
+            </div>
             <div style="display:flex; gap:8px; margin-top:12px;"><button class="btn outline" id="acPreviewBtn" onclick="previewAutoConfigure()">پیش‌نمایش</button><button class="btn success" id="acApplyBtn" onclick="applyAutoConfigure()">اعمال</button></div>
             <div id="acResults" style="margin-top:16px;"></div>`);
     } catch (e) { showAlert('خطا: ' + e.message); }
@@ -1933,6 +1949,11 @@ async function previewAutoConfigure() {
     const symbols = Array.from(document.querySelectorAll('.ac-symbol:checked')).map(c => c.value);
     if (!symbols.length) return showAlert('حداقل یک نماد', 'warn');
     const maxConfirmers = parseInt(document.getElementById('acMaxConfirmers').value);
+    const fromStr = document.getElementById('acFrom').value;
+    const toStr = document.getElementById('acTo').value;
+    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
+    const dateFrom = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
+    const dateTo = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
     const btn = document.getElementById('acPreviewBtn'); btn.disabled = true; btn.textContent = 'در حال محاسبه...';
     const resultsDiv = document.getElementById('acResults');
     const total = symbols.length;
@@ -1941,7 +1962,7 @@ async function previewAutoConfigure() {
         const symbol = symbols[i];
         resultsDiv.innerHTML = `<div style="padding:16px;">پردازش ${i+1}/${total} — ${esc(symbol)}</div>`;
         try {
-            const r = await apiFetch(`${BACKEND_URL}/api/auto-configure/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, maxConfirmers }) }, 2);
+            const r = await apiFetch(`${BACKEND_URL}/api/auto-configure/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, maxConfirmers, dateFrom, dateTo }) }, 2);
             if (r.plans) allPlans.push(...r.plans);
         } catch (e) { allPlans.push({ symbol, error: e.message }); }
     }
@@ -1953,6 +1974,11 @@ async function applyAutoConfigure() {
     if (!symbols.length) return showAlert('حداقل یک نماد', 'warn');
     if (!confirm(`تنظیم خودکار ${symbols.length} نماد؟ تنظیمات فعلی حذف می‌شود.`)) return;
     const maxConfirmers = parseInt(document.getElementById('acMaxConfirmers').value);
+    const fromStr = document.getElementById('acFrom').value;
+    const toStr = document.getElementById('acTo').value;
+    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
+    const dateFrom = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
+    const dateTo = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
     const btn = document.getElementById('acApplyBtn'); btn.disabled = true; btn.textContent = 'در حال اعمال...';
     const resultsDiv = document.getElementById('acResults');
     const allPlans = [], allApplied = [];
@@ -1960,7 +1986,7 @@ async function applyAutoConfigure() {
         const symbol = symbols[i];
         resultsDiv.innerHTML = `<div style="padding:16px;">اعمال ${i+1}/${symbols.length} — ${esc(symbol)}</div>`;
         try {
-            const r = await apiFetch(`${BACKEND_URL}/api/auto-configure`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, maxConfirmers, dryRun: false }) }, 2);
+            const r = await apiFetch(`${BACKEND_URL}/api/auto-configure`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, maxConfirmers, dryRun: false, dateFrom, dateTo }) }, 2);
             if (r.plans) allPlans.push(...r.plans);
             if (r.results) allApplied.push(...r.results);
         } catch (e) { allPlans.push({ symbol, error: e.message }); }
@@ -1983,7 +2009,10 @@ function renderAutoPlan(plan, mode, results) {
             continue;
         }
         const leaderName = p.leader ? (strategiesInfo.find(s => s.id === p.leader.strategyId)?.name || p.leader.strategyName) : '-';
+        const warning = p.leader && p.leader.stats && p.leader.stats.warning;
+        const warningHtml = warning ? `<div style="background:rgba(201,151,61,.1); border-right:3px solid var(--warn); padding:6px 10px; border-radius:6px; font-size:11.5px; color:var(--warn); margin-bottom:8px;">⚠️ ${esc(warning)}</div>` : '';
         html += `<div class="auto-plan-card"><h5>📊 ${esc(p.symbol)} <span style="font-size:12px;color:var(--text-dim);">(لیدر: ${esc(leaderName)} + ${p.confirmers.length} تأیید)</span></h5>
+            ${warningHtml}
             <div class="auto-role-row"><span class="auto-role-label leader">لیدر</span><b>${esc(leaderName)}</b><span style="font-size:11.5px;color:var(--text-dim);">${TF_LABELS[p.leader.timeframe]||''} → ${TF_LABELS[p.leader.htfTimeframe]||''}</span><span class="auto-score">امتیاز: ${p.leader.score}</span></div>`;
         for (const c of p.confirmers) {
             const cName = strategiesInfo.find(s => s.id === c.strategyId)?.name || c.strategyName;
@@ -2008,15 +2037,161 @@ async function autoConfigureOne(symbol) {
 
 // ======================== راهنما ========================
 function guideFull() {
+    const stratBlock = (name, desc, timeframe, good) => `
+        <div class="strat-block">
+            <h5>${name}</h5>
+            <p>${desc}</p>
+            <p>مناسب: ${good}</p>
+            <p style="color:var(--text-bright);font-size:11.5px;">TF: ${timeframe}</p>
+        </div>`;
     return `
-        <h4>شروع سریع</h4>
-        <ol><li>نمادها را اضافه کن.</li><li>Backfill رو شروع کن (۶ ماه دیتا).</li><li>استراتژی بساز یا از تنظیم خودکار استفاده کن.</li></ol>
-        <h4>🤖 تنظیم خودکار</h4><p>معیار: ۷ معامله سهم + ۳ معامله آپشن + PF ≥ ۱.۱</p>
-        <h4>📥 Backfill</h4><p>دیتای ۱ دقیقه‌ای تاریخی از TSETMC. هر ۲۰ دقیقه ۴ روز. progress ذخیره می‌شه.</p>
-        <h4>📊 پوشش داده</h4><p>وضعیت کندل‌ها و Backfill هر نماد.</p>
-        <h4>منطق لیدری/تأییدکننده</h4><p>لیدر سیگنال مستقل می‌ده. تأییدکننده‌ها فقط همراهی می‌کنن.</p>
-        <h4>اصطلاحات آپشن</h4>
-        <dl><dt>دلتا</dt><dd>حساسیت پرمیوم</dd><dt>تتا</dt><dd>کاهش روزانه</dd><dt>IV/HV</dt><dd>نوسان ضمنی/تاریخی</dd><dt>OI</dt><dd>موقعیت باز</dd></dl>`;
+        <h4>🚀 شروع سریع</h4>
+        <ol>
+            <li><b>نمادها را اضافه کن</b> — از بخش «نمادهای زیر نظر».</li>
+            <li><b>تاریخچه روزانه</b> رو بگیر (دکمه روی هر نماد) — برای Backfill لازمه.</li>
+            <li><b>Backfill</b> رو شروع کن — دیتای ۱ دقیقه‌ای تاریخی.</li>
+            <li><b>استراتژی بساز</b> یا از <b>تنظیم خودکار</b> استفاده کن.</li>
+            <li>منتظر سیگنال در پیام‌رسان بمان.</li>
+        </ol>
+
+        <h4>📊 نمودار مستقل</h4>
+        <p>بالای صفحه یه نمودار مستقل هست که می‌تونه هر نماد (حتی خارج از لیست پایش) رو نشون بده.</p>
+        <ul>
+            <li>تایم‌فریم: از ۱ دقیقه تا ۱ سال</li>
+            <li>نوع کندل: ساده یا هیکن آشی</li>
+            <li>۷ اندیکاتور: MA، EMA، Bollinger Bands، Ichimoku، Volume، RSI، MACD</li>
+            <li>روی دکمه «📊 اندیکاتورها» بزنید تا پنل انتخاب باز بشه</li>
+            <li>هر اندیکاتور یه آیکون ✏️ داره که تنظیمات پیشرفته‌ش باز می‌شه</li>
+        </ul>
+
+        <h4>📥 Backfill — دریافت دیتای تاریخی</h4>
+        <p>Backfill دیتای ۱ دقیقه‌ای گذشته رو از TSETMC می‌گیره و ذخیره می‌کنه تا بشه روی گذشته بک‌تست زد.</p>
+        <p><b>نحوه کار:</b></p>
+        <ul>
+            <li>هر ۲۰ دقیقه یه tick اجرا می‌شه که ۴ روز رو دانلود می‌کنه</li>
+            <li>برای هر نماد یه Job جداگانه ساخته می‌شه</li>
+            <li>پیشرفت هر روز ذخیره می‌شه — اگه قطع بشه، ادامه می‌ده</li>
+            <li>روزهایی که TSETMC جواب نمی‌ده، دوباره تلاش می‌شن (تا ۸ بار)</li>
+            <li>روزهای تعطیل و بدون معامله به‌عنوان NO_TRADES علامت می‌خورن</li>
+        </ul>
+        <p><b>وضعیت‌های هر روز:</b></p>
+        <dl>
+            <dt>🟢 DONE</dt><dd>معاملات دریافت و ذخیره شد</dd>
+            <dt>⚪ NO_TRADES</dt><dd>واقعاً تعطیل یا بدون معامله بود</dd>
+            <dt>🟡 RETRYING</dt><dd>خطا داد ولی دوباره تلاش می‌شه</dd>
+            <dt>🔴 FAILED</dt><dd>بعد از ۸ تلاش نهایی رد شد</dd>
+            <dt>⚫ PENDING</dt><dd>هنوز تست نشده</dd>
+        </dl>
+        <p><b>دکمه‌ها:</b></p>
+        <ul>
+            <li><b>▶️ اجرای فوری</b> — یه batch رو خارج از cron اجرا می‌کنه</li>
+            <li><b>⏸ توقف</b> — Job فعلی متوقف می‌شه، بقیه ادامه می‌دن</li>
+            <li><b>▶️ ادامه</b> — Job متوقف‌شده رو دوباره فعال می‌کنه</li>
+            <li><b>🔄 ریست</b> — progress پاک می‌شه، دیتای ذخیره‌شده باقی می‌مونه</li>
+            <li><b>جزئیات</b> — تقویم روزها با وضعیت هر روز</li>
+        </ul>
+        <div class="tip">💡 <b>نکته:</b> Backfill دیتای ۱ دقیقه‌ای رو ذخیره می‌کنه. بقیه تایم‌فریم‌ها (۵ دقیقه، ۱۵ دقیقه، ۱ ساعت، ...) خودکار از همین دیتاها ساخته می‌شن.</div>
+
+        <h4>🤖 تنظیم خودکار</h4>
+        <p>روی هر نماد می‌تونید «تنظیم خودکار» بزنید تا سیستم بهترین استراتژی‌ها رو انتخاب کنه.</p>
+        <p><b>معیارهای قبولی لیدر:</b></p>
+        <ul>
+            <li>حداقل ۷ معامله سهم</li>
+            <li>حداقل ۳ معامله آپشن</li>
+            <li>Profit Factor ≥ ۱.۱</li>
+        </ul>
+        <p><b>بازه زمانی:</b> می‌تونید بازه بک‌تست رو انتخاب کنید (پیش‌فرض: ۶ ماه). اگه داده کافی توی این بازه نباشه، سیستم با هشدار ادامه می‌ده.</p>
+        <p><b>ساختار خروجی:</b></p>
+        <ul>
+            <li><b>لیدر</b> — بهترین استراتژی، سیگنال مستقل می‌ده</li>
+            <li><b>تأییدکننده‌ها</b> — ۱-۳ استراتژی که همراهی می‌کنن</li>
+        </ul>
+
+        <h4>🎯 بک‌تست</h4>
+        <p><b>بک‌تست تکی:</b> روی هر استراتژی توی «لیست پایش» یه دکمه «بک‌تست» هست. بازه زمانی رو انتخاب کنید و اجرا بزنید.</p>
+        <p><b>بک‌تست مقایسه‌ای:</b> از منو → چند نماد + چند استراتژی رو انتخاب کنید و مقایسه کنید. نتیجه توی ۳ تب (به تفکیک نماد، به تفکیک استراتژی، جزئیات) نمایش داده می‌شه.</p>
+        <p><b>مدل آپشن:</b> برای هر معامله، سیستم اول تلاش می‌کنه از دیتای واقعی آپشن استفاده کنه (real). اگه نبود، از مدل تقریبی با vol crush استفاده می‌کنه (approx).</p>
+
+        <h4>📊 پوشش داده</h4>
+        <p>وضعیت هر نماد رو نشون می‌ده:</p>
+        <ul>
+            <li>تعداد کندل هر تایم‌فریم</li>
+            <li>آمادگی استراتژی‌ها</li>
+            <li>وضعیت Backfill</li>
+        </ul>
+        <p>اگه یه استراتژی «داده ناکافی» زده، از اینجا بفهمید کدوم تایم‌فریم کمه.</p>
+
+        <h4>🔀 منطق لیدری و تأییدکننده</h4>
+        <p><b>لیدر:</b> سیگنال مستقل به پیام‌رسان می‌فرسته.</p>
+        <p><b>تأییدکننده:</b> تنها پیام نمی‌فرسته، ولی اگه هم‌زمان با لیدر تأیید کنه:</p>
+        <ul>
+            <li>توی پیام لیدر تگ «✅ تأیید» اضافه می‌شه</li>
+            <li>تگ «🔥 هم‌گرایی» نشون داده می‌شه</li>
+            <li>اگه ۲+ تأییدکننده هم‌زمان سیگنال بدن، پیام «چند-تأیید» جدا فرستاده می‌شه</li>
+        </ul>
+        <p>هر چی تأیید بیشتر، حجم پیشنهادی برای خرید آپشن بزرگ‌تر.</p>
+
+        <h4>💰 مدیریت سرمایه سه‌لایه</h4>
+        <p>حجم نهایی = پایه × ضریب سیگنال × ضریب سطح قرارداد × ضریب IV</p>
+        <dl>
+            <dt>ضریب سیگنال</dt><dd>هر چی تأیید بیشتر، حجم بیشتر</dd>
+            <dt>ضریب سطح</dt><dd>A+ → D (کیفیت قرارداد از نظر OI، اسپرد، دلتا)</dd>
+            <dt>ضریب IV</dt><dd>اگه IV گران باشه، حجم کم می‌شه</dd>
+        </dl>
+
+        <h4>📈 استراتژی‌ها</h4>
+        ${stratBlock('RSI', 'پولبک RSI در روند', '30 دقیقه → روزانه', 'بازار رنج')}
+        ${stratBlock('SMC Unicorn', 'شکار نقدینگی + Breaker + FVG', '1 ساعت → روزانه', 'حرکات بزرگ')}
+        ${stratBlock('OB + Sweep', 'Sweep + MSS + Order Block', '1 ساعت → روزانه', 'برگشت ناگهانی')}
+        ${stratBlock('Supply & Demand', 'بازگشت به ناحیه تقاضا', '30 دقیقه → روزانه', 'همه شرایط')}
+        ${stratBlock('OB After Sweep', 'ترتیب Sweep → OB', '1 ساعت → روزانه', 'حرکات بزرگ')}
+        ${stratBlock('London Breakout', 'شکست رنج آغازین', '15 دقیقه → روزانه', 'ابتدای بازار')}
+        ${stratBlock('ORB', 'شکست بازه ۳۰ دقیقه ابتدایی', '15 دقیقه → روزانه', 'ابتدای بازار')}
+        ${stratBlock('Pin Bar Reversal', 'شکار Pin Bar صعودی', '15 دقیقه → روزانه', 'برگشت از کف')}
+        ${stratBlock('Ensemble', 'رأی‌گیری وزنی از ۸ استراتژی', '30 دقیقه → روزانه', 'همه شرایط')}
+
+        <h4>⚙️ تنظیمات عمومی</h4>
+        <p>از منو → «تنظیمات عمومی» می‌تونید این‌ها رو تنظیم کنید:</p>
+        <ul>
+            <li><b>معاملات:</b> بازه ورود، کارمزد، نرخ بدون ریسک</li>
+            <li><b>مدیریت سرمایه:</b> سرمایه کل، ریسک هر معامله</li>
+            <li><b>ضرایب سه‌لایه:</b> ضریب سیگنال، سطح، IV</li>
+            <li><b>هم‌گرایی:</b> پنجره زمانی برای تشخیص تأییدکننده‌ها</li>
+            <li><b>آپشن:</b> معیارهای انتخاب قرارداد (OI، اسپرد، دلتا، ...)</li>
+        </ul>
+
+        <h4>📖 اصطلاحات آپشن</h4>
+        <dl>
+            <dt>دلتا</dt><dd>حساسیت پرمیوم به تغییر قیمت سهم</dd>
+            <dt>تتا</dt><dd>کاهش روزانه ارزش آپشن</dd>
+            <dt>گاما</dt><dd>نرخ تغییر دلتا</dd>
+            <dt>وگا</dt><dd>حساسیت به تغییر IV</dd>
+            <dt>IV</dt><dd>نوسان ضمنی — پیش‌بینی بازار از نوسان آینده</dd>
+            <dt>HV</dt><dd>نوسان تاریخی — نوسان واقعی گذشته</dd>
+            <dt>IV/HV</dt><dd>اگه بیشتر از ۱ باشه، آپشن گرونه</dd>
+            <dt>OI</dt><dd>Open Interest — تعداد قراردادهای باز</dd>
+            <dt>Spread</dt><dd>فاصله بین Bid و Ask</dd>
+            <dt>vol crush</dt><dd>افت IV بعد از یه حرکت بزرگ سهم</dd>
+            <dt>سطح A+/A/B/C/D</dt><dd>کیفیت قرارداد بر اساس معیارها</dd>
+        </dl>
+
+        <h4>🔧 عیب‌یابی سریع</h4>
+        <dl>
+            <dt>سرور وصل نمی‌شه</dt><dd>از سرور: <code>pm2 status</code> و <code>pm2 logs OptionHunter</code></dd>
+            <dt>Backfill کار نمی‌کنه</dt><dd>چک کنید: TSETMC جواب می‌ده؟ با «جزئیات» پیام خطا رو ببینید</dd>
+            <dt>استراتژی «داده ناکافی»</dt><dd>از پوشش داده ببینید کدوم تایم‌فریم کمه، Backfill یا تاریخچه روزانه بگیرید</dd>
+            <dt>سیگنال نمیاد</dt><dd>وضعیت بازار رو از منو چک کنید — اگه بسته باشه طبیعی‌ست</dd>
+            <dt>پیام‌رسان کار نمی‌کنه</dt><dd>از منو → «تست پیام‌رسان»</dd>
+        </dl>
+
+        <h4>💡 نکات کلیدی</h4>
+        <ul>
+            <li>TSETMC intermittent هست — بعضی روزها جواب می‌ده، بعضی نه. سیستم خودکار retry می‌کنه.</li>
+            <li>قراردادهای منقضی‌شده برای بک‌تست مهمن — پاک نمی‌شن.</li>
+            <li>برای بک‌تست دقیق، حتماً Backfill رو کامل کنید.</li>
+            <li>دیتای روزانه ۲۲ سال داره، ولی intraday فقط از روزی که Backfill شروع کردید.</li>
+            <li>برای عملکرد بهتر: قبل از بک‌تست سنگین، Backfill رو متوقف کنید.</li>
+        </ul>`;
 }
 
 // ======================== زنجیره / پیشنهاد / موقعیت‌ها ========================

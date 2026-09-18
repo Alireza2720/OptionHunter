@@ -936,7 +936,7 @@ function scoreStrategyForAuto(res) {
     return score;
 }
 
-async function autoConfigureSingle(symbol, maxConfirmers) {
+async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo) {
     const db = getDB();
     const monitored = await db.collection('monitored_symbols').findOne({ symbol });
     if (!monitored) return { symbol, error: 'نماد در لیست پایش نیست' };
@@ -948,15 +948,27 @@ async function autoConfigureSingle(symbol, maxConfirmers) {
         const cfg = { symbol, strategyId: def.id, timeframe: def.defaultTimeframe, htfTimeframe: def.htfTimeframe || '1d', candleType: 'heikin', params: { ...def.defaultParams, ...Settings.getStrategyDefaults(def.id) } };
         try {
             const tf = cfg.timeframe, htf = cfg.htfTimeframe;
-            const closedCandles = closedOnly(await getCandles(symbol, tf), tf);
-            const closedHtf = closedOnly(await getCandles(symbol, htf), htf);
+            let closedCandles = closedOnly(await getCandles(symbol, tf), tf);
+            let closedHtf = closedOnly(await getCandles(symbol, htf), htf);
+            if (dateFrom) { closedCandles = closedCandles.filter(c => c.time >= dateFrom); closedHtf = closedHtf.filter(c => c.time >= dateFrom); }
+            if (dateTo) { closedCandles = closedCandles.filter(c => c.time <= dateTo); closedHtf = closedHtf.filter(c => c.time <= dateTo); }
+
             const required = getRequiredCandles(cfg.strategyId, cfg.params);
             const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
-            if (closedCandles.length < required || closedHtf.length < requiredHtf) {
+
+            // Option C: حداقل ۳۰٪ داده لازم باشه، ولی ترجیحاً بیشتر
+            const MIN_CANDLES = Math.max(5, Math.floor(required * 0.3));
+            const MIN_HTF = Math.max(3, Math.floor(requiredHtf * 0.3));
+            if (closedCandles.length < MIN_CANDLES || closedHtf.length < MIN_HTF) {
                 results.push({ strategyId: def.id, strategyName: def.name, timeframe: cfg.timeframe, error: `داده ناکافی (${closedCandles.length}/${required})`, insufficientData: true, score: -Infinity });
                 continue;
             }
-            const { trades } = await computeStockBacktestTrades(cfg);
+
+            const dataWarning = (closedCandles.length < required || closedHtf.length < requiredHtf)
+                ? `داده محدود (${closedCandles.length}/${required} ورودی، ${closedHtf.length}/${requiredHtf} روند)`
+                : null;
+
+            const { trades } = await computeStockBacktestTrades(cfg, dateFrom, dateTo);
             const closedTrades = trades.filter(t => t.status === 'closed');
             const stockWins = closedTrades.filter(t => t.pnlPct > 0);
             const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
@@ -965,7 +977,8 @@ async function autoConfigureSingle(symbol, maxConfirmers) {
             const r = {
                 strategyId: def.id, strategyName: def.name, timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe,
                 stock: { total: trades.length, closed: closedTrades.length, winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0, avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0, totalPnl: stockSum },
-                option: { ...h.stats, realUsed: h.realUsed, approxUsed: h.approxUsed, diagnostic: h.diagnostic }
+                option: { ...h.stats, realUsed: h.realUsed, approxUsed: h.approxUsed, diagnostic: h.diagnostic },
+                warning: dataWarning
             };
             r.score = scoreStrategyForAuto(r);
             results.push(r);
@@ -1004,16 +1017,19 @@ async function autoConfigureSingle(symbol, maxConfirmers) {
 
 app.post('/api/auto-configure', async (req, res, next) => {
     try {
-        const { symbol, symbols, maxConfirmers = 2, dryRun = false } = req.body || {};
+        const { symbol, symbols, maxConfirmers = 2, dryRun = false, dateFrom, dateTo } = req.body || {};
         let targetSymbols = [];
         if (symbol) targetSymbols = [symbol];
         else if (Array.isArray(symbols)) targetSymbols = symbols;
         if (!targetSymbols.length) return res.status(400).json({ error: 'حداقل یک نماد انتخاب کنید' });
 
+        const fromTs = dateFrom ? parseInt(dateFrom) : null;
+        const toTs = dateTo ? parseInt(dateTo) : null;
+
         const db = getDB();
         const plans = [];
         for (const sym of targetSymbols) {
-            const p = await autoConfigureSingle(sym, maxConfirmers);
+            const p = await autoConfigureSingle(sym, maxConfirmers, fromTs, toTs);
             plans.push(p);
         }
 
@@ -1045,14 +1061,17 @@ app.post('/api/auto-configure', async (req, res, next) => {
 
 app.post('/api/auto-configure/preview', async (req, res, next) => {
     try {
-        const { symbol, symbols, maxConfirmers = 2 } = req.body || {};
+        const { symbol, symbols, maxConfirmers = 2, dateFrom, dateTo } = req.body || {};
         let targetSymbols = [];
         if (symbol) targetSymbols = [symbol];
         else if (Array.isArray(symbols)) targetSymbols = symbols;
         if (!targetSymbols.length) return res.status(400).json({ error: 'حداقل یک نماد' });
 
+        const fromTs = dateFrom ? parseInt(dateFrom) : null;
+        const toTs = dateTo ? parseInt(dateTo) : null;
+
         const plans = [];
-        for (const sym of targetSymbols) plans.push(await autoConfigureSingle(sym, maxConfirmers));
+        for (const sym of targetSymbols) plans.push(await autoConfigureSingle(sym, maxConfirmers, fromTs, toTs));
         res.json({ plans });
     } catch (e) { next(e); }
 });
