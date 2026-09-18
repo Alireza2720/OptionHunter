@@ -795,10 +795,12 @@ app.get('/api/portfolio', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
-async function computeStockBacktestTrades(cfg) {
+async function computeStockBacktestTrades(cfg, dateFrom, dateTo) {
     const def = STRATEGIES[cfg.strategyId]; const htfTf = cfg.htfTimeframe || '1d';
-    const candles = closedOnly(await getCandlesFull(cfg.symbol, cfg.timeframe), cfg.timeframe);
-    const htf = closedOnly(await getCandlesFull(cfg.symbol, htfTf), htfTf);
+    let candles = closedOnly(await getCandlesFull(cfg.symbol, cfg.timeframe), cfg.timeframe);
+    let htf = closedOnly(await getCandlesFull(cfg.symbol, htfTf), htfTf);
+    if (dateFrom) { candles = candles.filter(c => c.time >= dateFrom); htf = htf.filter(c => c.time >= dateFrom); }
+    if (dateTo) { candles = candles.filter(c => c.time <= dateTo); htf = htf.filter(c => c.time <= dateTo); }
     const result = def.run(candles, { ...cfg.params, candleType: cfg.candleType }, { htfCandles: htf, htfTimeframe: htfTf, entryWindow: { start: ENTRY_START, end: ENTRY_END } });
     const closeAt = new Map(candles.map((c, i) => [c.time, { close: c.close, i }]));
     const trades = []; let open = null;
@@ -814,18 +816,27 @@ app.get('/api/backtest-option/:configId', async (req, res, next) => {
     try {
         const cfg = await getDB().collection('strategy_configs').findOne({ _id: new ObjectId(req.params.configId) });
         if (!cfg) return res.status(404).json({ error: 'تنظیم یافت نشد' });
-        const { trades } = await computeStockBacktestTrades(cfg);
+        const dateFrom = req.query.from ? parseInt(req.query.from) : null;
+        const dateTo = req.query.to ? parseInt(req.query.to) : null;
+        const { trades } = await computeStockBacktestTrades(cfg, dateFrom, dateTo);
         const closedTrades = trades.filter(t => t.status === 'closed');
         const result = await Options.runHybridOptionBacktest(cfg.symbol, closedTrades);
-        res.json({ stockTradesCount: trades.length, stockClosedCount: closedTrades.length, ...result });
+        res.json({
+            stockTradesCount: trades.length,
+            stockClosedCount: closedTrades.length,
+            dateRange: { from: dateFrom, to: dateTo },
+            ...result
+        });
     } catch (e) { next(e); }
 });
 
 app.post('/api/backtest-compare', async (req, res, next) => {
     try {
-        const { symbols, strategies, useRealOption } = req.body || {};
+        const { symbols, strategies, useRealOption, dateFrom, dateTo } = req.body || {};
         if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد' });
         if (!Array.isArray(strategies) || !strategies.length) return res.status(400).json({ error: 'حداقل یک استراتژی' });
+        const fromTs = dateFrom ? parseInt(dateFrom) : null;
+        const toTs = dateTo ? parseInt(dateTo) : null;
 
         const results = [];
         for (const symbol of symbols) {
@@ -842,7 +853,7 @@ app.post('/api/backtest-compare', async (req, res, next) => {
                         results.push({ symbol, strategyId: s.id, strategyName: def.name, timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType, error: `داده کافی نیست (ورود: ${closedCandles.length}/${required}، روند: ${closedHtf.length}/${requiredHtf})`, insufficientData: true });
                         continue;
                     }
-                    const { trades } = await computeStockBacktestTrades(cfg);
+                    const { trades } = await computeStockBacktestTrades(cfg, fromTs, toTs);
                     const closedTrades = trades.filter(t => t.status === 'closed');
                     const stockWins = closedTrades.filter(t => t.pnlPct > 0);
                     const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);

@@ -55,16 +55,25 @@ async function resolveInsCode(symbol) {
   return { insCode: String(found.insCode), name: found.lVal30 || symbol };
 }
 
-async function getTradingDays(symbol, months) {
+async function getTradingDaysWithCounts(symbol, months) {
   const db = deps.getDB();
   const startDate = new Date();
   startDate.setUTCMonth(startDate.getUTCMonth() - months);
   const rows = await db.collection('candles_daily')
     .find({ symbol, time: { $gte: startDate } })
     .sort({ time: 1 })
-    .project({ time: 1 })
+    .project({ time: 1, volume: 1, trades: 1 })
     .toArray();
-  return rows.map(r => toGregorianInt(r.time));
+  return rows.map(r => ({
+    date: toGregorianInt(r.time),
+    expectedTrades: r.trades || 0,
+    expectedVolume: r.volume || 0
+  }));
+}
+
+async function getTradingDays(symbol, months) {
+  const days = await getTradingDaysWithCounts(symbol, months);
+  return days.map(d => d.date);
 }
 
 // ---------- ایجاد Job برای یک سهام ----------
@@ -79,8 +88,9 @@ async function createStockJob(symbol, options = {}) {
   if (existing) return { existing: true, job: existing };
 
   const { insCode, name } = await resolveInsCode(symbol);
-  const days = await getTradingDays(symbol, months);
-  if (!days.length) throw new Error('روز معاملاتی یافت نشد — ابتدا «تاریخچه روزانه» را دانلود کنید');
+  const daysWithCounts = await getTradingDaysWithCounts(symbol, months);
+  if (!daysWithCounts.length) throw new Error('روز معاملاتی یافت نشد — ابتدا «تاریخچه روزانه» را دانلود کنید');
+  const days = daysWithCounts.map(d => d.date);
 
   const job = {
     type: 'stock',
@@ -94,7 +104,7 @@ async function createStockJob(symbol, options = {}) {
     startDate: days[0],
     endDate: days[days.length - 1],
     cursor: 0,
-    days: days.map(d => ({ date: d, status: 'PENDING', candles: 0, attempts: 0, error: null, fetchedAt: null })),
+    days: daysWithCounts.map(d => ({ date: d.date, expectedTrades: d.expectedTrades, expectedVolume: d.expectedVolume, status: 'PENDING', candles: 0, attempts: 0, error: null, fetchedAt: null })),
     stats: { total: days.length, done: 0, failed: 0, pending: days.length, noTrades: 0 },
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -112,8 +122,9 @@ async function createOptionJobs(underlying, options = {}) {
   const months = options.months || settings.lookbackMonths;
 
   const { insCode: uInsCode } = await resolveInsCode(underlying);
-  const baseDays = await getTradingDays(underlying, months);
-  if (!baseDays.length) throw new Error('روز معاملاتی پایه یافت نشد');
+  const baseDaysWithCounts = await getTradingDaysWithCounts(underlying, months);
+  if (!baseDaysWithCounts.length) throw new Error('روز معاملاتی پایه یافت نشد');
+  const baseDays = baseDaysWithCounts.map(d => d.date);
 
   const watch = await Tsetmc.getOptionMarketWatch();
   const relevant = watch.filter(x => String(x.underlyingInsCode) === String(uInsCode));
@@ -148,7 +159,7 @@ async function createOptionJobs(underlying, options = {}) {
         startDate: baseDays[0],
         endDate: baseDays[baseDays.length - 1],
         cursor: 0,
-        days: baseDays.map(d => ({ date: d, status: 'PENDING', candles: 0, attempts: 0, error: null, fetchedAt: null })),
+        days: baseDaysWithCounts.map(d => ({ date: d.date, expectedTrades: d.expectedTrades, expectedVolume: d.expectedVolume, status: 'PENDING', candles: 0, attempts: 0, error: null, fetchedAt: null })),
         stats: { total: baseDays.length, done: 0, failed: 0, pending: baseDays.length, noTrades: 0 },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -163,48 +174,26 @@ async function createOptionJobs(underlying, options = {}) {
   return { created: created.length, skipped, jobs: created };
 }
 
-// چک می‌کنه آیا این روز واقعاً معامله وجود داشته یا نه
-// برمی‌گردونه: true (بازار فعال) / false (واقعاً بدون معامله) / null (نمی‌دونیم)
-async function hasMarketActivity(symbol, dateInt) {
-  try {
-    const db = deps.getDB();
-    const y = Math.floor(dateInt / 10000);
-    const mo = Math.floor((dateInt % 10000) / 100);
-    const d = dateInt % 100;
-    const utcDayStart = new Date(Date.UTC(y, mo - 1, d, 0, 0, 0) - 3.5 * 3600 * 1000);
-    const utcDayEnd = new Date(utcDayStart.getTime() + 24 * 3600 * 1000);
-    const row = await db.collection('candles_daily').findOne({
-      symbol,
-      time: { $gte: utcDayStart, $lt: utcDayEnd }
-    });
-    if (!row) return null;
-    return (row.volume || 0) > 0 || (row.trades || 0) > 0;
-  } catch (e) {
-    return null;
-  }
-}
-// ---------- پردازش یک روز ----------
 async function processDay(job, dayInfo) {
   const db = deps.getDB();
+  const expectedTrades = dayInfo.expectedTrades || 0;
   try {
     const trades = await Tsetmc.getTradeHistory(job.insCode, dayInfo.date, 3);
 
     if (!trades || !trades.length) {
-      // 🔍 چک کن آیا این روز واقعاً معامله داشته
-      const checkSymbol = job.type === 'stock' ? job.symbol : (job.underlying || job.symbol);
-      const marketActive = await hasMarketActivity(checkSymbol, dayInfo.date);
-
-      if (job.type === 'stock' && marketActive === true) {
-        // سهم معامله داشته ولی TSETMC خالی داد → intermittent
-        return { status: 'FAILED', error: 'TSETMC خالی داد (سهم معامله داشته — intermittent)' };
+      if (job.type === 'stock') {
+        if (expectedTrades > 0) {
+          return { status: 'FAILED', error: 'TSETMC خالی داد (انتظار ' + expectedTrades + ' معامله)' };
+        }
+        return { status: 'NO_TRADES', candles: 0 };
       }
-      // یا سهم واقعاً بدون معامله بوده، یا آپشن بوده (آپشن‌ها کم‌نقدشوندگی طبیعی)
+      // آپشن: ممکنه نقدشوندگی کم بوده
       return { status: 'NO_TRADES', candles: 0 };
     }
 
     const candles = Tsetmc.aggregateTo1m(trades, dayInfo.date);
     if (!candles.length) {
-      return { status: 'NO_TRADES', candles: 0 };
+      return { status: 'FAILED', error: 'aggregate خالی (bug?)' };
     }
 
     let saved = 0;
@@ -253,7 +242,6 @@ async function runBackfillTick(force) {
     const results = [];
 
     for (let i = 0; i < batchSize; i++) {
-      // پیدا کردن روز بعدی PENDING یا FAILED با attempts کم
       const MAX_ATTEMPTS = 8;
       const isRetryable = (d) => d.status === 'PENDING' || (d.status === 'FAILED' && (d.attempts || 0) < MAX_ATTEMPTS);
       let dayIdx = -1;
@@ -401,19 +389,19 @@ async function runJobNow(id, ObjectId) {
 
   const results = [];
 
-  for (let i = 0; i < batchSize; i++) {
-    const MAX_ATTEMPTS = 8;
-    const isRetryable = (d) => d.status === 'PENDING' || (d.status === 'FAILED' && (d.attempts || 0) < MAX_ATTEMPTS);
-    let dayIdx = -1;
-    for (let k = job.cursor; k < job.days.length; k++) {
-      if (isRetryable(job.days[k])) { dayIdx = k; break; }
-    }
-    if (dayIdx === -1) {
-      for (let k = 0; k < job.days.length; k++) {
+    for (let i = 0; i < batchSize; i++) {
+      const MAX_ATTEMPTS = 8;
+      const isRetryable = (d) => d.status === 'PENDING' || (d.status === 'FAILED' && (d.attempts || 0) < MAX_ATTEMPTS);
+      let dayIdx = -1;
+      for (let k = job.cursor; k < job.days.length; k++) {
         if (isRetryable(job.days[k])) { dayIdx = k; break; }
       }
-    }
-    if (dayIdx === -1) break;
+      if (dayIdx === -1) {
+        for (let k = 0; k < job.days.length; k++) {
+          if (isRetryable(job.days[k])) { dayIdx = k; break; }
+        }
+      }
+      if (dayIdx === -1) break;
 
     const dayInfo = job.days[dayIdx];
     const r = await processDay(job, dayInfo);

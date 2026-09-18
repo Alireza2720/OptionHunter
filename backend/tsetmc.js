@@ -10,7 +10,15 @@
 const fetch = require('node-fetch');
 
 const BASE_URL = 'https://cdn.tsetmc.com/api';
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const BROWSER_HEADERS = {
+    'User-Agent': UA,
+    'Accept': 'application/json,text/plain,*/*',
+    'Accept-Language': 'en-US,en;q=0.9,fa;q=0.8',
+    'Referer': 'https://www.tsetmc.com/',
+    'Origin': 'https://www.tsetmc.com',
+    'Connection': 'keep-alive'
+};
 
 const DEFAULT_TIMEOUT = 20000;
 const RETRY_DELAYS = [1000, 3000, 8000];
@@ -30,7 +38,7 @@ async function fetchWithRetry(url, retries = 3) {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
             const r = await fetch(url, {
-                headers: { 'User-Agent': UA, 'Accept': 'application/json' },
+                headers: BROWSER_HEADERS,
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
