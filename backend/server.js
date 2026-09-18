@@ -214,6 +214,81 @@ async function flushOutbox() {
 async function notify(text) { await getDB().collection('telegram_outbox').insertOne({ text, createdAt: new Date(), attempts: 0, sentAt: null }); flushOutbox().catch(() => {}); }
 app.post('/api/telegram/test', async (req, res, next) => { try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); } });
 
+// ======================== AlgoTik Collector Endpoints ========================
+app.get('/api/algotik/health', async (req, res, next) => {
+    try {
+        const online = await AlgotikClient.isOnline();
+        res.json({ online });
+    } catch (e) { res.json({ online: false, error: e.message }); }
+});
+
+app.get('/api/algotik/status', async (req, res, next) => {
+    try { res.json(await AlgotikClient.getStatus()); } catch (e) { next(e); }
+});
+
+app.get('/api/algotik/logs', async (req, res, next) => {
+    try {
+        const limit = Math.min(+req.query.limit || 50, 500);
+        res.json(await AlgotikClient.getLogs(limit));
+    } catch (e) { next(e); }
+});
+
+app.post('/api/algotik/fetch-stocks', async (req, res, next) => {
+    try {
+        const { symbols, months } = req.body || {};
+        const list = symbols && symbols.length ? symbols : (await getDB().collection('monitored_symbols').find({}).toArray()).map(s => s.symbol);
+        const result = await AlgotikClient.fetchStocks(list, months || 6);
+        res.json(result);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/algotik/fetch-options', async (req, res, next) => {
+    try {
+        const { underlyings } = req.body || {};
+        const list = underlyings && underlyings.length ? underlyings : (await getDB().collection('monitored_symbols').find({}).toArray()).map(s => s.symbol);
+        const result = await AlgotikClient.fetchOptions(list);
+        res.json(result);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/algotik/fetch-options-daily', async (req, res, next) => {
+    try {
+        const { underlyings } = req.body || {};
+        const list = underlyings && underlyings.length ? underlyings : (await getDB().collection('monitored_symbols').find({}).toArray()).map(s => s.symbol);
+        const result = await AlgotikClient.fetchOptionsDaily(list);
+        res.json(result);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/algotik/backfill-all', async (req, res, next) => {
+    try {
+        const { months, withOptions } = req.body || {};
+        const result = await AlgotikClient.backfillAll(months || 6, withOptions !== false);
+        res.json(result);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get('/api/algotik/stats', async (req, res, next) => {
+    try {
+        const db = getDB();
+        const stockCount = await db.collection('candles_base').countDocuments({ source: 'algotik' });
+        const symbols = await db.collection('candles_base').distinct('symbol', { source: 'algotik' });
+        const optSnap = await db.collection('option_snapshots_algotik').countDocuments({});
+        const optDaily = await db.collection('option_daily_algotik').countDocuments({});
+        const lastSnap = await db.collection('option_snapshots_algotik').find({}).sort({ timestamp: -1 }).limit(1).toArray();
+        const lastDaily = await db.collection('option_daily_algotik').find({}).sort({ date: -1 }).limit(1).toArray();
+        res.json({
+            stocks: { candles: stockCount, symbols: symbols.length },
+            options: {
+                snapshots: optSnap,
+                dailyRecords: optDaily,
+                lastSnapshotAt: lastSnap[0]?.timestamp || null,
+                lastDailyDate: lastDaily[0]?.date || null
+            }
+        });
+    } catch (e) { next(e); }
+});
+
 
 
 const health = { consecutiveFailures: 0, alerted: false, lastError: null, lastTickAt: null };
