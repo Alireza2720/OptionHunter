@@ -108,44 +108,20 @@
     .sym-btn.x:hover { background:var(--bad); color:#fff; border-color:var(--bad); }
     .sym-btn.auto { border-color:var(--good); color:var(--good); }
     .sym-btn.auto:hover { background:var(--good); color:#fff; }
-    .sym-btn.backfill { border-color:var(--accent); color:var(--accent); }
-    .sym-btn.backfill:hover { background:var(--accent); color:#fff; }
-    .sym-btn.backfill.running { border-color:var(--warn); color:var(--warn); animation:pulse 1.5s infinite; }
-    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
-
-    .backfill-bar { width:100%; height:5px; background:var(--bg-input); border-radius:3px; overflow:hidden; margin:6px 0 4px; }
-    .backfill-fill { height:100%; transition:width .3s; background:var(--accent); }
-    .backfill-fill.long { background:var(--good); }
-    .backfill-fill.warn { background:var(--warn); }
-    .backfill-fill.short { background:var(--bad); }
-    .backfill-fill.none { background:var(--text-dim); }
-    .backfill-status { display:flex; gap:10px; align-items:center; font-size:11.5px; color:var(--text-dim); flex-wrap:wrap; }
-    .backfill-status .badge { font-size:10px; padding:1px 6px; }
-
-    .bf-stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-bottom:14px; }
-    .bf-stat { background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
-    .bf-stat small { display:block; color:var(--text-dim); font-size:11px; margin-bottom:2px; }
-    .bf-stat b { font-size:16px; color:var(--text-bright); }
-    .bf-job { background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
-    .bf-job-header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
-    .bf-job-name { font-weight:600; color:var(--text-bright); font-size:13.5px; }
-    .bf-job-actions { display:flex; gap:6px; margin-right:auto; }
-    .bf-job-stats { display:flex; gap:14px; font-size:11.5px; color:var(--text-dim); margin-top:6px; flex-wrap:wrap; }
-    .bf-badge { padding:2px 8px; border-radius:10px; font-size:10.5px; font-weight:600; }
-    .bf-badge.stock { background:rgba(61,125,216,.15); color:var(--accent); }
-    .bf-badge.option { background:rgba(201,151,61,.15); color:var(--warn); }
-
-    .bf-calendar { display:grid; grid-template-columns:repeat(auto-fill,minmax(28px,1fr)); gap:3px; margin-top:10px; }
-    .bf-day { aspect-ratio:1; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:9px; cursor:help; transition:transform .1s; }
-    .bf-day:hover { transform:scale(1.15); z-index:10; }
-    .bf-day.DONE { background:var(--good); color:#fff; }
-    .bf-day.FAILED { background:var(--bad); color:#fff; }
-    .bf-day.PENDING { background:var(--border); color:var(--text-dim); }
-    .bf-day.NO_TRADES { background:rgba(125,133,144,.3); color:var(--text-dim); }
-    .bf-day.RETRYING { background:rgba(201,151,61,.4); color:#fff; }
-    .bf-legend { display:flex; gap:14px; font-size:11.5px; color:var(--text-dim); margin-top:10px; flex-wrap:wrap; }
-    .bf-legend span { display:flex; align-items:center; gap:4px; }
-    .bf-legend i { display:inline-block; width:12px; height:12px; border-radius:3px; }
+        .algotik-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:14px; }
+    .algotik-stat { background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+    .algotik-stat .lbl { font-size:11px; color:var(--text-dim); margin-bottom:4px; }
+    .algotik-stat .val { font-size:20px; font-weight:700; color:var(--text-bright); }
+    .algotik-stat .sub { font-size:11px; color:var(--text-dim); margin-top:4px; }
+    .algotik-stat.online { border-color:var(--good); }
+    .algotik-stat.offline { border-color:var(--bad); }
+    .algotik-actions { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; }
+    .algotik-log { max-height:400px; overflow-y:auto; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:10px; }
+    .algotik-log-row { font-family:monospace; font-size:11.5px; direction:ltr; text-align:left; padding:4px 6px; border-bottom:1px solid var(--border); white-space:pre-wrap; word-break:break-all; }
+    .algotik-log-row:last-child { border-bottom:none; }
+    .algotik-log-row.ok { color:var(--good); }
+    .algotik-log-row.err { color:var(--bad); }
+    .algotik-log-row.info { color:var(--text-dim); }
     .date-range-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin:10px 0; font-size:13px; }
     .date-range-row label { display:flex; align-items:center; gap:6px; }
     .date-range-row input[type="date"] { padding:6px 10px; background:var(--bg); border:1px solid var(--border-light); color:var(--text); border-radius:6px; font-family:inherit; font-size:12.5px; }
@@ -352,7 +328,7 @@
         <button class="menu-item" onclick="openBacktestCompare(); toggleMenu();">بک‌تست مقایسه‌ای</button>
         <button class="menu-item" onclick="openAutoConfigure(); toggleMenu();">🤖 تنظیم خودکار</button>
         <button class="menu-item" onclick="openCoverage(); toggleMenu();">📊 پوشش داده</button>
-        <button class="menu-item" onclick="openBackfillManager(); toggleMenu();">📥 Backfill — دریافت تاریخی</button>
+        <button class="menu-item" onclick="openAlgotikFromMenu(); toggleMenu();">📡 AlgoTik — دریافت دیتا</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-guide" style="display:none;">
@@ -483,7 +459,38 @@
             <div id="panelChart" style="height:180px;"></div>
         </div>
     </div>
+    <div class="card collapsible" id="cardAlgotik">
+        <h2 onclick="toggleCard('cardAlgotik')">
+            <span class="h2-title">📡 AlgoTik — دریافت دیتای تاریخی</span>
+            <span class="chev">▼</span>
+        </h2>
+        <div class="card-body">
+            <div id="algotikStats">
+                <div class="algotik-grid">
+                    <div class="algotik-stat"><div class="lbl">در حال بارگذاری...</div><div class="val">-</div></div>
+                </div>
+            </div>
 
+            <div class="algotik-actions">
+                <button class="btn success" onclick="algotikBackfillAll(this)">📥 دریافت همه (۶ ماه)</button>
+                <button class="btn outline" onclick="algotikFetchOptions(this)">📸 Snapshot آپشن</button>
+                <button class="btn outline" onclick="algotikFetchOptionsDaily(this)">📊 آپشن روزانه</button>
+                <button class="btn outline" onclick="algotikRefresh()">🔃 رفرش</button>
+                <button class="btn outline" onclick="algotikShowLogs()">📋 لاگ Collector</button>
+            </div>
+
+            <div style="margin-top:12px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;">
+                    <input type="checkbox" id="algotikAutoRefresh" checked onchange="algotikToggleAuto()">
+                    رفرش خودکار هر ۱۰ ثانیه
+                </label>
+            </div>
+
+            <div class="hint" style="margin-top:12px;">
+                ⚡ AlgoTik Collector روی پورت 5000 در سرور اجرا می‌شود و با سرعت بالا دیتای تاریخی TSETMC را می‌گیرد.
+            </div>
+        </div>
+    </div>
     <div class="card collapsible" id="cardSymbols">
         <h2 onclick="toggleCard('cardSymbols')">
             <span class="h2-title">۱. نمادهای زیر نظر <span class="count-pill" id="symbolCountLabel">0</span></span>
@@ -497,7 +504,6 @@
                     <div class="autocomplete-list" id="autocompleteList"></div>
                 </div>
                 <button class="btn" onclick="addMonitoredSymbol()">افزودن</button>
-                <button class="btn outline" onclick="openBackfillManager()">📥 Backfill — مدیریت دریافت تاریخی</button>
             </div>
             <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div>
         </div>
@@ -833,24 +839,6 @@ function renderMonitoredSymbols() {
             (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') +
             (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '')
             : '<span style="opacity:.5;">در حال دریافت قیمت...</span>';
-        const bf = s.backfillJob;
-        let bfHtml = '';
-        if (bf) {
-            const pct = bf.stats.total > 0 ? Math.round((bf.stats.done / bf.stats.total) * 100) : 0;
-            const statusColors = { PENDING: 'warn', IN_PROGRESS: 'long', PAUSED: 'warn', DONE: 'long' };
-            const statusLabels = { PENDING: 'در نوبت', IN_PROGRESS: 'در حال دریافت', PAUSED: 'متوقف', DONE: 'کامل' };
-            bfHtml = `<div class="backfill-bar" title="${pct}٪">
-                <div class="backfill-fill ${statusColors[bf.status] || 'none'}" style="width:${pct}%"></div>
-            </div>
-            <div class="backfill-status">
-                <span class="badge ${statusColors[bf.status] || 'none'}">${statusLabels[bf.status] || bf.status}</span>
-                <span>${bf.stats.done}/${bf.stats.total} روز (${pct}٪)</span>
-                ${bf.stats.failed > 0 ? `<span class="badge short">${bf.stats.failed} خطا</span>` : ''}
-            </div>`;
-        } else {
-            bfHtml = `<div class="backfill-status"><span style="opacity:.5;">Backfill شروع نشده</span></div>`;
-        }
-        const isRunning = bf && bf.status === 'IN_PROGRESS';
         return `<div class="symbol-item">
             <div class="sym-avatar">${esc(initial)}</div>
             <div class="sym-body">
@@ -858,17 +846,14 @@ function renderMonitoredSymbols() {
                 <div class="sym-meta">
                     <span>کندل دقیقه‌ای: <b>${s.candleCount}</b></span>
                     <span>روزانه: <b>${s.dailyCount}</b></span>
-                    <span>Backfill: <b>${s.backfilledCandleCount || 0}</b></span>
                     ${priceHtml}
                 </div>
-                ${bfHtml}
             </div>
             <div class="sym-actions">
                 <button class="sym-btn auto" onclick="autoConfigureOne('${esc(s.symbol)}')">🤖 تنظیم خودکار</button>
                 <button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button>
                 <button class="sym-btn" onclick="viewCoverage('${esc(s.symbol)}')">📊 پوشش</button>
                 <button class="sym-btn" onclick="importDaily('${esc(s.symbol)}')">تاریخچه روزانه</button>
-                <button class="sym-btn backfill ${isRunning ? 'running' : ''}" onclick="quickStartBackfill('${esc(s.symbol)}', this)">📥 Backfill</button>
                 <button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">×</button>
             </div>
         </div>`;
@@ -888,49 +873,120 @@ async function importDaily(sym) {
     finally { hideLoader(); }
 }
 
-// ======================== Backfill UI ========================
-let bfAutoRefreshTimer = null;
+// ======================== AlgoTik Dashboard ========================
+let algotikTimer = null;
 
-async function quickStartBackfill(symbol, btn) {
-    const mode = prompt(`«${symbol}» — کدام نوع Backfill؟\n\n۱: فقط سهام پایه\n۲: سهام + همه قراردادهای آپشن\n۳: فقط سهام با بازه سفارشی`, '1');
-    if (!mode) return;
-
-    let months = 6;
-    if (mode === '3') {
-        const m = prompt('تعداد ماه (پیش‌فرض ۶):', '6');
-        if (!m) return;
-        months = parseInt(m) || 6;
-    }
-
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ شروع...'; }
+async function algotikRefresh() {
     try {
-        if (mode === '1' || mode === '3') {
-            const r = await apiFetch(`${BACKEND_URL}/api/backfill/stock/${encodeURIComponent(symbol)}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ months, priority: 10 })
-            }, 0);
-            if (r.existing) showAlert(`ℹ️ «${symbol}» از قبل Job داره.`, 'info', 4000);
-            else showAlert(`✅ Job سهام «${symbol}» ساخته شد (${r.job.days.length} روز).`, 'success', 5000);
-        } else if (mode === '2') {
-            showAlert('⏳ در حال دریافت لیست آپشن‌ها...', 'info', 3000);
-            const r1 = await apiFetch(`${BACKEND_URL}/api/backfill/stock/${encodeURIComponent(symbol)}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ months, priority: 10 })
-            }, 0);
-            const r2 = await apiFetch(`${BACKEND_URL}/api/backfill/options/${encodeURIComponent(symbol)}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ months, priority: 3 })
-            }, 0);
-            showAlert(`✅ سهام: ${r1.existing ? 'موجود' : 'ساخته شد'} | آپشن: ${r2.created} قرارداد جدید`, 'success', 7000);
-        }
-        await loadMonitoredSymbols();
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/stats`, {}, 0);
+        const s = r.stocks, o = r.options;
+        
+        // وضعیت online/offline
+        let online = false;
+        try {
+            const h = await apiFetch(`${BACKEND_URL}/api/algotik/health`, {}, 0);
+            online = h.online;
+        } catch (e) {}
+
+        document.getElementById('algotikStats').innerHTML = `
+            <div class="algotik-grid">
+                <div class="algotik-stat ${online ? 'online' : 'offline'}">
+                    <div class="lbl">Collector</div>
+                    <div class="val" style="color:${online ? 'var(--good)' : 'var(--bad)'}">${online ? '✅ آنلاین' : '❌ آفلاین'}</div>
+                    <div class="sub">پورت 5000</div>
+                </div>
+                <div class="algotik-stat">
+                    <div class="lbl">کندل سهام</div>
+                    <div class="val">${(s.candles || 0).toLocaleString()}</div>
+                    <div class="sub">${s.symbols || 0} نماد</div>
+                </div>
+                <div class="algotik-stat">
+                    <div class="lbl">Snapshot آپشن</div>
+                    <div class="val">${(o.snapshots || 0).toLocaleString()}</div>
+                    <div class="sub">${o.lastSnapshotAt ? 'آخرین: ' + new Date(o.lastSnapshotAt).toLocaleString('fa-IR', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}) : 'هیچ'}</div>
+                </div>
+                <div class="algotik-stat">
+                    <div class="lbl">آپشن روزانه</div>
+                    <div class="val">${(o.dailyRecords || 0).toLocaleString()}</div>
+                    <div class="sub">${o.lastDailyDate ? 'آخرین: ' + o.lastDailyDate : 'هیچ'}</div>
+                </div>
+            </div>`;
     } catch (e) {
-        showAlert('خطا: ' + e.message, 'error', 7000);
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '📥 Backfill'; }
+        document.getElementById('algotikStats').innerHTML = `
+            <div class="algotik-grid">
+                <div class="algotik-stat offline">
+                    <div class="lbl">خطا در دریافت وضعیت</div>
+                    <div class="val" style="font-size:14px;">${esc(e.message)}</div>
+                </div>
+            </div>`;
     }
 }
 
+async function algotikBackfillAll(btn) {
+    if (!confirm('دریافت ۶ ماه دیتای ۱ دقیقه‌ای برای همه نمادها؟\nممکنه ۱۵ دقیقه طول بکشه.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ در حال دریافت...'; }
+    showLoader('دریافت دیتای تاریخی...', 'ممکنه ۱۵ دقیقه طول بکشه — سرور خودکار ادامه می‌ده');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/backfill-all`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ months: 6, withOptions: true }) }, 0);
+        const stockOk = (r.stocks?.results || []).filter(x => x.status === 'ok').length;
+        showAlert(`✅ ${stockOk} نماد دریافت شد | آپشن: ${r.options?.total_contracts || 0} قرارداد`, 'success', 8000);
+        await algotikRefresh();
+    } catch (e) { showAlert('خطا: ' + e.message, 'error', 8000); }
+    finally { hideLoader(); if (btn) { btn.disabled = false; btn.textContent = '📥 دریافت همه (۶ ماه)'; } }
+}
+
+async function algotikFetchOptions(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/fetch-options`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }, 0);
+        const ok = (r.results || []).filter(x => x.status === 'ok').length;
+        showAlert(`✅ Snapshot آپشن: ${r.total_contracts || 0} قرارداد از ${ok} نماد`, 'success', 6000);
+        await algotikRefresh();
+    } catch (e) { showAlert('خطا: ' + e.message, 'error', 6000); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = '📸 Snapshot آپشن'; } }
+}
+
+async function algotikFetchOptionsDaily(btn) {
+    if (!confirm('دریافت دیتای روزانه همه قراردادهای آپشن فعال؟\nممکنه ۵ دقیقه طول بکشه.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/fetch-options-daily`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }, 0);
+        showAlert(`✅ آپشن روزانه: ${r.total_saved || 0} رکورد ذخیره شد`, 'success', 6000);
+        await algotikRefresh();
+    } catch (e) { showAlert('خطا: ' + e.message, 'error', 6000); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = '📊 آپشن روزانه'; } }
+}
+
+async function algotikShowLogs() {
+    openModal('📋 لاگ AlgoTik Collector', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/logs?limit=100`, {}, 0);
+        const logs = r.logs || [];
+        const rows = logs.length ? logs.map(l => {
+            const cls = l.kind?.includes('err') ? 'err' : (l.kind?.includes('ok') ? 'ok' : 'info');
+            const time = new Date(l.at).toLocaleString('fa-IR', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'});
+            const extra = l.symbol ? ` [${l.symbol}]` : (l.underlying ? ` [${l.underlying}]` : '');
+            return `<div class="algotik-log-row ${cls}">${time}${extra} — ${esc(l.message)}</div>`;
+        }).join('') : '<div class="empty-note">لاگی نیست</div>';
+        openModal(`📋 لاگ AlgoTik (${logs.length})`, `<div class="algotik-log">${rows}</div>`);
+    } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
+}
+
+function algotikToggleAuto() {
+    const on = document.getElementById('algotikAutoRefresh').checked;
+    if (algotikTimer) { clearInterval(algotikTimer); algotikTimer = null; }
+    if (on) {
+        algotikTimer = setInterval(() => {
+            const card = document.getElementById('cardAlgotik');
+            if (card && card.classList.contains('open')) algotikRefresh().catch(() => {});
+        }, 10000);
+    }
+}
+function openAlgotikFromMenu() {
+    const card = document.getElementById('cardAlgotik');
+    if (!card.classList.contains('open')) card.classList.add('open');
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 async function openBackfillManager() {
     openModal('📥 Backfill — مدیریت دریافت دیتای تاریخی', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
     await renderBackfillManager();
@@ -2271,6 +2327,9 @@ window.addEventListener('load', async () => {
     await loadSignalHistory();
     await loadOptionPositions();
     updateIndCount();
+    await algotikRefresh();
+    document.getElementById('cardAlgotik').classList.add('open');
+    algotikToggleAuto();
     setInterval(checkBackendStatus, 60000);
     setInterval(loadConfigs, 60000);
     setInterval(loadMonitoredSymbols, 120000);

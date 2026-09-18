@@ -10,7 +10,6 @@ const Strat = require('./strategies.js');
 const { STRATEGIES, aggregateCandles, getRequiredCandles } = Strat;
 const Options = require('./option.js');
 const Tsetmc = require('./tsetmc.js');
-const Backfill = require('./backfill.js');
 const AlgotikClient = require('./algotik_client.js');
 const Log = require('./log.js');
 const Settings = require('./settings.js');
@@ -49,9 +48,9 @@ app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/backtest') || req.path.startsWith('/api/auto-configure') || req.path.startsWith('/api/backfill')) {
-        req.setTimeout(10 * 60 * 1000);
-        res.setTimeout(10 * 60 * 1000);
+    if (req.path.startsWith('/api/backtest') || req.path.startsWith('/api/auto-configure') || req.path.startsWith('/api/algotik')) {
+        req.setTimeout(30 * 60 * 1000);
+        res.setTimeout(30 * 60 * 1000);
     }
     next();
 });
@@ -215,110 +214,7 @@ async function flushOutbox() {
 async function notify(text) { await getDB().collection('telegram_outbox').insertOne({ text, createdAt: new Date(), attempts: 0, sentAt: null }); flushOutbox().catch(() => {}); }
 app.post('/api/telegram/test', async (req, res, next) => { try { await notify('🔔 پیام تست'); await flushOutbox(); res.json({ success: true }); } catch (e) { next(e); } });
 
-// ======================== Backfill — مدیریت دریافت دیتای تاریخی ========================
-app.get('/api/backfill/settings', async (req, res, next) => {
-    try { res.json({ values: await Backfill.getSettings() }); } catch (e) { next(e); }
-});
 
-app.put('/api/backfill/settings', async (req, res, next) => {
-    try { res.json(await Backfill.saveSettings(req.body || {})); } catch (e) { next(e); }
-});
-
-app.get('/api/backfill/jobs', async (req, res, next) => {
-    try {
-        const filter = {};
-        if (req.query.type) filter.type = req.query.type;
-        if (req.query.status) filter.status = req.query.status;
-        res.json({ jobs: await Backfill.listJobs(filter) });
-    } catch (e) { next(e); }
-});
-
-app.get('/api/backfill/jobs/:id', async (req, res, next) => {
-    try {
-        const job = await Backfill.getJob(req.params.id, ObjectId);
-        if (!job) return res.status(404).json({ error: 'Job یافت نشد' });
-        res.json({ job });
-    } catch (e) { next(e); }
-});
-
-app.post('/api/backfill/stock/:symbol', async (req, res, next) => {
-    try {
-        const { months, priority } = req.body || {};
-        res.json(await Backfill.createStockJob(req.params.symbol, { months, priority }));
-    } catch (e) { res.status(400).json({ error: e.message }); }
-});
-
-app.post('/api/backfill/options/:underlying', async (req, res, next) => {
-    try {
-        const { months, priority } = req.body || {};
-        res.json(await Backfill.createOptionJobs(req.params.underlying, { months, priority }));
-    } catch (e) { res.status(400).json({ error: e.message }); }
-});
-
-app.post('/api/backfill/jobs/:id/pause', async (req, res, next) => {
-    try { await Backfill.pauseJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
-});
-
-app.post('/api/backfill/jobs/:id/resume', async (req, res, next) => {
-    try { await Backfill.resumeJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
-});
-
-app.post('/api/backfill/jobs/:id/reset', async (req, res, next) => {
-    try { await Backfill.resetJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
-});
-
-app.delete('/api/backfill/jobs/:id', async (req, res, next) => {
-    try { await Backfill.deleteJob(req.params.id, ObjectId); res.json({ success: true }); } catch (e) { next(e); }
-});
-
-app.put('/api/backfill/jobs/:id/priority', async (req, res, next) => {
-    try {
-        const p = parseFloat(req.body.priority);
-        if (!Number.isFinite(p)) return res.status(400).json({ error: 'priority نامعتبر' });
-        await Backfill.setPriority(req.params.id, p, ObjectId);
-        res.json({ success: true });
-    } catch (e) { next(e); }
-});
-
-app.post('/api/backfill/run-now', async (req, res, next) => {
-    try { res.json(await Backfill.runBackfillTick(true)); } catch (e) { next(e); }
-});
-
-app.post('/api/backfill/jobs/:id/run-now', async (req, res, next) => {
-    try { res.json(await Backfill.runJobNow(req.params.id, ObjectId)); } catch (e) { res.status(400).json({ error: e.message }); }
-});
-app.get('/api/backfill/stats', async (req, res, next) => {
-    try {
-        const db = getDB();
-        const jobs = await db.collection('tsetmc_backfill').find({}).toArray();
-        const stats = {
-            total: jobs.length,
-            byStatus: { PENDING: 0, IN_PROGRESS: 0, PAUSED: 0, DONE: 0 },
-            byType: { stock: 0, option: 0 },
-            totalDays: 0, doneDays: 0, pendingDays: 0, failedDays: 0
-        };
-        for (const j of jobs) {
-            stats.byStatus[j.status] = (stats.byStatus[j.status] || 0) + 1;
-            stats.byType[j.type] = (stats.byType[j.type] || 0) + 1;
-            stats.totalDays += (j.stats && j.stats.total) || 0;
-            stats.doneDays += (j.stats && j.stats.done) || 0;
-            stats.pendingDays += (j.stats && j.stats.pending) || 0;
-            stats.failedDays += (j.stats && j.stats.failed) || 0;
-        }
-        stats.progressPct = stats.totalDays > 0 ? Math.round(stats.doneDays / stats.totalDays * 100) : 0;
-        res.json(stats);
-    } catch (e) { next(e); }
-});
-
-app.get('/api/tsetmc/fetch-log', async (req, res, next) => {
-    try {
-        const db = getDB();
-        const limit = Math.min(+req.query.limit || 100, 500);
-        const filter = req.query.symbol ? { symbol: req.query.symbol } : {};
-        const logs = await db.collection('tsetmc_fetch_log').find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
-        res.json({ logs });
-    } catch (e) { next(e); }
-});
 
 const health = { consecutiveFailures: 0, alerted: false, lastError: null, lastTickAt: null };
 async function bumpDayStat(field, n = 1) {
@@ -677,21 +573,16 @@ app.post('/api/import-daily/:symbol', async (req, res) => {
 app.get('/api/monitored-symbols', async (req, res, next) => {
     try {
         const db = getDB();
-        const [symbols, counts, dcounts, baseCounts] = await Promise.all([
+        const [symbols, counts, dcounts] = await Promise.all([
             db.collection('monitored_symbols').find({}).sort({ addedAt: 1 }).toArray(),
             db.collection('candles_base').aggregate([{ $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray(),
-            db.collection('candles_daily').aggregate([{ $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray(),
-            db.collection('candles_base').aggregate([{ $match: { source: 'tsetmc-backfill' } }, { $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray()
+            db.collection('candles_daily').aggregate([{ $group: { _id: '$symbol', c: { $sum: 1 } } }]).toArray()
         ]);
-        const cm = new Map(counts.map(c => [c._id, c.c])), dm = new Map(dcounts.map(c => [c._id, c.c])), bm = new Map(baseCounts.map(c => [c._id, c.c]));
-        const jobs = await db.collection('tsetmc_backfill').find({ type: 'stock' }).toArray();
-        const jm = new Map(jobs.map(j => [j.symbol, j]));
+        const cm = new Map(counts.map(c => [c._id, c.c])), dm = new Map(dcounts.map(c => [c._id, c.c]));
         res.json(symbols.map(s => ({
             ...s,
             candleCount: cm.get(s.symbol) || 0,
-            dailyCount: dm.get(s.symbol) || 0,
-            backfilledCandleCount: bm.get(s.symbol) || 0,
-            backfillJob: jm.get(s.symbol) ? { _id: jm.get(s.symbol)._id, status: jm.get(s.symbol).status, stats: jm.get(s.symbol).stats, lookbackMonths: jm.get(s.symbol).lookbackMonths } : null
+            dailyCount: dm.get(s.symbol) || 0
         })));
     } catch (e) { next(e); }
 });
@@ -1301,11 +1192,6 @@ async function ensureIndexes() {
     await db.collection('telegram_outbox').createIndex({ sentAt: 1, createdAt: 1 });
     try { await db.collection('telegram_outbox').dropIndex('sentAt_1'); } catch (e) {}
     try { await db.collection('telegram_outbox').dropIndex('createdAt_1'); } catch (e) {}
-    // ایندکس برای backfill
-    await db.collection('tsetmc_backfill').createIndex({ status: 1, priority: -1, createdAt: 1 });
-    await db.collection('tsetmc_backfill').createIndex({ type: 1, status: 1 });
-    await db.collection('tsetmc_backfill').createIndex({ symbol: 1 });
-    await db.collection('tsetmc_backfill').createIndex({ insCode: 1 });
     await Log.ensureIndexes(db);
 }
 
@@ -1337,7 +1223,6 @@ async function start() {
         archiveStats: async () => [],
         getQuote: (sym) => lastQuotes.get(sym)
     });
-    Backfill.init({ getDB, notify });
     await Options.ensureIndexes();
     await cleanOrphanConfigs();
     await backfillDailyFromBase();
@@ -1375,19 +1260,33 @@ async function start() {
     cron.schedule('35 12 * * 6,0,1,2,3', () => { if (holidayDate !== todayDateString(getTehranParts())) sendDailySummary().catch(() => {}); }, { timezone: 'Asia/Tehran' });
     cron.schedule('0 10 * * 4', () => { sendWeeklyBackup().catch(e => console.error('❌ بکاپ:', e.message)); }, { timezone: 'Asia/Tehran' });
 
-    // 🆕 Backfill — هر ۲۰ دقیقه یک tick
-    cron.schedule('*/20 * * * *', async () => {
+    // 🆕 AlgoTik — snapshot آپشن هر ۳۰ دقیقه در ساعات بازار
+    cron.schedule('5,35 9-12 * * 6,0,1,2,3', async () => {
         try {
-            const t = getTehranParts();
-            const m = minuteOfDay(t);
-            if (m < 540 || m > 1320) return;
-            const r = await Backfill.runBackfillTick(false);
-            if (r && !r.idle && !r.busy) {
-                console.log('🔄 Backfill: ' + r.symbol + ' (' + r.type + ') | batch=' + r.batch + ' | پیشرفت ' + r.stats.done + '/' + r.stats.total + (r.done ? ' ✅ تکمیل' : ''));
-            }
-        } catch (e) { console.error('❌ Cron Backfill:', e.message); }
+            if (holidayDate === todayDateString(getTehranParts())) return;
+            const online = await AlgotikClient.isOnline();
+            if (!online) return;
+            const symbols = (await getDB().collection('monitored_symbols').find({}).toArray()).map(s => s.symbol);
+            if (!symbols.length) return;
+            console.log('📸 AlgoTik: snapshot آپشن برای ' + symbols.length + ' نماد...');
+            const r = await AlgotikClient.fetchOptions(symbols);
+            console.log('📸 AlgoTik: ' + (r.total_contracts || 0) + ' قرارداد ذخیره شد');
+        } catch (e) { console.error('❌ Cron AlgoTik Options:', e.message); }
     }, { timezone: 'Asia/Tehran' });
 
+    // 🆕 AlgoTik — روزانه ۱۳:۰۵ بعد از بسته شدن بازار
+    cron.schedule('5 13 * * 6,0,1,2,3', async () => {
+        try {
+            if (holidayDate === todayDateString(getTehranParts())) return;
+            const online = await AlgotikClient.isOnline();
+            if (!online) return;
+            const symbols = (await getDB().collection('monitored_symbols').find({}).toArray()).map(s => s.symbol);
+            if (!symbols.length) return;
+            console.log('📊 AlgoTik: daily آپشن...');
+            const r = await AlgotikClient.fetchOptionsDaily(symbols);
+            console.log('📊 AlgoTik: ' + (r.total_saved || 0) + ' رکورد روزانه ذخیره شد');
+        } catch (e) { console.error('❌ Cron AlgoTik Daily:', e.message); }
+    }, { timezone: 'Asia/Tehran' });
     const server = app.listen(PORT, () => console.log(`🚀 ${SERVER_VERSION} | port ${PORT} | keys ${API_KEYS.length}`));
     server.keepAliveTimeout = 10 * 60 * 1000;
     server.headersTimeout = 11 * 60 * 1000;
