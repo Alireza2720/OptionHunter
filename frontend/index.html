@@ -146,6 +146,14 @@
     .bf-legend { display:flex; gap:14px; font-size:11.5px; color:var(--text-dim); margin-top:10px; flex-wrap:wrap; }
     .bf-legend span { display:flex; align-items:center; gap:4px; }
     .bf-legend i { display:inline-block; width:12px; height:12px; border-radius:3px; }
+        .date-range-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin:10px 0; font-size:13px; }
+    .date-range-row label { display:flex; align-items:center; gap:6px; }
+    .date-range-row input[type="date"] { padding:6px 10px; background:var(--bg); border:1px solid var(--border-light); color:var(--text); border-radius:6px; font-family:inherit; font-size:12.5px; }
+    .range-presets { display:flex; gap:6px; flex-wrap:wrap; }
+        .date-range-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin:10px 0; font-size:13px; }
+    .date-range-row label { display:flex; align-items:center; gap:6px; }
+    .date-range-row input[type="date"] { padding:6px 10px; background:var(--bg); border:1px solid var(--border-light); color:var(--text); border-radius:6px; font-family:inherit; font-size:12.5px; }
+    .range-presets { display:flex; gap:6px; flex-wrap:wrap; }
 
     .empty-note { color:var(--text-dim); font-size:13px; padding:12px 0; }
 
@@ -190,6 +198,15 @@
     .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-dim); margin-bottom:8px; align-items:center; }
     .legend i { display:inline-block; width:10px; height:3px; border-radius:2px; margin-left:5px; vertical-align:middle; }
     .chart-title { font-size:12.5px; color:var(--text-dim); margin-bottom:6px; }
+    .ind-panel { padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin-bottom:12px; }
+    .ind-row { display:flex; align-items:center; gap:10px; padding:6px 4px; border-bottom:1px solid var(--border); font-size:13px; }
+    .ind-row:last-child { border-bottom:none; }
+    .ind-row label { display:flex; align-items:center; gap:6px; cursor:pointer; flex:1; }
+    .ind-row input[type="checkbox"] { cursor:pointer; }
+    .ind-settings { display:flex; gap:10px; flex-wrap:wrap; padding:6px 28px 10px; font-size:12.5px; color:var(--text-dim); }
+    .ind-settings label { display:flex; align-items:center; gap:4px; }
+    .ind-settings input { width:60px; padding:3px 6px; background:var(--bg); border:1px solid var(--border-light); color:var(--text); border-radius:5px; font-family:inherit; }
+    .ind-count { background:var(--accent); color:#fff; padding:1px 7px; border-radius:10px; font-size:10.5px; font-weight:600; margin-right:4px; }
 
     #alertContainer { position:fixed; top:20px; left:20px; z-index:2000; display:flex; flex-direction:column; gap:8px; max-width:360px; }
     .alert-box { padding:12px 16px; border-radius:8px; font-size:13px; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:slideIn .2s ease; cursor:pointer; }
@@ -401,14 +418,65 @@
             <button class="btn" onclick="loadChart()">نمایش</button>
         </div>
 
-        <div class="chart-indicators" style="display:flex; gap:14px; flex-wrap:wrap; padding:10px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin-bottom:12px; font-size:12.5px; align-items:center;">
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_ma" onchange="loadChart()" checked> MA <input type="number" id="ma_period" value="20" min="2" style="width:55px; padding:3px 6px;" onchange="loadChart()"></label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_ema" onchange="loadChart()"> EMA <input type="number" id="ema_period" value="50" min="2" style="width:55px; padding:3px 6px;" onchange="loadChart()"></label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_bb" onchange="loadChart()"> BB <input type="number" id="bb_period" value="20" min="2" style="width:50px; padding:3px 6px;" onchange="loadChart()"> <input type="number" id="bb_std" value="2" step="0.5" min="0.5" style="width:45px; padding:3px 6px;" onchange="loadChart()"></label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_ichimoku" onchange="loadChart()"> Ichimoku</label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_vol" onchange="loadChart()" checked> Volume</label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_rsi" onchange="loadChart()"> RSI <input type="number" id="rsi_period" value="14" min="2" style="width:50px; padding:3px 6px;" onchange="loadChart()"></label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="ind_macd" onchange="loadChart()"> MACD <input type="number" id="macd_fast" value="12" min="2" style="width:45px; padding:3px 6px;" onchange="loadChart()"> <input type="number" id="macd_slow" value="26" min="2" style="width:45px; padding:3px 6px;" onchange="loadChart()"> <input type="number" id="macd_signal" value="9" min="2" style="width:45px; padding:3px 6px;" onchange="loadChart()"></label>
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin-bottom:12px;">
+            <button class="btn small outline" onclick="toggleIndicatorPanel()">📊 اندیکاتورها <span class="ind-count" id="indCount">2</span></button>
+            <button class="btn small outline" onclick="resetIndicators()">پاک کردن همه</button>
+        </div>
+        <div class="ind-panel" id="indicatorPanel" style="display:none;">
+            <div class="ind-row">
+                <label><input type="checkbox" id="ind_ma" onchange="onIndChange()" checked> <span>Moving Average (MA)</span></label>
+                <button class="btn tiny outline" onclick="toggleIndSettings('ma')">✏️</button>
+            </div>
+            <div class="ind-settings" id="ind_set_ma">
+                <label>دوره: <input type="number" id="ma_period" value="20" min="2" onchange="loadChart()"></label>
+            </div>
+            <div class="ind-row">
+                <label><input type="checkbox" id="ind_ema" onchange="onIndChange()"> <span>Exponential MA (EMA)</span></label>
+                <button class="btn tiny outline" onclick="toggleIndSettings('ema')">✏️</button>
+            </div>
+            <div class="ind-settings" id="ind_set_ema">
+                <label>دوره: <input type="number" id="ema_period" value="50" min="2" onchange="loadChart()"></label>
+            </div>
+            <div class="ind-row">
+                <label><input type="checkbox" id="ind_bb" onchange="onIndChange()"> <span>Bollinger Bands (BB)</span></label>
+                <button class="btn tiny outline" onclick="toggleIndSettings('bb')">✏️</button>
+            </div>
+            <div class="ind-settings" id="ind_set_bb">
+                <label>دوره: <input type="number" id="bb_period" value="20" min="2" onchange="loadChart()"></label>
+                <label>انحراف: <input type="number" id="bb_std" value="2" step="0.5" min="0.5" onchange="loadChart()"></label>
+            </div>
+            <div class="ind-row">
+                <label><input type="checkbox" id="ind_ichimoku" onchange="onIndChange()"> <span>Ichimoku Cloud</span></label>
+                <button class="btn tiny outline" onclick="toggleIndSettings('ichimoku')">✏️</button>
+            </div>
+            <div class="ind-settings" id="ind_set_ichimoku">
+                <label>Tenkan: <input type="number" id="ichi_tenkan" value="9" min="2" onchange="loadChart()"></label>
+                <label>Kijun: <input type="number" id="ichi_kijun" value="26" min="2" onchange="loadChart()"></label>
+                <label>SenkouB: <input type="number" id="ichi_senkoub" value="52" min="2" onchange="loadChart()"></label>
+            </div>
+            <div class="ind-row">
+                <label><input type="checkbox" id="ind_vol" onchange="onIndChange()" checked> <span>حجم (Volume)</span></label>
+                <button class="btn tiny outline" onclick="toggleIndSettings('vol')">✏️</button>
+            </div>
+            <div class="ind-settings" id="ind_set_vol">
+                <span>نمودار حجم زیر قیمت</span>
+            </div>
+            <div class="ind-row">
+                <label><input type="checkbox" id="ind_rsi" onchange="onIndChange()"> <span>RSI</span></label>
+                <button class="btn tiny outline" onclick="toggleIndSettings('rsi')">✏️</button>
+            </div>
+            <div class="ind-settings" id="ind_set_rsi">
+                <label>دوره: <input type="number" id="rsi_period" value="14" min="2" onchange="loadChart()"></label>
+            </div>
+            <div class="ind-row">
+                <label><input type="checkbox" id="ind_macd" onchange="onIndChange()"> <span>MACD</span></label>
+                <button class="btn tiny outline" onclick="toggleIndSettings('macd')">✏️</button>
+            </div>
+            <div class="ind-settings" id="ind_set_macd">
+                <label>Fast: <input type="number" id="macd_fast" value="12" min="2" onchange="loadChart()"></label>
+                <label>Slow: <input type="number" id="macd_slow" value="26" min="2" onchange="loadChart()"></label>
+                <label>Signal: <input type="number" id="macd_signal" value="9" min="2" onchange="loadChart()"></label>
+            </div>
         </div>
 
         <div class="msg-warn" id="chartMsg" style="display:none;"></div>
@@ -1196,7 +1264,73 @@ async function deleteConfig(id) { if (!confirm('حذف شود؟')) return; try {
 
 async function runOptionBacktest(id) {
     const it = configs.find(c => c._id === id); if (!it) return;
-    openModal(`بک‌تست ${it.symbol}`, '<div style="text-align:center;padding:30px;"><div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>در حال محاسبه...</div>');
+    const today = new Date();
+    const sixMonthsAgo = new Date(); sixMonthsAgo.setUTCMonth(sixMonthsAgo.getUTCMonth() - 6);
+    const toStr = today.toISOString().slice(0, 10);
+    const fromStr = sixMonthsAgo.toISOString().slice(0, 10);
+
+    openModal(`بک‌تست ${it.symbol}`, `
+        <div class="date-range-row">
+            <label>از: <input type="date" id="btFrom" value="${fromStr}"></label>
+            <label>تا: <input type="date" id="btTo" value="${toStr}"></label>
+            <div class="range-presets">
+                <button class="btn tiny outline" onclick="setBtRange(1)">۱ ماه</button>
+                <button class="btn tiny outline" onclick="setBtRange(3)">۳ ماه</button>
+                <button class="btn tiny outline" onclick="setBtRange(6)">۶ ماه</button>
+                <button class="btn tiny outline" onclick="setBtRange(12)">۱ سال</button>
+                <button class="btn tiny outline" onclick="setBtRange(24)">۲ سال</button>
+            </div>
+            <button class="btn small" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button>
+        </div>
+        <div id="btResultArea"></div>
+    `);
+}
+
+function setBtRange(months) {
+    const to = new Date();
+    const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months);
+    document.getElementById('btTo').value = to.toISOString().slice(0, 10);
+    document.getElementById('btFrom').value = from.toISOString().slice(0, 10);
+}
+
+async function execBtSingle(id) {
+    const it = configs.find(c => c._id === id); if (!it) return;
+    const fromStr = document.getElementById('btFrom').value;
+    const toStr = document.getElementById('btTo').value;
+    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
+    const fromTs = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
+    const toTs = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
+
+    const btn = document.getElementById('btRunOne');
+    btn.disabled = true; btn.textContent = '⏳...';
+    document.getElementById('btResultArea').innerHTML = '<div style="text-align:center;padding:30px;"><div style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>در حال محاسبه...</div>';
+
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}?from=${fromTs}&to=${toTs}`, {}, 2);
+        const a = r.assumptions;
+        let diag = '';
+        if (r.diagnostic) diag = `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);">ℹ️ ${esc(r.diagnostic)}</div>`;
+        const head = diag + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}×HV، اسپرد ${a.spreadPct}٪، volCrush ${a.volCrushFactor}×، سقف ${a.maxReturnPct}٪</div>
+            <div class="stats-grid">
+                <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
+                <div class="stat"><small>بسته‌شده</small><b>${r.stockClosedCount||0}</b></div>
+                <div class="stat"><small>آپشن (real/approx)</small><b>${r.stats.count} <small>(${r.realUsed||0}/${r.approxUsed||0})</small></b></div>
+                <div class="stat"><small>وین‌ریت</small><b>${r.stats.count ? r.stats.winRate.toFixed(0)+'٪' : '-'}</b></div>
+                <div class="stat"><small>بازده کل</small><b>${r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
+                <div class="stat"><small>میانگین</small><b>${r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
+                <div class="stat"><small>PF</small><b>${r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
+            </div>`;
+        const rows = r.trades.length ? r.trades.slice().reverse().map(t => {
+            const srcBadge = t.source === 'real' ? '<span class="badge long">واقعی</span>' : '<span class="badge warn">تقریبی</span>';
+            return `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtN(t.stockEntry)}→${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${fmtN(t.optionEntry)}→${fmtN(t.optionExit)}</td><td>${pct(t.pnlPct)}</td><td>${srcBadge}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`;
+        }).join('') : '<tr class="empty-row"><td colspan="7">معامله‌ای در این بازه یافت نشد</td></tr>';
+        document.getElementById('btResultArea').innerHTML = head + `<div class="table-responsive" style="max-height:400px; overflow-y:auto;"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>پرمیوم</th><th>بازده</th><th>منبع</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } catch (e) {
+        document.getElementById('btResultArea').innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
+    } finally {
+        btn.disabled = false; btn.textContent = 'اجرا';
+    }
+}
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${id}`, {}, 2);
         const a = r.assumptions;
@@ -1219,7 +1353,7 @@ async function runOptionBacktest(id) {
         }).join('') : '<tr class="empty-row"><td colspan="8">معامله‌ای یافت نشد</td></tr>';
         openModal(`بک‌تست ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>مدل</th><th>پرمیوم</th><th>بازده</th><th>منبع</th><th>خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
-}
+
 
 let signalHistoryLimit = 5;
 let signalHistoryCache = null;
@@ -1282,6 +1416,35 @@ function selectChartSymbol(s) {
     loadChart();
 }
 
+function toggleIndicatorPanel() {
+    const p = document.getElementById('indicatorPanel');
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleIndSettings(key) {
+    const el = document.getElementById('ind_set_' + key);
+    if (!el) return;
+    el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+
+function onIndChange() {
+    updateIndCount();
+    loadChart();
+}
+
+function updateIndCount() {
+    const ids = ['ind_ma','ind_ema','ind_bb','ind_ichimoku','ind_vol','ind_rsi','ind_macd'];
+    const n = ids.filter(id => { const el = document.getElementById(id); return el && el.checked; }).length;
+    const el = document.getElementById('indCount');
+    if (el) el.textContent = n;
+}
+
+function resetIndicators() {
+    const ids = ['ind_ma','ind_ema','ind_bb','ind_ichimoku','ind_vol','ind_rsi','ind_macd'];
+    ids.forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
+    updateIndCount();
+    loadChart();
+}
 async function loadChart() {
     const symbol = document.getElementById('chartSymbolInput').value.trim();
     const tf = document.getElementById('chartTfSelect').value;
@@ -1369,7 +1532,10 @@ function renderStandaloneChart(candles, candleType, title, count) {
         legendItems.push('<span style="color:#7d8590">BB(' + p + ',' + std + ')</span>');
     }
     if (document.getElementById('ind_ichimoku').checked) {
-        const ich = TradingStrategies.calculateIchimoku(candles, 9, 26, 52);
+        const tk = +document.getElementById('ichi_tenkan').value || 9;
+        const kj = +document.getElementById('ichi_kijun').value || 26;
+        const sb = +document.getElementById('ichi_senkoub').value || 52;
+        const ich = TradingStrategies.calculateIchimoku(candles, tk, kj, sb);
         const mk = (arr, color, w, style) => {
             const d = [];
             for (let i = 0; i < arr.length; i++) if (arr[i] !== null) d.push({ time: candles[i].time, value: arr[i] });
@@ -1647,9 +1813,25 @@ async function openBacktestCompare() {
             <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">نمادها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${symbolsHtml}</div></div>
             <div style="margin:14px 0;"><div class="menu-label" style="padding-right:0;">استراتژی‌ها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${stratList}</div></div>
             <div style="margin:14px 0;"><label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="btRealOption" checked> استفاده از دیتای واقعی آپشن</label></div>
+            <div class="date-range-row">
+                <label>از: <input type="date" id="btcFrom" value="${new Date(Date.now() - 180*86400000).toISOString().slice(0,10)}"></label>
+                <label>تا: <input type="date" id="btcTo" value="${new Date().toISOString().slice(0,10)}"></label>
+                <div class="range-presets">
+                    <button class="btn tiny outline" onclick="setBtcRange(1)">۱ ماه</button>
+                    <button class="btn tiny outline" onclick="setBtcRange(3)">۳ ماه</button>
+                    <button class="btn tiny outline" onclick="setBtcRange(6)">۶ ماه</button>
+                    <button class="btn tiny outline" onclick="setBtcRange(12)">۱ سال</button>
+                </div>
+            </div>
             <button class="btn" id="btRunBtn" onclick="runBacktestCompare()">اجرای بک‌تست</button>
             <div id="btResults" style="margin-top:16px;"></div>`);
     } catch (e) { showAlert('خطا: ' + e.message); }
+}
+function setBtcRange(months) {
+    const to = new Date();
+    const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months);
+    document.getElementById('btcTo').value = to.toISOString().slice(0, 10);
+    document.getElementById('btcFrom').value = from.toISOString().slice(0, 10);
 }
 async function runBacktestCompare() {
     const symbols = Array.from(document.querySelectorAll('.bt-symbol:checked')).map(c => c.value);
@@ -1657,6 +1839,11 @@ async function runBacktestCompare() {
     if (!symbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
     if (!strategyChecks.length) return showAlert('حداقل یک استراتژی انتخاب کن', 'warn');
     const useRealOption = document.getElementById('btRealOption').checked;
+    const fromStr = document.getElementById('btcFrom').value;
+    const toStr = document.getElementById('btcTo').value;
+    if (!fromStr || !toStr) return showAlert('بازه تاریخ رو انتخاب کنید.', 'warn');
+    const dateFrom = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
+    const dateTo = Math.floor(new Date(toStr + 'T23:59:59Z').getTime() / 1000);
     const strategies = strategyChecks.map(chk => {
         const id = chk.value;
         const s = strategiesInfo.find(x => x.id === id);
@@ -1676,7 +1863,7 @@ async function runBacktestCompare() {
         const symbol = symbols[i];
         renderProgress(i, symbol);
         try {
-            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: [symbol], strategies, useRealOption }) }, 2);
+            const r = await apiFetch(`${BACKEND_URL}/api/backtest-compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: [symbol], strategies, useRealOption, dateFrom, dateTo }) }, 2);
             if (r.results) allResults.push(...r.results);
         } catch (e) { allResults.push({ symbol, strategyId: '_err', strategyName: 'خطا', error: e.message }); }
     }
@@ -1936,6 +2123,7 @@ window.addEventListener('load', async () => {
     await loadConfigs();
     await loadSignalHistory();
     await loadOptionPositions();
+    updateIndCount();
     setInterval(checkBackendStatus, 60000);
     setInterval(loadConfigs, 60000);
     setInterval(loadMonitoredSymbols, 120000);
