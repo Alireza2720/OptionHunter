@@ -1,4 +1,4 @@
-// ======================== option.js (v7 — realistic v3 + tuned vol crush) ========================
+// ======================== option.js (v8 — realistic v4 + better selection & analytics) ========================
 'use strict';
 const fetch = require('node-fetch');
 const Settings = require('./settings.js');
@@ -50,49 +50,82 @@ async function saveSettings(values) {
     return getSettings(true);
 }
 
-const norm = s => String(s || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/[\u200c\u200f\s]/g, '').trim();
+// ==================== Normalization ====================
+// حذف ی/ک عربی، ZWNJ، فاصله، نیم‌فاصله، کاراکترهای کنترلی
+const norm = s => String(s || '')
+    .replace(/ي/g, 'ی').replace(/ك/g, 'ک')
+    .replace(/[\u200c\u200e\u200f\s\u00a0]/g, '')
+    .trim();
+
 const num = v => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
 const first = s => num(String(s || '').split('/')[0]);
 const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 const asDecimal = v => { const n = num(v); if (!Number.isFinite(n) || n <= 0) return null; return n > 3 ? n / 100 : n; };
 
+// ==================== Contract Parsing ====================
 function parseContract(r) {
     const fname = r.fname || '';
-    const isPut = /^اخت[يی]ارف/.test(fname), isCallName = /^اخت[يی]ارخ/.test(fname);
+    const isPut = /^اخت[يی]ارف/.test(fname);
+    const isCallName = /^اخت[يی]ارخ/.test(fname);
     return {
-        symbol: r.name, fullName: fname, isin: r.co,
+        symbol: r.name,
+        fullName: fname,
+        isin: r.co,
         isCall: isCallName || (!isPut && r.type === 1),
-        underlying: norm(r.basis_name), underlyingRaw: r.basis_name,
-        S: num(r.basis), strike: num(r.emal),
-        expiry: r.to_date, daysLeft: num(r.day_left), tradingDaysLeft: num(r.days_left_actual),
-        last: num(r.close), final: num(r.final), yday: num(r.yday),
-        bid: first(r.b_price), bidVol: first(r.b_volume),
-        ask: first(r.s_price), askVol: first(r.s_volume),
-        volume: num(r.Tvolume), value: num(r.Tvalue), trades: num(r.Tcount),
-        oi: num(r.op), oiChange: num(r.op_change),
+        underlying: norm(r.basis_name),
+        underlyingRaw: r.basis_name,
+        S: num(r.basis),
+        strike: num(r.emal),
+        expiry: r.to_date,
+        daysLeft: num(r.day_left),
+        tradingDaysLeft: num(r.days_left_actual),
+        last: num(r.close),
+        final: num(r.final),
+        yday: num(r.yday),
+        bid: first(r.b_price),
+        bidVol: first(r.b_volume),
+        ask: first(r.s_price),
+        askVol: first(r.s_volume),
+        volume: num(r.Tvolume),
+        value: num(r.Tvalue),
+        trades: num(r.Tcount),
+        oi: num(r.op),
+        oiChange: num(r.op_change),
         bsApi: num(r.black_sholes),
         ivApi: asDecimal(r.imp),
         hvApi: asDecimal(r.sigma),
-        deltaApi: num(r.delta), gammaApi: num(r.gamma),
-        thetaApi: num(r.theta), vegaApi: num(r.vega),
-        size: num(r.size) || 1000, margin: num(r.tazmin),
-        intrinsic: num(r.value), statusText: r.status_text || ''
+        deltaApi: num(r.delta),
+        gammaApi: num(r.gamma),
+        thetaApi: num(r.theta),
+        vegaApi: num(r.vega),
+        size: num(r.size) || 1000,
+        margin: num(r.tazmin),
+        intrinsic: num(r.value),
+        statusText: r.status_text || ''
     };
 }
 
+// ==================== Black-Scholes ====================
 function normCdf(x) {
     const t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989423 * Math.exp(-x * x / 2);
     const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
     return x >= 0 ? 1 - p : p;
 }
 function bsCall(S, K, T, r, sig) {
-    if (T <= 0) { const v = Math.max(S - K * Math.exp(-r * Math.max(T, 0)), 0); return { price: v, delta: S > K ? 1 : 0, thetaDay: 0, vega: 0, gamma: 0 }; }
+    if (T <= 0) {
+        const v = Math.max(S - K * Math.exp(-r * Math.max(T, 0)), 0);
+        return { price: v, delta: S > K ? 1 : 0, thetaDay: 0, vega: 0, gamma: 0 };
+    }
     if (!(sig > 0.01)) sig = 0.01;
-    const sq = Math.sqrt(T), d1 = (Math.log(S / K) + (r + sig * sig / 2) * T) / (sig * sq), d2 = d1 - sig * sq;
-    const Nd1 = normCdf(d1), Nd2 = normCdf(d2), pdf = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI);
+    const sq = Math.sqrt(T);
+    const d1 = (Math.log(S / K) + (r + sig * sig / 2) * T) / (sig * sq);
+    const d2 = d1 - sig * sq;
+    const Nd1 = normCdf(d1), Nd2 = normCdf(d2);
+    const pdf = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI);
     return {
         price: S * Nd1 - K * Math.exp(-r * T) * Nd2,
-        delta: Nd1, gamma: pdf / (S * sig * sq),
+        delta: Nd1,
+        gamma: pdf / (S * sig * sq),
         thetaDay: (-(S * pdf * sig) / (2 * sq) - r * K * Math.exp(-r * T) * Nd2) / 365,
         vega: S * pdf * sq / 100
     };
@@ -104,10 +137,13 @@ function impliedVol(price, S, K, T, r) {
     for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (bsCall(S, K, T, r, m).price > price) hi = m; else lo = m; }
     return (lo + hi) / 2;
 }
+
+// ==================== Historical Volatility ====================
 async function hvFromDaily(symbol, n = 20) {
     const rows = await deps.getDB().collection('candles_daily').find({ symbol }).sort({ time: -1 }).limit(n + 1).toArray();
     if (rows.length < n + 1) return null;
-    const closes = rows.reverse().map(r => r.close).filter(x => x > 0), rets = [];
+    const closes = rows.reverse().map(r => r.close).filter(x => x > 0);
+    const rets = [];
     for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
     if (rets.length < 5) return null;
     const m = rets.reduce((a, b) => a + b, 0) / rets.length;
@@ -115,6 +151,7 @@ async function hvFromDaily(symbol, n = 20) {
     return Math.sqrt(v * TRADING_DAYS);
 }
 
+// ==================== Chain Fetching ====================
 let chainCache = { at: 0, list: [] };
 async function fetchChain(maxAgeMs = 60000) {
     if (Date.now() - chainCache.at < maxAgeMs && chainCache.list.length) return chainCache.list;
@@ -127,6 +164,7 @@ async function fetchChain(maxAgeMs = 60000) {
 }
 const chainAge = () => chainCache.at ? Math.round((Date.now() - chainCache.at) / 1000) : null;
 
+// ==================== Metrics ====================
 function metrics(c, S, hv) {
     const T = Math.max(c.daysLeft, 0.5) / 365;
     const mid = c.bid > 0 && c.ask > 0 ? (c.bid + c.ask) / 2 : 0;
@@ -137,7 +175,8 @@ function metrics(c, S, hv) {
     if (!iv || iv <= 0) iv = impliedVol(c.ask > 0 ? c.ask : c.last, S, c.strike, T, RISK_FREE);
     return {
         T, mid, spreadPct, hv: vol,
-        theo: theo.price, theoApi: c.bsApi || null,
+        theo: theo.price,
+        theoApi: c.bsApi || null,
         delta: theo.delta, deltaApi: c.deltaApi || null,
         gamma: theo.gamma, gammaApi: c.gammaApi || null,
         thetaDay: theo.thetaDay, thetaApi: c.thetaApi || null,
@@ -145,10 +184,13 @@ function metrics(c, S, hv) {
         iv, ivApi: c.ivApi || null,
         ivHv: iv ? iv / vol : null,
         leverage: c.ask > 0 ? theo.delta * S / c.ask : null,
-        moneynessPct: (S / c.strike - 1) * 100
+        moneynessPct: (S / c.strike - 1) * 100,
+        intrinsic: Math.max(S - c.strike, 0),
+        timeValue: c.ask > 0 ? Math.max(c.ask - Math.max(S - c.strike, 0), 0) : null
     };
 }
 
+// ==================== Reject Reasons ====================
 function rejectReasons(c, m, s) {
     const R = [];
     if (c.daysLeft < s.minDays) R.push('سررسید نزدیک');
@@ -163,6 +205,7 @@ function rejectReasons(c, m, s) {
     if (m.ivHv && m.ivHv > s.maxIvHv) R.push('IV گران');
     return R;
 }
+
 function breakevenMove(S, K, T2, sig, cost, halfSpread) {
     const f = x => Math.max(bsCall(x, K, T2, RISK_FREE, sig).price - halfSpread, 0) * (1 - FEE_SELL) - cost;
     let lo = S * 0.5, hi = S * 2;
@@ -175,18 +218,21 @@ function breakevenMove(S, K, T2, sig, cost, halfSpread) {
 const RELAX_LEVELS = [
     { name: 'A+', tag: null, overrides: {} },
     { name: 'A', tag: null, overrides: { minOI: 150, minTrades: 1, maxSpreadPct: 9, deltaMin: 0.35, deltaMax: 0.82 } },
-    { name: 'B', tag: '⚠️ کیفیت B', overrides: { minOI: 80, minTrades: 1, maxSpreadPct: 12, deltaMin: 0.30, deltaMax: 0.88, maxIvHv: 1.8 } },
-    { name: 'C', tag: '⚠️ کیفیت C', overrides: { minOI: 30, minTrades: 0, maxSpreadPct: 16, deltaMin: 0.25, deltaMax: 0.92, maxIvHv: 2.2, minPremium: 100 } },
-    { name: 'D', tag: '🚨 کیفیت D', overrides: { minOI: 0, minTrades: 0, maxSpreadPct: 22, deltaMin: 0.20, deltaMax: 0.95, maxIvHv: 2.8, minPremium: 50 } }
+    { name: 'B', tag: 'کیفیت B', overrides: { minOI: 80, minTrades: 1, maxSpreadPct: 12, deltaMin: 0.30, deltaMax: 0.88, maxIvHv: 1.8 } },
+    { name: 'C', tag: 'کیفیت C', overrides: { minOI: 30, minTrades: 0, maxSpreadPct: 16, deltaMin: 0.25, deltaMax: 0.92, maxIvHv: 2.2, minPremium: 100 } },
+    { name: 'D', tag: 'کیفیت D', overrides: { minOI: 0, minTrades: 0, maxSpreadPct: 22, deltaMin: 0.20, deltaMax: 0.95, maxIvHv: 2.8, minPremium: 50 } }
 ];
 
 function scoreContract(c, sc, s, effective) {
-    const S = sc.S || c.S, m = metrics(c, S, sc.hv);
+    const S = sc.S || c.S;
+    const m = metrics(c, S, sc.hv);
     const R = rejectReasons(c, m, effective);
     if (R.length) return { ok: false, reasons: R, m };
     const h = Math.min(sc.horizonDays, Math.max(c.daysLeft - 1, 1));
     const T2 = Math.max((c.daysLeft - h) / 365, 1 / 365);
-    const sig = m.iv || m.hv, cost = c.ask * (1 + FEE_BUY), half = (c.ask - c.bid) / 2;
+    const sig = m.iv || m.hv;
+    const cost = c.ask * (1 + FEE_BUY);
+    const half = (c.ask - c.bid) / 2;
     const exitAdj = v => Math.max(v - half, 0) * (1 - FEE_SELL);
     const pt = exitAdj(bsCall(sc.target, c.strike, T2, RISK_FREE, sig).price) - cost;
     const pl = exitAdj(bsCall(sc.stop, c.strike, T2, RISK_FREE, sig).price) - cost;
@@ -195,19 +241,42 @@ function scoreContract(c, sc, s, effective) {
     const liq = Math.pow(Math.min(1, c.oi / 1000), 0.25) * (1 - (m.spreadPct / effective.maxSpreadPct) * 0.4);
     const ivPen = m.ivHv ? Math.max(0.6, Math.min(1, 1.3 / m.ivHv)) : 1;
     const pick = {
-        symbol: c.symbol, fullName: c.fullName, strike: c.strike, expiry: c.expiry,
-        daysLeft: c.daysLeft, ask: c.ask, bid: c.bid,
+        symbol: c.symbol,
+        fullName: c.fullName,
+        strike: c.strike,
+        expiry: c.expiry,
+        daysLeft: c.daysLeft,
+        ask: c.ask, bid: c.bid,
         askVol: c.askVol, bidVol: c.bidVol,
-        oi: c.oi, volume: c.volume, trades: c.trades, size: c.size,
-        spreadPct: m.spreadPct, theo: m.theo, iv: m.iv, hv: m.hv, ivHv: m.ivHv,
-        delta: m.delta, thetaDay: m.thetaDay, leverage: m.leverage,
-        profitPct: pt / cost * 100, lossPct: pl / cost * 100, flatPct: pf / cost * 100, rr,
+        last: c.last,
+        oi: c.oi, oiChange: c.oiChange,
+        volume: c.volume,
+        trades: c.trades,
+        size: c.size,
+        spreadPct: m.spreadPct,
+        theo: m.theo, theoApi: m.theoApi,
+        intrinsic: m.intrinsic, timeValue: m.timeValue,
+        iv: m.iv, ivApi: m.ivApi,
+        hv: m.hv,
+        ivHv: m.ivHv,
+        delta: m.delta, deltaApi: m.deltaApi,
+        gamma: m.gamma, gammaApi: m.gammaApi,
+        thetaDay: m.thetaDay, thetaApi: m.thetaApi,
+        vega: m.vega, vegaApi: m.vegaApi,
+        leverage: m.leverage,
+        moneynessPct: m.moneynessPct,
+        profitPct: pt / cost * 100,
+        lossPct: pl / cost * 100,
+        flatPct: pf / cost * 100,
+        rr,
         bePct: breakevenMove(S, c.strike, T2, sig, cost, half),
-        score: rr * liq * ivPen, S
+        score: rr * liq * ivPen,
+        S
     };
     pick.positionSize = 1;
     return { ok: true, pick, m };
 }
+
 function rejectionScore(c, m, R, effective) {
     let score = 0;
     if (R.includes('OI کم')) score += Math.max(0, (effective.minOI - c.oi) / Math.max(effective.minOI, 1)) * 100;
@@ -217,20 +286,51 @@ function rejectionScore(c, m, R, effective) {
     if (R.includes('IV گران')) score += Math.max(0, (m.ivHv - effective.maxIvHv)) * 100;
     return score;
 }
+
+// ==================== Better Underlying Matching ====================
+// نماد پایه در chain ممکن است با املای کمی متفاوت باشد
+// این تابع همه‌ی تطبیق‌های محتمل را چک می‌کند
+function matchUnderlying(contractUnderlying, names) {
+    if (!contractUnderlying) return false;
+    const cu = norm(contractUnderlying);
+    for (const n of names) {
+        const nn = norm(n);
+        if (!nn) continue;
+        if (cu === nn) return true;
+        // تطبیق جزئی برای نام‌های بلند فارسی
+        if (nn.length >= 4 && cu.length >= 4) {
+            if (cu.includes(nn) || nn.includes(cu)) return true;
+        }
+    }
+    return false;
+}
+
 function selectCalls(chain, underlying, sc, s) {
     const names = Array.isArray(underlying) ? underlying : [underlying];
-    const cands = chain.filter(c => c.isCall && names.includes(c.underlying));
-    if (!cands.length) return { picks: [], considered: 0, passed: 0, rejected: {}, level: null, nearMisses: [], relaxed: false };
+    const cands = chain.filter(c => c.isCall && matchUnderlying(c.underlying, names));
+    if (!cands.length) {
+        return { picks: [], considered: 0, passed: 0, rejected: {}, level: null, nearMisses: [], relaxed: false, matchedNames: names, totalChain: chain.length };
+    }
     const nearMissesAll = [];
     for (const level of RELAX_LEVELS) {
         const effective = { ...s, ...level.overrides };
-        const rejected = {}, scored = [];
+        const rejected = {};
+        const scored = [];
         for (const c of cands) {
-            const S = sc.S || c.S, m = metrics(c, S, sc.hv);
+            const S = sc.S || c.S;
+            const m = metrics(c, S, sc.hv);
             const res = scoreContract(c, sc, s, effective);
             if (!res.ok) {
                 res.reasons.forEach(x => rejected[x] = (rejected[x] || 0) + 1);
-                if (level.name === 'A+') nearMissesAll.push({ symbol: c.symbol, strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft, ask: c.ask, bid: c.bid, oi: c.oi, trades: c.trades, spreadPct: m.spreadPct, delta: m.delta, ivHv: m.ivHv, reasons: res.reasons, distance: rejectionScore(c, m, res.reasons, effective) });
+                if (level.name === 'A+') {
+                    nearMissesAll.push({
+                        symbol: c.symbol, strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft,
+                        ask: c.ask, bid: c.bid, oi: c.oi, trades: c.trades,
+                        spreadPct: m.spreadPct, delta: m.delta, ivHv: m.ivHv,
+                        reasons: res.reasons,
+                        distance: rejectionScore(c, m, res.reasons, effective)
+                    });
+                }
                 continue;
             }
             res.pick.level = level.name;
@@ -238,11 +338,28 @@ function selectCalls(chain, underlying, sc, s) {
         }
         if (scored.length) {
             scored.sort((a, b) => b.score - a.score);
-            return { picks: scored.slice(0, s.topN), considered: cands.length, passed: scored.length, rejected, level: level.name, tag: level.tag, relaxed: level.name !== 'A+', nearMisses: [] };
+            return {
+                picks: scored.slice(0, s.topN),
+                considered: cands.length,
+                passed: scored.length,
+                rejected,
+                level: level.name,
+                tag: level.tag,
+                relaxed: level.name !== 'A+',
+                nearMisses: [],
+                matchedNames: names,
+                totalChain: chain.length
+            };
         }
     }
     nearMissesAll.sort((a, b) => a.distance - b.distance);
-    return { picks: [], considered: cands.length, passed: 0, rejected: {}, level: null, tag: null, relaxed: false, nearMisses: nearMissesAll.slice(0, 3) };
+    return {
+        picks: [], considered: cands.length, passed: 0, rejected: {},
+        level: null, tag: null, relaxed: false,
+        nearMisses: nearMissesAll.slice(0, 5),
+        matchedNames: names,
+        totalChain: chain.length
+    };
 }
 
 function horizonDaysFor(config) {
@@ -251,20 +368,25 @@ function horizonDaysFor(config) {
     const tradingDays = tfMin >= 1440 ? bars : Math.max(1, Math.ceil(bars * tfMin / 210));
     return Math.max(2, Math.ceil(tradingDays * 7 / 5));
 }
+
 async function buildScenario(config, price, liveS, indicators, s) {
-    const stop = indicators && indicators.stop, atr = indicators && indicators.atr;
+    const stop = indicators && indicators.stop;
+    const atr = indicators && indicators.atr;
     const risk = stop && stop < price ? price - stop : atr ? 2 * atr : price * 0.03;
     return {
-        S: liveS || price, entry: price,
-        stop: price - risk, target: price + risk * s.rewardRisk,
+        S: liveS || price,
+        entry: price,
+        stop: price - risk,
+        target: price + risk * s.rewardRisk,
         horizonDays: horizonDaysFor(config),
         hv: await hvFromDaily(config.symbol)
     };
 }
 
 const f0 = n => Math.round(n).toLocaleString('en-US');
-const pc = v => v === null || v === undefined ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}٪`;
+const pc = v => v === null || v === undefined ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
 
+// ==================== Portfolio State ====================
 async function getPortfolioState() {
     const db = deps.getDB();
     const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
@@ -276,7 +398,14 @@ async function getPortfolioState() {
         totalExposure += value;
     }
     const capital = Settings.capital();
-    return { totalCapital: capital, totalExposure, availableCash: capital - totalExposure, exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0, openCount: open.length, bySymbol };
+    return {
+        totalCapital: capital,
+        totalExposure,
+        availableCash: capital - totalExposure,
+        exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0,
+        openCount: open.length,
+        bySymbol
+    };
 }
 
 async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStrength) {
@@ -312,7 +441,13 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
         else if (byTotal === 0) limitReason = 'سقف کل درگیری پر شده';
         else if (baseSize < 0.5) limitReason = 'سرمایه برای این قرارداد کافی نیست';
     }
-    return { size: finalSize, baseSize: Math.floor(baseSize), signalFactor: round(signalFac), levelFactor: round(levelFac), ivFactor: round(ivFac), level, confluence, adjusted, bySymbol, byTotal, maxSize, contractValue, limitReason, limits: { riskAmount: riskAmt, maxSymbolExposure: maxSymbol, maxTotalExposure: maxTotal, currentSymbolExposure, currentTotalExposure: currentTotal } };
+    return {
+        size: finalSize, baseSize: Math.floor(baseSize),
+        signalFactor: round(signalFac), levelFactor: round(levelFac), ivFactor: round(ivFac),
+        level, confluence, adjusted, bySymbol, byTotal, maxSize, contractValue,
+        limitReason,
+        limits: { riskAmount: riskAmt, maxSymbolExposure: maxSymbol, maxTotalExposure: maxTotal, currentSymbolExposure, currentTotalExposure: currentTotal }
+    };
 }
 
 function suggestOrderPlan(pick, targetSize) {
@@ -323,49 +458,54 @@ function suggestOrderPlan(pick, targetSize) {
     if (askVol > 0) plans.push({ shares: askVol, price: askPrice });
     const remaining = totalShares - askVol;
     if (remaining > 0) plans.push({ shares: remaining, price: Math.round(askPrice * 1.03), estimated: true });
-    return { canFillAtAsk: false, plans, note: `حجم سرخط (${askVol.toLocaleString()} سهم) کمتر از نیاز (${totalShares.toLocaleString()} سهم) است — پله‌ای خرید کن` };
+    return { canFillAtAsk: false, plans, note: `حجم سرخط (${askVol.toLocaleString()} سهم) کمتر از نیاز (${totalShares.toLocaleString()} سهم) است - پله ای خرید کن` };
 }
 
-function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title = '🎯 انتخاب قرارداد کال') {
-    let t = `${title} — ${symbol}\n`;
-    if (signalStrength && signalStrength.confluence > 1) t += `🔥 هم‌گرایی ${signalStrength.confluence} استراتژی\n`;
-    if (signalStrength && signalStrength.confirmers && signalStrength.confirmers.length) t += `✅ تأیید: ${signalStrength.confirmers.join('، ')}\n`;
-    t += `📊 سناریو: ورود ${f0(sc.entry)} | حد ضرر ${f0(sc.stop)} | هدف ${f0(sc.target)} | افق ~${sc.horizonDays} روز${sc.hv ? ` | HV ${(sc.hv * 100).toFixed(0)}٪` : ''}\n`;
-    if (res.level && res.level !== 'A+') t += `\n⚠️ سطح فیلتر: ${res.level}${res.tag ? ' — ' + res.tag : ''}\n`;
+// ==================== Recommendation Formatting ====================
+function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title = 'انتخاب قرارداد کال') {
+    let t = `${title} - ${symbol}\n`;
+    if (signalStrength && signalStrength.confluence > 1) t += `هم گرایی ${signalStrength.confluence} استراتژی\n`;
+    if (signalStrength && signalStrength.confirmers && signalStrength.confirmers.length) t += `تایید: ${signalStrength.confirmers.join('، ')}\n`;
+    t += `سناریو: ورود ${f0(sc.entry)} | حد ضرر ${f0(sc.stop)} | هدف ${f0(sc.target)} | افق ~${sc.horizonDays} روز${sc.hv ? ` | HV ${(sc.hv * 100).toFixed(0)}%` : ''}\n`;
+    if (res.level && res.level !== 'A+') t += `\nسطح فیلتر: ${res.level}${res.tag ? ' - ' + res.tag : ''}\n`;
     if (!res.picks.length) {
-        t += `⛔ قرارداد مناسبی یافت نشد (${res.considered} بررسی شد)\n`;
+        t += `قرارداد مناسبی یافت نشد (${res.considered} بررسی شد)\n`;
         if (res.nearMisses && res.nearMisses.length) {
-            t += `\n📋 نزدیک‌ترین گزینه‌ها:\n`;
+            t += `\nنزدیک ترین گزینه ها:\n`;
             res.nearMisses.forEach((n, i) => {
-                t += `${i + 1}) ${n.symbol} | اعمال ${f0(n.strike)} | ${n.daysLeft} روز\n   OI ${n.oi} | معاملات ${n.trades} | اسپرد ${n.spreadPct ? n.spreadPct.toFixed(1) + '٪' : '-'} | دلتا ${n.delta ? n.delta.toFixed(2) : '-'}\n   دلایل رد: ${n.reasons.join('، ')}\n`;
+                t += `${i + 1}) ${n.symbol} | اعمال ${f0(n.strike)} | ${n.daysLeft} روز\n   OI ${n.oi} | معاملات ${n.trades} | اسپرد ${n.spreadPct ? n.spreadPct.toFixed(1) + '%' : '-'} | دلتا ${n.delta ? n.delta.toFixed(2) : '-'}\n   دلایل رد: ${n.reasons.join('، ')}\n`;
             });
         }
         return t;
     }
     res.picks.forEach((p, i) => {
         t += `\n${i + 1}) ${p.symbol} | اعمال ${f0(p.strike)} | ${p.expiry} (${p.daysLeft} روز)\n`;
-        t += `   💰 خرید: ${f0(p.ask)} | فروش: ${f0(p.bid)} | اسپرد ${p.spreadPct.toFixed(1)}٪\n`;
+        t += `   خرید: ${f0(p.ask)} | فروش: ${f0(p.bid)} | اسپرد ${p.spreadPct.toFixed(1)}%\n`;
         t += `   حجم سرخط خرید: ${(p.askVol || 0).toLocaleString()} سهم\n`;
-        t += `   📊 دلتا ${p.delta.toFixed(2)} | IV ${p.iv ? (p.iv * 100).toFixed(0) + '٪' : '-'}${p.ivHv ? ` (${p.ivHv.toFixed(2)}×HV)` : ''} | OI ${p.oi} | تتا/روز ${f0(p.thetaDay)}\n`;
-        t += `   🎯 هدف آپشن: ${pc(p.profitPct)} | حد ضرر: ${pc(p.lossPct)} | RR ${p.rr.toFixed(2)}\n`;
+        t += `   دلتا ${p.delta.toFixed(2)} | گاما ${p.gamma ? p.gamma.toFixed(4) : '-'} | تتا/روز ${f0(p.thetaDay)} | وگا ${p.vega ? p.vega.toFixed(2) : '-'}\n`;
+        t += `   IV ${p.iv ? (p.iv * 100).toFixed(0) + '%' : '-'}${p.ivHv ? ` (${p.ivHv.toFixed(2)}xHV)` : ''} | OI ${p.oi}${p.oiChange ? ` (${p.oiChange > 0 ? '+' : ''}${p.oiChange})` : ''} | حجم ${p.volume}\n`;
+        t += `   پرمیوم: ${f0(p.ask)} | ارزش ذاتی: ${f0(p.intrinsic)} | ارزش زمانی: ${f0(p.timeValue)} | اهرم: ${p.leverage ? p.leverage.toFixed(2) : '-'}\n`;
+        t += `   هدف آپشن: ${pc(p.profitPct)} | حد ضرر: ${pc(p.lossPct)} | RR ${p.rr.toFixed(2)}\n`;
+        if (p.bePct !== null && p.bePct !== undefined) t += `   سربه سر: حرکت ${p.bePct.toFixed(1)}% سهم\n`;
         if (p.positionInfo) {
             const pi = p.positionInfo;
             if (pi.size > 0) {
-                t += `   💼 حجم پیشنهادی: ${pi.size} قرارداد\n`;
+                t += `   حجم پیشنهادی: ${pi.size} قرارداد\n`;
                 const plan = suggestOrderPlan(p, pi.size);
                 if (plan.note) {
-                    t += `   ⚠️ ${plan.note}\n`;
-                    t += `   📋 پیشنهاد خرید:\n`;
-                    plan.plans.forEach(pl => { t += `      • ${pl.shares.toLocaleString()} سهم در ${f0(pl.price)}${pl.estimated ? ' (تخمینی)' : ''}\n`; });
-                } else t += `   📋 می‌تونی کل ${(pi.size * (p.size || 1000)).toLocaleString()} سهم رو در ${f0(p.ask)} بخری\n`;
-                if (pi.limitReason) t += `   ⚠️ ${pi.limitReason}\n`;
-            } else t += `   ⚠️ حجم صفر — ${pi.limitReason || 'محدودیت'}\n`;
+                    t += `   ${plan.note}\n`;
+                    t += `   پیشنهاد خرید:\n`;
+                    plan.plans.forEach(pl => { t += `      - ${pl.shares.toLocaleString()} سهم در ${f0(pl.price)}${pl.estimated ? ' (تخمینی)' : ''}\n`; });
+                } else t += `   می توانی کل ${(pi.size * (p.size || 1000)).toLocaleString()} سهم را در ${f0(p.ask)} بخری\n`;
+                if (pi.limitReason) t += `   ${pi.limitReason}\n`;
+            } else t += `   حجم صفر - ${pi.limitReason || 'محدودیت'}\n`;
         }
     });
-    if (portfolio) t += `\n💰 سرمایه: ${f0(portfolio.totalCapital)} | درگیری فعلی: ${portfolio.exposurePct.toFixed(1)}٪ | نقد: ${f0(portfolio.availableCash)}\n`;
+    if (portfolio) t += `\nسرمایه: ${f0(portfolio.totalCapital)} | درگیری فعلی: ${portfolio.exposurePct.toFixed(1)}% | نقد: ${f0(portfolio.availableCash)}\n`;
     return t;
 }
 
+// ==================== Signal Handler ====================
 async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [] }) {
     const s = await getSettings();
     const chain = await fetchChain(60000);
@@ -377,7 +517,8 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
     for (const p of res.picks) {
         try {
             const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol }, sc, portfolio, signalStrength);
-            p.positionSize = pi.size; p.positionInfo = pi;
+            p.positionSize = pi.size;
+            p.positionInfo = pi;
         } catch (e) { p.positionSize = 0; p.positionInfo = null; }
     }
     await deps.notify(formatRecommendation(config.symbol, sc, res, portfolio, signalStrength));
@@ -388,18 +529,34 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
         const existing = await db.collection('option_positions').findOne({ configId: config._id.toString(), status: 'open' });
         if (existing) await db.collection('option_positions').updateOne({ _id: existing._id }, { $set: { status: 'closed', exitTime: new Date(), exitReason: 'رول به قرارداد جدید' } });
         await db.collection('option_positions').insertOne({
-            configId: config._id.toString(), tradeId: tradeId ? tradeId.toString() : null,
-            underlying: config.symbol, underlyingNames: names,
-            symbol: p.symbol, fullName: p.fullName, strike: p.strike, expiry: p.expiry,
-            entryTime: new Date(), entryAsk: p.ask, entryBid: p.bid,
+            configId: config._id.toString(),
+            tradeId: tradeId ? tradeId.toString() : null,
+            underlying: config.symbol,
+            underlyingNames: names,
+            symbol: p.symbol,
+            fullName: p.fullName,
+            strike: p.strike,
+            expiry: p.expiry,
+            entryTime: new Date(),
+            entryAsk: p.ask, entryBid: p.bid, entryLast: p.last,
             entryS: p.S, entryIv: p.iv, entryDelta: p.delta,
-            entryDaysLeft: p.daysLeft, size: p.size,
-            positionSize: p.positionSize, entryValue: p.ask * p.positionSize * (p.size || 1000),
-            level: p.level, scenario: sc, paper: true, status: 'open', confluence, stagedExits: []
+            entryGamma: p.gamma, entryTheta: p.thetaDay, entryVega: p.vega,
+            entryOi: p.oi, entryVolume: p.volume, entrySpreadPct: p.spreadPct,
+            entryDaysLeft: p.daysLeft,
+            size: p.size,
+            positionSize: p.positionSize,
+            entryValue: p.ask * p.positionSize * (p.size || 1000),
+            level: p.level,
+            scenario: sc,
+            paper: true,
+            status: 'open',
+            confluence,
+            stagedExits: []
         });
     }
     return res;
 }
+
 async function recommendForState(config, state) {
     const s = await getSettings();
     const chain = await fetchChain(60000);
@@ -408,6 +565,7 @@ async function recommendForState(config, state) {
     return { scenario: sc, ...selectCalls(chain, names, sc, s) };
 }
 
+// ==================== Position Management ====================
 async function managePositions(chain) {
     const db = deps.getDB(), s = await getSettings();
     const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
@@ -425,71 +583,130 @@ async function managePositions(chain) {
     const isLast30Min = tehranMin >= 720 && tehranMin <= 750;
     for (const p of open) {
         const c = map.get(p.symbol);
-        if (!c) { if (!p.missingWarned) { await deps.notify(`⚠️ قرارداد ${p.symbol} در داده‌ی آپشن یافت نشد.`); await db.collection('option_positions').updateOne({ _id: p._id }, { $set: { missingWarned: true } }); } continue; }
+        if (!c) {
+            if (!p.missingWarned) {
+                await deps.notify(`قرارداد ${p.symbol} در داده آپشن یافت نشد.`);
+                await db.collection('option_positions').updateOne({ _id: p._id }, { $set: { missingWarned: true } });
+            }
+            continue;
+        }
         const exitPx = c.bid > 0 ? c.bid : c.last;
         const cost = p.entryAsk * (1 + FEE_BUY);
         const pnlPct = (exitPx * (1 - FEE_SELL) / cost - 1) * 100;
         const T = Math.max(c.daysLeft, 0.5) / 365;
         const iv = impliedVol((c.bid > 0 && c.ask > 0) ? (c.bid + c.ask) / 2 : c.last, c.S, c.strike, T, RISK_FREE);
         const spreadPct = c.bid > 0 && c.ask > 0 ? (c.ask - c.bid) / ((c.ask + c.bid) / 2) * 100 : null;
-        const upd = { lastBid: c.bid, lastAsk: c.ask, lastS: c.S, lastPnlPct: pnlPct, lastIv: iv, lastDaysLeft: c.daysLeft, lastCheck: new Date() };
+        const m = metrics(c, c.S, null);
+        const upd = {
+            lastBid: c.bid, lastAsk: c.ask, lastS: c.S,
+            lastPnlPct: pnlPct, lastIv: iv,
+            lastDelta: m.delta, lastTheta: m.thetaDay,
+            lastOi: c.oi, lastVolume: c.volume,
+            lastSpreadPct: spreadPct,
+            lastDaysLeft: c.daysLeft,
+            lastCheck: new Date()
+        };
         let reason = null;
         const staged = p.stagedExits || [];
         const taken1 = staged.includes(1), taken2 = staged.includes(2);
-        if (!reason && pnlPct >= s.take1Pct && !taken1) { upd.stagedExits = [...staged, 1]; await deps.notify(`💰 ${p.symbol} | سود ${pnlPct.toFixed(0)}٪ — فروش ۳۳٪ موقعیت (پله ۱)`); }
-        if (!reason && pnlPct >= s.take2Pct && !taken2) { upd.stagedExits = [...(upd.stagedExits || staged), 2]; await deps.notify(`💰 ${p.symbol} | سود ${pnlPct.toFixed(0)}٪ — فروش ۳۳٪ موقعیت (پله ۲)`); }
-        if (!longIds.has(p.configId)) reason = 'سیگنال خروج / لغو روی سهم پایه';
+        if (!reason && pnlPct >= s.take1Pct && !taken1) {
+            upd.stagedExits = [...staged, 1];
+            await deps.notify(`${p.symbol} | سود ${pnlPct.toFixed(0)}% - فروش 33% موقعیت (پله 1)`);
+        }
+        if (!reason && pnlPct >= s.take2Pct && !taken2) {
+            upd.stagedExits = [...(upd.stagedExits || staged), 2];
+            await deps.notify(`${p.symbol} | سود ${pnlPct.toFixed(0)}% - فروش 33% موقعیت (پله 2)`);
+        }
+        if (!longIds.has(p.configId)) reason = 'سیگنال خروج یا لغو روی سهم پایه';
         else if (c.daysLeft <= s.closeDaysBefore) reason = `${c.daysLeft} روز تا سررسید`;
-        else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}٪)`;
-        else if (pnlPct >= s.take2Pct && taken2) reason = `حد سود کامل (${pnlPct.toFixed(0)}٪)`;
+        else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}%)`;
+        else if (pnlPct >= s.take2Pct && taken2) reason = `حد سود کامل (${pnlPct.toFixed(0)}%)`;
         const warns = [];
-        if (sellQueueSet.has(p.underlying)) warns.push(`🚫 نماد پایه در صف فروش است — برای بستن آپشن باید منتظر باز شدن صف بمانی`);
-        if (!reason && pnlPct >= s.take1Pct && !p.take1Notified) { warns.push(`💰 سود ${pnlPct.toFixed(0)}٪ — پیشنهاد: فروش نیمی`); upd.take1Notified = true; }
-        if (!reason && p.entryIv && iv && iv < p.entryIv * 0.8 && !p.ivWarned) { warns.push(`📉 IV از ${(p.entryIv * 100).toFixed(0)}٪ به ${(iv * 100).toFixed(0)}٪ افت کرد`); upd.ivWarned = true; }
-        if (!reason && spreadPct !== null && spreadPct > 15 && !p.spreadWarned) { warns.push(`⚠️ اسپرد ${spreadPct.toFixed(0)}٪`); upd.spreadWarned = true; }
-        if (isLast30Min && !reason && !p.timeWarned) { warns.push(`⏰ ۳۰ دقیقه آخر بازار`); upd.timeWarned = true; }
+        if (sellQueueSet.has(p.underlying)) warns.push(`نماد پایه در صف فروش است - برای بستن آپشن باید منتظر باز شدن صف بمانی`);
+        if (!reason && pnlPct >= s.take1Pct && !p.take1Notified) {
+            warns.push(`سود ${pnlPct.toFixed(0)}% - پیشنهاد: فروش نیمی`);
+            upd.take1Notified = true;
+        }
+        if (!reason && p.entryIv && iv && iv < p.entryIv * 0.8 && !p.ivWarned) {
+            warns.push(`IV از ${(p.entryIv * 100).toFixed(0)}% به ${(iv * 100).toFixed(0)}% افت کرد`);
+            upd.ivWarned = true;
+        }
+        if (!reason && spreadPct !== null && spreadPct > 15 && !p.spreadWarned) {
+            warns.push(`اسپرد ${spreadPct.toFixed(0)}%`);
+            upd.spreadWarned = true;
+        }
+        if (isLast30Min && !reason && !p.timeWarned) {
+            warns.push(`30 دقیقه آخر بازار`);
+            upd.timeWarned = true;
+        }
         if (reason) {
-            Object.assign(upd, { status: 'closed', exitTime: new Date(), exitBid: exitPx, exitS: c.S, pnlPct, exitReason: reason });
+            Object.assign(upd, {
+                status: 'closed', exitTime: new Date(),
+                exitBid: exitPx, exitS: c.S, pnlPct, exitReason: reason
+            });
             let roll = '';
             if (longIds.has(p.configId) && c.daysLeft <= s.closeDaysBefore && p.scenario) {
                 const names = p.underlyingNames && p.underlyingNames.length ? p.underlyingNames : [norm(p.underlying)];
                 const r = selectCalls(chain, names, { ...p.scenario, S: c.S }, s);
-                if (r.picks.length) { const q = r.picks[0]; roll = `\n🔁 پیشنهاد رول: ${q.symbol} اعمال ${f0(q.strike)} سررسید ${q.expiry} (${q.daysLeft} روز) خرید ${f0(q.ask)}`; }
+                if (r.picks.length) {
+                    const q = r.picks[0];
+                    roll = `\nپیشنهاد رول: ${q.symbol} اعمال ${f0(q.strike)} سررسید ${q.expiry} (${q.daysLeft} روز) خرید ${f0(q.ask)}`;
+                }
             }
-            await deps.notify(`🔔 بستن کال ${p.symbol} (${p.underlying})\nدلیل: ${reason}\nورود ${f0(p.entryAsk)} → خروج ${f0(exitPx)} | بازده ${pc(pnlPct)}\nسهم پایه: ${f0(p.entryS)} → ${f0(c.S)} (${pc((c.S / p.entryS - 1) * 100)})${roll}`);
-        } else if (warns.length) await deps.notify(`${p.symbol} (${p.underlying}) | بازده ${pc(pnlPct)}\n${warns.join('\n')}`);
+            await deps.notify(`بستن کال ${p.symbol} (${p.underlying})\nدلیل: ${reason}\nورود ${f0(p.entryAsk)} -> خروج ${f0(exitPx)} | بازده ${pc(pnlPct)}\nسهم پایه: ${f0(p.entryS)} -> ${f0(c.S)} (${pc((c.S / p.entryS - 1) * 100)})${roll}`);
+        } else if (warns.length) {
+            await deps.notify(`${p.symbol} (${p.underlying}) | بازده ${pc(pnlPct)}\n${warns.join('\n')}`);
+        }
         await db.collection('option_positions').updateOne({ _id: p._id }, { $set: upd });
     }
 }
+
 const openPositionsCount = () => deps.getDB().collection('option_positions').countDocuments({ status: 'open' });
 
+// ==================== Storage ====================
 const wanted = (c, set) => c.isCall && set.has(c.underlying) && (c.oi > 0 || c.trades > 0);
+
 async function storeSnapshots(chain, monitoredSet) {
     const time = new Date();
-    const docs = chain.filter(c => wanted(c, monitoredSet)).map(c => ({ symbol: c.symbol, underlying: c.underlying, time, S: c.S, last: c.last, bid: c.bid, ask: c.ask, oi: c.oi, volume: c.volume, trades: c.trades }));
+    const docs = chain.filter(c => wanted(c, monitoredSet)).map(c => ({
+        symbol: c.symbol, underlying: c.underlying, time,
+        S: c.S, last: c.last, bid: c.bid, ask: c.ask, oi: c.oi, volume: c.volume, trades: c.trades
+    }));
     if (docs.length) await deps.getDB().collection('option_snapshots').insertMany(docs, { ordered: false });
     return docs.length;
 }
+
 async function storeFullOptionHistory(chain, monitoredSet) {
     const time = new Date();
     const docs = chain.filter(c => wanted(c, monitoredSet)).map(c => ({
         symbol: c.symbol, underlying: c.underlying, strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft, time,
         S: c.S, bid: c.bid, ask: c.ask, last: c.last, bidVol: c.bidVol, askVol: c.askVol,
         oi: c.oi, volume: c.volume, trades: c.trades,
-        ivApi: c.ivApi, hvApi: c.hvApi, deltaApi: c.deltaApi, gammaApi: c.gammaApi, thetaApi: c.thetaApi, vegaApi: c.vegaApi, bsApi: c.bsApi
+        ivApi: c.ivApi, hvApi: c.hvApi, deltaApi: c.deltaApi, gammaApi: c.gammaApi,
+        thetaApi: c.thetaApi, vegaApi: c.vegaApi, bsApi: c.bsApi
     }));
     if (docs.length) { try { await deps.getDB().collection('option_history').insertMany(docs, { ordered: false }); } catch (e) {} }
     return docs.length;
 }
+
 async function storeEOD(chain, monitoredSet) {
     const date = deps.todayDateString(), col = deps.getDB().collection('option_daily'); let n = 0;
     for (const c of chain.filter(c => wanted(c, monitoredSet))) {
         const m = metrics(c, c.S, null);
-        await col.updateOne({ symbol: c.symbol, date }, { $set: { symbol: c.symbol, underlying: c.underlying, date, strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft, S: c.S, last: c.last, final: c.final, bid: c.bid, ask: c.ask, oi: c.oi, volume: c.volume, value: c.value, trades: c.trades, iv: m.iv, delta: m.delta, hvApi: c.hvApi } }, { upsert: true });
+        await col.updateOne({ symbol: c.symbol, date }, {
+            $set: {
+                symbol: c.symbol, underlying: c.underlying, date,
+                strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft,
+                S: c.S, last: c.last, final: c.final, bid: c.bid, ask: c.ask,
+                oi: c.oi, volume: c.volume, value: c.value, trades: c.trades,
+                iv: m.iv, delta: m.delta, hvApi: c.hvApi
+            }
+        }, { upsert: true });
         n++;
     }
     return n;
 }
+
 async function ensureIndexes() {
     const db = deps.getDB();
     await db.collection('option_snapshots').createIndex({ symbol: 1, time: 1 });
@@ -502,27 +719,39 @@ async function ensureIndexes() {
     await db.collection('option_history').createIndex({ underlying: 1, time: 1 });
     await db.collection('option_history').createIndex({ time: 1 });
 }
+
 async function storageStats() {
     const db = deps.getDB(), st = await db.stats();
     const names = ['candles_base', 'candles_daily', 'candles_tf', 'option_snapshots', 'option_daily', 'option_history', 'option_positions', 'signal_history', 'trades', 'telegram_outbox', 'logs'];
     const cols = [];
-    for (const n of names) { try { const c = await db.command({ collStats: n }); cols.push({ name: n, count: c.count, sizeMB: +(c.size / 1048576).toFixed(2), storageMB: +((c.storageSize + c.totalIndexSize) / 1048576).toFixed(2) }); } catch (e) {} }
+    for (const n of names) {
+        try {
+            const c = await db.command({ collStats: n });
+            cols.push({ name: n, count: c.count, sizeMB: +(c.size / 1048576).toFixed(2), storageMB: +((c.storageSize + c.totalIndexSize) / 1048576).toFixed(2) });
+        } catch (e) {}
+    }
     return { dataMB: +(st.dataSize / 1048576).toFixed(1), storageMB: +((st.storageSize + st.indexSize) / 1048576).toFixed(1), cols };
 }
+
 function positionStats(list) {
     const closed = list.filter(p => p.status === 'closed' && typeof p.pnlPct === 'number');
     const wins = closed.filter(p => p.pnlPct > 0);
     const sum = a => a.reduce((x, p) => x + p.pnlPct, 0);
     const gp = sum(wins), gl = -sum(closed.filter(p => p.pnlPct <= 0));
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
-    return { open: list.length - closed.length, closed: closed.length, winRate: closed.length ? wins.length / closed.length * 100 : 0, avgPnl: closed.length ? sum(closed) / closed.length : 0, totalPnl: sum(closed), profitFactor: pf, avgWin: wins.length ? gp / wins.length : 0, avgLoss: closed.length - wins.length ? -gl / (closed.length - wins.length) : 0 };
+    return {
+        open: list.length - closed.length,
+        closed: closed.length,
+        winRate: closed.length ? wins.length / closed.length * 100 : 0,
+        avgPnl: closed.length ? sum(closed) / closed.length : 0,
+        totalPnl: sum(closed),
+        profitFactor: pf,
+        avgWin: wins.length ? gp / wins.length : 0,
+        avgLoss: closed.length - wins.length ? -gl / (closed.length - wins.length) : 0
+    };
 }
 
-// ======================== Backtest — Realistic v7 ========================
-// ✅ تغییرات این نسخه:
-// - volCrushFactor: 2.0 → 3.0 (IV تندتر می‌ریزد)
-// - minIvCrush: 0.55 → 0.35 (کف افت بیشتر)
-// - maxReturnPct: 250 → 150 (سقف پایین‌تر)
+// ==================== Backtest — Realistic v8 ====================
 const OPT_BT_DEFAULTS = {
     assumedMaturityDays: 30,
     ivMultiplier: 1.20,
@@ -538,7 +767,8 @@ const OPT_BT_DEFAULTS = {
 };
 
 function historicalHV(closes, uptoIndex, n = 20) {
-    const start = Math.max(0, uptoIndex - n), slice = closes.slice(start, uptoIndex + 1);
+    const start = Math.max(0, uptoIndex - n);
+    const slice = closes.slice(start, uptoIndex + 1);
     if (slice.length < 6) return null;
     const rets = [];
     for (let i = 1; i < slice.length; i++) rets.push(Math.log(slice[i] / slice[i - 1]));
@@ -547,6 +777,9 @@ function historicalHV(closes, uptoIndex, n = 20) {
     return Math.sqrt(v * TRADING_DAYS);
 }
 
+/**
+ * Try to get REAL option trade data. Now returns MORE fields.
+ */
 async function tryGetRealTradeData(symbol, t, p) {
     const db = deps.getDB();
     const entryDate = new Date(t.entryTime * 1000);
@@ -558,6 +791,8 @@ async function tryGetRealTradeData(symbol, t, p) {
         bid: { $gt: 0 }, ask: { $gt: 0 }, oi: { $gt: 0 }
     }).toArray();
     if (!entryCandidates.length) return null;
+
+    // انتخاب قراردادی که دلتا نزدیک 0.55 است
     const targetDelta = 0.55;
     let best = null, bestDiff = Infinity;
     for (const c of entryCandidates) {
@@ -567,27 +802,37 @@ async function tryGetRealTradeData(symbol, t, p) {
         if (diff < bestDiff) { bestDiff = diff; best = c; }
     }
     if (!best) return null;
+
     const exitRows = await db.collection('option_history').find({
         symbol: best.symbol,
         time: { $gte: new Date(exitDate.getTime() - 5 * 60 * 1000), $lte: new Date(exitDate.getTime() + 5 * 60 * 1000) }
     }).toArray();
-    let exitBid = null;
-    if (exitRows.length) exitBid = exitRows[0].bid;
+    let exitBid = null, exitRow = null;
+    if (exitRows.length) { exitBid = exitRows[0].bid; exitRow = exitRows[0]; }
     else {
         const lastRow = await db.collection('option_history').find({ symbol: best.symbol, time: { $lt: exitDate } }).sort({ time: -1 }).limit(1).toArray();
-        if (lastRow.length) exitBid = lastRow[0].bid;
+        if (lastRow.length) { exitBid = lastRow[0].bid; exitRow = lastRow[0]; }
     }
     if (!exitBid) return null;
+
     const entryCost = best.ask * (1 + FEE_BUY);
     const exitProceeds = exitBid * (1 - FEE_SELL);
+    const spreadPct = best.bid > 0 && best.ask > 0 ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100 : null;
+
     return {
         entryTime: t.entryTime, exitTime: t.exitTime,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
         symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
         optionEntry: best.ask, optionExit: exitBid,
-        delta: best.deltaApi, iv: best.ivApi, hv: best.hvApi,
+        optionEntryBid: best.bid, optionExitAsk: exitRow ? exitRow.ask : null,
+        optionEntryLast: best.last, optionExitLast: exitRow ? exitRow.last : null,
+        oi: best.oi, volume: best.volume, spreadPct,
+        delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
+        iv: best.ivApi, hv: best.hvApi,
+        ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
         pnlPct: (exitProceeds / entryCost - 1) * 100,
-        exitReason: t.exitReason, source: 'real'
+        exitReason: t.exitReason,
+        source: 'real'
     };
 }
 
@@ -598,7 +843,6 @@ function tryGetApproxTradeData(t, closes, times, p) {
     const sigmaBase = Math.max(hv * p.ivMultiplier, 0.05);
     const daysHeld = Math.max((t.exitTime - t.entryTime) / 86400, 0.1);
 
-    // ✅ vol crush تهاجمی‌تر: با جهش ۳۳٪ سهم، IV به کف می‌رسد
     const moveRatio = Math.abs(t.exitPrice / t.entryPrice - 1);
     const ivCrushFactor = Math.max(p.minIvCrush, 1 - moveRatio * p.volCrushFactor);
     const sigmaExit = sigmaBase * ivCrushFactor;
@@ -626,10 +870,15 @@ function tryGetApproxTradeData(t, closes, times, p) {
         strike, hv,
         sigma: sigmaBase, sigmaExit, ivCrushFactor,
         dynamicSpreadPct,
-        entryDelta: entryTheo.delta,
         optionEntry: entryTheo.price, optionExit: exitTheo.price,
+        optionEntryBid: entryTheo.price * (1 - halfSpreadEntry),
+        optionExitAsk: exitTheo.price * (1 + halfSpreadExit),
+        delta: entryTheo.delta, deltaExit: exitTheo.delta,
+        gamma: entryTheo.gamma, theta: entryTheo.thetaDay, vega: entryTheo.vega,
+        iv: sigmaBase, ivHv: sigmaBase / hv,
         pnlPct,
-        exitReason: t.exitReason, source: 'approximate'
+        exitReason: t.exitReason,
+        source: 'approximate'
     };
 }
 
@@ -639,10 +888,13 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     if (!closedTrades.length) {
         return {
             assumptions: p,
-            stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null },
+            stats: {
+                count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null,
+                avgWin: 0, avgLoss: 0, maxWin: 0, maxLoss: 0
+            },
             trades: [], mode: 'hybrid',
             realUsed: 0, approxUsed: 0, hasAnyOptionData: false,
-            diagnostic: 'هیچ معامله‌ی بسته‌شده‌ای تولید نشده.'
+            diagnostic: 'هیچ معامله بسته شده ای تولید نشده.'
         };
     }
     const sampleCount = await db.collection('option_history').countDocuments({ underlying: norm(symbol) });
@@ -669,9 +921,13 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     }
 
     const wins = trades.filter(x => x.pnlPct > 0);
+    const losses = trades.filter(x => x.pnlPct <= 0);
     const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
-    const gp = sum(wins), gl = -sum(trades.filter(x => x.pnlPct <= 0));
+    const gp = sum(wins), gl = -sum(losses);
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
+    const maxWin = trades.length ? Math.max(...trades.map(t => t.pnlPct)) : 0;
+    const maxLoss = trades.length ? Math.min(...trades.map(t => t.pnlPct)) : 0;
+
     const result = {
         assumptions: p,
         stats: {
@@ -679,39 +935,52 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             winRate: trades.length ? wins.length / trades.length * 100 : 0,
             avgPnl: trades.length ? sum(trades) / trades.length : 0,
             totalPnl: sum(trades),
-            profitFactor: pf
+            profitFactor: pf,
+            avgWin: wins.length ? gp / wins.length : 0,
+            avgLoss: losses.length ? -gl / losses.length : 0,
+            maxWin, maxLoss,
+            avgDaysHeld: trades.length ? trades.reduce((s, t) => s + (t.exitTime - t.entryTime) / 86400, 0) / trades.length : 0
         },
         trades, mode: 'hybrid',
         realUsed, approxUsed, hasAnyOptionData,
         coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
     };
-    if (!trades.length) result.diagnostic = 'هیچ معامله‌ای در بک‌تست تولید نشد.';
+    if (!trades.length) result.diagnostic = 'هیچ معامله ای در بک تست تولید نشد.';
     else if (realUsed > 0 && approxUsed > 0) result.diagnostic = `ترکیبی: ${realUsed} واقعی + ${approxUsed} تقریبی`;
     else if (realUsed > 0) result.diagnostic = `همه ${realUsed} معامله از دیتای واقعی`;
-    else result.diagnostic = `همه ${approxUsed} معامله تقریبی (volCrush ${p.volCrushFactor}، سقف ${p.maxReturnPct}٪)`;
+    else result.diagnostic = `همه ${approxUsed} معامله تقریبی (volCrush ${p.volCrushFactor}، سقف ${p.maxReturnPct}%)`;
     return result;
 }
 
 async function runApproxOptionBacktest(symbol, closedTrades, opts = {}) {
     return runHybridOptionBacktest(symbol, closedTrades, { ...opts, realEnabled: false });
 }
-
 async function runRealOptionBacktest(symbol, closedTrades, opts = {}) {
     return runHybridOptionBacktest(symbol, closedTrades, { ...opts, realEnabled: true });
 }
 
-// ======================== Routes ========================
+// ==================== Routes ====================
 function registerRoutes(app, ObjectId) {
-    app.get('/api/options/settings', async (req, res, next) => { try { res.json({ values: await getSettings(), defaults: DEFAULT_SETTINGS, fees: { buy: FEE_BUY, sell: FEE_SELL }, riskFree: RISK_FREE }); } catch (e) { next(e); } });
-    app.put('/api/options/settings', async (req, res, next) => { try { res.json(await saveSettings(req.body || {})); } catch (e) { next(e); } });
+    app.get('/api/options/settings', async (req, res, next) => {
+        try {
+            res.json({ values: await getSettings(), defaults: DEFAULT_SETTINGS, fees: { buy: FEE_BUY, sell: FEE_SELL }, riskFree: RISK_FREE });
+        } catch (e) { next(e); }
+    });
+    app.put('/api/options/settings', async (req, res, next) => {
+        try { res.json(await saveSettings(req.body || {})); }
+        catch (e) { next(e); }
+    });
     app.get('/api/options/chain/:underlying', async (req, res, next) => {
         try {
             const s = await getSettings(), chain = await fetchChain(60000);
             const names = deps.getUnderlyingNames ? deps.getUnderlyingNames(req.params.underlying) : [norm(req.params.underlying)];
-            const matched = chain.filter(c => c.isCall && names.includes(c.underlying));
+            const matched = chain.filter(c => c.isCall && matchUnderlying(c.underlying, names));
             if (req.query.raw === '1') return res.json({ underlying: req.params.underlying, matchedNames: names, totalMatched: matched.length, raw: matched });
             const hv = await hvFromDaily(req.params.underlying);
-            const rows = matched.map(c => { const m = metrics(c, c.S, hv); return { ...c, ...m, reject: rejectReasons(c, m, s) }; }).sort((a, b) => a.expiry.localeCompare(b.expiry) || a.strike - b.strike);
+            const rows = matched.map(c => {
+                const m = metrics(c, c.S, hv);
+                return { ...c, ...m, reject: rejectReasons(c, m, s) };
+            }).sort((a, b) => a.expiry.localeCompare(b.expiry) || a.strike - b.strike);
             res.json({ underlying: req.params.underlying, matchedNames: names, S: rows[0] ? rows[0].S : null, hv, chainAgeSec: chainAge(), rows });
         } catch (e) { next(e); }
     });
@@ -732,17 +1001,28 @@ function registerRoutes(app, ObjectId) {
         } catch (e) { next(e); }
     });
     app.get('/api/options/positions', async (req, res, next) => {
-        try { const list = await deps.getDB().collection('option_positions').find({}).sort({ entryTime: -1 }).limit(300).toArray(); res.json({ positions: list, stats: positionStats(list) }); } catch (e) { next(e); }
+        try {
+            const list = await deps.getDB().collection('option_positions').find({}).sort({ entryTime: -1 }).limit(300).toArray();
+            res.json({ positions: list, stats: positionStats(list) });
+        } catch (e) { next(e); }
     });
     app.delete('/api/options/positions/:id', async (req, res, next) => {
-        try { await deps.getDB().collection('option_positions').deleteOne({ _id: new ObjectId(req.params.id) }); res.json({ success: true }); } catch (e) { next(e); }
+        try {
+            await deps.getDB().collection('option_positions').deleteOne({ _id: new ObjectId(req.params.id) });
+            res.json({ success: true });
+        } catch (e) { next(e); }
     });
-    app.get('/api/storage', async (req, res, next) => { try { res.json(await storageStats()); } catch (e) { next(e); } });
+    app.get('/api/storage', async (req, res, next) => {
+        try { res.json(await storageStats()); }
+        catch (e) { next(e); }
+    });
 }
 
 module.exports = {
     init, norm, ensureIndexes, registerRoutes, fetchChain,
     storeSnapshots, storeFullOptionHistory, storeEOD, managePositions, onBuySignal,
     openPositionsCount, storageStats, positionStats,
-    getSettings, runApproxOptionBacktest, runRealOptionBacktest, runHybridOptionBacktest, reloadFromSettings
+    getSettings, runApproxOptionBacktest, runRealOptionBacktest, runHybridOptionBacktest,
+    reloadFromSettings,
+    matchUnderlying
 };

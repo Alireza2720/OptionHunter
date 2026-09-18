@@ -1,12 +1,11 @@
 'use strict';
 // ======================== algotik_client.js ========================
-// ارتباط با Python Collector Service (algotik-tse)
-// روی localhost:5000
+// ارتباط با Python Collector Service (algotik-tse) روی localhost:5000
 
 const fetch = require('node-fetch');
 
 const BASE_URL = process.env.ALGOTIK_URL || 'http://127.0.0.1:5000';
-const DEFAULT_TIMEOUT = 60 * 60 * 1000; // 60 دقیقه برای backfill سنگین
+const DEFAULT_TIMEOUT = 60 * 60 * 1000; // 1 ساعت برای backfill سنگین
 
 async function apiCall(method, path, body, timeout = 60000) {
     const url = BASE_URL + path;
@@ -40,23 +39,34 @@ async function isOnline() {
     try {
         const r = await apiCall('GET', '/health', null, 5000);
         return r.status === 'ok';
-    } catch (e) {
-        return false;
-    }
+    } catch (e) { return false; }
 }
 
 async function getStatus() { return apiCall('GET', '/status', null, 10000); }
 async function getLogs(limit = 50) { return apiCall('GET', '/logs?limit=' + limit, null, 10000); }
 
-async function fetchStocks(symbols, months = 6) {
-    return apiCall('POST', '/backfill/stocks/wait', { symbols, months }, DEFAULT_TIMEOUT);
+/**
+ * دریافت دیتای سهام — با پشتیبانی از skip-existing
+ * گزینه‌ها:
+ *   symbols: آرایه نمادها
+ *   months: تعداد ماه (اگر startDate داده نشه)
+ *   startDate: تاریخ شروع (YYYY-MM-DD) برای skip-existing سمت Python
+ *   wait: اگر true، سینکرون (ممکنه timeout بده)
+ */
+async function fetchStocks(symbols, months = 6, opts = {}) {
+    const body = { symbols, months };
+    if (opts.startDate) body.start_date = opts.startDate;
+    if (opts.skipExisting !== false) body.skip_existing = true;
+    const path = opts.wait ? '/backfill/stocks/wait' : '/backfill/stocks';
+    return apiCall('POST', path, body, opts.wait ? DEFAULT_TIMEOUT : 30000);
 }
 
-async function fetchOptions(underlyings) {
-    return apiCall('POST', '/backfill/options', { underlyings }, DEFAULT_TIMEOUT);
+async function fetchOptions(underlyings, opts = {}) {
+    const body = { underlyings };
+    if (opts.skipExisting !== false) body.skip_existing = true;
+    return apiCall('POST', '/backfill/options', body, DEFAULT_TIMEOUT);
 }
 
-// جدید: بک‌گراند job-based
 async function startOptionsDailyJob(underlyings, force = false) {
     return apiCall('POST', '/options/daily-job', { underlyings, force }, 10000);
 }
@@ -73,20 +83,28 @@ async function backfillAll(months = 6, withOptions = true) {
     return apiCall('POST', '/backfill/all', { months, with_options: withOptions }, DEFAULT_TIMEOUT);
 }
 
-// جدید: نمودار آنلاین
 async function fetchChart(symbol, interval = '1min', months = 6) {
     const qs = new URLSearchParams({ interval, months: String(months) }).toString();
     return apiCall('GET', '/chart/' + encodeURIComponent(symbol) + '?' + qs, null, 60000);
 }
 
-// جدید: دیتای بالک آپشن برای یک نماد
-async function fetchOptionsHistoryBulk(symbol, months = 6) {
-    return apiCall('POST', '/options/history', { symbol, months }, 5 * 60 * 1000);
+async function fetchOptionsHistoryBulk(symbol, months = 6, opts = {}) {
+    const body = { symbol, months };
+    if (opts.skipExisting !== false) body.skip_existing = true;
+    return apiCall('POST', '/options/history', body, 5 * 60 * 1000);
+}
+
+/**
+ * Cancel a job on the Python side
+ */
+async function cancelJob(jobId) {
+    try { return await apiCall('POST', '/jobs/' + jobId + '/cancel', null, 10000); }
+    catch (e) { return { ok: false, error: e.message }; }
 }
 
 module.exports = {
     isOnline, getStatus, getLogs,
     fetchStocks, fetchOptions, backfillAll,
-    startOptionsDailyJob, getJobStatus, listJobs,
+    startOptionsDailyJob, getJobStatus, listJobs, cancelJob,
     fetchChart, fetchOptionsHistoryBulk
 };

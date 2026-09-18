@@ -19,20 +19,28 @@ async function connectDB() {
 }
 
 async function ensureIndexes(database) {
-    // کندل‌های پایه‌ی ۱ دقیقه‌ای — بدون TTL؛ داده‌ی قدیمی به‌جای حذف، توسط archive.js منتقل می‌شود
-    try { await database.collection('candles_base').dropIndex('time_1'); } catch (e) { /* از قبل TTL نداشته یا وجود ندارد */ }
+    try { await database.collection('candles_base').dropIndex('time_1'); } catch (e) {}
     await database.collection('candles_base').createIndex({ time: 1 });
     await database.collection('candles_base').createIndex({ symbol: 1, time: 1 }, { unique: true });
+
     await database.collection('signal_history').createIndex({ createdAt: -1 });
     await database.collection('signals_state').createIndex({ configId: 1 }, { unique: true });
     await database.collection('notify_queue').createIndex({ createdAt: 1 });
     await database.collection('option_history').createIndex({ underlying: 1, time: 1 });
     await database.collection('option_history').createIndex({ symbol: 1, time: 1 });
 
-    // 🆕 لاگ تلاش‌های دریافت ریزدیتا از TSETMC
     await database.collection('tsetmc_fetch_log').createIndex({ symbol: 1, date: 1 });
     await database.collection('tsetmc_fetch_log').createIndex({ createdAt: -1 });
     await database.collection('tsetmc_fetch_log').createIndex({ symbol: 1, date: 1, status: 1 });
+
+    // 🆕 Job queue indexes
+    await database.collection('backtest_jobs').createIndex({ status: 1, createdAt: 1 });
+    await database.collection('backtest_jobs').createIndex({ createdAt: -1 });
+    await database.collection('backtest_jobs').createIndex({ 'progress.chunks.status': 1 });
+
+    // 🆕 Incremental trade cache
+    await database.collection('backtest_trade_cache').createIndex({ computedAt: 1 });
+    await database.collection('backtest_trade_cache').createIndex({ 'signature.configId': 1 });
 
     console.log('✅ ایندکس‌های دیتابیس بررسی/ساخته شدند.');
 }
@@ -40,11 +48,11 @@ async function ensureIndexes(database) {
 async function cleanupLegacy(database) {
     try {
         await database.collection('meta').deleteMany({ _id: { $in: ['candlestick_usage', 'allsymbols_usage'] } });
-    for (const name of ['seed_log']) {
-      const cols = await database.listCollections({ name }).toArray();
-      if (cols.length) await database.collection(name).drop();
-    }
-    } catch (e) { /* بی‌اهمیت */ }
+        for (const name of ['seed_log']) {
+            const cols = await database.listCollections({ name }).toArray();
+            if (cols.length) await database.collection(name).drop();
+        }
+    } catch (e) {}
 }
 
 function getDB() {
