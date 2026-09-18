@@ -799,17 +799,39 @@ async function computeStockBacktestTrades(cfg, dateFrom, dateTo) {
     const def = STRATEGIES[cfg.strategyId]; const htfTf = cfg.htfTimeframe || '1d';
     let candles = closedOnly(await getCandlesFull(cfg.symbol, cfg.timeframe), cfg.timeframe);
     let htf = closedOnly(await getCandlesFull(cfg.symbol, htfTf), htfTf);
-    if (dateFrom) { candles = candles.filter(c => c.time >= dateFrom); htf = htf.filter(c => c.time >= dateFrom); }
-    if (dateTo) { candles = candles.filter(c => c.time <= dateTo); htf = htf.filter(c => c.time <= dateTo); }
+
+    // 🔑 warmup: ۶۰ روز بافر به عقب برای htf و candles تا استراتژی بتونه EMA بسازه
+    const WARMUP_SEC = 60 * 86400;
+    if (dateFrom) {
+        const fromWithWarmup = dateFrom - WARMUP_SEC;
+        candles = candles.filter(c => c.time >= fromWithWarmup);
+        htf = htf.filter(c => c.time >= fromWithWarmup);
+    }
+    if (dateTo) {
+        candles = candles.filter(c => c.time <= dateTo);
+        htf = htf.filter(c => c.time <= dateTo);
+    }
+
     const result = def.run(candles, { ...cfg.params, candleType: cfg.candleType }, { htfCandles: htf, htfTimeframe: htfTf, entryWindow: { start: ENTRY_START, end: ENTRY_END } });
+
+    // 🔑 فقط سیگنال‌های داخل بازه اصلی (بدون warmup)
+    const signals = result.signals.filter(s => {
+        if (dateFrom && s.time < dateFrom) return false;
+        if (dateTo && s.time > dateTo) return false;
+        return true;
+    });
+
     const closeAt = new Map(candles.map((c, i) => [c.time, { close: c.close, i }]));
     const trades = []; let open = null;
-    for (const s of result.signals) {
+    for (const s of signals) {
         const c = closeAt.get(s.time); if (!c) continue;
         if (s.signalType === 'BUY' && !open) open = { entryTime: s.time, entryPrice: c.close, entryIdx: c.i, reason: s.reason, status: 'open' };
         else if (s.signalType === 'EXIT_LONG' && open) { trades.push({ ...open, exitTime: s.time, exitPrice: c.close, pnlPct: (c.close / open.entryPrice - 1) * 100, bars: c.i - open.entryIdx, exitReason: s.reason, status: 'closed' }); open = null; }
     }
-    if (open) trades.push(open);
+    if (open) {
+        // اگه موقعیت باز مونده و بعد از بازه بسته شده، همون‌طور باز نگه دار
+        trades.push(open);
+    }
     return { candles, htf, trades };
 }
 app.get('/api/backtest-option/:configId', async (req, res, next) => {

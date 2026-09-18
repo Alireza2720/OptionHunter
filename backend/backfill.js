@@ -345,7 +345,7 @@ async function resetJob(id, ObjectId) {
   const db = deps.getDB();
   const job = await db.collection('tsetmc_backfill').findOne({ _id: new ObjectId(id) });
   if (!job) throw new Error('Job یافت نشد');
-  const newDays = job.days.map(d => ({ date: d.date, status: 'PENDING', candles: 0, attempts: 0, error: null, fetchedAt: null }));
+  const newDays = job.days.map(d => ({ date: d.date, expectedTrades: d.expectedTrades || 0, expectedVolume: d.expectedVolume || 0, status: 'PENDING', candles: 0, attempts: 0, error: null, fetchedAt: null }));
   await db.collection('tsetmc_backfill').updateOne(
     { _id: job._id },
     { $set: { days: newDays, cursor: 0, stats: { total: newDays.length, done: 0, failed: 0, pending: newDays.length, noTrades: 0 }, status: 'PENDING', updatedAt: new Date(), startedAt: null, finishedAt: null } }
