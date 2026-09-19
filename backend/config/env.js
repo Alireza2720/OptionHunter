@@ -2,10 +2,62 @@
 // ============================================================
 // env.js — خواندن و اعتبارسنجی متغیرهای محیطی
 // ============================================================
-// در شروع برنامه load() صدا زده می‌شود. اگر متغیر اجباری نباشد، خطا می‌دهد.
+// - خودش .env رو لود می‌کنه (بدون نیاز به dotenv یا PM2)
+// - متغیرهای اجباری رو اعتبارسنجی می‌کنه
 // ============================================================
 
+const fs = require('fs');
+const path = require('path');
+
+// ------------------------------------------------------------
+// .env loader — بدون وابستگی به dotenv
+// ------------------------------------------------------------
+let envFileLoaded = false;
+
+function loadEnvFile() {
+    if (envFileLoaded) return;
+    envFileLoaded = true;
+
+    // .env رو در چند مسیر ممکن چک می‌کنیم
+    const candidates = [
+        path.join(__dirname, '..', '.env'),            // backend/.env
+        path.join(__dirname, '..', '..', '.env'),      // OptionHunter/.env
+        path.join(process.cwd(), '.env')               // cwd/.env
+    ];
+
+    for (const p of candidates) {
+        try {
+            if (!fs.existsSync(p)) continue;
+            const content = fs.readFileSync(p, 'utf-8');
+            for (const rawLine of content.split('\n')) {
+                const line = rawLine.trim();
+                if (!line || line.startsWith('#')) continue;
+                const eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                const key = line.slice(0, eq).trim();
+                let val = line.slice(eq + 1).trim();
+                // حذف کوتیشن‌های ابتدا/انتها
+                if (val.length >= 2 &&
+                    ((val.startsWith('"') && val.endsWith('"')) ||
+                     (val.startsWith("'") && val.endsWith("'")))) {
+                    val = val.slice(1, -1);
+                }
+                // فقط اگه قبلاً تنظیم نشده
+                if (process.env[key] === undefined || process.env[key] === '') {
+                    process.env[key] = val;
+                }
+            }
+            // اولین فایل معتبر کافیه
+            break;
+        } catch (_) { /* ignore */ }
+    }
+}
+
+// ------------------------------------------------------------
+// Config container
+// ------------------------------------------------------------
 let loaded = false;
+
 const config = {
     // MongoDB
     MONGO_URI: '',
@@ -39,6 +91,9 @@ const config = {
     RISK_FREE_RATE: 0.23
 };
 
+// ------------------------------------------------------------
+// Readers
+// ------------------------------------------------------------
 function readNumber(name, fallback) {
     const v = process.env[name];
     if (v === undefined || v === '') return fallback;
@@ -56,9 +111,15 @@ function readTime(name, fallback) {
     return /^\d{1,2}:\d{2}$/.test(v) ? v : fallback;
 }
 
+// ------------------------------------------------------------
+// Load
+// ------------------------------------------------------------
 function load() {
     if (loaded) return config;
     loaded = true;
+
+    // اول .env رو لود کن
+    loadEnvFile();
 
     config.MONGO_URI = readString('MONGO_URI', '');
     config.ALGOTIK_URL = readString('ALGOTIK_URL', config.ALGOTIK_URL);
@@ -85,6 +146,9 @@ function load() {
     return config;
 }
 
+// ------------------------------------------------------------
+// Validate
+// ------------------------------------------------------------
 function validate() {
     const errors = [];
     if (!config.MONGO_URI) errors.push('MONGO_URI الزامی است');

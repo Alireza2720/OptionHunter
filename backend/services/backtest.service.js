@@ -28,7 +28,7 @@ let deps = {
     notify: null
 };
 
-function init(d) { deps = { ...deps,strategies, ...d }; }
+function init(d) { deps = { ...deps, ...d }; }
 
 // ============================================================
 // Job CRUD
