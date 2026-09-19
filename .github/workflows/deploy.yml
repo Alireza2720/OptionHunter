@@ -20,15 +20,22 @@ jobs:
           script: |
             set -e
             cd ~/apps/OptionHunter
-            echo "=== Fetching ==="
+            echo "=== Fetch ==="
             git fetch origin main
-            echo "=== Reset ==="
             git reset --hard origin/main
-            echo "=== Clean ==="
             git clean -fd -e ecosystem.config.js -e package-lock.json -e node_modules -e .env -e logs
             echo "=== npm install ==="
-            npm install --prefix . --no-audit --no-fund --prefer-offline --loglevel=error
+            npm install --prefix . --no-audit --no-fund --prefer-offline
             echo "=== PM2 restart ==="
             pm2 startOrRestart ecosystem.config.js --update-env
             pm2 save
-            echo "=== Done ==="
+            echo "=== Wait for boot ==="
+            sleep 8
+            echo "=== Health check ==="
+            if ! curl -fsS http://127.0.0.1:3000/ping > /dev/null; then
+              echo "❌ SERVER NOT RESPONDING - DUMPING LOGS"
+              pm2 logs OptionHunter --lines 100 --nostream || true
+              tail -100 ~/apps/OptionHunter/logs/error.log || true
+              exit 1
+            fi
+            echo "=== ✅ Done ==="
