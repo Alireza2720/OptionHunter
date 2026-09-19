@@ -335,7 +335,6 @@ tr.insufficient-row:hover { background: rgba(217, 83, 79, .15); }
         <div class="menu-status-grid">
             <div class="menu-status-row"><span>سرور</span><b id="backendStatus" style="font-weight:600;">در حال بررسی</b></div>
             <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div>
-            <div class="menu-status-row"><span>مصرف API</span><b id="usageAllSymbols">-</b></div>
             <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div>
         </div>
 
@@ -387,6 +386,37 @@ tr.insufficient-row:hover { background: rgba(217, 83, 79, .15); }
 
     <!-- System Dashboard -->
     <div class="card" id="cardSystem">
+<!-- Data Pipeline Dashboard -->
+<div class="card collapsible" id="cardDataPipeline">
+    <h2 onclick="toggleCard('cardDataPipeline')">
+        <span class="h2-title">خط لوله داده (Data Pipeline)</span>
+        <span class="chev">▼</span>
+    </h2>
+    <div class="card-body">
+        <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+            <button class="btn small outline" onclick="loadDataPipeline()">رفرش</button>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12.5px;">
+                <input type="checkbox" id="dpAutoRefresh" checked>
+                رفرش خودکار هر 30 ثانیه
+            </label>
+        </div>
+        <div id="dpSummary" class="stats-grid"></div>
+        <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
+            <table class="data-table">
+                <thead><tr>
+                    <th>نماد</th>
+                    <th>کندل 1m</th>
+                    <th>روزانه</th>
+                    <th>Snapshot آپشن</th>
+                    <th>آپشن روزانه</th>
+                    <th>آخرین بروزرسانی</th>
+                    <th>وضعیت</th>
+                </tr></thead>
+                <tbody id="dpTableBody"><tr class="empty-row"><td colspan="7">در حال بارگذاری...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
         <h2><span class="h2-title">وضعیت سیستم</span><button class="btn small outline" onclick="loadSystemStats()">رفرش</button></h2>
         <div class="sys-grid">
             <div class="sys-stat">
@@ -893,8 +923,6 @@ async function checkBackendStatus() {
         else { hs.textContent = 'سالم'; hs.style.color = 'var(--good)'; }
         if (!d.telegramConfigured && !warnedTelegram) { warnedTelegram = true; showAlert('پیام رسان تنظیم نشده.', 'warn', 12000); }
         if (!d.adminRequired && !warnedToken) { warnedToken = true; showAlert('ADMIN_TOKEN تنظیم نشده.', 'warn', 12000); }
-        const u = await apiFetch(`${BACKEND_URL}/api/usage`, {}, 0);
-        document.getElementById('usageAllSymbols').textContent = `${u.total}/${u.totalLimit}`;
     } catch (e) { const bs = document.getElementById('backendStatus'); bs.textContent = 'قطع'; bs.style.color = 'var(--bad)'; }
 }
 
@@ -1168,6 +1196,81 @@ async function algotikRefresh() {
                     <div class="val" style="font-size:14px;">${esc(e.message)}</div>
                 </div>
             </div>`;
+    }
+}
+let dpTimer = null;
+
+async function loadDataPipeline() {
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 0);
+        const syms = r.symbols || [];
+
+        // Summary
+        let totalCandles = 0, totalDaily = 0, totalSnap = 0, totalOptDaily = 0;
+        let fresh = 0, stale = 0, noData = 0;
+        const now = Date.now();
+
+        for (const s of syms) {
+            totalCandles += s.candles || 0;
+            totalDaily += s.daily || 0;
+            totalSnap += s.optionSnapshots || 0;
+            totalOptDaily += s.optionDaily || 0;
+        }
+
+        document.getElementById('dpSummary').innerHTML = `
+            <div class="stat"><small>نمادها</small><b>${syms.length}</b></div>
+            <div class="stat"><small>کندل دقیقه‌ای</small><b>${totalCandles.toLocaleString()}</b></div>
+            <div class="stat"><small>کندل روزانه</small><b>${totalDaily.toLocaleString()}</b></div>
+            <div class="stat"><small>Snapshot آپشن</small><b>${totalSnap.toLocaleString()}</b></div>
+            <div class="stat"><small>آپشن روزانه</small><b>${totalOptDaily.toLocaleString()}</b></div>
+        `;
+
+        // Table
+        const rows = syms.map(s => {
+            const lastAt = s.lastCandleAt ? new Date(s.lastCandleAt).getTime() : null;
+            const ageMin = lastAt ? Math.floor((now - lastAt) / 60000) : null;
+            let status, statusCls;
+            if (!lastAt) { status = 'بدون داده'; statusCls = 'badge short'; }
+            else if (ageMin < 60) { status = `زنده (${ageMin}د)`; statusCls = 'badge long'; }
+            else if (ageMin < 24 * 60) { status = `امروز (${Math.floor(ageMin/60)}س)`; statusCls = 'badge long'; }
+            else { status = `قدیمی (${Math.floor(ageMin/1440)}روز)`; statusCls = 'badge warn'; }
+
+            const optStatus = (s.optionSnapshots || 0) > 0
+                ? `<span class="badge long">${s.optionSnapshots.toLocaleString()}</span>`
+                : '<span class="badge none">-</span>';
+
+            const dailyOptStatus = (s.optionDaily || 0) > 0
+                ? `<span class="badge long">${s.optionDaily.toLocaleString()}</span>`
+                : '<span class="badge none">-</span>';
+
+            return `<tr>
+                <td><b>${esc(s.symbol)}</b></td>
+                <td>${(s.candles||0).toLocaleString()}</td>
+                <td>${(s.daily||0).toLocaleString()}</td>
+                <td>${optStatus}</td>
+                <td>${dailyOptStatus}</td>
+                <td style="font-size:11px;">${s.lastCandleAt ? new Date(s.lastCandleAt).toLocaleString('fa-IR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-'}</td>
+                <td><span class="${statusCls}">${status}</span></td>
+            </tr>`;
+        }).join('');
+
+        document.getElementById('dpTableBody').innerHTML = rows || '<tr class="empty-row"><td colspan="7">نمادی پایش نشده</td></tr>';
+
+    } catch (e) {
+        document.getElementById('dpSummary').innerHTML = `<div class="stat"><small>خطا</small><b>${esc(e.message)}</b></div>`;
+        document.getElementById('dpTableBody').innerHTML = '<tr class="empty-row"><td colspan="7">خطا در دریافت</td></tr>';
+    }
+}
+
+function startDataPipelinePolling() {
+    if (dpTimer) clearInterval(dpTimer);
+    loadDataPipeline();
+    const auto = document.getElementById('dpAutoRefresh');
+    if (auto && auto.checked) {
+        dpTimer = setInterval(() => {
+            const card = document.getElementById('cardDataPipeline');
+            if (card && card.classList.contains('open')) loadDataPipeline().catch(() => {});
+        }, 30000);
     }
 }
 function getSkipExisting() {
@@ -1568,6 +1671,7 @@ async function runOptionBacktest(id) {
             </label>
         </div>
         <button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا در پس زمینه</button>
+        <button class="btn outline" onclick="closeModal(); overlayBacktestOnChart('${id}')">نمایش روی نمودار</button>
         <div id="btJobArea" style="margin-top:14px;"></div>
         <div id="btResultArea"></div>
     `);
@@ -1625,21 +1729,45 @@ function renderBtResult(r) {
     let cacheInfo = '';
     if (r.cached) cacheInfo = `<div class="hint"><span class="source-tag cache">از کش</span> نتیجه از حافظه بازگردانده شد</div>`;
     else if (r.reusedFromCache) cacheInfo = `<div class="hint"><span class="source-tag cache">${r.reusedFromCache} معامله از کش</span> فقط دلتا محاسبه شد</div>`;
-    const head = diag + cacheInfo + `<div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}xHV، اسپرد ${a.spreadPct}%، volCrush ${a.volCrushFactor}x، سقف ${a.maxReturnPct}%</div>
+
+    const s = r.stockStats || {};
+    const os = r.optionStats || r.stats || {};
+
+    const statBox = (label, value, cls) => `<div class="stat ${cls||''}"><small>${label}</small><b>${value}</b></div>`;
+
+    const head = diag + cacheInfo + `
+        <div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}xHV، اسپرد ${a.spreadPct}%، volCrush ${a.volCrushFactor}x، سقف ${a.maxReturnPct}%</div>
+
+        <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">آمار سهم</h4>
         <div class="stats-grid">
-            <div class="stat"><small>معاملات سهم</small><b>${r.stockTradesCount||0}</b></div>
-            <div class="stat"><small>بسته شده</small><b>${r.stockClosedCount||0}</b></div>
-            <div class="stat"><small>آپشن (real/approx)</small><b>${(r.stats && r.stats.count) || 0} <small>(${r.realUsed||0}/${r.approxUsed||0})</small></b></div>
-            <div class="stat"><small>وین ریت</small><b>${r.stats && r.stats.count ? r.stats.winRate.toFixed(0)+'%' : '-'}</b></div>
-            <div class="stat"><small>بازده کل</small><b>${r.stats && r.stats.count ? pct(r.stats.totalPnl) : '-'}</b></div>
-            <div class="stat"><small>میانگین</small><b>${r.stats && r.stats.count ? pct(r.stats.avgPnl) : '-'}</b></div>
-            <div class="stat"><small>PF</small><b>${r.stats && r.stats.count ? fmtPF(r.stats.profitFactor) : '-'}</b></div>
-            <div class="stat"><small>میانگین برد</small><b>${r.stats && r.stats.avgWin ? pct(r.stats.avgWin) : '-'}</b></div>
-            <div class="stat"><small>میانگین باخت</small><b>${r.stats && r.stats.avgLoss ? pct(r.stats.avgLoss) : '-'}</b></div>
-            <div class="stat"><small>بهترین</small><b>${r.stats && r.stats.maxWin ? pct(r.stats.maxWin) : '-'}</b></div>
-            <div class="stat"><small>بدترین</small><b>${r.stats && r.stats.maxLoss ? pct(r.stats.maxLoss) : '-'}</b></div>
-            <div class="stat"><small>میانگین روز</small><b>${r.stats && r.stats.avgDaysHeld ? r.stats.avgDaysHeld.toFixed(1) : '-'}</b></div>
+            ${statBox('تعداد معامله', s.count || 0)}
+            ${statBox('وین ریت', s.count ? s.winRate.toFixed(0)+'%' : '-')}
+            ${statBox('میانگین بازده', s.count ? pct(s.avgPnl) : '-')}
+            ${statBox('بازده کل', s.count ? pct(s.totalPnl) : '-')}
+            ${statBox('PF', s.profitFactor !== undefined ? fmtPF(s.profitFactor) : '-')}
+            ${statBox('Sharpe', s.sharpe != null ? s.sharpe.toFixed(2) : '-', s.sharpe > 1 ? 'highlight-good' : (s.sharpe < 0 ? 'highlight-bad' : ''))}
+            ${statBox('Sortino', s.sortino != null ? s.sortino.toFixed(2) : '-', s.sortino > 1 ? 'highlight-good' : (s.sortino < 0 ? 'highlight-bad' : ''))}
+            ${statBox('Max DD', s.maxDrawdownPct != null ? s.maxDrawdownPct.toFixed(1)+'%' : '-', s.maxDrawdownPct > 20 ? 'highlight-bad' : '')}
+            ${statBox('Calmar', s.calmar != null ? s.calmar.toFixed(2) : '-')}
+            ${statBox('بهترین', s.maxWin != null ? pct(s.maxWin) : '-')}
+            ${statBox('بدترین', s.maxLoss != null ? pct(s.maxLoss) : '-')}
+            ${statBox('میانگین روز', s.avgDaysHeld != null ? s.avgDaysHeld.toFixed(1) : '-')}
+        </div>
+
+        <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">آمار آپشن</h4>
+        <div class="stats-grid">
+            ${statBox('تعداد معامله', os.count || 0)}
+            ${statBox('وین ریت', os.count ? os.winRate.toFixed(0)+'%' : '-')}
+            ${statBox('میانگین بازده', os.count ? pct(os.avgPnl) : '-')}
+            ${statBox('بازده کل', os.count ? pct(os.totalPnl) : '-')}
+            ${statBox('PF', os.profitFactor !== undefined ? fmtPF(os.profitFactor) : '-')}
+            ${statBox('Sharpe', os.sharpe != null ? os.sharpe.toFixed(2) : '-', os.sharpe > 1 ? 'highlight-good' : '')}
+            ${statBox('Sortino', os.sortino != null ? os.sortino.toFixed(2) : '-', os.sortino > 1 ? 'highlight-good' : '')}
+            ${statBox('Max DD', os.maxDrawdownPct != null ? os.maxDrawdownPct.toFixed(1)+'%' : '-')}
+            ${statBox('Calmar', os.calmar != null ? os.calmar.toFixed(2) : '-')}
+            ${statBox('real/approx', `${r.realUsed||0}/${r.approxUsed||0}`)}
         </div>`;
+
     const trades = (r.trades || []);
     const rows = trades.length ? trades.slice().reverse().map(t => {
         const srcBadge = t.source === 'real' ? '<span class="badge long">واقعی</span>' : '<span class="badge warn">تقریبی</span>';
@@ -1649,6 +1777,7 @@ function renderBtResult(r) {
         const spread = t.spreadPct !== undefined && t.spreadPct !== null ? t.spreadPct.toFixed(1)+'%' : '-';
         return `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtT(t.exitTime)}</td><td>${fmtN(t.stockEntry)} به ${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${fmtN(t.optionEntry)} به ${fmtN(t.optionExit)}</td><td>${delta}</td><td>${iv}</td><td>${ivHv}</td><td>${spread}</td><td>${pct(t.pnlPct)}</td><td>${srcBadge}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`;
     }).join('') : '<tr class="empty-row"><td colspan="12">معامله ای یافت نشد</td></tr>';
+
     document.getElementById('btResultArea').innerHTML = head + `<div class="table-responsive" style="max-height:400px; overflow-y:auto;"><table class="data-table"><thead><tr><th>ورود</th><th>خروج</th><th>سهم</th><th>اعمال</th><th>پرمیوم</th><th>دلتا</th><th>IV</th><th>IV/HV</th><th>اسپرد</th><th>بازده</th><th>منبع</th><th>دلیل خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -1733,6 +1862,8 @@ function resetIndicators() {
     updateIndCount();
     loadChart();
 }
+let chartOverlay = null;   // { trades, label }
+
 async function loadChart() {
     const symbol = document.getElementById('chartSymbolInput').value.trim();
     const tf = document.getElementById('chartTfSelect').value;
@@ -1741,7 +1872,7 @@ async function loadChart() {
 
     document.getElementById('chartMsg').style.display = 'block';
     document.getElementById('chartMsg').textContent = 'در حال دریافت دیتا...';
-    document.getElementById('chartSymbolLabel').textContent = `- ${symbol} (${TF_LABELS[tf] || tf})`;
+    document.getElementById('chartSymbolLabel').textContent = `- ${symbol} (${TF_LABELS[tf] || tf})${chartOverlay ? ' + سیگنال‌ها' : ''}`;
 
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/chart/${encodeURIComponent(symbol)}/${tf}`, {}, 0);
@@ -1766,6 +1897,37 @@ async function loadChart() {
         document.getElementById('chartMsg').textContent = 'خطا: ' + e.message;
     }
 }
+
+// Overlay سیگنال‌ها از یک بک‌تست
+async function overlayBacktestOnChart(configId, from, to) {
+    try {
+        const cfg = await apiFetch(`${BACKEND_URL}/api/strategy-configs`, {}, 0).then(list => list.find(c => c._id === configId));
+        if (!cfg) return showAlert('تنظیم یافت نشد');
+
+        document.getElementById('chartSymbolInput').value = cfg.symbol;
+        document.getElementById('chartTfSelect').value = cfg.timeframe;
+        document.getElementById('chartCandleType').value = cfg.candleType || 'heikin';
+
+        // از endpoint بک‌تست استفاده کن (sync)
+        const qs = new URLSearchParams();
+        if (from) qs.set('from', String(from));
+        if (to) qs.set('to', String(to));
+        const r = await apiFetch(`${BACKEND_URL}/api/backtest-option/${configId}?${qs}`, {}, 0);
+
+        chartOverlay = {
+            trades: r.trades || [],
+            label: cfg.symbol
+        };
+        await loadChart();
+    } catch (e) {
+        showAlert('خطا در overlay: ' + e.message);
+    }
+}
+
+function clearOverlay() {
+    chartOverlay = null;
+    loadChart();
+}
 function renderStandaloneChart(candles, candleType, title, count) {
     destroyCharts();
     const pc = document.getElementById('priceChartWrapper');
@@ -1787,6 +1949,34 @@ function renderStandaloneChart(candles, candleType, title, count) {
         }
     }
     candleSeries.setData(display);
+    // Overlay سیگنال‌ها (اگه وجود داشته باشن)
+    if (chartOverlay && chartOverlay.trades && chartOverlay.trades.length) {
+        const markers = [];
+        for (const t of chartOverlay.trades) {
+            if (t.entryTime) {
+                markers.push({
+                    time: t.entryTime,
+                    position: 'belowBar',
+                    color: '#2ea88a',
+                    shape: 'arrowUp',
+                    text: 'BUY'
+                });
+            }
+            if (t.exitTime) {
+                markers.push({
+                    time: t.exitTime,
+                    position: 'aboveBar',
+                    color: (t.pnlPct || 0) >= 0 ? '#2ea88a' : '#d9534f',
+                    shape: 'arrowDown',
+                    text: (t.pnlPct || 0) >= 0 ? `+${(t.pnlPct || 0).toFixed(0)}%` : `${(t.pnlPct || 0).toFixed(0)}%`
+                });
+            }
+        }
+        markers.sort((a, b) => a.time - b.time);
+        candleSeries.setMarkers(markers);
+    } else {
+        candleSeries.setMarkers([]);
+    }
     const closes = candles.map(c => c.close);
     const legendItems = [`<span>کندل: ${count || candles.length}</span>`];
 
@@ -2473,6 +2663,7 @@ window.addEventListener('load', async () => {
     setInterval(refreshQuotesOnly, 30000);
     setInterval(loadSignalHistory, 60000);
     setInterval(loadOptionPositions, 60000);
+    startDataPipelinePolling();
 });
 window.addEventListener('resize', () => {
     const pc = document.getElementById('priceChart');

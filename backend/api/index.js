@@ -25,7 +25,6 @@ const configsRoutes = require('./routes/configs.routes');
 const jobsRoutes = require('./routes/jobs.routes');
 const optionsRoutes = require('./routes/options.routes');
 const algotikRoutes = require('./routes/algotik.routes');
-const backtestRoutes = require('./routes/backtest.routes');
 
 function createApp(deps) {
     const app = express();
@@ -54,7 +53,6 @@ function createApp(deps) {
     jobsRoutes.register(app, deps);
     optionsRoutes.register(app, deps);
     algotikRoutes.register(app, deps);
-    backtestRoutes.register(app, deps);
 
     // ---- 404 + error ----
     app.use(errorMw.notFoundHandler);

@@ -23,17 +23,19 @@ const backtestCore = require('./core/backtest');
 
 // services
 const dataService = require('./services/data.service');
-const settingsService = require('./services/settings.service');
 const configService = require('./services/config.service');
 const backtestService = require('./services/backtest.service');
 const signalService = require('./services/signal.service');
+
+// settings (ساده — از فایل اصلی)
+const settingsModule = require('./settings');
 
 // jobs
 const tickJob = require('./jobs/tick.job');
 const eodJob = require('./jobs/eod.job');
 const autoConfigJob = require('./jobs/auto-config.job');
 
-// strategies (فایل قدیمی در backend root)
+// strategies
 const strategiesModule = require('./strategies');
 
 let booted = false;
@@ -42,22 +44,25 @@ let booted = false;
 // Symbols cache (sync access from getUnderlyingNames)
 // ============================================================
 let symbolsCache = [];
+let symbolsCacheMap = new Map();    // برای O(1) lookup
 
 async function loadSymbolsCache() {
     try {
         const doc = await mongo.getDB().collection(COLLECTIONS.META)
             .findOne({ _id: 'symbols_cache' });
         symbolsCache = (doc && doc.symbols) || [];
+        symbolsCacheMap = new Map(symbolsCache.map(s => [s.symbol, s]));
         logger.info(`symbols cache loaded: ${symbolsCache.length}`);
     } catch (e) {
         logger.warn('symbols cache: ' + e.message);
         symbolsCache = [];
+        symbolsCacheMap = new Map();
     }
 }
 
 function getUnderlyingNames(symbol) {
     const names = new Set([optionsCore.norm(symbol)]);
-    const found = symbolsCache.find(s => s.symbol === symbol);
+    const found = symbolsCacheMap.get(symbol);
     if (found && found.name) names.add(optionsCore.norm(found.name));
     return Array.from(names);
 }
@@ -86,9 +91,9 @@ async function bootstrap() {
     algotik.setBaseUrl(envConf.ALGOTIK_URL);
     optionsChain.setUrl(envConf.OPTIONS_API_URL);
 
-    // 5) settings service (روی settings.js قدیمی wrap می‌شه)
-    settingsService.init({ getDB: mongo.getDB });
-    await settingsService.load();
+    // 5) settings (مستقیم از settings.js)
+    settingsModule.init({ getDB: mongo.getDB });
+    await settingsModule.load();
 
     // 6) data service
     dataService.init({
@@ -101,7 +106,7 @@ async function bootstrap() {
     optionsCore.init({
         getDB: mongo.getDB,
         notify: telegram.notify,
-        settings: settingsService,
+        settings: settingsModule,
         timeframeMinutes: TIMEFRAME_MINUTES,
         todayDateString: () => signalService.todayDateStr(),
         getQuote: (sym) => signalService.getLastQuotes().get(sym),
@@ -109,7 +114,7 @@ async function bootstrap() {
         getChain: async () => optionsChain.fetchChain(60000)
     });
 
-    // 8) strategies bundle (چیزی که core/signals و core/backtest نیاز دارن)
+    // 8) strategies bundle
     const strategiesBundle = {
         STRATEGIES: strategiesModule.STRATEGIES,
         getRequiredCandles: strategiesModule.getRequiredCandles,
@@ -123,7 +128,7 @@ async function bootstrap() {
         strategies: strategiesBundle,
         dataService,
         options: optionsCore,
-        entryWindow: () => settingsService.entryWindow()
+        entryWindow: () => settingsModule.entryWindow()
     });
 
     // 10) signals core
@@ -132,19 +137,19 @@ async function bootstrap() {
         strategies: strategiesBundle,
         dataService,
         options: optionsCore,
-        settings: settingsService,
+        settings: settingsModule,
         notify: telegram.notify,
-        entryWindow: () => settingsService.entryWindow(),
-        confluenceWindow: () => settingsService.confluenceTimeWindow(),
-        multiConfirmerMin: () => settingsService.multiConfirmerMin(),
-        minTargetPct: () => settingsService.minTargetPct()
+        entryWindow: () => settingsModule.entryWindow(),
+        confluenceWindow: () => settingsModule.confluenceTimeWindow(),
+        multiConfirmerMin: () => settingsModule.multiConfirmerMin(),
+        minTargetPct: () => settingsModule.minTargetPct()
     });
 
     // 11) services
     configService.init({
         getDB: mongo.getDB,
         strategies: strategiesBundle,
-        settings: settingsService,
+        settings: settingsModule,
         backtest: backtestCore,
         logger
     });
@@ -156,7 +161,7 @@ async function bootstrap() {
         options: optionsCore,
         dataService,
         signals: signalsCore,
-        settings: settingsService,
+        settings: settingsModule,
         logger,
         notify: telegram.notify
     });
@@ -171,7 +176,7 @@ async function bootstrap() {
             norm: optionsCore.norm
         },
         algotik,
-        settings: settingsService,
+        settings: settingsModule,
         notify: telegram.notify,
         logger
     });
@@ -195,7 +200,7 @@ async function bootstrap() {
             fetchChain: optionsChain.fetchChain,
             norm: optionsCore.norm
         },
-        settings: settingsService,
+        settings: settingsModule,
         configService,
         logger,
         notify: telegram.notify,
@@ -206,7 +211,7 @@ async function bootstrap() {
         getDB: mongo.getDB,
         backtestService,
         configService,
-        settings: settingsService,
+        settings: settingsModule,
         notify: telegram.notify,
         telegram,
         logger
@@ -215,7 +220,18 @@ async function bootstrap() {
     // 13) symbols cache
     await loadSymbolsCache();
 
-    // 14) clean orphans
+    // 14) بازیابی state
+    // holiday
+    try {
+        const holDoc = await mongo.getDB().collection(COLLECTIONS.META)
+            .findOne({ _id: 'holiday' });
+        if (holDoc && holDoc.date) {
+            signalService.loadHoliday();
+            logger.info(`holiday restored: ${holDoc.date}`);
+        }
+    } catch (_) { /* بی‌اهمیت */ }
+
+    // 15) clean orphans
     try {
         const n = await configService.cleanOrphans();
         if (n) logger.info(`cleaned ${n} orphan configs`);
@@ -223,7 +239,7 @@ async function bootstrap() {
 
     logger.info('bootstrap complete');
 
-    // برگرداندن همه deps برای استفاده در server
+    // برگرداندن همه deps
     return {
         env: envConf,
         mongo,
@@ -237,7 +253,7 @@ async function bootstrap() {
         backtest: backtestCore,
         // services
         dataService,
-        settingsService,
+        settingsService: settingsModule,
         configService,
         backtestService,
         signalService,
