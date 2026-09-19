@@ -1292,28 +1292,95 @@ async function openJobsPanel() {
         } else {
             clearInterval(timer);
         }
-    }, 3000);
+    }, 5000);
 }
 async function refreshJobsPanel() {
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/jobs?limit=30`, {}, 0);
-        const jobs = (r.jobs || []).filter(j => ['QUEUED', 'RUNNING', 'PAUSED'].includes(j.status) || (j.finishedAt && Date.now() - new Date(j.finishedAt).getTime() < 3600000));
-        const rows = jobs.length ? jobs.map(j => `
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs?limit=50&all=1`, {}, 0);
+        const allJobs = r.jobs || [];
+        const activeJobs = allJobs.filter(j => ['QUEUED', 'RUNNING', 'PAUSED'].includes(j.status));
+        const doneJobs = allJobs.filter(j => ['DONE', 'FAILED', 'CANCELLED'].includes(j.status))
+            .filter(j => !j.finishedAt || Date.now() - new Date(j.finishedAt).getTime() < 24 * 3600 * 1000);
+
+        const renderJob = (j, isDone) => `
             <div class="job-card ${j.cancelRequested ? 'danger' : ''}">
                 <div class="job-header">
-                    <span class="job-type ${j.type}">${j.type === 'backtest' ? 'بک تست' : 'تنظیم خودکار'}</span>
-                    <span class="job-status ${j.status}">${j.status}</span>
+                    <span class="job-type ${j.type}">${
+                        j.type === 'backtest' ? 'بک تست' :
+                        j.type === 'auto-config' ? 'تنظیم خودکار' :
+                        j.type === 'backtest-compare' ? 'بک تست مقایسه ای' : j.type
+                    }</span>
+                    <span class="job-status ${j.status}">${
+                        j.status === 'QUEUED' ? 'در صف' :
+                        j.status === 'RUNNING' ? 'در حال اجرا' :
+                        j.status === 'DONE' ? 'تکمیل' :
+                        j.status === 'FAILED' ? 'خطا' :
+                        j.status === 'CANCELLED' ? 'لغو شده' : j.status
+                    }</span>
                     <span class="job-msg" style="margin-right:auto;">${esc(j.progress ? j.progress.message : '')}</span>
+                    ${j.type === 'auto-config' && j.payload && j.payload.dryRun ? '<span class="badge warn" style="font-size:10px;">پیش‌نمایش</span>' : ''}
+                    <span style="font-size:10.5px;color:var(--text-dim);">${j.finishedAt ? new Date(j.finishedAt).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : new Date(j.createdAt).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
                     <div class="job-actions">
-                        ${['QUEUED','RUNNING','PAUSED'].includes(j.status) && !j.cancelRequested ? `<button class="btn tiny danger" onclick="cancelActiveJob('${j._id}')">لغو</button>` : ''}
-                        ${!['QUEUED','RUNNING'].includes(j.status) ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}
+                        ${!isDone && !j.cancelRequested ? `<button class="btn tiny danger" onclick="cancelActiveJob('${j._id}')">لغو</button>` : ''}
+                        ${isDone && j.result ? `<button class="btn tiny success" onclick="viewJobResult('${j._id}')">مشاهده نتیجه</button>` : ''}
+                        ${isDone ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}
                     </div>
                 </div>
-                ${renderJobProgress(j)}
+                ${!isDone ? renderJobProgress(j) : ''}
+            </div>`;
+
+        const activeRows = activeJobs.length ? activeJobs.map(j => renderJob(j, false)).join('') : '<div class="empty-note">هیچ Job فعالی نیست</div>';
+        const doneRows = doneJobs.length ? doneJobs.map(j => renderJob(j, true)).join('') : '<div class="empty-note">هیچ Job تمام شده ای در 24 ساعت اخیر نیست</div>';
+
+        openModal('Jobs', `
+            <div class="jobs-panel-container">
+                <div class="tabs" style="margin-bottom:14px;">
+                    <button class="tab active" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button>
+                    <button class="tab" onclick="switchJobsTab('done', this)">تاریخچه 24 ساعت (${doneJobs.length})</button>
+                </div>
+                <div id="jobsTab-active">${activeRows}</div>
+                <div id="jobsTab-done" style="display:none;">${doneRows}</div>
+                <div class="hint" style="margin-top:14px;">Jobs تمام شده بعد از 24 ساعت از تاریخچه حذف می شوند. نتیجه ها در همین صفحه قابل مشاهده است.</div>
             </div>
-        `).join('') : '<div class="empty-note">هیچ Job فعالی نیست</div>';
-        openModal('Jobs', `<div class="jobs-panel-container">${rows}<div class="hint" style="margin-top:14px;">Jobs بعد از 7 روز حذف می شوند.</div></div>`);
+        `);
     } catch (e) { openModal('Jobs', `<div class="empty-note">${esc(e.message)}</div>`); }
+}
+
+function switchJobsTab(which, btn) {
+    document.querySelectorAll('#modalBody .tabs .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('jobsTab-active').style.display = which === 'active' ? 'block' : 'none';
+    document.getElementById('jobsTab-done').style.display = which === 'done' ? 'block' : 'none';
+}
+
+async function viewJobResult(jobId) {
+    openModal('نتیجه Job', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const job = await apiFetch(`${BACKEND_URL}/api/jobs/${jobId}`, {}, 0);
+        if (!job.result) return openModal('نتیجه Job', '<div class="empty-note">نتیجه ای موجود نیست.</div>');
+
+        if (job.type === 'backtest-compare') {
+            const applied = job.result.applied;
+            const header = applied === false
+                ? `<div class="hint" style="background:rgba(201,151,61,.1); border-right:3px solid var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:12px;">پیش‌نمایش — هیچ تغییری اعمال نشده. برای اعمال، از منوی «تنظیم خودکار» استفاده کن.</div>`
+                : '';
+            openModal('نتیجه بک تست مقایسه ای', header + '<div id="btCompareResultArea"></div>');
+            renderBtCompareResult(job.result);
+        } else if (job.type === 'backtest') {
+            openModal('نتیجه بک تست', '<div id="btResultArea"></div>');
+            renderBtResult(job.result);
+        } else if (job.type === 'auto-config') {
+            const applied = job.result.applied;
+            const isPreview = applied === false;
+            const header = isPreview
+                ? `<div class="hint" style="background:rgba(201,151,61,.1); border-right:3px solid var(--warn); padding:8px 12px; border-radius:6px; margin-bottom:12px;">این یک پیش‌نمایش است — هیچ کانفیگی در دیتابیس اعمال نشده. برای اعمال، دوباره از منوی «تنظیم خودکار» با دکمه «اعمال» اجرا کن.</div>`
+                : `<div class="hint" style="background:rgba(46,168,138,.1); border-right:3px solid var(--good); padding:8px 12px; border-radius:6px; margin-bottom:12px;">این نتیجه اعمال شده — ${(job.result.results || []).filter(r => !r.error).length} نماد کانفیگ گرفتن.</div>`;
+            openModal(isPreview ? 'نتیجه پیش‌نمایش تنظیم خودکار' : 'نتیجه تنظیم خودکار', header + '<div id="acResults"></div>');
+            renderAutoPlan(job.result.plans || [], isPreview ? 'preview' : 'applied', job.result.results);
+        } else {
+            openModal('نتیجه Job', `<pre style="direction:ltr;text-align:left;font-size:11px;max-height:60vh;overflow:auto;">${esc(JSON.stringify(job.result, null, 2))}</pre>`);
+        }
+    } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 async function deleteJob(id) {
     if (!confirm('این Job حذف شود؟')) return;
