@@ -113,6 +113,7 @@ header { text-align:center; margin-bottom:22px; }
 .job-type { font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600; }
 .job-type.backtest { background:rgba(61,125,216,.15); color:var(--accent); }
 .job-type.autoconfig { background:rgba(46,168,138,.15); color:var(--good); }
+.job-type.backtest-compare { background:rgba(201,151,61,.15); color:var(--warn); }
 .job-type.collector { background:rgba(201,151,61,.15); color:var(--warn); }
 .job-status { font-size:11px; padding:2px 8px; border-radius:10px; }
 .job-status.QUEUED { background:rgba(125,133,144,.15); color:var(--text-dim); }
@@ -979,7 +980,7 @@ function renderActiveJobCard(j) {
         const doneCount = chunks.filter(c => c.status === 'DONE').length;
         const totalChunks = chunks.length || (j.progress && j.progress.total) || 1;
         const pct = totalChunks > 0 ? Math.round((doneCount || (j.progress && j.progress.current) || 0) / totalChunks * 100) : 0;
-        const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم خودکار' };
+        const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم خودکار', 'backtest-compare': 'بک تست مقایسه ای' };
         const isCancelling = j.cancelRequested;
         return `<div class="job-card ${isCancelling ? 'danger' : ''}">
             <div class="job-header">
@@ -1266,7 +1267,7 @@ function renderJobProgress(job) {
     const doneCount = chunks.filter(c => c.status === 'DONE').length;
     const totalChunks = chunks.length || (job.progress && job.progress.total) || 1;
     const pct = totalChunks > 0 ? Math.round((doneCount || (job.progress && job.progress.current) || 0) / totalChunks * 100) : 0;
-    const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم خودکار' };
+    const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم خودکار', 'backtest-compare': 'بک تست مقایسه ای' };
     const statusLabels = { QUEUED: 'در صف', RUNNING: 'در حال اجرا', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو شده', PAUSED: 'متوقف' };
     return `<div class="job-card ${job.cancelRequested ? 'danger' : ''}">
         <div class="job-header">
@@ -1997,67 +1998,69 @@ async function runBacktestCompare() {
         const s = strategiesInfo.find(x => x.id === id);
         return { id, timeframe: s.defaultTimeframe, htfTimeframe: s.htfTimeframe || '1d', candleType: 'heikin', params: { ...s.defaultParams } };
     });
+
     const btn = document.getElementById('btRunBtn');
-    btn.disabled = true; btn.textContent = 'در حال محاسبه...';
+    btn.disabled = true; btn.textContent = 'در حال شروع...';
     const resultsDiv = document.getElementById('btResults');
-    resultsDiv.innerHTML = '<div style="padding:16px;">در حال اجرا... این کار ممکن است چند دقیقه طول بکشد.</div>';
-    const promises = symbols.map(symbol =>
-        apiFetch(`${BACKEND_URL}/api/backtest-compare`, {
+    resultsDiv.innerHTML = '<div style="padding:16px;">در حال شروع job...</div>';
+
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs/backtest-compare`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbols: [symbol], strategies, useRealOption, dateFrom, dateTo })
-        }, 2).catch(e => ({ error: e.message, symbol }))
-    );
-    const responses = await Promise.all(promises);
-    const allResults = [];
-    for (const r of responses) {
-        if (r.error) allResults.push({ symbol: r.symbol || '?', strategyId: '_err', strategyName: 'خطا', error: r.error });
-        else if (r.results) allResults.push(...r.results);
-    }
-    const validResults = allResults.filter(r => !r.error && !r.insufficientData);
-    const insufficientCount = allResults.filter(x => x.insufficientData).length;
-    const errorCount = allResults.filter(x => x.error && !x.insufficientData).length;
-    const computeAgg = (arr) => {
-        let stockTrades = 0, stockWins = 0, stockSum = 0;
-        let optTrades = 0, optWins = 0, optSum = 0, optReal = 0, optApprox = 0;
-        let optGrossWin = 0, optGrossLoss = 0;
-        for (const r of arr) {
-            const st = r.stock || {}, ot = r.option || {};
-            stockTrades += st.closed || 0;
-            stockWins += ((st.closed || 0) * (st.winRate || 0) / 100);
-            stockSum += st.totalPnl || 0;
-            optTrades += ot.count || 0;
-            optWins += ((ot.count || 0) * (ot.winRate || 0) / 100);
-            optSum += ot.totalPnl || 0;
-            optReal += ot.realUsed || 0;
-            optApprox += ot.approxUsed || 0;
-            if (ot.trades && Array.isArray(ot.trades)) for (const t of ot.trades) {
-                if (t.pnlPct > 0) optGrossWin += t.pnlPct;
-                else optGrossLoss += Math.abs(t.pnlPct);
+            body: JSON.stringify({ symbols, strategies, useRealOption, dateFrom, dateTo })
+        }, 0);
+
+        resultsDiv.innerHTML = `
+            <div id="btCompareJobArea"></div>
+            <div id="btCompareResultArea"></div>`;
+
+        const jobArea = document.getElementById('btCompareJobArea');
+        jobArea.innerHTML = renderJobProgress({
+            _id: r.jobId, status: 'QUEUED', type: 'backtest-compare',
+            progress: { current: 0, total: symbols.length, message: 'در صف...', chunks: symbols.map(s => ({ label: s, status: 'PENDING' })) }
+        });
+        loadActiveJobs();
+
+        trackJob(r.jobId, (job) => {
+            jobArea.innerHTML = renderJobProgress(job);
+            if (job.status === 'DONE') {
+                renderBtCompareResult(job.result);
+                btn.disabled = false; btn.textContent = 'اجرای بک تست';
+            } else if (job.status === 'FAILED') {
+                document.getElementById('btCompareResultArea').innerHTML = `<div class="empty-note">خطا: ${esc(job.error || 'نامعلوم')}</div>`;
+                btn.disabled = false; btn.textContent = 'اجرای بک تست';
+            } else if (job.status === 'CANCELLED') {
+                document.getElementById('btCompareResultArea').innerHTML = `<div class="empty-note">Job لغو شد.</div>`;
+                btn.disabled = false; btn.textContent = 'اجرای بک تست';
             }
-        }
-        const pf = optGrossLoss > 0 ? optGrossWin / optGrossLoss : (optGrossWin > 0 ? null : 0);
-        return {
-            stock: { trades: stockTrades, winRate: stockTrades ? stockWins / stockTrades * 100 : 0, avgPnl: stockTrades ? stockSum / stockTrades : 0, totalPnl: stockSum },
-            option: { trades: optTrades, winRate: optTrades ? optWins / optTrades * 100 : 0, avgPnl: optTrades ? optSum / optTrades : 0, totalPnl: optSum, realUsed: optReal, approxUsed: optApprox, profitFactor: pf },
-            combos: arr.length
-        };
-    };
-    const totalAgg = computeAgg(validResults);
-    const bySymbol = Object.entries(validResults.reduce((acc, r) => { (acc[r.symbol] = acc[r.symbol] || []).push(r); return acc; }, {})).map(([sym, arr]) => ({ symbol: sym, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
-    const byStrategy = Object.entries(validResults.reduce((acc, r) => { (acc[r.strategyId] = acc[r.strategyId] || []).push(r); return acc; }, {})).map(([sid, arr]) => ({ strategyId: sid, strategyName: arr[0].strategyName, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+        });
+    } catch (e) {
+        resultsDiv.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`;
+        btn.disabled = false; btn.textContent = 'اجرای بک تست';
+    }
+}
+
+function renderBtCompareResult(r) {
+    const resultArea = document.getElementById('btCompareResultArea');
+    if (!resultArea) return;
+    if (!r || !r.results) { resultArea.innerHTML = '<div class="empty-note">داده ای نیست</div>'; return; }
+    const agg = r.aggregate || {};
+    const allResults = r.results;
     const sortedResults = [...allResults].sort((a, b) => ((b.option && b.option.profitFactor) || -1) - ((a.option && a.option.profitFactor) || -1));
+
     const detailRows = sortedResults.map((x, i) => {
         if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);font-size:11.5px;">${esc(x.error)}</td></tr>`;
         if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);font-size:11.5px;">${esc(x.error)}</td></tr>`;
         const o = x.option || {}, s = x.stock || {};
         return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}%</td><td>${pct(s.avgPnl)}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}%</td><td>${pct(o.avgPnl)}</td><td>${pct(o.totalPnl)}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`;
     }).join('');
-    resultsDiv.innerHTML = `
-        <div class="hint">${allResults.length} ترکیب - <span style="color:var(--good);">${validResults.length} موفق</span> · <span style="color:var(--warn);">${insufficientCount} ناکافی</span> · <span style="color:var(--bad);">${errorCount} خطا</span></div>
+
+    resultArea.innerHTML = `
+        <div class="hint">${allResults.length} ترکیب - <span style="color:var(--good);">${agg.validCount || 0} موفق</span> · <span style="color:var(--warn);">${agg.insufficientCount || 0} ناکافی</span> · <span style="color:var(--bad);">${agg.errorCount || 0} خطا</span></div>
         <div class="dash-grid" style="margin-top:12px;">
-            <div class="dash-card"><div class="label">جمع کل</div><div class="value">${totalAgg.stock.trades} سهم - ${totalAgg.option.trades} آپشن</div>
-                <div class="sub">سهم: وین ریت ${totalAgg.stock.winRate.toFixed(0)}%<br>آپشن: PF ${fmtPF(totalAgg.option.profitFactor)}</div></div>
+            <div class="dash-card"><div class="label">جمع کل</div><div class="value">${agg.total.stock.trades} سهم - ${agg.total.option.trades} آپشن</div>
+                <div class="sub">سهم: وین ریت ${agg.total.stock.winRate.toFixed(0)}%<br>آپشن: PF ${fmtPF(agg.total.option.profitFactor)}</div></div>
         </div>
         <div class="tabs" style="margin-top:14px;">
             <button class="tab active" onclick="switchBtResultTab('bySymbol', this)">به تفکیک نماد</button>
@@ -2066,18 +2069,17 @@ async function runBacktestCompare() {
         </div>
         <div id="btRes-bySymbol">
             <div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>معامله</th><th>وین ریت</th><th>کل سهم</th><th>آپشن</th><th>PF</th><th>منبع</th></tr></thead><tbody>
-            ${bySymbol.map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.symbol)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td><td><small>${b.option.realUsed}R/${b.option.approxUsed}A</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="8">داده نیست</td></tr>'}
+            ${agg.bySymbol.map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.symbol)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td><td><small>${b.option.realUsed}R/${b.option.approxUsed}A</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="8">داده نیست</td></tr>'}
             </tbody></table></div>
         </div>
         <div id="btRes-byStrategy" style="display:none;">
             <div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>استراتژی</th><th>معامله</th><th>وین ریت</th><th>کل سهم</th><th>آپشن</th><th>PF</th></tr></thead><tbody>
-            ${byStrategy.map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td></tr>`).join('') || '<tr class="empty-row"><td colspan="7">داده نیست</td></tr>'}
+            ${agg.byStrategy.map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td></tr>`).join('') || '<tr class="empty-row"><td colspan="7">داده نیست</td></tr>'}
             </tbody></table></div>
         </div>
         <div id="btRes-details" style="display:none;">
             <div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>سهم</th><th>وین ریت</th><th>میانگین</th><th>آپشن</th><th>وین ریت</th><th>میانگین</th><th>کل</th><th>PF</th><th>منبع</th></tr></thead><tbody>${detailRows}</tbody></table></div>
         </div>`;
-    btn.disabled = false; btn.textContent = 'اجرای بک تست';
 }
 function switchBtResultTab(which, btn) {
     ['bySymbol','byStrategy','details'].forEach(w => {

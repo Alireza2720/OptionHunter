@@ -1038,7 +1038,140 @@ async function runBacktestJob(job) {
         ...optionResult
     };
 }
+async function runBacktestCompareJob(job) {
+    const { symbols, strategies, useRealOption, dateFrom, dateTo } = job.payload;
+    const fromTs = dateFrom ? parseInt(dateFrom) : null;
+    const toTs = dateTo ? parseInt(dateTo) : null;
 
+    const allResults = [];
+
+    for (let i = 0; i < symbols.length; i++) {
+        if (await BtService.isCancelled(job._id)) throw new Error('CANCELLED_BY_USER');
+        const symbol = symbols[i];
+        await BtService.updateChunk(job._id, i, { status: 'RUNNING', startedAt: new Date() });
+        await BtService.updateProgress(job._id, i, symbols.length, `پردازش ${symbol}`);
+
+        for (const s of strategies) {
+            if (await BtService.isCancelled(job._id)) throw new Error('CANCELLED_BY_USER');
+            const def = STRATEGIES[s.id];
+            if (!def) continue;
+
+            const cfg = {
+                symbol, strategyId: s.id,
+                timeframe: s.timeframe || def.defaultTimeframe,
+                htfTimeframe: s.htfTimeframe || def.htfTimeframe || '1d',
+                candleType: s.candleType === 'simple' ? 'simple' : 'heikin',
+                params: { ...def.defaultParams, ...Settings.getStrategyDefaults(s.id), ...(s.params || {}) }
+            };
+
+            try {
+                const tf = cfg.timeframe, htf = cfg.htfTimeframe;
+                const closedCandles = closedOnly(await getCandles(cfg.symbol, tf), tf);
+                const closedHtf = closedOnly(await getCandles(cfg.symbol, htf), htf);
+                const required = getRequiredCandles(cfg.strategyId, cfg.params);
+                const requiredHtf = Strat.getRequiredHtfCandles ? Strat.getRequiredHtfCandles(cfg.strategyId, cfg.params) : 0;
+
+                if (closedCandles.length < required || closedHtf.length < requiredHtf) {
+                    allResults.push({
+                        symbol, strategyId: s.id, strategyName: def.name,
+                        timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType,
+                        error: `داده کافی نیست (ورود: ${closedCandles.length}/${required}، روند: ${closedHtf.length}/${requiredHtf})`,
+                        insufficientData: true
+                    });
+                    continue;
+                }
+
+                const computeFn = async (c, f, t) => {
+                    const r = await computeStockBacktestTradesChunk(c, f, t);
+                    return r.trades.filter(x => x.status === 'closed');
+                };
+
+                const tradeRes = await BtService.getOrComputeTrades(cfg, fromTs, toTs, useRealOption ? 'real' : 'hybrid', computeFn, null);
+                const closedTrades = tradeRes.trades;
+
+                if (await BtService.isCancelled(job._id)) throw new Error('CANCELLED_BY_USER');
+
+                const stockWins = closedTrades.filter(t => t.pnlPct > 0);
+                const stockSum = closedTrades.reduce((acc, t) => acc + t.pnlPct, 0);
+                const h = await Options.runHybridOptionBacktest(symbol, closedTrades, { realEnabled: !!useRealOption });
+
+                allResults.push({
+                    symbol, strategyId: s.id, strategyName: def.name,
+                    timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType,
+                    stock: {
+                        total: closedTrades.length, closed: closedTrades.length,
+                        winRate: closedTrades.length ? stockWins.length / closedTrades.length * 100 : 0,
+                        avgPnl: closedTrades.length ? stockSum / closedTrades.length : 0,
+                        totalPnl: stockSum
+                    },
+                    option: {
+                        ...h.stats,
+                        realUsed: h.realUsed, approxUsed: h.approxUsed,
+                        diagnostic: h.diagnostic, hasAnyOptionData: h.hasAnyOptionData
+                    },
+                    optionMode: h.mode
+                });
+            } catch (e) {
+                if (String(e.message).includes('CANCELLED_BY_USER')) throw e;
+                allResults.push({
+                    symbol, strategyId: s.id, strategyName: def.name,
+                    timeframe: cfg.timeframe, htfTimeframe: cfg.htfTimeframe, candleType: cfg.candleType,
+                    error: e.message
+                });
+            }
+            await new Promise(r => setImmediate(r));
+        }
+
+        await BtService.updateChunk(job._id, i, {
+            status: 'DONE', finishedAt: new Date(),
+            tradesCount: allResults.filter(r => r.symbol === symbol).length
+        });
+        await new Promise(r => setImmediate(r));
+    }
+
+    const validResults = allResults.filter(r => !r.error && !r.insufficientData);
+    const computeAgg = (arr) => {
+        let stockTrades = 0, stockWins = 0, stockSum = 0;
+        let optTrades = 0, optWins = 0, optSum = 0, optReal = 0, optApprox = 0;
+        let optGrossWin = 0, optGrossLoss = 0;
+        for (const r of arr) {
+            const st = r.stock || {}, ot = r.option || {};
+            stockTrades += st.closed || 0;
+            stockWins += ((st.closed || 0) * (st.winRate || 0) / 100);
+            stockSum += st.totalPnl || 0;
+            optTrades += ot.count || 0;
+            optWins += ((ot.count || 0) * (ot.winRate || 0) / 100);
+            optSum += ot.totalPnl || 0;
+            optReal += ot.realUsed || 0;
+            optApprox += ot.approxUsed || 0;
+            if (ot.trades && Array.isArray(ot.trades)) for (const t of ot.trades) {
+                if (t.pnlPct > 0) optGrossWin += t.pnlPct;
+                else optGrossLoss += Math.abs(t.pnlPct);
+            }
+        }
+        const pf = optGrossLoss > 0 ? optGrossWin / optGrossLoss : (optGrossWin > 0 ? null : 0);
+        return {
+            stock: { trades: stockTrades, winRate: stockTrades ? stockWins / stockTrades * 100 : 0, avgPnl: stockTrades ? stockSum / stockTrades : 0, totalPnl: stockSum },
+            option: { trades: optTrades, winRate: optTrades ? optWins / optTrades * 100 : 0, avgPnl: optTrades ? optSum / optTrades : 0, totalPnl: optSum, realUsed: optReal, approxUsed: optApprox, profitFactor: pf },
+            combos: arr.length
+        };
+    };
+    const totalAgg = computeAgg(validResults);
+    const bySymbol = Object.entries(validResults.reduce((acc, r) => { (acc[r.symbol] = acc[r.symbol] || []).push(r); return acc; }, {})).map(([sym, arr]) => ({ symbol: sym, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+    const byStrategy = Object.entries(validResults.reduce((acc, r) => { (acc[r.strategyId] = acc[r.strategyId] || []).push(r); return acc; }, {})).map(([sid, arr]) => ({ strategyId: sid, strategyName: arr[0].strategyName, ...computeAgg(arr) })).sort((a, b) => (b.option.profitFactor || -1) - (a.option.profitFactor || -1));
+    const sortedResults = [...allResults].sort((a, b) => ((b.option && b.option.profitFactor) || -1) - ((a.option && a.option.profitFactor) || -1));
+
+    return {
+        results: sortedResults,
+        aggregate: {
+            total: totalAgg, bySymbol, byStrategy,
+            count: allResults.length,
+            validCount: validResults.length,
+            insufficientCount: allResults.filter(x => x.insufficientData).length,
+            errorCount: allResults.filter(x => x.error && !x.insufficientData).length
+        }
+    };
+}
 async function runAutoConfigJob(job) {
     const { symbols, maxConfirmers, from, to, dryRun } = job.payload;
     const fromTs = from ? parseInt(from) : null;
@@ -1216,7 +1349,23 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
         rejected: results.filter(r => !isFinite(r.score) || r.score === -Infinity).map(r => ({ strategyId: r.strategyId, strategyName: r.strategyName, reason: r.insufficientData ? 'داده ناکافی' : (r.error || `سهم ${r.stock?.closed || 0} / آپشن ${r.option?.count || 0} / PF ${(r.option?.profitFactor || 0).toFixed(2)}`) }))
     };
 }
+app.post('/api/jobs/backtest-compare', async (req, res, next) => {
+    try {
+        const { symbols, strategies, useRealOption, dateFrom, dateTo } = req.body || {};
+        if (!Array.isArray(symbols) || !symbols.length) return res.status(400).json({ error: 'حداقل یک نماد' });
+        if (!Array.isArray(strategies) || !strategies.length) return res.status(400).json({ error: 'حداقل یک استراتژی' });
 
+        const chunks = symbols.map(s => ({ label: s, items: [s] }));
+        const job = await BtService.createJob('backtest-compare', {
+            symbols, strategies,
+            useRealOption: !!useRealOption,
+            dateFrom: dateFrom ? parseInt(dateFrom) : null,
+            dateTo: dateTo ? parseInt(dateTo) : null
+        }, chunks);
+        res.json({ jobId: String(job._id), status: 'QUEUED' });
+        BtService.processQueue().catch(e => console.error('Queue:', e.message));
+    } catch (e) { next(e); }
+});
 app.post('/api/auto-configure', async (req, res, next) => {
     try {
         const { symbol, symbols, maxConfirmers = 2, dryRun = false, dateFrom, dateTo } = req.body || {};
@@ -1522,7 +1671,7 @@ async function start() {
     if (typeof Options.reloadFromSettings === 'function') Options.reloadFromSettings();
     await ensureIndexes();
 
-    BtService.init({ getDB, runBacktestJob, runAutoConfigJob });
+    BtService.init({ getDB, runBacktestJob, runAutoConfigJob, runBacktestCompareJob });
     Options.init({
         getDB, notify,
         TIMEFRAME_MINUTES: Strat.TIMEFRAME_MINUTES,

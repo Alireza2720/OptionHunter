@@ -293,6 +293,7 @@ async function processQueue() {
                 let result;
                 if (j.type === 'backtest') result = await deps.runBacktestJob(j);
                 else if (j.type === 'auto-config') result = await deps.runAutoConfigJob(j);
+                else if (j.type === 'backtest-compare') result = await deps.runBacktestCompareJob(j);
                 else throw new Error('نوع job نامعتبر');
 
                 if (await isCancelled(jobId)) {
