@@ -1724,6 +1724,8 @@ async function execBtSingle(id) {
 }
 function renderBtResult(r) {
     const a = r.assumptions || {};
+    const adv = r.advanced || {};
+
     let diag = '';
     if (r.diagnostic) diag = `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);">${esc(r.diagnostic)}</div>`;
     let cacheInfo = '';
@@ -1732,33 +1734,28 @@ function renderBtResult(r) {
 
     const s = r.stockStats || {};
     const os = r.optionStats || r.stats || {};
-
     const statBox = (label, value, cls) => `<div class="stat ${cls||''}"><small>${label}</small><b>${value}</b></div>`;
 
-    const head = diag + cacheInfo + `
+    // ============ خلاصه ============
+    const tabOverview = `
         <div class="msg-warn" style="display:block;">سررسید ${a.assumedMaturityDays} روز، IV=${a.ivMultiplier}xHV، اسپرد ${a.spreadPct}%، volCrush ${a.volCrushFactor}x، سقف ${a.maxReturnPct}%</div>
-
         <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">آمار سهم</h4>
         <div class="stats-grid">
-            ${statBox('تعداد معامله', s.count || 0)}
+            ${statBox('تعداد', s.count || 0)}
             ${statBox('وین ریت', s.count ? s.winRate.toFixed(0)+'%' : '-')}
-            ${statBox('میانگین بازده', s.count ? pct(s.avgPnl) : '-')}
+            ${statBox('میانگین', s.count ? pct(s.avgPnl) : '-')}
             ${statBox('بازده کل', s.count ? pct(s.totalPnl) : '-')}
             ${statBox('PF', s.profitFactor !== undefined ? fmtPF(s.profitFactor) : '-')}
-            ${statBox('Sharpe', s.sharpe != null ? s.sharpe.toFixed(2) : '-', s.sharpe > 1 ? 'highlight-good' : (s.sharpe < 0 ? 'highlight-bad' : ''))}
-            ${statBox('Sortino', s.sortino != null ? s.sortino.toFixed(2) : '-', s.sortino > 1 ? 'highlight-good' : (s.sortino < 0 ? 'highlight-bad' : ''))}
+            ${statBox('Sharpe', s.sharpe != null ? s.sharpe.toFixed(2) : '-', s.sharpe > 1 ? 'highlight-good' : '')}
+            ${statBox('Sortino', s.sortino != null ? s.sortino.toFixed(2) : '-', s.sortino > 1 ? 'highlight-good' : '')}
             ${statBox('Max DD', s.maxDrawdownPct != null ? s.maxDrawdownPct.toFixed(1)+'%' : '-', s.maxDrawdownPct > 20 ? 'highlight-bad' : '')}
             ${statBox('Calmar', s.calmar != null ? s.calmar.toFixed(2) : '-')}
-            ${statBox('بهترین', s.maxWin != null ? pct(s.maxWin) : '-')}
-            ${statBox('بدترین', s.maxLoss != null ? pct(s.maxLoss) : '-')}
-            ${statBox('میانگین روز', s.avgDaysHeld != null ? s.avgDaysHeld.toFixed(1) : '-')}
         </div>
-
         <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">آمار آپشن</h4>
         <div class="stats-grid">
-            ${statBox('تعداد معامله', os.count || 0)}
+            ${statBox('تعداد', os.count || 0)}
             ${statBox('وین ریت', os.count ? os.winRate.toFixed(0)+'%' : '-')}
-            ${statBox('میانگین بازده', os.count ? pct(os.avgPnl) : '-')}
+            ${statBox('میانگین', os.count ? pct(os.avgPnl) : '-')}
             ${statBox('بازده کل', os.count ? pct(os.totalPnl) : '-')}
             ${statBox('PF', os.profitFactor !== undefined ? fmtPF(os.profitFactor) : '-')}
             ${statBox('Sharpe', os.sharpe != null ? os.sharpe.toFixed(2) : '-', os.sharpe > 1 ? 'highlight-good' : '')}
@@ -1768,8 +1765,116 @@ function renderBtResult(r) {
             ${statBox('real/approx', `${r.realUsed||0}/${r.approxUsed||0}`)}
         </div>`;
 
+    // ============ ماهانه ============
+    const monthlyRows = (adv.monthly || []).map(m => `
+        <tr><td>${esc(m.monthLabel)}</td><td>${m.count}</td><td>${m.winRate.toFixed(0)}%</td><td>${pct(m.avgPnl)}</td><td>${pct(m.totalPnl)}</td>
+        <td><div style="background:var(--bg-input);height:6px;border-radius:3px;position:relative;overflow:hidden;"><div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, Math.abs(m.totalPnl))}%;background:${m.totalPnl>=0?'var(--good)':'var(--bad)'};"></div></div></td></tr>`).join('');
+    const tabMonthly = adv.monthly && adv.monthly.length
+        ? `<div class="table-responsive"><table class="data-table"><thead><tr><th>ماه</th><th>معاملات</th><th>وین ریت</th><th>میانگین</th><th>بازده کل</th><th>نمودار</th></tr></thead><tbody>${monthlyRows}</tbody></table></div>`
+        : '<div class="empty-note">داده ماهانه موجود نیست</div>';
+
+    // ============ ساعتی ============
+    const hourlyRows = (adv.hourly || []).map(h => `<tr><td>${esc(h.hourLabel)}</td><td>${h.count}</td><td>${h.winRate.toFixed(0)}%</td><td>${pct(h.avgPnl)}</td><td>${pct(h.totalPnl)}</td></tr>`).join('');
+    const tabHourly = adv.hourly && adv.hourly.length
+        ? `<div class="table-responsive"><table class="data-table"><thead><tr><th>ساعت</th><th>معاملات</th><th>وین ریت</th><th>میانگین</th><th>بازده کل</th></tr></thead><tbody>${hourlyRows}</tbody></table></div>`
+        : '<div class="empty-note">داده ساعتی موجود نیست</div>';
+
+    // ============ روز هفته ============
+    const dowRows = (adv.dow || []).map(d => `<tr><td>${esc(d.dayLabel)}</td><td>${d.count}</td><td>${d.winRate.toFixed(0)}%</td><td>${pct(d.avgPnl)}</td><td>${pct(d.totalPnl)}</td></tr>`).join('');
+    const tabDow = adv.dow && adv.dow.length
+        ? `<div class="table-responsive"><table class="data-table"><thead><tr><th>روز</th><th>معاملات</th><th>وین ریت</th><th>میانگین</th><th>بازده کل</th></tr></thead><tbody>${dowRows}</tbody></table></div>`
+        : '<div class="empty-note">داده روزانه هفته موجود نیست</div>';
+
+    // ============ رژیم ============
+    const regimeRows = (adv.regime || []).map(r => `<tr><td>${esc(r.regimeLabel)}</td><td>${r.count}</td><td>${r.winRate.toFixed(0)}%</td><td>${pct(r.avgPnl)}</td><td>${pct(r.totalPnl)}</td></tr>`).join('');
+    const tabRegime = adv.regime && adv.regime.length
+        ? `<div class="table-responsive"><table class="data-table"><thead><tr><th>رژیم</th><th>معاملات</th><th>وین ریت</th><th>میانگین</th><th>بازده کل</th></tr></thead><tbody>${regimeRows}</tbody></table></div>`
+        : '<div class="empty-note">برای این تحلیل حداقل ۲۰۰ کندل روزانه نیازه</div>';
+
+    // ============ پنجره‌ها (Walk-Forward) ============
+    let tabRolling = '<div class="empty-note">داده کافی برای تحلیل پنجره‌ای نیست (حداقل ۱۰ معامله)</div>';
+    if (adv.rolling && adv.rolling.segments.length) {
+        const rows = adv.rolling.segments.map(seg => {
+            if (!seg.count) return `<tr style="opacity:.4"><td>${seg.index}</td><td colspan="6" style="text-align:center;">بدون معامله</td></tr>`;
+            const cls = seg.totalPnl >= 0 ? 'pos' : 'neg';
+            return `<tr><td>${seg.index}</td><td>${seg.count}</td><td>${seg.winRate.toFixed(0)}%</td><td>${pct(seg.avgPnl)}</td><td>${pct(seg.totalPnl)}</td><td>${seg.profitFactor !== null ? fmtPF(seg.profitFactor) : '-'}</td><td>${fmtT(seg.from)} → ${fmtT(seg.to)}</td></tr>`;
+        }).join('');
+        const consCls = adv.rolling.consistencyPct >= 70 ? 'highlight-good' : adv.rolling.consistencyPct >= 50 ? '' : 'highlight-bad';
+        tabRolling = `
+            <div class="stats-grid">
+                <div class="stat ${consCls}"><small>پنجره‌های سودده</small><b>${adv.rolling.profitable} / ${adv.rolling.withData}</b></div>
+                <div class="stat"><small>ثبات</small><b>${adv.rolling.consistencyPct}%</b></div>
+            </div>
+            <div class="hint">استراتژی به ${adv.rolling.numSegments} پنجره زمانی مساوی تقسیم شده. اگه بعضی پنجره‌ها ضررده باشن، استراتژی به شرایط بازار وابسته‌ست.</div>
+            <div class="table-responsive"><table class="data-table"><thead><tr>
+                <th>#</th><th>معاملات</th><th>وین ریت</th><th>میانگین</th><th>بازده کل</th><th>PF</th><th>بازه</th>
+            </tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    // ============ Monte Carlo ============
+    let tabMC = '<div class="empty-note">داده کافی نیست</div>';
+    if (adv.monteCarlo) {
+        const mc = adv.monteCarlo;
+        const histRows = mc.histogram.map(h => {
+            const pctWidth = (h.count / mc.iterations * 100).toFixed(1);
+            const cls = h.to <= 0 ? 'bad' : 'good';
+            return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:3px;">
+                <div style="min-width:90px; font-size:11px; color:var(--text-dim); direction:ltr; text-align:left;">${h.from}% تا ${h.to}%</div>
+                <div style="flex:1; background:var(--bg-input); height:14px; border-radius:3px; overflow:hidden; position:relative;">
+                    <div style="background:var(--${cls}); height:100%; width:${pctWidth}%;"></div>
+                </div>
+                <div style="min-width:50px; font-size:11px;">${h.count}</div>
+            </div>`;
+        }).join('');
+
+        tabMC = `
+            <div class="hint">${mc.iterations.toLocaleString()} سناریو با نمونه‌گیری تصادفی (با جایگذاری) از معاملات شما.</div>
+            <div class="stats-grid">
+                <div class="stat"><small>بدترین سناریو (5%)</small><b>${pct(mc.returns.p5)}</b></div>
+                <div class="stat"><small>میانه</small><b>${pct(mc.returns.median)}</b></div>
+                <div class="stat"><small>بهترین سناریو (95%)</small><b>${pct(mc.returns.p95)}</b></div>
+                <div class="stat ${mc.probLoss > 30 ? 'highlight-bad' : (mc.probLoss < 10 ? 'highlight-good' : '')}"><small>احتمال ضرر</small><b>${mc.probLoss}%</b></div>
+                <div class="stat ${mc.probBigDD > 30 ? 'highlight-bad' : ''}"><small>احتمال DD > ۳۰٪</small><b>${mc.probBigDD}%</b></div>
+            </div>
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">توزیع بازده کل</h4>
+            ${histRows}
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">Max Drawdown</h4>
+            <div class="stats-grid">
+                <div class="stat"><small>بهترین</small><b>${mc.maxDrawdowns.best}%</b></div>
+                <div class="stat"><small>میانه</small><b>${mc.maxDrawdowns.median}%</b></div>
+                <div class="stat ${mc.maxDrawdowns.p95 > 40 ? 'highlight-bad' : ''}"><small>بدترین (95%)</small><b>${mc.maxDrawdowns.p95}%</b></div>
+            </div>
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">Sharpe</h4>
+            <div class="stats-grid">
+                <div class="stat"><small>5th percentile</small><b>${mc.sharpes.p5}</b></div>
+                <div class="stat"><small>میانه</small><b>${mc.sharpes.median}</b></div>
+                <div class="stat"><small>95th percentile</small><b>${mc.sharpes.p95}</b></div>
+            </div>`;
+    }
+
+    // ============ Robustness ============
+    let tabRobust = '<div class="empty-note">داده کافی نیست (حداقل ۵ معامله)</div>';
+    if (adv.robustness) {
+        const rb = adv.robustness;
+        const row = (label, st) => `<tr><td>${label}</td><td>${st.count}</td><td>${st.winRate.toFixed(0)}%</td><td>${pct(st.avgPnl)}</td><td>${pct(st.totalPnl)}</td><td>${st.profitFactor !== null ? fmtPF(st.profitFactor) : '-'}</td></tr>`;
+        const bigImpact = Math.abs(rb.top10PctContribution) > 60;
+        tabRobust = `
+            <div class="hint">تست حساسیت — اگه استراتژی فقط به خاطر چند معامله بزرگ سوده، شکننده‌ست.</div>
+            <div class="stats-grid">
+                <div class="stat ${bigImpact ? 'highlight-bad' : 'highlight-good'}"><small>سهم ${rb.topK} بهترین معامله از سود کل</small><b>${rb.top10PctContribution}%</b></div>
+            </div>
+            <div class="table-responsive"><table class="data-table"><thead><tr>
+                <th>سناریو</th><th>معاملات</th><th>وین ریت</th><th>میانگین</th><th>بازده کل</th><th>PF</th>
+            </tr></thead><tbody>
+                ${row('کامل', rb.full)}
+                ${row(`بدون ${rb.topK} بهترین`, rb.withoutTop10)}
+                ${row(`بدون ${rb.topK} بهترین و ${rb.topK} بدترین`, rb.withoutTopAndBottom10)}
+            </tbody></table></div>`;
+    }
+
+    // ============ معاملات ============
     const trades = (r.trades || []);
-    const rows = trades.length ? trades.slice().reverse().map(t => {
+    const tradesRows = trades.length ? trades.slice().reverse().map(t => {
         const srcBadge = t.source === 'real' ? '<span class="badge long">واقعی</span>' : '<span class="badge warn">تقریبی</span>';
         const delta = t.delta ? t.delta.toFixed(2) : '-';
         const iv = t.iv ? (t.iv*100).toFixed(0)+'%' : '-';
@@ -1777,8 +1882,50 @@ function renderBtResult(r) {
         const spread = t.spreadPct !== undefined && t.spreadPct !== null ? t.spreadPct.toFixed(1)+'%' : '-';
         return `<tr><td>${fmtT(t.entryTime)}</td><td>${fmtT(t.exitTime)}</td><td>${fmtN(t.stockEntry)} به ${fmtN(t.stockExit)}</td><td>${fmtN(t.strike)}</td><td>${fmtN(t.optionEntry)} به ${fmtN(t.optionExit)}</td><td>${delta}</td><td>${iv}</td><td>${ivHv}</td><td>${spread}</td><td>${pct(t.pnlPct)}</td><td>${srcBadge}</td><td style="font-size:11px;">${esc(t.exitReason||'-')}</td></tr>`;
     }).join('') : '<tr class="empty-row"><td colspan="12">معامله ای یافت نشد</td></tr>';
+    const tabTrades = `<div class="table-responsive" style="max-height:400px; overflow-y:auto;"><table class="data-table"><thead><tr><th>ورود</th><th>خروج</th><th>سهم</th><th>اعمال</th><th>پرمیوم</th><th>دلتا</th><th>IV</th><th>IV/HV</th><th>اسپرد</th><th>بازده</th><th>منبع</th><th>دلیل</th></tr></thead><tbody>${tradesRows}</tbody></table></div>`;
 
-    document.getElementById('btResultArea').innerHTML = head + `<div class="table-responsive" style="max-height:400px; overflow-y:auto;"><table class="data-table"><thead><tr><th>ورود</th><th>خروج</th><th>سهم</th><th>اعمال</th><th>پرمیوم</th><th>دلتا</th><th>IV</th><th>IV/HV</th><th>اسپرد</th><th>بازده</th><th>منبع</th><th>دلیل خروج</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const html = diag + cacheInfo + `
+        <div class="tabs" style="margin-bottom:14px; flex-wrap:wrap;">
+            <button class="tab active" onclick="switchBtTab('overview', this)">خلاصه</button>
+            <button class="tab" onclick="switchBtTab('rolling', this)">پنجره‌ها</button>
+            <button class="tab" onclick="switchBtTab('mc', this)">Monte Carlo</button>
+            <button class="tab" onclick="switchBtTab('robust', this)">پایداری</button>
+            <button class="tab" onclick="switchBtTab('monthly', this)">ماهانه</button>
+            <button class="tab" onclick="switchBtTab('hourly', this)">ساعتی</button>
+            <button class="tab" onclick="switchBtTab('dow', this)">روز هفته</button>
+            <button class="tab" onclick="switchBtTab('regime', this)">رژیم</button>
+            <button class="tab" onclick="switchBtTab('trades', this)">معاملات (${trades.length})</button>
+        </div>
+        <div id="btTab-overview">${tabOverview}</div>
+        <div id="btTab-rolling" style="display:none;">${tabRolling}</div>
+        <div id="btTab-mc" style="display:none;">${tabMC}</div>
+        <div id="btTab-robust" style="display:none;">${tabRobust}</div>
+        <div id="btTab-monthly" style="display:none;">${tabMonthly}</div>
+        <div id="btTab-hourly" style="display:none;">${tabHourly}</div>
+        <div id="btTab-dow" style="display:none;">${tabDow}</div>
+        <div id="btTab-regime" style="display:none;">${tabRegime}</div>
+        <div id="btTab-trades" style="display:none;">${tabTrades}</div>
+    `;
+
+    document.getElementById('btResultArea').innerHTML = html;
+}
+
+function switchBtTab(which, btn) {
+    ['overview','rolling','mc','robust','monthly','hourly','dow','regime','trades'].forEach(w => {
+        const el = document.getElementById('btTab-' + w);
+        if (el) el.style.display = w === which ? 'block' : 'none';
+    });
+    document.querySelectorAll('#btResultArea .tabs .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+function switchBtTab(which, btn) {
+    ['overview','monthly','hourly','dow','regime','trades'].forEach(w => {
+        const el = document.getElementById('btTab-' + w);
+        if (el) el.style.display = w === which ? 'block' : 'none';
+    });
+    document.querySelectorAll('#btResultArea .tabs .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
 }
 
 // ==================== Signal History ====================

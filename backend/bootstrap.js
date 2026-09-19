@@ -128,7 +128,8 @@ async function bootstrap() {
         strategies: strategiesBundle,
         dataService,
         options: optionsCore,
-        entryWindow: () => settingsModule.entryWindow()
+        entryWindow: () => settingsModule.entryWindow(),
+        getTehranParts: dataService.getTehranParts
     });
 
     // 10) signals core

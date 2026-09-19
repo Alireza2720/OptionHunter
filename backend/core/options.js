@@ -885,12 +885,18 @@ async function tryGetRealTradeData(symbol, t, p) {
     const FEE_BUY = getFeeBuy();
     const FEE_SELL = getFeeSell();
 
-    const entryDate = new Date(t.entryTime * 1000);
-    const exitDate = new Date(t.exitTime * 1000);
+    // از لحظه ورود/خروج واقعی استفاده کن (بعد از close کندل)
+    const entrySec = t.entryFillTime || t.entryTime;
+    const exitSec  = t.exitFillTime  || t.exitTime;
+    const entryDate = new Date(entrySec * 1000);
+    const exitDate  = new Date(exitSec  * 1000);
+
+    // پنجره بزرگ‌تر — 30 دقیقه به جای 5
+    const WINDOW_MS = 30 * 60 * 1000;
 
     const entryCandidates = await db.collection('option_history').find({
         underlying: norm(symbol),
-        time: { $gte: new Date(entryDate.getTime() - 5 * 60 * 1000), $lte: new Date(entryDate.getTime() + 5 * 60 * 1000) },
+        time: { $gte: new Date(entryDate.getTime() - WINDOW_MS), $lte: new Date(entryDate.getTime() + WINDOW_MS) },
         daysLeft: { $gte: p.minDays, $lte: p.maxDays },
         bid: { $gt: 0 }, ask: { $gt: 0 }, oi: { $gt: 0 }
     }).toArray();
@@ -909,7 +915,7 @@ async function tryGetRealTradeData(symbol, t, p) {
 
     const exitRows = await db.collection('option_history').find({
         symbol: best.symbol,
-        time: { $gte: new Date(exitDate.getTime() - 5 * 60 * 1000), $lte: new Date(exitDate.getTime() + 5 * 60 * 1000) }
+        time: { $gte: new Date(exitDate.getTime() - WINDOW_MS), $lte: new Date(exitDate.getTime() + WINDOW_MS) }
     }).toArray();
 
     let exitBid = null, exitRow = null;
@@ -945,7 +951,77 @@ async function tryGetRealTradeData(symbol, t, p) {
         source: 'real'
     };
 }
+// نسخه سریع tryGetRealTradeData که از prefetched rows استفاده می‌کنه
+function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
+    const RISK_FREE = getRiskFree();
+    const FEE_BUY = getFeeBuy();
+    const FEE_SELL = getFeeSell();
 
+    const entrySec = t.entryFillTime || t.entryTime;
+    const exitSec = t.exitFillTime || t.exitTime;
+
+    const WINDOW_SEC = 30 * 60;
+
+    // جمع کردن همه قراردادها تو بازه ورود
+    const candidateRows = [];
+    for (const [sym, rows] of rowsBySymbol) {
+        for (const r of rows) {
+            const sec = Math.floor(new Date(r.time).getTime() / 1000);
+            if (sec >= entrySec - WINDOW_SEC && sec <= entrySec + WINDOW_SEC) {
+                if (r.bid > 0 && r.ask > 0 && r.oi > 0) {
+                    candidateRows.push(r);
+                }
+            }
+        }
+    }
+    if (!candidateRows.length) return null;
+
+    const targetDelta = 0.55;
+    let best = null, bestDiff = Infinity;
+    for (const c of candidateRows) {
+        const delta = c.deltaApi || 0;
+        if (delta < p.deltaMin || delta > p.deltaMax) continue;
+        const diff = Math.abs(delta - targetDelta);
+        if (diff < bestDiff) { bestDiff = diff; best = c; }
+    }
+    if (!best) return null;
+
+    // حالا برای همون قرارداد، دیتای خروج رو پیدا کن
+    const contractRows = rowsBySymbol.get(best.symbol) || [];
+    let exitBid = null, exitRow = null;
+    for (const r of contractRows) {
+        const sec = Math.floor(new Date(r.time).getTime() / 1000);
+        if (sec >= exitSec - WINDOW_SEC && sec <= exitSec + WINDOW_SEC) {
+            if (r.bid > 0) {
+                exitBid = r.bid;
+                exitRow = r;
+                break;
+            }
+        }
+    }
+    if (!exitBid) return null;
+
+    const entryCost = best.ask * (1 + FEE_BUY);
+    const exitProceeds = exitBid * (1 - FEE_SELL);
+    const spreadPct = best.bid > 0 && best.ask > 0
+        ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100 : null;
+
+    return {
+        entryTime: t.entryTime, exitTime: t.exitTime,
+        entryFillTime: entrySec, exitFillTime: exitSec,
+        stockEntry: t.entryPrice, stockExit: t.exitPrice,
+        symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
+        optionEntry: best.ask, optionExit: exitBid,
+        optionEntryBid: best.bid, optionExitAsk: exitRow ? exitRow.ask : null,
+        oi: best.oi, volume: best.volume, spreadPct,
+        delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
+        iv: best.ivApi, hv: best.hvApi,
+        ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
+        pnlPct: (exitProceeds / entryCost - 1) * 100,
+        exitReason: t.exitReason,
+        source: 'real'
+    };
+}
 function tryGetApproxTradeData(t, closes, times, p) {
     const RISK_FREE = getRiskFree();
     const FEE_BUY = getFeeBuy();
@@ -1016,6 +1092,35 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     const hasAnyOptionData = sampleCount > 0;
     const realEnabled = p.realEnabled !== false;
 
+    // ---------- Prefetch: یه query به جای N query ----------
+    let optionRowsBySymbolTime = new Map();
+    if (realEnabled && hasAnyOptionData) {
+        try {
+            const allSec = [];
+            for (const t of closedTrades) {
+                allSec.push(t.entryFillTime || t.entryTime);
+                allSec.push(t.exitFillTime || t.exitTime);
+            }
+            const WINDOW_MS = 30 * 60 * 1000;
+            const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
+            const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
+
+            const bulkRows = await db.collection('option_history').find({
+                underlying: norm(symbol),
+                time: { $gte: minTime, $lte: maxTime },
+                daysLeft: { $gte: p.minDays, $lte: p.maxDays }
+            }).toArray();
+
+            // group by symbol
+            for (const r of bulkRows) {
+                if (!optionRowsBySymbolTime.has(r.symbol)) {
+                    optionRowsBySymbolTime.set(r.symbol, []);
+                }
+                optionRowsBySymbolTime.get(r.symbol).push(r);
+            }
+        } catch (_) { /* fallback به query per trade */ }
+    }
+
     const daily = await db.collection('candles_daily')
         .find({ symbol }).sort({ time: 1 }).toArray();
     const closes = daily.map(r => r.close);
@@ -1027,7 +1132,9 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     for (const t of closedTrades) {
         let result = null;
         if (realEnabled && hasAnyOptionData) {
-            try { result = await tryGetRealTradeData(symbol, t, p); } catch (_) { result = null; }
+            try {
+                result = tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
+            } catch (_) { result = null; }
         }
         if (result) { trades.push(result); realUsed++; }
         else {
