@@ -13,12 +13,14 @@ function register(app, deps) {
     app.get('/api/options/settings', async (req, res, next) => {
         try {
             const s = await options.getSettings();
-            const env = require('../../config/env').get();
             res.json({
                 values: s,
                 defaults: options.DEFAULT_SETTINGS,
-                fees: { buy: env.OPTION_FEE_BUY, sell: env.OPTION_FEE_SELL },
-                riskFree: env.RISK_FREE_RATE
+                fees: { 
+                    buy: options.getFeeBuy(), 
+                    sell: options.getFeeSell() 
+                },
+                riskFree: options.getRiskFree()
             });
         } catch (e) { next(e); }
     });

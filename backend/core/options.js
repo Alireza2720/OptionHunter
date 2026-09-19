@@ -1099,6 +1099,7 @@ function positionStats(list) {
 // ============================================================
 module.exports = {
     init,
+    getRiskFree, getFeeBuy, getFeeSell,
     // helpers
     norm, num, round, f0, pc,
     // BS
