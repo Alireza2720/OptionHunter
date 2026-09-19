@@ -482,33 +482,51 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
     const contractValue = pick.ask * (pick.size || 1000);
     if (!(contractValue > 0)) return { size: 0, reason: 'قیمت قرارداد نامعتبر', baseSize: 0 };
 
-    const baseSize = riskAmt / contractValue;
+    // 🆕 Market Impact: اگه حجم سفارش بزرگ‌تر از حجم سرخط باشه
+    const askVol = pick.askVol || 0;                          // حجم سرخط فروش
+    const requestedShares = 1 * (pick.size || 1000);          // برای ۱ قرارداد پایه
+    const liquidityRatio = askVol > 0 ? requestedShares / askVol : 0;
+
+    // 🆕 impact = هر ۱۰٪ از حجم سرخط، ۰.۲٪ اضافه‌هزینه (سقف ۵٪)
+    const impactPct = Math.min(0.05, liquidityRatio * 0.02);
+    const effectiveContractValue = contractValue * (1 + impactPct);
+
+    const baseSize = riskAmt / effectiveContractValue;        // 🆕 بر اساس cost مؤثر
     const confluence = (signalStrength && signalStrength.confluence) || 1;
     const signalFac = deps.settings.signalFactor(confluence);
     const level = pick.level || 'A+';
     const levelFac = deps.settings.levelFactor(level);
     const ivFac = deps.settings.ivFactor(pick.ivHv);
 
+    // 🆕 محدودیت نقدینگی: حداکثر ۲۰٪ از حجم سرخط
+    const maxFromLiquidity = askVol > 0
+        ? Math.floor((askVol * 0.2) / (pick.size || 1000))
+        : 999;
+
     const adjusted = Math.round(baseSize * signalFac * levelFac * ivFac);
 
     const currentSymbolExposure = (currentPortfolio && currentPortfolio.bySymbol && currentPortfolio.bySymbol[pick.underlying]) || 0;
     const remainingSymbol = Math.max(0, maxSymbol - currentSymbolExposure);
-    const bySymbol = Math.floor(remainingSymbol / contractValue);
+    const bySymbol = Math.floor(remainingSymbol / effectiveContractValue);   // 🆕
 
     const currentTotal = (currentPortfolio && currentPortfolio.totalExposure) || 0;
     const remainingTotal = Math.max(0, maxTotal - currentTotal);
-    const byTotal = Math.floor(remainingTotal / contractValue);
+    const byTotal = Math.floor(remainingTotal / effectiveContractValue);     // 🆕
 
-    const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byTotal, maxSize));
+    // 🆕 maxFromLiquidity هم به محدودیت‌ها اضافه شد
+    const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byTotal, maxSize, maxFromLiquidity));
 
     let limitReason = null;
     if (finalSize < adjusted) {
-        if (bySymbol < adjusted && bySymbol <= byTotal) limitReason = 'سقف درگیری این نماد پر شده';
+        if (maxFromLiquidity < adjusted && maxFromLiquidity <= bySymbol && maxFromLiquidity <= byTotal)
+            limitReason = 'نقدینگی سرخط کافی نیست (impact)';
+        else if (bySymbol < adjusted && bySymbol <= byTotal) limitReason = 'سقف درگیری این نماد پر شده';
         else if (byTotal < adjusted) limitReason = 'سقف کل درگیری پر شده';
         else if (maxSize < adjusted) limitReason = 'به حداکثر تعداد قرارداد رسیده';
     }
     if (finalSize === 0) {
-        if (bySymbol === 0) limitReason = 'سقف درگیری این نماد پر شده';
+        if (maxFromLiquidity === 0) limitReason = 'نقدینگی سرخط صفر است';
+        else if (bySymbol === 0) limitReason = 'سقف درگیری این نماد پر شده';
         else if (byTotal === 0) limitReason = 'سقف کل درگیری پر شده';
         else if (baseSize < 0.5) limitReason = 'سرمایه برای این قرارداد کافی نیست';
     }
@@ -521,7 +539,13 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
         ivFactor: round(ivFac),
         level, confluence, adjusted,
         bySymbol, byTotal, maxSize,
-        contractValue, limitReason,
+        // 🆕
+        maxFromLiquidity,
+        impactPct: round(impactPct * 100),
+        liquidityRatio: round(liquidityRatio * 100),
+        contractValue,                    // خام
+        effectiveContractValue: round(effectiveContractValue),   // 🆕 با impact
+        limitReason,
         limits: {
             riskAmount: riskAmt,
             maxSymbolExposure: maxSymbol,
@@ -952,13 +976,19 @@ async function tryGetRealTradeData(symbol, t, p) {
     };
 }
 // نسخه سریع tryGetRealTradeData که از prefetched rows استفاده می‌کنه
+// 🆕 ضرایب realism در سطح ماژول (قابل تنظیم)
+const OPT_SLIPPAGE_PCT = 0.003;      // 0.3% لغزش
+const OPT_IMPACT_PCT = 0.001;         // 0.1% impact هزینه (پایه)
+const OPT_LATENCY_SEC = 1;            // ۱ ثانیه تأخیر
+
 function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const RISK_FREE = getRiskFree();
     const FEE_BUY = getFeeBuy();
     const FEE_SELL = getFeeSell();
 
-    const entrySec = t.entryFillTime || t.entryTime;
-    const exitSec = t.exitFillTime || t.exitTime;
+    // 🆕 Latency: به زمان ورود/خروج اضافه کن
+    const entrySec = (t.entryFillTime || t.entryTime) + OPT_LATENCY_SEC;
+    const exitSec = (t.exitFillTime || t.exitTime) + OPT_LATENCY_SEC;
 
     const WINDOW_SEC = 30 * 60;
 
@@ -1001,8 +1031,26 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     }
     if (!exitBid) return null;
 
-    const entryCost = best.ask * (1 + FEE_BUY);
-    const exitProceeds = exitBid * (1 - FEE_SELL);
+    // 🆕 محاسبه half-spread واقعی از bid/ask قرارداد
+    const halfSpread = best.ask > 0 && best.bid > 0
+        ? (best.ask - best.bid) / 2
+        : 0;
+
+    // 🆕 قیمت مؤثر خرید: ask + half-spread + slippage + impact
+    const entryFillPrice = best.ask
+        + halfSpread
+        + best.ask * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT);
+
+    // 🆕 قیمت مؤثر فروش: bid - half-spread - slippage - impact
+    const exitHalfSpread = exitRow && exitRow.ask > 0 && exitRow.bid > 0
+        ? (exitRow.ask - exitRow.bid) / 2
+        : halfSpread;
+    const exitFillPrice = Math.max(0,
+        exitBid - exitHalfSpread - exitBid * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT)
+    );
+
+    const entryCost = entryFillPrice * (1 + FEE_BUY);
+    const exitProceeds = exitFillPrice * (1 - FEE_SELL);
     const spreadPct = best.bid > 0 && best.ask > 0
         ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100 : null;
 
@@ -1011,8 +1059,16 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         entryFillTime: entrySec, exitFillTime: exitSec,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
         symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
-        optionEntry: best.ask, optionExit: exitBid,
+        // 🆕 قیمت‌های واقعی از دفتر (بدون تغییر)
+        optionEntryRaw: best.ask, optionExitRaw: exitBid,
         optionEntryBid: best.bid, optionExitAsk: exitRow ? exitRow.ask : null,
+        // 🆕 قیمت‌های مؤثر (با slippage + spread + impact)
+        optionEntry: entryFillPrice, optionExit: exitFillPrice,
+        // 🆕 شفافیت: اجزا
+        halfSpreadEntry: halfSpread, halfSpreadExit: exitHalfSpread,
+        slippagePct: OPT_SLIPPAGE_PCT * 100,
+        impactPct: OPT_IMPACT_PCT * 100,
+        latencySec: OPT_LATENCY_SEC,
         oi: best.oi, volume: best.volume, spreadPct,
         delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
         iv: best.ivApi, hv: best.hvApi,
@@ -1049,8 +1105,15 @@ function tryGetApproxTradeData(t, closes, times, p) {
 
     const entryTheo = bsCall(t.entryPrice, strike, Tentry, RISK_FREE, sigmaBase);
     const exitTheo = bsCall(t.exitPrice, strike, Texit, RISK_FREE, sigmaExit);
-    const entryCost = entryTheo.price * (1 + halfSpreadEntry) * (1 + FEE_BUY);
-    const exitProceeds = exitTheo.price * (1 - halfSpreadExit) * (1 - FEE_SELL);
+
+    // 🆕 Slippage + impact روی قیمت تئوریک
+    const entryFillPrice = entryTheo.price
+        * (1 + halfSpreadEntry + OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT);
+    const exitFillPrice = exitTheo.price
+        * (1 - halfSpreadExit - OPT_SLIPPAGE_PCT - OPT_IMPACT_PCT);
+
+    const entryCost = entryFillPrice * (1 + FEE_BUY);
+    const exitProceeds = exitFillPrice * (1 - FEE_SELL);
     if (!(entryCost > 0) || !isFinite(exitProceeds)) return null;
 
     let pnlPct = (exitProceeds / entryCost - 1) * 100;
@@ -1061,9 +1124,18 @@ function tryGetApproxTradeData(t, closes, times, p) {
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
         strike, hv, sigma: sigmaBase, sigmaExit, ivCrushFactor,
         dynamicSpreadPct,
-        optionEntry: entryTheo.price, optionExit: exitTheo.price,
-        optionEntryBid: entryTheo.price * (1 - halfSpreadEntry),
-        optionExitAsk: exitTheo.price * (1 + halfSpreadExit),
+        // 🆕 قیمت‌های تئوریک خام
+        optionEntryRaw: entryTheo.price,
+        optionExitRaw: exitTheo.price,
+        // 🆕 قیمت‌های مؤثر
+        optionEntry: entryFillPrice,
+        optionExit: exitFillPrice,
+        optionEntryBid: entryFillPrice * (1 - halfSpreadEntry),
+        optionExitAsk: exitFillPrice * (1 + halfSpreadExit),
+        // 🆕 شفافیت
+        slippagePct: OPT_SLIPPAGE_PCT * 100,
+        impactPct: OPT_IMPACT_PCT * 100,
+        latencySec: OPT_LATENCY_SEC,
         delta: entryTheo.delta, deltaExit: exitTheo.delta,
         gamma: entryTheo.gamma, theta: entryTheo.thetaDay, vega: entryTheo.vega,
         iv: sigmaBase, ivHv: sigmaBase / hv,

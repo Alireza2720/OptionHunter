@@ -2,8 +2,7 @@ name: Deploy to VPS
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   deploy:
@@ -25,28 +24,29 @@ jobs:
             if [ -f .env ]; then
               cp .env /tmp/optionhunter.env.backup
               echo "✅ .env backed up"
-            else
-              echo "⚠️  .env not found before deploy"
             fi
 
             echo "=== Fetch ==="
             git fetch origin main
             git reset --hard origin/main
-            git clean -fd -e ecosystem.config.js -e package-lock.json -e node_modules -e logs
 
-            # 🔒 بازیابی .env (اول از .env موجود، بعد از بکاپ)
+            echo "=== Clean ==="
+            git clean -fd -e .env -e ecosystem.config.js -e package-lock.json -e node_modules -e logs
+
+            # 🔒 بازیابی .env اگر پاک شد
             if [ ! -f .env ] && [ -f /tmp/optionhunter.env.backup ]; then
               echo "🔧 Restoring .env from backup"
               cp /tmp/optionhunter.env.backup .env
+              chmod 600 .env
             fi
 
             if [ ! -f .env ]; then
-              echo "❌❌❌ .env MISSING — deploy aborted ❌❌❌"
+              echo "❌❌❌ .env MISSING — deploy aborted"
               exit 1
             fi
 
             echo "=== npm install ==="
-            npm install --prefix . --no-audit --no-fund --prefer-offline
+            npm install --no-audit --no-fund --prefer-offline
 
             echo "=== PM2 restart ==="
             pm2 startOrRestart ecosystem.config.js --update-env
@@ -55,9 +55,8 @@ jobs:
             echo "=== Health check ==="
             sleep 8
             if ! curl -fsS http://127.0.0.1:3000/ping > /dev/null; then
-              echo "❌ SERVER NOT RESPONDING — dumping logs"
+              echo "❌ SERVER NOT RESPONDING"
               pm2 logs OptionHunter --lines 80 --nostream || true
-              tail -50 ~/apps/OptionHunter/logs/error.log || true
               exit 1
             fi
             echo "✅ Deploy OK"

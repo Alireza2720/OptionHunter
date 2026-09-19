@@ -1,0 +1,22 @@
+cd ~/apps/OptionHunter
+
+cat > .gitignore << 'EOF'
+.env
+.env.local
+.env.*.local
+node_modules/
+venv/
+__pycache__/
+*.pyc
+logs/
+*.log
+npm-debug.log*
+.pm2/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+EOF
+
+git check-ignore -v .env
+git status --short

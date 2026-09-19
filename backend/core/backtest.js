@@ -99,34 +99,53 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
     });
 
     // تبدیل به trades
+    // تبدیل به trades
     const closeAt = new Map(candles.map((c, i) => [c.time, { close: c.close, i }]));
     const trades = [];
     let open = null;
+
+    // 🆕 Latency ثابت: تأخیر بین سیگنال و ورود واقعی (شبیه‌سازی تأخیر شبکه/بروکر)
+    const LATENCY_SEC = 1;
+
+    // 🆕 Slippage سهم: 0.3% + half-spread فرضی برای سهم
+    const STOCK_SLIPPAGE_PCT = 0.003;
+    const STOCK_HALF_SPREAD_PCT = 0.001;   // فرض 0.1% half-spread برای سهم
 
     for (const s of signals) {
         const c = closeAt.get(s.time);
         if (!c) continue;
 
         const tfMin = TIMEFRAME_MINUTES[cfg.timeframe] || 30;
-        const fillDelaySec = tfMin * 60;   // سیگنال روی close کندل تأیید می‌شه
+        const fillDelaySec = tfMin * 60 + LATENCY_SEC;   // 🆕 + Latency
 
         if (s.signalType === 'BUY' && !open) {
+            // 🆕 اعمال slippage + spread روی قیمت خرید
+            const slipFactor = 1 + STOCK_SLIPPAGE_PCT + STOCK_HALF_SPREAD_PCT;
+            const fillPrice = c.close * slipFactor;
+
             open = {
                 entryTime: s.time,
-                entryFillTime: s.time + fillDelaySec,      // ← لحظه ورود واقعی
-                entryPrice: c.close,
+                entryFillTime: s.time + fillDelaySec,
+                entryPrice: fillPrice,                    // 🆕 قیمت با slippage
+                entrySignalPrice: c.close,                // 🆕 قیمت لحظه سیگنال (برای گزارش)
                 entryIdx: c.i,
                 reason: s.reason,
                 status: 'open',
-                signalInfo: s.indicators || {}
+                signalInfo: s.indicators || {},
+                slippagePct: STOCK_SLIPPAGE_PCT * 100      // 🆕
             };
         } else if (s.signalType === 'EXIT_LONG' && open) {
+            // 🆕 اعمال slippage روی فروش (کاهش قیمت فروش)
+            const slipFactor = 1 - STOCK_SLIPPAGE_PCT - STOCK_HALF_SPREAD_PCT;
+            const fillPrice = c.close * slipFactor;
+
             trades.push({
                 ...open,
                 exitTime: s.time,
-                exitFillTime: s.time + fillDelaySec,       // ← لحظه خروج واقعی
-                exitPrice: c.close,
-                pnlPct: (c.close / open.entryPrice - 1) * 100,
+                exitFillTime: s.time + fillDelaySec,
+                exitPrice: fillPrice,                     // 🆕 قیمت با slippage
+                exitSignalPrice: c.close,                 // 🆕
+                pnlPct: (fillPrice / open.entryPrice - 1) * 100,
                 bars: c.i - open.entryIdx,
                 exitReason: s.reason,
                 status: 'closed'
