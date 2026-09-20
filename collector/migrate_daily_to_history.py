@@ -123,6 +123,16 @@ def main():
             skipped += 1
             continue
 
+        # 🆕 فیلتر placeholder: close=1 یعنی معامله نشده
+        if close_px <= 1:
+            skipped += 1
+            continue
+
+        # 🆕 فیلتر حجم صفر
+        if not (doc.get('volume') or 0) > 0:
+            skipped += 1
+            continue
+
         # S از candles_daily
         S = candle_cache.get(underlying, {}).get(date_str)
         if not S or S <= 0:
