@@ -57,7 +57,7 @@ def get_current_rf(force: bool = False):
 
     # ۳. از اخزا بگیر
     try:
-        treasuries = att.get_treasury_yields(min_volume=1)
+        treasuries = att.get_treasury_yields(include_stale=True, min_volume=0)
         if treasuries is not None and len(treasuries) > 0:
             rate = float(treasuries["EffectiveAnnualYield"].median())
             _RF_CACHE["rate"] = rate
