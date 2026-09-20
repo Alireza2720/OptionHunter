@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
         db[COL_OPT_DAILY].create_index([("ins_code", ASCENDING), ("date", DESCENDING)], unique=True)
         db[COL_OPT_DAILY].create_index([("underlying", ASCENDING)])
         db[COL_LOG].create_index([("at", DESCENDING)])
-                db[COL_OPT_HISTORY].create_index([("symbol", ASCENDING), ("time", DESCENDING)])
+        db[COL_OPT_HISTORY].create_index([("symbol", ASCENDING), ("time", DESCENDING)])
         db[COL_OPT_HISTORY].create_index([("underlying", ASCENDING), ("time", DESCENDING)])
         db[COL_OPT_HISTORY].create_index([("time", DESCENDING)])
         print("✅ Indexes ready")
