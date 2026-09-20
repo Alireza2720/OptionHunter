@@ -16,6 +16,34 @@ import algotik_tse as att
 import pandas as pd
 from pymongo import MongoClient, UpdateOne, ASCENDING
 
+# --- .env loader (جایگزین: هیچ dependency نیست) ---
+def _load_dotenv():
+    for path in [
+        os.path.join(os.path.dirname(__file__), "..", ".env"),
+        os.path.join(os.getcwd(), ".env"),
+        "/home/deploy/apps/OptionHunter/.env",
+    ]:
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if "=" not in line:
+                            continue
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip()
+                        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                            v = v[1:-1]
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+                return
+        except Exception:
+            pass
+
+_load_dotenv()
+
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
 MONGO_DB = os.getenv("MONGO_DB", "trading_bot")
 
@@ -36,7 +64,7 @@ def get_risk_free(override):
     if override is not None:
         return override
     try:
-        t = att.get_treasury_yields(min_volume=1, progress=False)
+        t = att.get_treasury_yields(min_volume=1)
         if t is not None and len(t) > 0:
             return float(t["EffectiveAnnualYield"].median())
     except Exception as e:
