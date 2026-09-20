@@ -74,28 +74,64 @@ def get_risk_free(override):
 
 def rows_to_df(rows):
     """Reconstruct AlgoTik-compatible DataFrame from flat snapshot rows."""
-    return pd.DataFrame([{
-        "InsCode": r.get("ins_code"),
-        "Symbol": r.get("symbol"),
-        "Name": r.get("name"),
-        "OptionType": (r.get("option_type") or "call").lower(),
-        "UnderlyingSymbol": r.get("underlying"),
-        "ContractSize": r.get("contract_size") or 1000,
-        "Strike": r.get("strike"),
-        "EndDate": r.get("end_date"),
-        "DaysToExpiry": r.get("days_to_expiry"),
-        "Last": r.get("last"),
-        "Close": r.get("close"),
-        "Volume": r.get("volume"),
-        "TradeCount": r.get("trade_count"),
-        "OpenInterest": r.get("open_interest"),
-        "BidPrice": r.get("bid_price"),
-        "AskPrice": r.get("ask_price"),
-        "BidVolume": r.get("bid_volume"),
-        "AskVolume": r.get("ask_volume"),
-        "UnderlyingLast": r.get("underlying_last"),
-        "UnderlyingClose": r.get("underlying_close"),
-    } for r in rows])
+    out = []
+    for r in rows:
+        bid = r.get("bid_price") or 0
+        ask = r.get("ask_price") or 0
+        last = r.get("last") or 0
+        close = r.get("close") or 0
+
+        # Price logic (مشابه analyze_option_chain)
+        if bid > 0 and ask > 0:
+            price = (bid + ask) / 2
+            price_source = "mid"
+        elif last > 0:
+            price = last
+            price_source = "last"
+        elif close > 0:
+            price = close
+            price_source = "close"
+        else:
+            price = 0
+            price_source = "missing"
+
+        ts = r.get("timestamp")
+        out.append({
+            "InsCode": r.get("ins_code"),
+            "Symbol": r.get("symbol"),
+            "Name": r.get("name"),
+            "OptionType": (r.get("option_type") or "call").lower(),
+            "UnderlyingSymbol": r.get("underlying"),
+            "ContractSize": r.get("contract_size") or 1000,
+            "Strike": r.get("strike"),
+            "EndDate": r.get("end_date"),
+            "DaysToExpiry": r.get("days_to_expiry"),
+            "Last": last,
+            "Close": close,
+            "Volume": r.get("volume") or 0,
+            "TradeCount": r.get("trade_count") or 0,
+            "OpenInterest": r.get("open_interest") or 0,
+            "YesterdayOpenInterest": r.get("yesterday_oi") or 0,
+            "BidPrice": bid,
+            "AskPrice": ask,
+            "BidVolume": r.get("bid_volume") or 0,
+            "AskVolume": r.get("ask_volume") or 0,
+            "UnderlyingLast": r.get("underlying_last"),
+            "UnderlyingClose": r.get("underlying_close"),
+            "Price": price,
+            "PriceSource": price_source,
+            "AsOf": ts,
+            "AsOfSource": "snapshot",
+            "SnapshotFreshnessKnown": False,
+            "PriceFreshnessKnown": False,
+            "Stale": False,
+            "NoTrade": (r.get("volume") or 0) == 0,
+            "AnalyticsEligible": True,
+            "AnalyticsEligibilityReason": None,
+            "MetadataConflict": False,
+            "Source": "migrated",
+        })
+    return pd.DataFrame(out)
 
 
 def row_to_doc(row, underlying, ts):
