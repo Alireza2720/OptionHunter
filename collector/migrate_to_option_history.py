@@ -96,7 +96,7 @@ def main():
 
     # Purge قدیمی‌ها (اگه خواستی)
     if args.purge_old and not args.dry_run:
-        r = db[DST_COL].deleteMany({"source": "migrated"})
+        r = db[DST_COL].delete_many({"source": "migrated"})
         print(f"[purge] deleted {r.deleted_count} old migrated docs")
 
     rf = get_risk_free(args.rf)
