@@ -1007,7 +1007,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const exitSec = (t.exitFillTime || t.exitTime) + OPT_LATENCY_SEC;
 
     // 🆕 window گسترده‌تر برای پوشش دیتای daily (trade intraday + EOD close)
-    const WINDOW_SEC = 6 * 3600;
+    const WINDOW_SEC = 3 * 24 * 3600;
 
     // جمع کردن همه قراردادها تو بازه ورود
     const candidateRows = [];
@@ -1194,14 +1194,14 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                 allSec.push(t.exitFillTime || t.exitTime);
             }
             // 🆕 window 24h برای پوشش migrated_daily (EOD timestamps)
-            const WINDOW_MS = 24 * 3600 * 1000;
+            const WINDOW_MS = 7 * 24 * 3600 * 1000;
             const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
             const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
 
             const bulkRows = await db.collection('option_history').find({
                 underlying: norm(symbol),
                 time: { $gte: minTime, $lte: maxTime },
-                daysLeft: { $gte: p.minDays, $lte: p.maxDays }
+                daysLeft: { $gte: p.minDays, $lte: Math.max(p.maxDays, 200) }
             }).toArray();
 
             // group by symbol
