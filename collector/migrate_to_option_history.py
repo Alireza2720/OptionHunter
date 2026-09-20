@@ -145,6 +145,35 @@ def rows_to_df(rows):
     return pd.DataFrame(out)
 
 
+def _clean(v):
+    """Convert pandas NA/NaN/numpy types to plain Python values MongoDB can store."""
+    if v is None:
+        return None
+    # pandas NA
+    try:
+        import pandas as pd
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    # numpy types → python
+    try:
+        import numpy as np
+        if isinstance(v, np.integer):
+            return int(v)
+        if isinstance(v, np.floating):
+            f = float(v)
+            return None if (f != f) else f  # NaN check
+        if isinstance(v, np.bool_):
+            return bool(v)
+    except ImportError:
+        pass
+    # nested: keep only primitives
+    if isinstance(v, (str, int, float, bool)):
+        return v
+    return str(v)  # fallback
+
+
 def row_to_doc(row, underlying, ts):
     exp = row.get("EndDate")
     if exp is not None:
@@ -152,41 +181,44 @@ def row_to_doc(row, underlying, ts):
             exp = str(exp)[:10]
         except Exception:
             exp = str(exp)
-    return {
-        "symbol": row.get("Symbol"),
+
+    # 🆕 تاریخ رو هم clean کن
+    doc = {
+        "symbol": _clean(row.get("Symbol")),
         "underlying": underlying,
         "time": ts,
-        "strike": row.get("Strike"),
-        "expiry": exp,
-        "daysLeft": row.get("DaysToExpiry"),
-        "size": row.get("ContractSize") or 1000,
+        "strike": _clean(row.get("Strike")),
+        "expiry": _clean(exp),
+        "daysLeft": _clean(row.get("DaysToExpiry")),
+        "size": _clean(row.get("ContractSize")) or 1000,
         "isCall": str(row.get("OptionType", "")).lower() == "call",
-        "S": row.get("UnderlyingClose") or row.get("UnderlyingLast"),
-        "bid": row.get("BidPrice"),
-        "ask": row.get("AskPrice"),
-        "last": row.get("Last"),
-        "close": row.get("Close"),
-        "bidVol": row.get("BidVolume"),
-        "askVol": row.get("AskVolume"),
-        "oi": row.get("OpenInterest"),
-        "volume": row.get("Volume"),
-        "trades": row.get("TradeCount"),
-        "ivApi": row.get("ImpliedVolatility"),
-        "ivStatus": row.get("IVStatus"),
-        "deltaApi": row.get("Delta"),
-        "gammaApi": row.get("Gamma"),
-        "vegaApi": row.get("Vega"),
-        "thetaApi": row.get("ThetaPerDay"),
-        "spreadPct": row.get("SpreadPct"),
-        "liquidityScore": row.get("LiquidityScore"),
-        "parityStatus": row.get("ParityStatus"),
-        "analyticsReliability": row.get("AnalyticsReliability"),
-        "riskFreeRate": row.get("RiskFreeRate"),
-        "spot": row.get("Spot"),
+        "S": _clean(row.get("UnderlyingClose") or row.get("UnderlyingLast")),
+        "bid": _clean(row.get("BidPrice")),
+        "ask": _clean(row.get("AskPrice")),
+        "last": _clean(row.get("Last")),
+        "close": _clean(row.get("Close")),
+        "bidVol": _clean(row.get("BidVolume")),
+        "askVol": _clean(row.get("AskVolume")),
+        "oi": _clean(row.get("OpenInterest")),
+        "volume": _clean(row.get("Volume")),
+        "trades": _clean(row.get("TradeCount")),
+        "ivApi": _clean(row.get("ImpliedVolatility")),
+        "ivStatus": _clean(row.get("IVStatus")),
+        "deltaApi": _clean(row.get("Delta")),
+        "gammaApi": _clean(row.get("Gamma")),
+        "vegaApi": _clean(row.get("Vega")),
+        "thetaApi": _clean(row.get("ThetaPerDay")),
+        "spreadPct": _clean(row.get("SpreadPct")),
+        "liquidityScore": _clean(row.get("LiquidityScore")),
+        "parityStatus": _clean(row.get("ParityStatus")),
+        "analyticsReliability": _clean(row.get("AnalyticsReliability")),
+        "riskFreeRate": _clean(row.get("RiskFreeRate")),
+        "spot": _clean(row.get("Spot")),
         "source": "migrated",
         "migratedFrom": SRC_COL,
         "migratedAt": datetime.now(timezone.utc),
     }
+    return doc
 
 
 def main():
