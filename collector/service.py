@@ -34,21 +34,56 @@ COL_OPT_HISTORY = "option_history"
 _RF_CACHE = {"rate": 0.42, "date": None}
 
 
-def get_current_rf():
-    """نرخ بدون ریسک روزانه از اخزا"""
+def get_current_rf(force: bool = False):
+    """نرخ بدون ریسک روزانه از اخزا + ذخیره در MongoDB"""
     today = datetime.utcnow().date()
-    if _RF_CACHE["date"] == today:
+    today_str = today.isoformat()
+
+    # ۱. cache حافظه
+    if not force and _RF_CACHE["date"] == today:
         return _RF_CACHE["rate"]
+
+    # ۲. cache DB (اگه امروز قبلاً ذخیره شده)
+    if not force:
+        try:
+            doc = db[COL_RF_CACHE].find_one({"date": today_str})
+            if doc:
+                rate = float(doc["rate"])
+                _RF_CACHE["rate"] = rate
+                _RF_CACHE["date"] = today
+                return rate
+        except Exception:
+            pass
+
+    # ۳. از اخزا بگیر
     try:
         treasuries = att.get_treasury_yields(min_volume=1)
         if treasuries is not None and len(treasuries) > 0:
             rate = float(treasuries["EffectiveAnnualYield"].median())
             _RF_CACHE["rate"] = rate
             _RF_CACHE["date"] = today
+
+            # 🆕 ذخیره در DB
+            try:
+                db[COL_RF_CACHE].update_one(
+                    {"date": today_str},
+                    {"$set": {
+                        "date": today_str,
+                        "rate": rate,
+                        "count": len(treasuries),
+                        "source": "algotik_treasury",
+                        "updatedAt": datetime.utcnow(),
+                    }},
+                    upsert=True,
+                )
+            except Exception as e:
+                log_event("rf_db_err", str(e))
+
             log_event("rf_update", f"risk-free updated: {rate:.4f}")
             return rate
     except Exception as e:
         log_event("rf_error", str(e))
+
     return _RF_CACHE["rate"]
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
 MONGO_DB = os.getenv("MONGO_DB", "trading_bot")
@@ -63,6 +98,7 @@ COL_OPT_SNAP = "option_snapshots_algotik"
 COL_OPT_DAILY = "option_daily_algotik"
 COL_LOG = "collector_log"
 COL_JOBS = "collector_jobs"
+COL_RF_CACHE = "risk_free_cache"
 
 # ==================== Job Tracker ====================
 JOBS: Dict[str, Dict[str, Any]] = {}
@@ -91,9 +127,32 @@ async def lifespan(app: FastAPI):
         db[COL_OPT_HISTORY].create_index([("symbol", ASCENDING), ("time", DESCENDING)])
         db[COL_OPT_HISTORY].create_index([("underlying", ASCENDING), ("time", DESCENDING)])
         db[COL_OPT_HISTORY].create_index([("time", DESCENDING)])
+        db[COL_RF_CACHE].create_index([("date", DESCENDING)], unique=True)
         print("✅ Indexes ready")
     except Exception as e:
         print(f"Index error: {e}")
+
+    # 🆕 fetch اولیه + refresh خودکار هر ۶ ساعت
+    def _rf_refresh_loop():
+        import time
+        # fetch اولیه
+        try:
+            rate = get_current_rf(force=True)
+            print(f"✅ RF initial fetch: {rate:.4f}")
+        except Exception as e:
+            print(f"❌ RF initial fetch failed: {e}")
+        # loop
+        while True:
+            time.sleep(6 * 3600)  # 6 ساعت
+            try:
+                rate = get_current_rf(force=True)
+                print(f"✅ RF refresh: {rate:.4f}")
+            except Exception as e:
+                print(f"❌ RF refresh failed: {e}")
+
+    rf_thread = threading.Thread(target=_rf_refresh_loop, daemon=True)
+    rf_thread.start()
+
     yield
     client.close()
 
