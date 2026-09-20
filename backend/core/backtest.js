@@ -185,6 +185,10 @@ async function saveTradeCache(sigHash, signature, coveredFrom, coveredTo, trades
  * computeFn(cfg, from, to) باید آرایه trades برگردونه.
  */
 async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
+    // 🆕 normalize for cache filtering (null → sane defaults)
+    const fromV = from || 0;
+    const toV = to || Number.MAX_SAFE_INTEGER;
+
     const signature = buildSignature(cfg, mode);
     const sigHash = makeCacheKey(signature);
     const cached = await loadTradeCache(sigHash);
@@ -198,8 +202,10 @@ async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
     }
 
     // B) cache کامل پوشش می‌ده
-    if (cached.coveredFrom <= from && cached.coveredTo >= to) {
-        const filtered = cached.trades.filter(t => t.entryTime >= from && t.entryTime <= to);
+    const cachedFrom = cached.coveredFrom || 0;
+    const cachedTo = cached.coveredTo || Number.MAX_SAFE_INTEGER;
+    if (cachedFrom <= fromV && cachedTo >= toV) {
+        const filtered = cached.trades.filter(t => t.entryTime >= fromV && t.entryTime <= toV);
         return { trades: filtered, cached: true, computedRanges: [], signature: sigHash };
     }
 
