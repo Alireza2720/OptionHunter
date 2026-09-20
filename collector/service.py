@@ -25,6 +25,31 @@ import algotik_tse as att
 import requests
 from pymongo import MongoClient, ASCENDING, DESCENDING, UpdateOne
 
+# === Analytics (فاز ۰.۱) ===
+from option_analyzer import analyze_snapshot
+
+COL_OPT_HISTORY = "option_history"
+
+# Risk-free rate cache (per-day)
+_RF_CACHE = {"rate": 0.42, "date": None}
+
+
+def get_current_rf():
+    """نرخ بدون ریسک روزانه از اخزا"""
+    today = datetime.utcnow().date()
+    if _RF_CACHE["date"] == today:
+        return _RF_CACHE["rate"]
+    try:
+        treasuries = att.get_treasury_yields(min_volume=1)
+        if treasuries is not None and len(treasuries) > 0:
+            rate = float(treasuries["EffectiveAnnualYield"].median())
+            _RF_CACHE["rate"] = rate
+            _RF_CACHE["date"] = today
+            log_event("rf_update", f"risk-free updated: {rate:.4f}")
+            return rate
+    except Exception as e:
+        log_event("rf_error", str(e))
+    return _RF_CACHE["rate"]
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
 MONGO_DB = os.getenv("MONGO_DB", "trading_bot")
 PORT = int(os.getenv("PORT", "5000"))
@@ -63,6 +88,9 @@ async def lifespan(app: FastAPI):
         db[COL_OPT_DAILY].create_index([("ins_code", ASCENDING), ("date", DESCENDING)], unique=True)
         db[COL_OPT_DAILY].create_index([("underlying", ASCENDING)])
         db[COL_LOG].create_index([("at", DESCENDING)])
+                db[COL_OPT_HISTORY].create_index([("symbol", ASCENDING), ("time", DESCENDING)])
+        db[COL_OPT_HISTORY].create_index([("underlying", ASCENDING), ("time", DESCENDING)])
+        db[COL_OPT_HISTORY].create_index([("time", DESCENDING)])
         print("✅ Indexes ready")
     except Exception as e:
         print(f"Index error: {e}")
@@ -214,6 +242,31 @@ def fetch_option_snapshot_sync(underlyings):
             if records:
                 db[COL_OPT_SNAP].insert_many(records, ordered=False)
                 total += len(records)
+
+                # 🆕 تحلیل + ذخیره در option_history
+                try:
+                    rf = get_current_rf()
+                    analysis_docs = analyze_snapshot(records, risk_free_rate=rf)
+                    if analysis_docs:
+                        ops = [
+                            UpdateOne(
+                                {"symbol": d["symbol"], "time": d["time"]},
+                                {"$set": d},
+                                upsert=True,
+                            )
+                            for d in analysis_docs
+                        ]
+                        res = db[COL_OPT_HISTORY].bulk_write(ops, ordered=False)
+                        log_event(
+                            "option_analyzed",
+                            f"{ua}: {len(analysis_docs)} docs → option_history",
+                            {"underlying": ua,
+                             "docs": len(analysis_docs),
+                             "upserted": res.upserted_count,
+                             "modified": res.modified_count},
+                        )
+                except Exception as e:
+                    log_event("analyze_err", f"{ua}: {e}", {"underlying": ua, "error": str(e)})
 
             results.append({"underlying": ua, "status": "ok", "contracts": len(records)})
             log_event("option_snapshot_ok", f"{ua}: {len(records)} contracts", {"underlying": ua, "count": len(records)})
