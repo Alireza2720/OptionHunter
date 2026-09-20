@@ -197,9 +197,18 @@ def main():
     print(f"[info] src={SRC_COL} dst={DST_COL} dry-run={args.dry_run}")
 
     if not args.dry_run:
-        db[DST_COL].create_index([("symbol", ASCENDING), ("time", ASCENDING)], unique=True)
-        db[DST_COL].create_index([("underlying", ASCENDING), ("time", ASCENDING)])
-        db[DST_COL].create_index([("time", ASCENDING)])
+        try:
+            db[DST_COL].create_index([("symbol", ASCENDING), ("time", ASCENDING)])
+        except Exception as e:
+            print(f"[warn] index symbol+time: {e}")
+        try:
+            db[DST_COL].create_index([("underlying", ASCENDING), ("time", ASCENDING)])
+        except Exception as e:
+            print(f"[warn] index underlying+time: {e}")
+        try:
+            db[DST_COL].create_index([("time", ASCENDING)])
+        except Exception as e:
+            print(f"[warn] index time: {e}")
 
     rf = get_risk_free(args.rf)
     print(f"[info] risk-free rate = {rf:.4f}")
