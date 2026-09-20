@@ -159,6 +159,34 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // ---- 🆕 PIT: چک همپوشانی train/backtest ----
+    app.get('/api/jobs/overlap-check/:configId', async (req, res, next) => {
+        try {
+            const { ObjectId } = require('mongodb');
+            const { checkTrainTestOverlap } = require('../../core/pit');
+            const cfg = await deps.getDB().collection(COLLECTIONS.STRATEGY_CONFIGS)
+                .findOne({ _id: new ObjectId(req.params.configId) });
+            if (!cfg) return res.status(404).json({ error: 'config یافت نشد' });
+
+            const from = req.query.from ? parseInt(req.query.from) : null;
+            const to = req.query.to ? parseInt(req.query.to) : null;
+
+            const result = checkTrainTestOverlap(
+                [cfg.trainedFrom || null, cfg.trainedTo || null],
+                [from, to]
+            );
+
+            res.json({
+                configId: req.params.configId,
+                training: { from: cfg.trainedFrom, to: cfg.trainedTo },
+                backtest: { from, to },
+                overlap: result.overlap,
+                severity: result.severity,
+                message: result.message,
+            });
+        } catch (e) { next(e); }
+    });
+
     // ---- Auto-configure (sync preview - برای سازگاری) ----
     app.post('/api/auto-configure/preview', async (req, res, next) => {
         try {

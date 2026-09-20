@@ -353,13 +353,15 @@ async function runAutoConfigJob(job) {
 
     if (dryRun) return { plans, applied: false };
 
-    const applied = await applyAutoConfig(plans);
+    const applied = await applyAutoConfig(plans, { from: fromTs, to: toTs });
     return { plans, applied: true, results: applied };
 }
 
-async function applyAutoConfig(plans) {
+async function applyAutoConfig(plans, trainingMeta = null) {
     const db = deps.getDB();
     const applied = [];
+    const trainedFrom = trainingMeta ? trainingMeta.from : null;
+    const trainedTo = trainingMeta ? trainingMeta.to : null;
 
     for (const p of plans) {
         if (p.error || !p.leader) {
@@ -394,6 +396,10 @@ async function applyAutoConfig(plans) {
             enabled: true,
             role: 'leader',
             autoConfigured: true,
+            // 🆕 PIT: tag with training range
+            trainedFrom,
+            trainedTo,
+            trainedAt: new Date(),
             createdAt: new Date()
         };
         const r1 = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).insertOne(leaderDoc);
@@ -413,6 +419,10 @@ async function applyAutoConfig(plans) {
                 enabled: true,
                 role: 'confirmer',
                 autoConfigured: true,
+                // 🆕 PIT: tag with training range
+                trainedFrom,
+                trainedTo,
+                trainedAt: new Date(),
                 createdAt: new Date()
             };
             const r2 = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).insertOne(cDoc);

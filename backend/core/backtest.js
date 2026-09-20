@@ -14,6 +14,7 @@ const {
     ERROR_CODES,
     TRADING_DAYS_PER_YEAR
 } = require('../config/constants');
+const { checkTrainTestOverlap } = require('./pit');
 
 let deps = {
     getDB: null,
@@ -761,6 +762,14 @@ async function runBacktest(cfg, from, to, opts = {}) {
     // آمار پیشرفته — روی معاملات آپشن (چون خروجی واقعی کاربر)
     const advanced = computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles);
 
+    // 🆕 PIT: چک همپوشانی train/test
+    const trainedFrom = cfg.trainedFrom || (opts.trainingMeta && opts.trainingMeta.trainedFrom) || null;
+    const trainedTo = cfg.trainedTo || (opts.trainingMeta && opts.trainingMeta.trainedTo) || null;
+    const overlapCheck = checkTrainTestOverlap(
+        [trainedFrom, trainedTo],
+        [from || null, to || null]
+    );
+
     return {
         stockTradesCount: tradeRes.trades.length,
         stockClosedCount: tradeRes.trades.length,
@@ -772,6 +781,10 @@ async function runBacktest(cfg, from, to, opts = {}) {
         stockStats,
         optionStats,
         advanced,
+        // 🆕 PIT
+        trainingMeta: { trainedFrom, trainedTo },
+        overlapWarning: overlapCheck.overlap ? overlapCheck.message : null,
+        overlapSeverity: overlapCheck.severity,
         ...optionResult
     };
 }
