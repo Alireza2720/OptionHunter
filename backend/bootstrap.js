@@ -34,6 +34,7 @@ const settingsModule = require('./settings');
 const tickJob = require('./jobs/tick.job');
 const eodJob = require('./jobs/eod.job');
 const autoConfigJob = require('./jobs/auto-config.job');
+const riskFreeJob = require('./jobs/risk-free.job');
 
 // strategies
 const strategiesModule = require('./strategies');
@@ -218,6 +219,17 @@ async function bootstrap() {
         logger
     });
 
+    // 🆕 risk-free job
+    riskFreeJob.init({
+        getDB: mongo.getDB,
+        settings: settingsModule,
+        logger
+    });
+
+    // refresh اولیه (async)
+    await riskFreeJob.refresh().catch(e =>
+        logger.warn('risk-free initial refresh: ' + e.message)
+    );
     // 13) symbols cache
     await loadSymbolsCache();
 
@@ -262,6 +274,7 @@ async function bootstrap() {
         tickJob,
         eodJob,
         autoConfigJob,
+        riskFreeJob,
         // misc
         strategies: strategiesModule,
         getUnderlyingNames,

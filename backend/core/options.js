@@ -192,6 +192,12 @@ async function saveSettings(values) {
 }
 
 function getRiskFree() {
+    // 🆕 اول از cache روزانه (risk-free.job)
+    if (deps.settings && typeof deps.settings.getRiskFreeRate === 'function') {
+        const r = deps.settings.getRiskFreeRate();
+        if (Number.isFinite(r) && r > 0) return r;
+    }
+    // Fallback: مقدار ثابت settings
     const s = deps.settings ? deps.settings.get() : {};
     return s.RISK_FREE_RATE || 0.23;
 }

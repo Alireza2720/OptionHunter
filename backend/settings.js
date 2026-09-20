@@ -54,6 +54,32 @@ const DEFAULTS = {
 let values = { ...DEFAULTS };
 let strategyDefaults = {};  // { strategyId: {params...} }
 
+// 🆕 Risk-free dynamic cache (از risk-free.job)
+let cachedRiskFreeRate = null;
+let cachedRiskFreeDate = null;
+
+function setRiskFreeRate(rate, date) {
+    if (Number.isFinite(rate) && rate > 0) {
+        cachedRiskFreeRate = rate;
+        cachedRiskFreeDate = date || new Date().toISOString().slice(0, 10);
+    }
+}
+
+function getRiskFreeRate() {
+    if (Number.isFinite(cachedRiskFreeRate) && cachedRiskFreeRate > 0) {
+        return cachedRiskFreeRate;
+    }
+    return values.RISK_FREE_RATE || 0.23;
+}
+
+function getRiskFreeMeta() {
+    return {
+        rate: cachedRiskFreeRate,
+        date: cachedRiskFreeDate,
+        fallback: !Number.isFinite(cachedRiskFreeRate),
+    };
+}
+
 function envDefaults() {
     const num = (v, fallback) => { const n = parseFloat(String(v == null ? '' : v).trim()); return Number.isFinite(n) ? n : fallback; };
     const time = (v, fallback) => { const s = String(v == null ? '' : v).trim(); return /^\d{1,2}:\d{2}$/.test(s) ? s : fallback; };
@@ -183,5 +209,6 @@ module.exports = {
     signalFactor, levelFactor, ivFactor,
     confluenceTimeWindow, multiConfirmerMin, multiConfirmerWindow,
     minTargetPct,
-    getStrategyDefaults, getAllStrategyDefaults, saveStrategyDefaults, resetStrategyDefaults
+    getStrategyDefaults, getAllStrategyDefaults, saveStrategyDefaults, resetStrategyDefaults,
+    setRiskFreeRate, getRiskFreeRate, getRiskFreeMeta,
 };
