@@ -1193,7 +1193,8 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                 allSec.push(t.entryFillTime || t.entryTime);
                 allSec.push(t.exitFillTime || t.exitTime);
             }
-            const WINDOW_MS = 30 * 60 * 1000;
+            // 🆕 window 24h برای پوشش migrated_daily (EOD timestamps)
+            const WINDOW_MS = 24 * 3600 * 1000;
             const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
             const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
 
