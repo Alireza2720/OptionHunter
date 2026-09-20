@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pymongo
+algotik-tse>=1.8.0
+requests
+pydantic
