@@ -960,8 +960,18 @@ async function tryGetRealTradeData(symbol, t, p) {
     }
     if (!exitBid) return null;
 
-    const entryCost = best.ask * (1 + FEE_BUY);
-    const exitProceeds = exitBid * (1 - FEE_SELL);
+    // 🆕 قیمت مؤثر: اگه تخمینی، از close استفاده کن
+    const bestAsk = best.bidEstimated ? (best.close || best.last) : best.ask;
+    const bestBid = best.bidEstimated ? (best.close || best.last) : best.bid;
+    const exitRowAsk = exitRow && exitRow.bidEstimated ? (exitRow.close || exitRow.last) : (exitRow ? exitRow.ask : null);
+    const exitRowBid = exitRow && exitRow.bidEstimated ? (exitRow.close || exitRow.last) : exitBid;
+
+    // 🆕 fallback: اگه bid/ask تخمینی بود، از close استفاده کن
+    const effectiveEntryAsk = (best.bidEstimated && best.close) ? best.close : best.ask;
+    const effectiveExitBid = (exitRow && exitRow.bidEstimated && exitRow.close) ? exitRow.close : exitBid;
+
+    const entryCost = effectiveEntryAsk * (1 + FEE_BUY);
+    const exitProceeds = effectiveExitBid * (1 - FEE_SELL);
     const spreadPct = best.bid > 0 && best.ask > 0
         ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100 : null;
 
@@ -996,7 +1006,8 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const entrySec = (t.entryFillTime || t.entryTime) + OPT_LATENCY_SEC;
     const exitSec = (t.exitFillTime || t.exitTime) + OPT_LATENCY_SEC;
 
-    const WINDOW_SEC = 30 * 60;
+    // 🆕 window گسترده‌تر برای پوشش دیتای daily (trade intraday + EOD close)
+    const WINDOW_SEC = 6 * 3600;
 
     // جمع کردن همه قراردادها تو بازه ورود
     const candidateRows = [];
@@ -1004,7 +1015,10 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         for (const r of rows) {
             const sec = Math.floor(new Date(r.time).getTime() / 1000);
             if (sec >= entrySec - WINDOW_SEC && sec <= entrySec + WINDOW_SEC) {
-                if (r.bid > 0 && r.ask > 0 && r.oi > 0) {
+                // 🆕 اگه bid/ask تخمینی یا صفر بودن، از close استفاده کن
+                const hasBidAsk = r.bid > 0 && r.ask > 0;
+                const hasClose = r.close > 0 || r.last > 0;
+                if (hasBidAsk || hasClose) {
                     candidateRows.push(r);
                 }
             }
