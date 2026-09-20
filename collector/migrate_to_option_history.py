@@ -102,6 +102,17 @@ def rows_to_df(rows):
             "Name": r.get("name"),
             "OptionType": (r.get("option_type") or "call").lower(),
             "UnderlyingSymbol": r.get("underlying"),
+            "UnderlyingSymbol": r.get("underlying"),
+            "UnderlyingInsCode": None,  # 🆕
+            "UnderlyingName": None,      # 🆕
+            "PairID": None,              # 🆕
+            "PairSequence": None,        # 🆕
+            "ISIN": None,                # 🆕
+            "BeginDate": None,           # 🆕
+            "Yesterday": r.get("yesterday") or 0,  # 🆕
+            "NotionalValue": None,       # 🆕
+            "ImpliedVolatility": None,   # 🆕
+            "IVStatus": None,            # 🆕
             "ContractSize": r.get("contract_size") or 1000,
             "Strike": r.get("strike"),
             "EndDate": r.get("end_date"),
@@ -235,7 +246,9 @@ def main():
                 progress=False,
             )
         except Exception as e:
-            print(f"[warn] analyze failed {underlying}@{ts}: {e}")
+            import traceback
+            print(f"[warn] analyze failed {underlying}@{ts}: {type(e).__name__}: {e}")
+            traceback.print_exc()
             analysis = df
             errors += 1
 
