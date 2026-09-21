@@ -6,6 +6,65 @@ from typing import Any
 from pymongo import UpdateOne
 from .db import get_db, COL_CANDLES_BASE, COL_CANDLES_DAILY
 
+
+# ----------------------------------------------------------------
+# Jalali → Gregorian (بدون وابستگی خارجی)
+# ----------------------------------------------------------------
+def _jalali_to_gregorian(jy, jm, jd):
+    jy += 1595
+    days = -355668 + (365 * jy) + (jy // 33) * 8 + ((jy % 33) + 3) // 4 + jd + \
+           ((jm - 1) * 31 if jm < 7 else ((jm - 7) * 30) + 186)
+    gy = 400 * (days // 146097)
+    days %= 146097
+    if days > 36524:
+        days -= 1
+        gy += 100 * (days // 36524)
+        days %= 36524
+        if days >= 365:
+            days += 1
+    gy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        gy += (days - 1) // 365
+        days = (days - 1) % 365
+    gd = days + 1
+    leap = (gy % 4 == 0 and gy % 100 != 0) or (gy % 400 == 0)
+    sal_a = [0, 31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    gm = 0
+    while gm < 13 and gd > sal_a[gm]:
+        gd -= sal_a[gm]
+        gm += 1
+    return gy, gm, gd
+
+
+def _parse_index_date(idx):
+    """تاریخ index (شمسی یا میلادی) رو به datetime میلادی UTC تبدیل کن."""
+    # اگر string بود
+    if isinstance(idx, str):
+        s = idx.strip().split('T')[0].split(' ')[0]
+        parts = s.split('-')
+        if len(parts) == 3:
+            y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+            if y < 1700:  # Jalali
+                gy, gm, gd = _jalali_to_gregorian(y, m, d)
+                return datetime(gy, gm, gd, tzinfo=timezone.utc)
+            return datetime(y, m, d, tzinfo=timezone.utc)
+        return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+
+    # اگر datetime / Timestamp بود
+    dt = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
+    if not isinstance(dt, datetime):
+        raise ValueError(f"unknown index type: {type(idx)}")
+
+    # اگه سال < 1700 → یعنی یه جایی شمسی بوده
+    if dt.year < 1700:
+        gy, gm, gd = _jalali_to_gregorian(dt.year, dt.month, dt.day)
+        return datetime(gy, gm, gd, dt.hour, dt.minute, dt.second, tzinfo=timezone.utc)
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
 def fetch_intraday_1m(symbol, from_date, to_date):
     """Fetch 1m OHLC (both jalali and gregorian strings accepted)."""
     try:
@@ -46,7 +105,12 @@ def fetch_daily(symbol, from_date=None, to_date=None, limit=0):
         if from_date: kwargs['start'] = from_date
         if to_date: kwargs['end'] = to_date
         if limit: kwargs['limit'] = limit
-        df = att.get_history(symbol, **kwargs)
+        # بهترین تلاش برای گرفتن تاریخ میلادی از algotik
+        try:
+            df = att.get_history(symbol, date_format='gregorian', **kwargs)
+        except TypeError:
+            # نسخه‌های قدیمی‌تر ممکنه این پارامتر رو نشناسن
+            df = att.get_history(symbol, **kwargs)
     except Exception as e:
         return [], str(e)
 
@@ -56,11 +120,7 @@ def fetch_daily(symbol, from_date=None, to_date=None, limit=0):
     records = []
     for idx, row in df.iterrows():
         try:
-            ts = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
-            if isinstance(ts, str):
-                ts = datetime.fromisoformat(ts)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+            ts = _parse_index_date(idx)   # ← فیکس اصلی
             o, h, l, c = float(row['Open']), float(row['High']), float(row['Low']), float(row['Close'])
             if not (o > 0 and h > 0 and l > 0 and c > 0):
                 continue
