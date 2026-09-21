@@ -39,8 +39,26 @@ COLLECTIONS_KEEP = [
     'collector_log',
     'meta',
 ]
+import os
+MARKER = '/opt/collector/.wipe_done_2026_06_09'
 
+def check_marker():
+    if os.path.exists(MARKER):
+        print(f"❌ این wipe قبلاً اجرا شده (marker: {MARKER})")
+        print("   برای اجرای مجدد، اول marker رو پاک کن:")
+        print(f"   sudo rm {MARKER}")
+        sys.exit(1)
+
+def set_marker():
+    try:
+        with open(MARKER, 'w') as f:
+            f.write(datetime.now(timezone.utc).isoformat())
+        print(f"🔒 marker ثبت شد: {MARKER}")
+    except Exception as e:
+        print(f"⚠️  نتونستم marker بنویسم: {e}")
 def main(dry_run=True):
+    if not dry_run:
+        check_marker()
     db = get_db()
     print("=" * 72)
     print(f"CUTOFF_DATE : {CUTOFF_DATE.isoformat()}")
@@ -95,8 +113,8 @@ def main(dry_run=True):
     print(f"TOTAL DELETED: {total_deleted:,}")
     if dry_run:
         print("\n⚠️  DRY-RUN — no changes were made.")
-        print("   To apply: python wipe_keep_recent.py --confirm")
     else:
+        set_marker()
         print("\n✅ Wipe complete. Data now spans ~3.5 months.")
     print("=" * 72)
 
