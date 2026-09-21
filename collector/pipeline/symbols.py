@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+from datetime import datetime, timezone
+from .db import get_db, COL_MONITORED
+
+
 def list_symbols(only_enabled=False):
     db = get_db()
     if only_enabled:
@@ -7,8 +12,10 @@ def list_symbols(only_enabled=False):
         q = {}
     return list(db[COL_MONITORED].find(q).sort('symbol', 1))
 
+
 def get_enabled_names():
     return [s['symbol'] for s in list_symbols(only_enabled=True)]
+
 
 def add_symbol(symbol, name=None):
     db = get_db()
@@ -26,10 +33,12 @@ def add_symbol(symbol, name=None):
     )
     return list_symbols()
 
+
 def remove_symbol(symbol):
     db = get_db()
     r = db[COL_MONITORED].delete_one({'symbol': symbol})
     return r.deleted_count > 0
+
 
 def set_enabled(symbol, enabled):
     db = get_db()

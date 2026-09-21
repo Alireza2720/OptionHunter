@@ -6,6 +6,9 @@
 <title>شکارچی آپشن</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@majidh1/jalalidatepicker@1.0.0/dist/jalalidatepicker.min.css">
+<script src="https://unpkg.com/@majidh1/jalalidatepicker@1.0.0/dist/jalalidatepicker.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/jalali-date-picker@1.0.8/dist/jalali-date-picker.min.css">
 <script src="https://unpkg.com/jalali-date-picker@1.0.8/dist/jalali-date-picker.min.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -1052,12 +1055,29 @@ function jdpNormalize(str) {
     return String(str || '').trim().replace(/\//g, '-');
 }
 
-function jdpInit() {
+function jdpInit(attempt) {
+    attempt = attempt || 0;
     if (typeof jalaliDatepicker === 'undefined') {
-        console.warn('jalaliDatepicker not loaded');
+        if (attempt < 20) {
+            // تا ۱۰ ثانیه صبر کن، شاید script داره لود می‌شه
+            setTimeout(() => jdpInit(attempt + 1), 500);
+        } else {
+            console.warn('jalaliDatepicker not loaded after 10s — fallback به input معمولی');
+        }
         return;
     }
     const from = document.getElementById('algotikFromDate');
+    const to   = document.getElementById('algotikToDate');
+    if (from && !from.value) from.value = jdpMonthsAgo(3);
+    if (to   && !to.value)   to.value   = jdpTodayJalali();
+    jalaliDatepicker.startWatch({
+        selector: 'input[data-jdp]',
+        minDate: '1400/01/01',
+        maxDate: 'today',
+        zIndex: 3000,
+    });
+    console.log('✅ jalaliDatepicker initialized');
+}
     const to   = document.getElementById('algotikToDate');
     if (from && !from.value) from.value = jdpMonthsAgo(3);
     if (to   && !to.value)   to.value   = jdpTodayJalali();
@@ -1073,7 +1093,7 @@ function jdpInit() {
         date: true,
         time: false,
     });
-}
+
 
 window.addEventListener('load', async () => {
     if (!await waitForBackend()) { document.getElementById('bootMessage').textContent = 'اتصال برقرار نشد.'; document.getElementById('bootRetryBtn').style.display = 'inline-block'; return; }
