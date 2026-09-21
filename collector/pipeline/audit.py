@@ -27,11 +27,23 @@ def _months_between(from_dt, to_dt):
 
 def _find_earliest_data_date():
     """Find the earliest date we actually have option data for.
-    This is the natural anchor for audit — since option data is the limiting factor."""
+
+    Normalizes all candidates to naive UTC to avoid aware/naive mismatch.
+    """
     db = get_db()
     candidates = []
 
-    # From option_daily_algotik (most reliable signal)
+    def _to_naive_utc(d):
+        """Convert any datetime to naive UTC."""
+        if d is None:
+            return None
+        if not isinstance(d, datetime):
+            return None
+        if d.tzinfo is not None:
+            d = d.astimezone(timezone.utc).replace(tzinfo=None)
+        return d
+
+    # From option_daily_algotik (date string)
     doc = db['option_daily_algotik'].find_one(
         {'date': {'$exists': True}},
         sort=[('date', 1)],
@@ -39,21 +51,31 @@ def _find_earliest_data_date():
     )
     if doc and doc.get('date'):
         try:
-            d = datetime.strptime(doc['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            d = datetime.strptime(doc['date'], '%Y-%m-%d')  # naive
             candidates.append(d)
         except Exception:
             pass
 
-    # From option_history
+    # From option_history (datetime, possibly naive)
     doc2 = db[COL_OPTION_HISTORY].find_one(
         {'time': {'$exists': True}},
         sort=[('time', 1)],
         projection={'time': 1},
     )
     if doc2 and doc2.get('time'):
-        candidates.append(doc2['time'])
+        d = _to_naive_utc(doc2['time'])
+        if d is not None:
+            candidates.append(d)
 
-    return min(candidates) if candidates else None
+    if not candidates:
+        return None
+
+    earliest = min(candidates)
+
+    # Return as aware UTC (for the rest of audit which uses aware datetime)
+    if earliest.tzinfo is None:
+        return earliest.replace(tzinfo=timezone.utc)
+    return earliest
 
 def audit_symbol(symbol, from_date=None, to_date=None):
     """Audit one symbol. Returns detailed coverage report."""

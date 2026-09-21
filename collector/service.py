@@ -201,6 +201,15 @@ def _run_full_backfill(job_id: str, payload: dict):
         date_from = payload['dateFrom']
         date_to = payload['dateTo']
 
+        # 🆕 CLAMP: نمی‌ذاریم قبل از این تاریخ چیزی بیاد
+        # چون option data از این تاریخ شروع می‌شه
+        DATA_FLOOR = '2026-06-09'
+        if isinstance(date_from, str) and date_from < DATA_FLOOR:
+            date_from = DATA_FLOOR
+            log('backfill_clamp', f'dateFrom clamped to {DATA_FLOOR}')
+        if isinstance(date_to, str) and date_to < DATA_FLOOR:
+            job_mod.append_warning(job_id, f'dateTo {date_to} < floor {DATA_FLOOR} — no data')
+
         stats = {
             'stock_intraday': {'symbols_done': 0, 'candles': 0, 'errors': 0},
             'stock_daily': {'symbols_done': 0, 'candles': 0, 'errors': 0},
