@@ -11,7 +11,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(__file__))
 
 from pipeline.db import (
-    ensure_indexes, get_db, log,
+    cleanup_legacy_indexes, ensure_indexes, get_db, log,
     COL_RISK_FREE, COL_MONITORED,
     COL_CANDLES_BASE, COL_CANDLES_DAILY,
     COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
@@ -24,7 +24,13 @@ from pipeline import aggregate as agg_mod
 from pipeline import jobs as job_mod
 from pipeline import report as rpt_mod
 from pipeline import live as live_mod
-
+from pipeline.db import (
+    ensure_indexes, cleanup_legacy_indexes, get_db, log,   # ← cleanup اضافه شد
+    COL_RISK_FREE, COL_MONITORED,
+    COL_CANDLES_BASE, COL_CANDLES_DAILY,
+    COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
+    COL_LOG,
+)
 
 # ---------- Risk-free ----------
 _rf_cache = {'rate': 0.42, 'date': None}
@@ -72,6 +78,7 @@ app = FastAPI(title='OptionHunter Collector')
 @app.on_event('startup')
 def _startup():
     ensure_indexes()
+    cleanup_legacy_indexes()
     print('✅ indexes ready')
     # initial RF
     try:
