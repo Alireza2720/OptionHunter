@@ -25,6 +25,35 @@ def _months_between(from_dt, to_dt):
     """Count months between two dates."""
     return (to_dt.year - from_dt.year) * 12 + (to_dt.month - from_dt.month) + 1
 
+def _find_earliest_data_date():
+    """Find the earliest date we actually have option data for.
+    This is the natural anchor for audit — since option data is the limiting factor."""
+    db = get_db()
+    candidates = []
+
+    # From option_daily_algotik (most reliable signal)
+    doc = db['option_daily_algotik'].find_one(
+        {'date': {'$exists': True}},
+        sort=[('date', 1)],
+        projection={'date': 1},
+    )
+    if doc and doc.get('date'):
+        try:
+            d = datetime.strptime(doc['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            candidates.append(d)
+        except Exception:
+            pass
+
+    # From option_history
+    doc2 = db[COL_OPTION_HISTORY].find_one(
+        {'time': {'$exists': True}},
+        sort=[('time', 1)],
+        projection={'time': 1},
+    )
+    if doc2 and doc2.get('time'):
+        candidates.append(doc2['time'])
+
+    return min(candidates) if candidates else None
 
 def audit_symbol(symbol, from_date=None, to_date=None):
     """Audit one symbol. Returns detailed coverage report."""
@@ -152,20 +181,37 @@ def audit_symbol(symbol, from_date=None, to_date=None):
     return result
 
 
-def audit_all(symbols=None, days=730):
-    """Audit all symbols (or specific list). Returns summary + per-symbol."""
+def audit_all(symbols=None, days=None):
+    """Audit all symbols.
+
+    Args:
+        days: If None → dynamic mode (uses earliest option data as anchor).
+              If int  → fixed N-day lookback.
+    """
     db = get_db()
     if not symbols:
         symbols = [s['symbol'] for s in db[COL_MONITORED].find({})]
 
     to_date = datetime.now(timezone.utc)
-    from_date = to_date - timedelta(days=days)
+
+    if days is None:
+        earliest = _find_earliest_data_date()
+        if earliest:
+            from_date = earliest
+            mode = 'dynamic'
+        else:
+            from_date = to_date - timedelta(days=730)
+            mode = 'fallback_730'
+    else:
+        from_date = to_date - timedelta(days=days)
+        mode = 'fixed'
 
     reports = []
     summary = {'ok': 0, 'warn': 0, 'critical': 0}
     for sym in symbols:
         try:
             r = audit_symbol(sym, from_date, to_date)
+            r['audit_mode'] = mode
             reports.append(r)
             summary[r['overall']] = summary.get(r['overall'], 0) + 1
         except Exception as e:
@@ -174,7 +220,8 @@ def audit_all(symbols=None, days=730):
 
     return {
         'at': datetime.now(timezone.utc).isoformat(),
-        'period_days': days,
+        'audit_mode': mode,
+        'period_days': (to_date - from_date).days,
         'from': from_date.isoformat()[:10],
         'to': to_date.isoformat()[:10],
         'summary': summary,
