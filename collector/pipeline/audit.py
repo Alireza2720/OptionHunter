@@ -218,19 +218,51 @@ def audit_symbol(symbol, from_date=None, to_date=None):
         'month_coverage_pct': round(opt_month_cov, 1),
     }
 
+    # 🆕 Thresholds هوشمند:
+    # - اگه بازار خودش کوچیکه (opt_total < 50)، threshold رو نسبی حساب کن
+    # - اگه option coverage کمه ولی دلیلش شروع دیرهنگامه → WARN نه CRIT
+
+    # Option month coverage
     if opt_month_cov < 60:
-        result['issues'].append('option month coverage {:.0f}% < 60%'.format(opt_month_cov))
+        if opt_total < 30:
+            # بازار کوچک — طبیعی
+            result['issues'].append('option month coverage {:.0f}% (small market)'.format(opt_month_cov))
+        else:
+            result['issues'].append('option month coverage {:.0f}% < 60%'.format(opt_month_cov))
+
+    # IV coverage
     if opt_total > 0 and opt_with_iv / opt_total < 0.20:
         result['issues'].append('option IV coverage only {:.0f}%'.format(result['option']['iv_pct']))
-    if opt_total > 0 and opt_with_delta_range < 100:
-        result['issues'].append('delta-range contracts only {}'.format(opt_with_delta_range))
+
+    # Delta-range (نسبی نه مطلق)
+    if opt_total > 0:
+        delta_pct = opt_with_delta_range / opt_total * 100
+        # آستانه: حداقل ۲۰٪ قراردادها در delta range، یا حداقل ۱۰ قرارداد
+        if delta_pct < 20 and opt_with_delta_range < 10:
+            result['issues'].append('delta-range contracts only {} ({:.0f}%)'.format(
+                opt_with_delta_range, delta_pct))
 
     # ---- Overall ----
-    critical_issues = [i for i in result['issues'] if '0%' in i or '< 30%' in i or 'only 0' in i]
-    if critical_issues or not base_docs:
+    # 🆕 استثنا: نمادهایی که اصلاً آپشن ندارن (سینرژی) واقعاً critical هستن
+    # ولی نمادهای بازار-کوچک با coverage محدود → warn
+    no_options = opt_total == 0
+    small_market = opt_total > 0 and opt_total < 30
+
+    critical_issues = [
+        i for i in result['issues']
+        if '< 30%' in i and not small_market
+    ]
+
+    if not base_docs:
+        result['overall'] = 'critical'
+    elif no_options:
+        result['overall'] = 'critical'   # سینرژی → واقعا critical
+    elif critical_issues:
         result['overall'] = 'critical'
     elif len(result['issues']) > 0:
         result['overall'] = 'warn'
+    else:
+        result['overall'] = 'ok'
 
     return result
 
