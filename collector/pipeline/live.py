@@ -22,6 +22,9 @@ def _is_market_open():
     mins = local.hour * 60 + local.minute
     return 9*60 <= mins <= 12*60 + 35
 
+_last_snap = {}  # symbol -> {tvol, tno, at}
+
+
 def _tick_loop(get_symbols, get_rf, interval_sec):
     global _running
     _running = True
@@ -41,6 +44,7 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
                 if live is not None and len(live) > 0:
                     records = json.loads(live.to_json(orient='records', date_format='iso'))
                     ts = datetime.now(timezone.utc)
+                    now_ts = time.time()
                     docs = []
                     for r in records:
                         sym = r.get('Symbol')
@@ -49,12 +53,29 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
                         price = float(r.get('Last') or 0)
                         if price <= 0:
                             continue
+
+                        # 🆕 محاسبه volume delta (جلوگیری از double-count)
+                        tvol = float(r.get('Volume') or 0)
+                        tno = float(r.get('TradeCount') or 0)
+                        prev = _last_snap.get(sym)
+                        # اگه آخرین snap بیش از 8 ساعت پیش بوده → روز عوض شده
+                        stale = prev and (now_ts - prev.get('at', 0)) > 8 * 3600
+                        if not prev or stale or tvol < prev.get('tvol', 0):
+                            vol_delta = 0  # شروع روز جدید یا restart
+                        elif tvol >= prev.get('tvol', 0):
+                            vol_delta = tvol - prev.get('tvol', 0)
+                        else:
+                            vol_delta = 0
+                        _last_snap[sym] = {'tvol': tvol, 'tno': tno, 'at': now_ts}
+
                         docs.append({
                             'symbol': sym,
                             'time': ts,
                             'price': price,
                             'close': float(r.get('Close') or 0),
-                            'volume': float(r.get('Volume') or 0),
+                            'volume': tvol,
+                            'volumeDelta': vol_delta,   # 🆕
+                            'tradeCount': tno,
                             'individualPower': float(r.get('IndividualPower') or 0),
                             'bidPrice': float(r.get('BidPrice1') or 0),
                             'askPrice': float(r.get('AskPrice1') or 0),

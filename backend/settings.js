@@ -164,6 +164,14 @@ function ivFactor(ivHv) {
     const raw = values.IV_FACTOR_BASE / ivHv;
     return Math.min(values.IV_FACTOR_MAX, Math.max(values.IV_FACTOR_MIN, raw));
 }
+// 🆕 ضریب عمق دیتا — نمادهای با دیتای کم، وزن کم می‌گیرن
+function dataDepthFactor(days) {
+    if (!Number.isFinite(days) || days <= 0) return 0.5;   // نامعلوم → نصف
+    if (days >= 60) return 1.0;   // دیتای کامل
+    if (days >= 30) return 0.8;
+    if (days >= 14) return 0.5;
+    return 0.3;                    // خیلی کم → ۳۰٪
+}
 
 // ---- آستانه‌ی زمانی Confluence ----
 function confluenceTimeWindow() { return values.CONFLUENCE_TIME_WINDOW || 0; }
@@ -211,4 +219,5 @@ module.exports = {
     minTargetPct,
     getStrategyDefaults, getAllStrategyDefaults, saveStrategyDefaults, resetStrategyDefaults,
     setRiskFreeRate, getRiskFreeRate, getRiskFreeMeta,
+    signalFactor, levelFactor, ivFactor, dataDepthFactor,
 };

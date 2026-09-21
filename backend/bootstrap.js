@@ -35,6 +35,7 @@ const tickJob = require('./jobs/tick.job');
 const eodJob = require('./jobs/eod.job');
 const autoConfigJob = require('./jobs/auto-config.job');
 const riskFreeJob = require('./jobs/risk-free.job');
+const healthJob = require('./jobs/health.job');   // 🆕
 
 // strategies
 const strategiesModule = require('./strategies');
@@ -225,6 +226,13 @@ async function bootstrap() {
         settings: settingsModule,
         logger
     });
+    // 🆕 health job
+    healthJob.init({
+        algotik,
+        telegram,
+        logger,
+        getDB: mongo.getDB
+    });
 
     // refresh اولیه (async)
     await riskFreeJob.refresh().catch(e =>
@@ -275,6 +283,7 @@ async function bootstrap() {
         eodJob,
         autoConfigJob,
         riskFreeJob,
+        healthJob,   // 🆕
         // misc
         strategies: strategiesModule,
         getUnderlyingNames,

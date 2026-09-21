@@ -70,6 +70,17 @@ function register(app, deps) {
             res.json(r);
         } catch (e) { next(e); }
     });
+
+    // 🆕 Data range
+    app.get('/api/algotik/data-range', async (req, res, next) => {
+        try { res.json(await algotik.getDataRange()); } catch (e) { next(e); }
+    });
+    app.get('/api/algotik/data-range/:symbol', async (req, res, next) => {
+        try {
+            res.json(await algotik.getSymbolDataRange(req.params.symbol));
+        } catch (e) { next(e); }
+    });
+
     // ---- Risk-free ----
     app.get('/api/algotik/risk-free', async (req, res, next) => {
         try { res.json(await algotik.getRiskFree()); } catch (e) { next(e); }

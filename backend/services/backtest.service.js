@@ -357,6 +357,24 @@ async function runAutoConfigJob(job) {
     return { plans, applied: true, results: applied };
 }
 
+// 🆕 محاسبه عمق دیتای آپشن برای هر نماد
+async function computeDataDays(db, symbol) {
+    try {
+        const doc = await db.collection('option_daily_algotik').findOne(
+            { underlying: symbol },
+            { sort: { date: 1 }, projection: { date: 1 } }
+        );
+        if (!doc || !doc.date) return 90;   // default
+        const earliest = new Date(doc.date);
+        if (isNaN(earliest.getTime())) return 90;
+        const now = new Date();
+        const days = Math.floor((now - earliest) / (1000 * 60 * 60 * 24));
+        return Math.max(1, days);
+    } catch (_) {
+        return 90;
+    }
+}
+
 async function applyAutoConfig(plans, trainingMeta = null) {
     const db = deps.getDB();
     const applied = [];
@@ -383,6 +401,9 @@ async function applyAutoConfig(plans, trainingMeta = null) {
 
         const STRATEGIES = deps.strategies.STRATEGIES;
 
+        // 🆕 محاسبه عمق دیتا (برای مدیریت سرمایه)
+        const dataDays = await computeDataDays(db, p.symbol);
+
         const leaderDoc = {
             symbol: p.symbol,
             strategyId: p.leader.strategyId,
@@ -396,7 +417,7 @@ async function applyAutoConfig(plans, trainingMeta = null) {
             enabled: true,
             role: 'leader',
             autoConfigured: true,
-            // 🆕 PIT: tag with training range
+            dataDays,   // 🆕
             trainedFrom,
             trainedTo,
             trainedAt: new Date(),
@@ -419,7 +440,7 @@ async function applyAutoConfig(plans, trainingMeta = null) {
                 enabled: true,
                 role: 'confirmer',
                 autoConfigured: true,
-                // 🆕 PIT: tag with training range
+                dataDays,   // 🆕
                 trainedFrom,
                 trainedTo,
                 trainedAt: new Date(),

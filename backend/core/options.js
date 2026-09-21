@@ -477,7 +477,7 @@ async function getPortfolioState() {
     };
 }
 
-async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStrength) {
+async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStrength, config) {
     const settings = deps.settings.get();
     const capital = deps.settings.capital();
     const riskAmt = deps.settings.riskAmount();
@@ -489,37 +489,39 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
     if (!(contractValue > 0)) return { size: 0, reason: 'قیمت قرارداد نامعتبر', baseSize: 0 };
 
     // 🆕 Market Impact: اگه حجم سفارش بزرگ‌تر از حجم سرخط باشه
-    const askVol = pick.askVol || 0;                          // حجم سرخط فروش
-    const requestedShares = 1 * (pick.size || 1000);          // برای ۱ قرارداد پایه
+    const askVol = pick.askVol || 0;
+    const requestedShares = 1 * (pick.size || 1000);
     const liquidityRatio = askVol > 0 ? requestedShares / askVol : 0;
 
-    // 🆕 impact = هر ۱۰٪ از حجم سرخط، ۰.۲٪ اضافه‌هزینه (سقف ۵٪)
     const impactPct = Math.min(0.05, liquidityRatio * 0.02);
     const effectiveContractValue = contractValue * (1 + impactPct);
 
-    const baseSize = riskAmt / effectiveContractValue;        // 🆕 بر اساس cost مؤثر
+    const baseSize = riskAmt / effectiveContractValue;
     const confluence = (signalStrength && signalStrength.confluence) || 1;
     const signalFac = deps.settings.signalFactor(confluence);
     const level = pick.level || 'A+';
     const levelFac = deps.settings.levelFactor(level);
     const ivFac = deps.settings.ivFactor(pick.ivHv);
 
-    // 🆕 محدودیت نقدینگی: حداکثر ۲۰٪ از حجم سرخط
+    // 🆕 ضریب عمق دیتا — نمادهای با دیتای کمتر، وزن کمتر
+    const dataDays = (config && Number.isFinite(config.dataDays)) ? config.dataDays : 90;
+    const dataFac = deps.settings.dataDepthFactor(dataDays);
+
+    // 🆕 محدودیت نقدینگی
     const maxFromLiquidity = askVol > 0
         ? Math.floor((askVol * 0.2) / (pick.size || 1000))
         : 999;
 
-    const adjusted = Math.round(baseSize * signalFac * levelFac * ivFac);
+    const adjusted = Math.round(baseSize * signalFac * levelFac * ivFac * dataFac);
 
     const currentSymbolExposure = (currentPortfolio && currentPortfolio.bySymbol && currentPortfolio.bySymbol[pick.underlying]) || 0;
     const remainingSymbol = Math.max(0, maxSymbol - currentSymbolExposure);
-    const bySymbol = Math.floor(remainingSymbol / effectiveContractValue);   // 🆕
+    const bySymbol = Math.floor(remainingSymbol / effectiveContractValue);
 
     const currentTotal = (currentPortfolio && currentPortfolio.totalExposure) || 0;
     const remainingTotal = Math.max(0, maxTotal - currentTotal);
-    const byTotal = Math.floor(remainingTotal / effectiveContractValue);     // 🆕
+    const byTotal = Math.floor(remainingTotal / effectiveContractValue);
 
-    // 🆕 maxFromLiquidity هم به محدودیت‌ها اضافه شد
     const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byTotal, maxSize, maxFromLiquidity));
 
     let limitReason = null;
@@ -543,14 +545,15 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
         signalFactor: round(signalFac),
         levelFactor: round(levelFac),
         ivFactor: round(ivFac),
+        dataFactor: round(dataFac),   // 🆕
+        dataDays,                      // 🆕
         level, confluence, adjusted,
         bySymbol, byTotal, maxSize,
-        // 🆕
         maxFromLiquidity,
         impactPct: round(impactPct * 100),
         liquidityRatio: round(liquidityRatio * 100),
-        contractValue,                    // خام
-        effectiveContractValue: round(effectiveContractValue),   // 🆕 با impact
+        contractValue,
+        effectiveContractValue: round(effectiveContractValue),
         limitReason,
         limits: {
             riskAmount: riskAmt,
@@ -657,7 +660,7 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
 
     for (const p of res.picks) {
         try {
-            const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol }, sc, portfolio, signalStrength);
+            const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol }, sc, portfolio, signalStrength, config);
             p.positionSize = pi.size;
             p.positionInfo = pi;
         } catch (_) {

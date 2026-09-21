@@ -325,6 +325,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
                         data-jdp data-jdp-only-date
                         style="direction:ltr; text-align:center;">
                 </div>
+                <button class="btn outline" onclick="algotikUseAllData()">🔓 استفاده از کل دیتا</button>
                 <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button>
             </div>
                     <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div>
@@ -629,11 +630,37 @@ async function algotikRefresh() {
     } catch (e) { const el = document.getElementById('algotikStats'); if (el) el.innerHTML = `<div class="sys-stat"><div class="label">Collector</div><div class="value" style="color:var(--bad); font-size:12px;">آفلاین</div><div class="sub">${esc(e.message)}</div></div>`; }
 }
 
+async function algotikUseAllData() {
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
+        if (!r.from || !r.to) {
+            return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+        }
+        document.getElementById('algotikFromDate').value = gregToJalali(r.from);
+        document.getElementById('algotikToDate').value = gregToJalali(r.to);
+        showAlert(`بازه: ${gregToJalali(r.from)} → ${gregToJalali(r.to)} (${r.days} روز)`, 'success', 6000);
+    } catch (e) {
+        showAlert('خطا: ' + e.message);
+    }
+}
+
+function gregToJalali(gregStr) {
+    const d = new Date(gregStr + 'T00:00:00Z');
+    const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', {
+        timeZone: 'UTC',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(d);
+    const m = {};
+    parts.forEach(p => m[p.type] = p.value);
+    return `${m.year}/${m.month}/${m.day}`;
+}
+
 async function algotikStartBackfill(btn) {
     const from = jdpNormalize(document.getElementById('algotikFromDate').value);
     const to   = jdpNormalize(document.getElementById('algotikToDate').value);
     if (!from || !to) return showAlert('تاریخ شروع و پایان را وارد کن', 'warn');
     if (!confirm(`Backfill کامل از ${from} تا ${to}؟\n\nهشدار: چند ساعت طول می‌کشد.`)) return;
+    // 🆕 Collector خودش clamp می‌کنه اگه قدیمی‌تر از floor بود
     if (btn) { btn.disabled = true; btn.textContent = 'در حال شروع...'; }
     const jobArea = document.getElementById('algotikBackfillJobArea');
     try {

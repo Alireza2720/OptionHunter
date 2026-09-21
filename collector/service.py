@@ -22,6 +22,10 @@ from pipeline import stocks as stk_mod
 from pipeline import options as opt_mod
 from pipeline import aggregate as agg_mod
 from pipeline import jobs as job_mod
+
+# 🆕 Floor: کف داده — جلوگیری از دانلود قدیمی‌تر
+# دلیل: option data از این تاریخ شروع می‌شه
+DATA_FLOOR = '2026-06-09'
 from pipeline import report as rpt_mod
 from pipeline import live as live_mod
 from pipeline.db import (
@@ -201,14 +205,14 @@ def _run_full_backfill(job_id: str, payload: dict):
         date_from = payload['dateFrom']
         date_to = payload['dateTo']
 
-        # 🆕 CLAMP: نمی‌ذاریم قبل از این تاریخ چیزی بیاد
-        # چون option data از این تاریخ شروع می‌شه
-        DATA_FLOOR = '2026-06-09'
+        # 🆕 Clamp: اگه کاربر قدیمی‌تر خواست، به floor ببر
         if isinstance(date_from, str) and date_from < DATA_FLOOR:
+            log('backfill_clamp', f'dateFrom {date_from} → {DATA_FLOOR}')
             date_from = DATA_FLOOR
-            log('backfill_clamp', f'dateFrom clamped to {DATA_FLOOR}')
         if isinstance(date_to, str) and date_to < DATA_FLOOR:
-            job_mod.append_warning(job_id, f'dateTo {date_to} < floor {DATA_FLOOR} — no data')
+            job_mod.append_warning(job_id, f'dateTo {date_to} < floor — skipped')
+            job_mod.finish_job(job_id, 'DONE', {'skipped': 'dateTo < floor'})
+            return
 
         stats = {
             'stock_intraday': {'symbols_done': 0, 'candles': 0, 'errors': 0},
@@ -434,6 +438,65 @@ def audit_one_endpoint(symbol: str, days: str = 'auto'):
         from_d = to_d - timedelta(days=int(days))
 
     return audit_mod.audit_symbol(symbol, from_d, to_d)
+
+# ---------- Data Range ----------
+@app.get('/data-range')
+def data_range():
+    """Global data range across all option data."""
+    from pipeline import audit as audit_mod
+    earliest = audit_mod._find_earliest_data_date()
+    if not earliest:
+        return {'from': None, 'to': None, 'days': 0}
+
+    db = get_db()
+    # latest from option data
+    latest = db['option_daily_algotik'].find_one(
+        {}, sort=[('date', -1)], projection={'date': 1}
+    )
+    from_dt = earliest
+    to_dt = None
+    if latest and latest.get('date'):
+        try:
+            to_dt = datetime.strptime(latest['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    if not to_dt:
+        to_dt = datetime.now(timezone.utc)
+
+    return {
+        'from': from_dt.strftime('%Y-%m-%d'),
+        'to': to_dt.strftime('%Y-%m-%d'),
+        'days': (to_dt - from_dt).days,
+        'floor': DATA_FLOOR,
+    }
+
+
+@app.get('/data-range/{symbol}')
+def symbol_data_range(symbol: str):
+    """Per-symbol option data range."""
+    from pipeline import audit as audit_mod
+    start = audit_mod._find_symbol_option_start(symbol)
+    if not start:
+        return {'symbol': symbol, 'from': None, 'to': None, 'days': 0}
+
+    db = get_db()
+    latest = db['option_daily_algotik'].find_one(
+        {'underlying': symbol}, sort=[('date', -1)], projection={'date': 1}
+    )
+    to_dt = datetime.now(timezone.utc)
+    if latest and latest.get('date'):
+        try:
+            to_dt = datetime.strptime(latest['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    return {
+        'symbol': symbol,
+        'from': start.strftime('%Y-%m-%d'),
+        'to': to_dt.strftime('%Y-%m-%d'),
+        'days': (to_dt - start).days,
+    }
+
 # ---------- Risk-free ----------
 @app.get('/risk-free')
 def risk_free():

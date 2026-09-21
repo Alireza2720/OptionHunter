@@ -78,6 +78,7 @@ async function start() {
         deps.eodJob.start();
         deps.autoConfigJob.start();
         if (deps.riskFreeJob) deps.riskFreeJob.start();
+        if (deps.healthJob) deps.healthJob.start();   // 🆕
 
         // 6) startup notification
         await deps.telegram.notify(`سرور ری استارت شد (${SERVER_VERSION})`).catch(() => {});
