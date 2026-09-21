@@ -55,7 +55,21 @@ function register(app, deps) {
     app.get('/api/algotik/coverage', async (req, res, next) => {
         try { res.json(await algotik.getCoverage()); } catch (e) { next(e); }
     });
-
+    // ---- Audit ----
+    app.get('/api/algotik/audit', async (req, res, next) => {
+        try {
+            const days = +(req.query.days || 730);
+            const r = await algotik.auditAll(days);
+            res.json(r);
+        } catch (e) { next(e); }
+    });
+    app.get('/api/algotik/audit/:symbol', async (req, res, next) => {
+        try {
+            const days = +(req.query.days || 730);
+            const r = await algotik.auditOne(req.params.symbol, days);
+            res.json(r);
+        } catch (e) { next(e); }
+    });
     // ---- Risk-free ----
     app.get('/api/algotik/risk-free', async (req, res, next) => {
         try { res.json(await algotik.getRiskFree()); } catch (e) { next(e); }

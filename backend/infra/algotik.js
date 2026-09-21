@@ -69,6 +69,12 @@ async function getSymbols() {
 }
 // Data
 async function getCoverage() { return apiCall('GET', '/coverage'); }
+async function auditAll(days) {
+    return apiCall('GET', '/audit?days=' + (days || 730), null, 300000);  // 5 min
+}
+async function auditOne(symbol, days) {
+    return apiCall('GET', '/audit/' + encodeURIComponent(symbol) + '?days=' + (days || 730), null, 60000);
+}
 async function getRiskFree() { return apiCall('GET', '/risk-free'); }
 
 // Ticker
@@ -82,6 +88,6 @@ module.exports = {
     listSymbols, addSymbol, removeSymbol, setSymbolEnabled,
     startFullBackfill, getJob, listJobs, cancelJob,
     getCoverage, getRiskFree, controlTicker,
-    // 🆕
     getLiveMarket, getLogs, getSymbols,
+    getCoverage, auditAll, auditOne,
 };

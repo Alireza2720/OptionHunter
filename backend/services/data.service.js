@@ -95,11 +95,6 @@ function aggregateCandles(baseCandles, tfMin) {
         const bh = Math.floor(b / 60), bm = b % 60;
         const key = `${t.year}-${t.month}-${t.day}-${bh}-${bm}`;
 
-        // 🆕 skip flat candles (O=H=L=C) — noise from bad tick data
-        if (c.high === c.low && c.open === c.close && c.high === c.open) {
-            continue;
-        }
-
         if (!map.has(key)) {
             map.set(key, {
                 time: Math.floor(tehranPartsToUTCDate(t.year, t.month, t.day, bh, bm).getTime() / 1000),
@@ -199,16 +194,9 @@ function aggregateDailyForChart(rows, tf) {
 // ============================================================
 async function getBaseCandles(symbol) {
     const db = deps.getDB();
-    // 🆕 فیلتر flat candles در query (بهتر از JS filter)
+    // نکته: فیلتر flat حذف شد — کندل‌های صف خرید/فروش داده واقعی بازارن
     const base = await db.collection(COLLECTIONS.CANDLES_BASE)
-        .find({
-            symbol,
-            $expr: { $not: { $and: [
-                { $eq: ['$open', '$high'] },
-                { $eq: ['$high', '$low'] },
-                { $eq: ['$low', '$close'] }
-            ]}}
-        })
+        .find({ symbol })
         .sort({ time: 1 }).toArray();
     return base.map(c => ({
         time: Math.floor(c.time.getTime() / 1000),

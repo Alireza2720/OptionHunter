@@ -367,6 +367,20 @@ def cancel_job(job_id: str):
 def coverage():
     return {'symbols': rpt_mod.coverage_report()}
 
+# ---------- Audit ----------
+@app.get('/audit')
+def audit_all_endpoint(days: int = 730):
+    """Full data completeness audit."""
+    from pipeline import audit as audit_mod
+    return audit_mod.audit_all(days=days)
+
+@app.get('/audit/{symbol}')
+def audit_one_endpoint(symbol: str, days: int = 730):
+    from pipeline import audit as audit_mod
+    from datetime import datetime, timezone, timedelta
+    to_d = datetime.now(timezone.utc)
+    from_d = to_d - timedelta(days=days)
+    return audit_mod.audit_symbol(symbol, from_d, to_d)
 
 # ---------- Risk-free ----------
 @app.get('/risk-free')
