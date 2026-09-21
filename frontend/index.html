@@ -1076,6 +1076,39 @@ function jdpInit(attempt) {
     });
     console.log('✅ jalaliDatepicker initialized');
 }
+window.addEventListener('load', async () => {
+    if (!await waitForBackend()) {
+        document.getElementById('bootMessage').textContent = 'اتصال به سرور برقرار نشد.';
+        document.getElementById('bootRetryBtn').style.display = 'inline-block';
+        return;
+    }
+    if (!await loadStrategiesLibrary()) {
+        document.getElementById('bootMessage').textContent = 'بارگذاری استراتژی‌ها ناموفق.';
+        document.getElementById('bootRetryBtn').style.display = 'inline-block';
+        return;
+    }
+    document.getElementById('bootOverlay').style.display = 'none';
+    jdpInit();
+
+    await checkBackendStatus();
+    await loadTimeframes();
+    await loadStrategies();
+    await loadMonitoredSymbols();
+    await loadConfigs();
+    await loadSignalHistory();
+    await loadOptionPositions();
+    updateIndCount();
+    await algotikRefresh();
+    updateTickerStatus();
+    startSystemPolling();
+    setInterval(checkBackendStatus, 60000);
+    setInterval(loadConfigs, 60000);
+    setInterval(loadMonitoredSymbols, 120000);
+    setInterval(refreshQuotesOnly, 30000);
+    setInterval(loadSignalHistory, 60000);
+    setInterval(loadOptionPositions, 60000);
+    startDataPipelinePolling();
+});
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });
 </script>
 </body>
