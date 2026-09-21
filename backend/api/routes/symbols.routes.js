@@ -77,13 +77,13 @@ function register(app, deps) {
             const db = getDB();
             const exists = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).findOne({ symbol });
             if (exists) return res.status(400).json({ error: 'این نماد قبلا اضافه شده است' });
-
-            const doc = {
-                symbol,
-                addedAt: new Date(),
-                collectEnabled: true
-            };
-            const r = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).insertOne(doc);
+        const doc = {
+            symbol,
+            addedAt: new Date(),
+            collectEnabled: true,
+            enabled: true
+        };
+        const r = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).insertOne(doc);
             res.json({ _id: r.insertedId, ...doc });
         } catch (e) { next(e); }
     });
@@ -92,7 +92,10 @@ function register(app, deps) {
     app.put('/api/monitored-symbols/:id', async (req, res, next) => {
         try {
             const upd = {};
-            if (typeof req.body.collectEnabled === 'boolean') upd.collectEnabled = req.body.collectEnabled;
+            if (typeof req.body.collectEnabled === 'boolean') {
+                upd.collectEnabled = req.body.collectEnabled;
+                upd.enabled = req.body.collectEnabled;
+            }
             if (req.body.notes !== undefined) upd.notes = String(req.body.notes || '');
             if (!Object.keys(upd).length) return res.status(400).json({ error: 'فیلدی مشخص نشد' });
 
@@ -117,7 +120,7 @@ function register(app, deps) {
             const objectIds = ids.map(id => new ObjectId(id));
             const r = await getDB().collection(COLLECTIONS.MONITORED_SYMBOLS).updateMany(
                 { _id: { $in: objectIds } },
-                { $set: { collectEnabled } }
+                { $set: { collectEnabled, enabled: collectEnabled } }
             );
             res.json({ success: true, updated: r.modifiedCount });
         } catch (e) { next(e); }

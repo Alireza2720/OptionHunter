@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
-from datetime import datetime, timezone
-from .db import get_db, COL_MONITORED
-
 def list_symbols(only_enabled=False):
     db = get_db()
-    q = {'enabled': True} if only_enabled else {}
+    if only_enabled:
+        # هم‌راست با backend — هر دو فیلد رو چک کن
+        q = {'$or': [{'enabled': True}, {'collectEnabled': True}]}
+    else:
+        q = {}
     return list(db[COL_MONITORED].find(q).sort('symbol', 1))
 
 def get_enabled_names():
@@ -16,6 +16,7 @@ def add_symbol(symbol, name=None):
         'symbol': symbol,
         'name': name or symbol,
         'enabled': True,
+        'collectEnabled': True,
         'addedAt': datetime.now(timezone.utc),
     }
     db[COL_MONITORED].update_one(
@@ -34,6 +35,7 @@ def set_enabled(symbol, enabled):
     db = get_db()
     r = db[COL_MONITORED].update_one(
         {'symbol': symbol},
-        {'$set': {'enabled': bool(enabled)}}
+        {'$set': {'enabled': bool(enabled),
+                  'collectEnabled': bool(enabled)}}
     )
     return r.modified_count > 0

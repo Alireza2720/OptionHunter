@@ -178,7 +178,7 @@ def remove_symbol(symbol: str):
     return {'ok': sym_mod.remove_symbol(symbol)}
 
 @app.put('/symbols/{symbol}/enabled')
-def set_enabled(symbol: str, p: EnabledIn):
+def set_enabled_endpoint(symbol: str, p: EnabledIn):
     return {'ok': sym_mod.set_enabled(symbol, p.enabled)}
 
 
