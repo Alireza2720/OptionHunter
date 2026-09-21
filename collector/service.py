@@ -1,660 +1,403 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-AlgoTik Collector Service — FastAPI for TSETMC data collection
-Features:
-  - Bulk stock intraday backfill
-  - Option snapshots (all active contracts)
-  - Option daily OHLCV (job-based, parallel)
-  - Chart data (on-demand)
-  - Job progress tracking
-"""
-import os
-import asyncio
-import threading
-import uuid
-from datetime import datetime, timedelta, timezone
+"""AlgoTik Collector — Unified Data Pipeline"""
+import os, sys, threading
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
-from contextlib import asynccontextmanager
-from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import algotik_tse as att
-import requests
-from pymongo import MongoClient, ASCENDING, DESCENDING, UpdateOne
 
-# === Analytics (فاز ۰.۱) ===
-from option_analyzer import analyze_snapshot
+sys.path.insert(0, os.path.dirname(__file__))
 
-COL_OPT_HISTORY = "option_history"
+from pipeline.db import (
+    ensure_indexes, get_db, log,
+    COL_RISK_FREE, COL_MONITORED,
+    COL_CANDLES_BASE, COL_CANDLES_DAILY,
+    COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
+    COL_LOG,
+)
+from pipeline import symbols as sym_mod
+from pipeline import stocks as stk_mod
+from pipeline import options as opt_mod
+from pipeline import aggregate as agg_mod
+from pipeline import jobs as job_mod
+from pipeline import report as rpt_mod
+from pipeline import live as live_mod
 
-# Risk-free rate cache (per-day)
-_RF_CACHE = {"rate": 0.42, "date": None}
 
+# ---------- Risk-free ----------
+_rf_cache = {'rate': 0.42, 'date': None}
 
-def get_current_rf(force: bool = False):
-    """نرخ بدون ریسک روزانه از اخزا + ذخیره در MongoDB"""
-    today = datetime.utcnow().date()
+def get_current_rf(force=False):
+    today = datetime.now(timezone.utc).date()
     today_str = today.isoformat()
+    if not force and _rf_cache['date'] == today:
+        return _rf_cache['rate']
 
-    # ۱. cache حافظه
-    if not force and _RF_CACHE["date"] == today:
-        return _RF_CACHE["rate"]
-
-    # ۲. cache DB (اگه امروز قبلاً ذخیره شده)
+    db = get_db()
     if not force:
-        try:
-            doc = db[COL_RF_CACHE].find_one({"date": today_str})
-            if doc:
-                rate = float(doc["rate"])
-                _RF_CACHE["rate"] = rate
-                _RF_CACHE["date"] = today
-                return rate
-        except Exception:
-            pass
+        doc = db[COL_RISK_FREE].find_one({'date': today_str})
+        if doc:
+            _rf_cache['rate'] = float(doc['rate'])
+            _rf_cache['date'] = today
+            return _rf_cache['rate']
 
-    # ۳. از اخزا بگیر
     try:
-        treasuries = att.get_treasury_yields(include_stale=True, min_volume=0)
-        if treasuries is not None and len(treasuries) > 0:
-            rate = float(treasuries["EffectiveAnnualYield"].median())
-            _RF_CACHE["rate"] = rate
-            _RF_CACHE["date"] = today
-
-            # 🆕 ذخیره در DB
-            try:
-                db[COL_RF_CACHE].update_one(
-                    {"date": today_str},
-                    {"$set": {
-                        "date": today_str,
-                        "rate": rate,
-                        "count": len(treasuries),
-                        "source": "algotik_treasury",
-                        "updatedAt": datetime.utcnow(),
-                    }},
-                    upsert=True,
-                )
-            except Exception as e:
-                log_event("rf_db_err", str(e))
-
-            log_event("rf_update", f"risk-free updated: {rate:.4f}")
+        import algotik_tse as att
+        t = att.get_treasury_yields(include_stale=True, min_volume=0)
+        if t is not None and len(t) > 0:
+            rate = float(t['EffectiveAnnualYield'].median())
+            _rf_cache['rate'] = rate
+            _rf_cache['date'] = today
+            db[COL_RISK_FREE].update_one(
+                {'date': today_str},
+                {'$set': {
+                    'date': today_str, 'rate': rate,
+                    'count': len(t), 'source': 'algotik_treasury',
+                    'updatedAt': datetime.now(timezone.utc),
+                }},
+                upsert=True,
+            )
+            log('rf_update', f'risk-free updated: {rate:.4f}')
             return rate
     except Exception as e:
-        log_event("rf_error", str(e))
+        log('rf_error', str(e))
+    return _rf_cache['rate']
 
-    return _RF_CACHE["rate"]
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
-MONGO_DB = os.getenv("MONGO_DB", "trading_bot")
-PORT = int(os.getenv("PORT", "5000"))
-HOST = os.getenv("HOST", "127.0.0.1")
 
-client = MongoClient(MONGO_URI)
-db = client[MONGO_DB]
+# ---------- FastAPI ----------
+app = FastAPI(title='OptionHunter Collector')
 
-COL_STOCKS = "candles_base"
-COL_OPT_SNAP = "option_snapshots_algotik"
-COL_OPT_DAILY = "option_daily_algotik"
-COL_LOG = "collector_log"
-COL_JOBS = "collector_jobs"
-COL_RF_CACHE = "risk_free_cache"
-
-# ==================== Job Tracker ====================
-JOBS: Dict[str, Dict[str, Any]] = {}
-JOBS_LOCK = threading.Lock()
-
-def job_set(job_id: str, **kwargs):
-    with JOBS_LOCK:
-        if job_id not in JOBS:
-            JOBS[job_id] = {"job_id": job_id, "created_at": datetime.utcnow().isoformat(), "progress": {}}
-        JOBS[job_id].update(kwargs)
-
-def job_get(job_id: str):
-    with JOBS_LOCK:
-        return JOBS.get(job_id)
-
-# ==================== FastAPI ====================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@app.on_event('startup')
+def _startup():
+    ensure_indexes()
+    print('✅ indexes ready')
+    # initial RF
     try:
-        db[COL_OPT_SNAP].create_index([("ins_code", ASCENDING), ("timestamp", DESCENDING)])
-        db[COL_OPT_SNAP].create_index([("timestamp", DESCENDING)])
-        db[COL_OPT_SNAP].create_index([("underlying", ASCENDING)])
-        db[COL_OPT_DAILY].create_index([("ins_code", ASCENDING), ("date", DESCENDING)], unique=True)
-        db[COL_OPT_DAILY].create_index([("underlying", ASCENDING)])
-        db[COL_LOG].create_index([("at", DESCENDING)])
-        db[COL_OPT_HISTORY].create_index([("symbol", ASCENDING), ("time", DESCENDING)])
-        db[COL_OPT_HISTORY].create_index([("underlying", ASCENDING), ("time", DESCENDING)])
-        db[COL_OPT_HISTORY].create_index([("time", DESCENDING)])
-        db[COL_RF_CACHE].create_index([("date", DESCENDING)], unique=True)
-        print("✅ Indexes ready")
+        r = get_current_rf(force=True)
+        print(f'✅ initial RF: {r:.4f}')
     except Exception as e:
-        print(f"Index error: {e}")
-
-    # 🆕 fetch اولیه + refresh خودکار هر ۶ ساعت
-    def _rf_refresh_loop():
-        import time
-        # fetch اولیه
-        try:
-            rate = get_current_rf(force=True)
-            print(f"✅ RF initial fetch: {rate:.4f}")
-        except Exception as e:
-            print(f"❌ RF initial fetch failed: {e}")
-        # loop
-        while True:
-            time.sleep(6 * 3600)  # 6 ساعت
-            try:
-                rate = get_current_rf(force=True)
-                print(f"✅ RF refresh: {rate:.4f}")
-            except Exception as e:
-                print(f"❌ RF refresh failed: {e}")
-
-    rf_thread = threading.Thread(target=_rf_refresh_loop, daemon=True)
-    rf_thread.start()
-
-    yield
-    client.close()
-
-app = FastAPI(lifespan=lifespan, title="AlgoTik Collector")
+        print(f'⚠️ RF init failed: {e}')
 
 
-# ==================== Models ====================
-class StockBackfillReq(BaseModel):
-    symbols: Optional[List[str]] = None
-    months: int = 6
+# ---------- Health ----------
+@app.get('/health')
+def health():
+    return {
+        'status': 'ok',
+        'mongo': 'connected',
+        'time': datetime.now(timezone.utc).isoformat(),
+        'ticker': live_mod.is_running(),
+    }
 
-class OptionSnapshotReq(BaseModel):
-    underlyings: Optional[List[str]] = None
-
-class OptionDailyJobReq(BaseModel):
-    underlyings: Optional[List[str]] = None
-    force: bool = False
-
-class OptionHistoryReq(BaseModel):
-    symbol: str
-    months: int = 6
-
-class FullBackfillReq(BaseModel):
-    months: int = 6
-    with_options: bool = True
-
-
-# ==================== Helpers ====================
-def log_event(kind: str, message: str, extra: Optional[Dict] = None):
-    doc = {"kind": kind, "message": message, "at": datetime.utcnow()}
-    if extra:
-        doc.update(extra)
+@app.get('/status')
+def status():
+    db = get_db()
+    return {
+        'symbols_total': db[COL_MONITORED].count_documents({}),
+        'symbols_enabled': db[COL_MONITORED].count_documents({'enabled': True}),
+        'candles_base': db[COL_CANDLES_BASE].count_documents({}),
+        'candles_daily': db[COL_CANDLES_DAILY].count_documents({}),
+        'option_history': db[COL_OPTION_HISTORY].count_documents({}),
+        'option_snapshots': db[COL_OPTION_SNAPSHOTS].count_documents({}),
+        'risk_free': get_current_rf(),
+        'ticker': live_mod.get_stats(),
+    }
+# ---------- Live Market (برای tick.job.js) ----------
+@app.get('/live-market')
+def live_market():
+    """Snapshot live کل بازار (سهام پایه)."""
     try:
-        db[COL_LOG].insert_one(doc)
-    except Exception as e:
-        print(f"Log error: {e}")
-
-def get_monitored_symbols():
-    docs = db["monitored_symbols"].find({}, {"symbol": 1}).sort("addedAt", 1)
-    return [d["symbol"] for d in docs if d.get("symbol")]
-
-def safe_json(val):
-    if val is None: return None
-    if hasattr(val, 'isoformat'): return val.isoformat()
-    if hasattr(val, 'item'):
-        try: return val.item()
-        except Exception: return str(val)
-    if isinstance(val, float) and (val != val): return None
-    return val
-
-
-# ==================== Stock Backfill ====================
-async def backfill_stocks_async(symbols, months):
-    end_date = datetime.utcnow().date()
-    start_date = end_date - timedelta(days=months * 30)
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str = end_date.strftime("%Y-%m-%d")
-
-    results = []
-    total_candles = 0
-    loop = asyncio.get_event_loop()
-
-    for sym in symbols:
-        try:
-            log_event("stock_fetch_start", f"Fetching {sym}", {"symbol": sym})
-            df = await loop.run_in_executor(
-                None,
-                lambda s=sym: att.get_intraday(symbol=s, start=start_str, end=end_str,
-                                               interval="1min", progress=False)
-            )
-            if df is None or len(df) == 0:
-                results.append({"symbol": sym, "status": "empty", "candles": 0})
-                continue
-
-            records = []
-            for ts, row in df.iterrows():
-                t = ts.to_pydatetime() if hasattr(ts, 'to_pydatetime') else ts
-                records.append({
-                    "symbol": sym, "time": t,
-                    "open": float(row.get("Open", 0)),
-                    "high": float(row.get("High", 0)),
-                    "low": float(row.get("Low", 0)),
-                    "close": float(row.get("Close", 0)),
-                    "volume": float(row.get("Volume", 0)),
-                    "trades": int(row.get("TradeCount", 0)) if "TradeCount" in row else 0,
-                    "source": "algotik", "fetchedAt": datetime.utcnow()
-                })
-
-            ops = [UpdateOne({"symbol": r["symbol"], "time": r["time"]}, {"$set": r}, upsert=True) for r in records]
-            for i in range(0, len(ops), 1000):
-                db[COL_STOCKS].bulk_write(ops[i:i+1000], ordered=False)
-
-            total_candles += len(records)
-            results.append({"symbol": sym, "status": "ok", "candles": len(records)})
-            log_event("stock_fetch_ok", f"{sym}: {len(records)} candles", {"symbol": sym, "count": len(records)})
-        except Exception as e:
-            log_event("stock_fetch_err", f"{sym}: {e}", {"symbol": sym, "error": str(e)})
-            results.append({"symbol": sym, "status": "error", "error": str(e)})
-
-    return {"results": results, "total_candles": total_candles}
-
-
-# ==================== Option Snapshot ====================
-def fetch_option_snapshot_sync(underlyings):
-    timestamp = datetime.utcnow()
-    results = []
-    total = 0
-
-    for ua in underlyings:
-        try:
-            log_event("option_snapshot_start", f"Fetching options for {ua}", {"underlying": ua})
-            df = att.get_option_market(underlying=ua, progress=False)
-            if df is None or len(df) == 0:
-                results.append({"underlying": ua, "status": "empty", "contracts": 0})
-                continue
-
-            records = []
-            for _, row in df.iterrows():
-                records.append({
-                    "underlying": ua, "timestamp": timestamp,
-                    "ins_code": str(row.get("InsCode", "")),
-                    "symbol": safe_json(row.get("Symbol")),
-                    "name": safe_json(row.get("Name")),
-                    "option_type": safe_json(row.get("OptionType")),
-                    "strike": safe_json(row.get("Strike")),
-                    "end_date": safe_json(row.get("EndDate")),
-                    "days_to_expiry": safe_json(row.get("DaysToExpiry")),
-                    "contract_size": safe_json(row.get("ContractSize")),
-                    "last": safe_json(row.get("Last")),
-                    "close": safe_json(row.get("Close")),
-                    "yesterday": safe_json(row.get("Yesterday")),
-                    "volume": safe_json(row.get("Volume")),
-                    "value": safe_json(row.get("Value")),
-                    "trade_count": safe_json(row.get("TradeCount")),
-                    "open_interest": safe_json(row.get("OpenInterest")),
-                    "yesterday_oi": safe_json(row.get("YesterdayOpenInterest")),
-                    "bid_price": safe_json(row.get("BidPrice")),
-                    "ask_price": safe_json(row.get("AskPrice")),
-                    "bid_volume": safe_json(row.get("BidVolume")),
-                    "ask_volume": safe_json(row.get("AskVolume")),
-                    "underlying_last": safe_json(row.get("UnderlyingLast")),
-                    "underlying_close": safe_json(row.get("UnderlyingClose")),
-                    "source": "algotik"
-                })
-
-            if records:
-                db[COL_OPT_SNAP].insert_many(records, ordered=False)
-                total += len(records)
-
-                # 🆕 تحلیل + ذخیره در option_history
-                try:
-                    rf = get_current_rf()
-                    analysis_docs = analyze_snapshot(records, risk_free_rate=rf)
-                    if analysis_docs:
-                        ops = [
-                            UpdateOne(
-                                {"symbol": d["symbol"], "time": d["time"]},
-                                {"$set": d},
-                                upsert=True,
-                            )
-                            for d in analysis_docs
-                        ]
-                        res = db[COL_OPT_HISTORY].bulk_write(ops, ordered=False)
-                        log_event(
-                            "option_analyzed",
-                            f"{ua}: {len(analysis_docs)} docs → option_history",
-                            {"underlying": ua,
-                             "docs": len(analysis_docs),
-                             "upserted": res.upserted_count,
-                             "modified": res.modified_count},
-                        )
-                except Exception as e:
-                    log_event("analyze_err", f"{ua}: {e}", {"underlying": ua, "error": str(e)})
-
-            results.append({"underlying": ua, "status": "ok", "contracts": len(records)})
-            log_event("option_snapshot_ok", f"{ua}: {len(records)} contracts", {"underlying": ua, "count": len(records)})
-        except Exception as e:
-            log_event("option_snapshot_err", f"{ua}: {e}", {"underlying": ua, "error": str(e)})
-            results.append({"underlying": ua, "status": "error", "error": str(e)})
-
-    return {"timestamp": timestamp.isoformat(), "results": results, "total_contracts": total}
-
-
-# ==================== Option Daily (fast, raw TSETMC) ====================
-TSETMC_SESSION = requests.Session()
-TSETMC_SESSION.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Accept": "application/json,text/plain,*/*",
-    "Referer": "https://www.tsetmc.com/"
-})
-
-def fetch_option_daily_one(ins_code: str, symbol: str, underlying: str, meta: Dict) -> int:
-    """Fetch daily OHLCV for one contract from TSETMC raw endpoint (fast)."""
-    try:
-        url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{ins_code}/0"
-        r = TSETMC_SESSION.get(url, timeout=10)
-        if r.status_code != 200:
-            return 0
-        data = r.json()
-        rows = data.get("closingPriceDaily", [])
-        if not rows:
-            return 0
-
-        ops = []
-        for row in rows:
-            d_even = row.get("dEven")
-            if not d_even or d_even <= 0: continue
-            # dEven = YYYYMMDD
-            s = str(int(d_even))
-            if len(s) != 8: continue
-            date_key = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
-
-            doc = {
-                "ins_code": ins_code,
-                "symbol": symbol,
-                "underlying": underlying,
-                "date": date_key,
-                "open": float(row.get("priceFirst", 0) or 0),
-                "high": float(row.get("priceMax", 0) or 0),
-                "low": float(row.get("priceMin", 0) or 0),
-                "close": float(row.get("pClosing", 0) or 0),
-                "last": float(row.get("pDrCotVal", 0) or 0),
-                "volume": float(row.get("qTotTran5J", 0) or 0),
-                "value": float(row.get("qTotCap", 0) or 0),
-                "trade_count": int(row.get("zTotTran", 0) or 0),
-                "yesterday": float(row.get("priceYesterday", 0) or 0),
-                "change": float(row.get("priceChange", 0) or 0),
-                **meta,
-                "source": "tsetmc-raw",
-                "fetchedAt": datetime.utcnow()
-            }
-            ops.append(UpdateOne(
-                {"ins_code": ins_code, "date": date_key},
-                {"$set": doc},
-                upsert=True
-            ))
-
-        if ops:
-            db[COL_OPT_DAILY].bulk_write(ops, ordered=False)
-        return len(ops)
-    except Exception as e:
-        return 0
-
-
-def fetch_option_daily_job(job_id: str, underlyings: List[str], force: bool):
-    """Background job: fetch daily OHLCV for all active option contracts."""
-    try:
-        job_set(job_id, status="RUNNING", started_at=datetime.utcnow().isoformat())
-        total_contracts = 0
-        total_records = 0
-        processed = 0
-        errors = 0
-
-        # Step 1: collect all contracts from market
-        all_contracts = []
-        for ua in underlyings:
-            try:
-                df = att.get_option_market(underlying=ua, progress=False)
-                if df is None or len(df) == 0: continue
-                for _, row in df.iterrows():
-                    ins_code = str(row.get("InsCode", ""))
-                    if not ins_code: continue
-                    all_contracts.append({
-                        "ins_code": ins_code,
-                        "symbol": safe_json(row.get("Symbol")),
-                        "underlying": ua,
-                        "meta": {
-                            "strike": safe_json(row.get("Strike")),
-                            "end_date": safe_json(row.get("EndDate")),
-                            "option_type": safe_json(row.get("OptionType")),
-                            "contract_size": safe_json(row.get("ContractSize")),
-                        }
-                    })
-            except Exception as e:
-                log_event("option_daily_market_err", f"{ua}: {e}", {"underlying": ua})
-
-        total_contracts = len(all_contracts)
-        job_set(job_id, total=total_contracts, processed=0, message=f"کشف {total_contracts} قرارداد")
-
-        # Step 2: skip already-fetched contracts unless force
-        if not force:
-            today_str = datetime.utcnow().strftime("%Y-%m-%d")
-            to_process = []
-            for c in all_contracts:
-                existing = db[COL_OPT_DAILY].find_one({
-                    "ins_code": c["ins_code"],
-                    "fetchedAt": {"$gte": datetime.utcnow() - timedelta(hours=12)}
-                })
-                if not existing:
-                    to_process.append(c)
-            all_contracts = to_process
-            job_set(job_id, message=f"{len(all_contracts)} قرارداد جدید (بقیه تازه fetch شده)")
-
-        # Step 3: parallel fetch with ThreadPoolExecutor
-        def worker(c):
-            return fetch_option_daily_one(c["ins_code"], c["symbol"], c["underlying"], c["meta"])
-
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = [executor.submit(worker, c) for c in all_contracts]
-            for i, fut in enumerate(futures):
-                try:
-                    n = fut.result(timeout=30)
-                    total_records += n
-                except Exception:
-                    errors += 1
-                processed += 1
-                if processed % 20 == 0 or processed == total_contracts:
-                    job_set(job_id, processed=processed, total=total_contracts,
-                            records=total_records, errors=errors,
-                            message=f"{processed}/{total_contracts} قرارداد")
-
-        job_set(job_id, status="DONE", finished_at=datetime.utcnow().isoformat(),
-                total=total_contracts, processed=total_contracts,
-                records=total_records, errors=errors,
-                message=f"✅ {total_records} رکورد از {total_contracts} قرارداد")
-        log_event("option_daily_ok", f"{total_records} records from {total_contracts} contracts")
-    except Exception as e:
-        job_set(job_id, status="FAILED", error=str(e), finished_at=datetime.utcnow().isoformat())
-        log_event("option_daily_err", str(e))
-
-
-# ==================== Chart Data ====================
-def fetch_chart_sync(symbol: str, interval: str, months: int):
-    """Fetch chart data for a symbol at any interval."""
-    # interval mapping to date range
-    # 1min, 5min, 15min, 30min, 1h, 1d
-    end_date = datetime.utcnow().date()
-    start_date = end_date - timedelta(days=months * 30)
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str = end_date.strftime("%Y-%m-%d")
-
-    # algotik supports: tick, 1min, 5min, 15min, 30min, 1h, 4h, 12h
-    ak_interval = interval
-    if interval == "1d":
-        # use daily history instead
-        try:
-            found = att.searchInstrument(symbol)
-            if not found or not found[0].get("insCode"):
-                return []
-            hist = att.get_daily_history(found[0]["insCode"]) if hasattr(att, "get_daily_history") else None
-            if hist is None:
-                # fallback to get_history
-                hist = att.get_history(symbol=symbol, start=start_str, end=end_str)
-            if hist is None or len(hist) == 0: return []
-            out = []
-            for idx, row in hist.iterrows():
-                ts = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
-                out.append({
-                    "time": int(ts.timestamp()),
-                    "open": float(row.get("Open", 0)),
-                    "high": float(row.get("High", 0)),
-                    "low": float(row.get("Low", 0)),
-                    "close": float(row.get("Close", 0)),
-                    "volume": float(row.get("Volume", 0)),
-                })
-            return out
-        except Exception as e:
-            return []
-
-    df = att.get_intraday(symbol=symbol, start=start_str, end=end_str,
-                          interval=ak_interval, progress=False)
-    if df is None or len(df) == 0:
-        return []
-    out = []
-    for ts, row in df.iterrows():
-        t = ts.to_pydatetime() if hasattr(ts, 'to_pydatetime') else ts
-        out.append({
-            "time": int(t.timestamp()),
-            "open": float(row.get("Open", 0)),
-            "high": float(row.get("High", 0)),
-            "low": float(row.get("Low", 0)),
-            "close": float(row.get("Close", 0)),
-            "volume": float(row.get("Volume", 0)),
-        })
-    return out
-
-
-# ==================== Routes ====================
-@app.get("/health")
-async def health():
-    try:
-        db.command("ping")
-        return {"status": "ok", "mongo": "connected", "time": datetime.utcnow().isoformat()}
-    except Exception as e:
-        return JSONResponse(status_code=503, content={"status": "error", "error": str(e)})
-
-
-@app.get("/status")
-async def status():
-    try:
-        stock_count = db[COL_STOCKS].count_documents({"source": "algotik"})
-        opt_snap_count = db[COL_OPT_SNAP].count_documents({})
-        opt_daily_count = db[COL_OPT_DAILY].count_documents({})
-        latest_snap = db[COL_OPT_SNAP].find_one({}, sort=[("timestamp", DESCENDING)])
-        latest_daily = db[COL_OPT_DAILY].find_one({}, sort=[("date", DESCENDING)])
-        opt_underlyings = db[COL_OPT_SNAP].distinct("underlying")
+        import algotik_tse as att
+        import json
+        df = att.get_live_market()
+        if df is None or len(df) == 0:
+            return {'count': 0, 'data': []}
+        records = json.loads(df.to_json(orient='records', date_format='iso'))
         return {
-            "stocks_intraday_count": stock_count,
-            "option_snapshots_count": opt_snap_count,
-            "option_daily_count": opt_daily_count,
-            "option_underlyings": opt_underlyings,
-            "latest_snapshot_at": latest_snap.get("timestamp").isoformat() if latest_snap and latest_snap.get("timestamp") else None,
-            "latest_daily_date": latest_daily.get("date") if latest_daily else None,
+            'count': len(records),
+            'data': records,
+            'at': datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        log('live_market_err', str(e))
+        return {'count': 0, 'data': [], 'error': str(e)}
 
 
-@app.post("/backfill/stocks/wait")
-async def backfill_stocks_wait(req: StockBackfillReq):
-    symbols = req.symbols or get_monitored_symbols()
-    if not symbols:
-        raise HTTPException(400, "No symbols")
-    months = min(max(int(req.months or 6), 1), 24)
-    return await backfill_stocks_async(symbols, months)
+@app.get('/live-market/{symbol}')
+def live_symbol(symbol: str):
+    """Snapshot live یک نماد."""
+    try:
+        import algotik_tse as att
+        import json
+        df = att.get_live_market(symbol=symbol)
+        if df is None or len(df) == 0:
+            return {'count': 0, 'data': []}
+        records = json.loads(df.to_json(orient='records', date_format='iso'))
+        return {'count': len(records), 'data': records}
+    except Exception as e:
+        return {'count': 0, 'data': [], 'error': str(e)}
 
 
-@app.post("/backfill/options")
-async def backfill_options(req: OptionSnapshotReq):
-    underlyings = req.underlyings or get_monitored_symbols()
-    if not underlyings:
-        raise HTTPException(400, "No underlyings")
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, lambda: fetch_option_snapshot_sync(underlyings))
+# ---------- Logs ----------
+@app.get('/logs')
+def get_logs(limit: int = 100):
+    db = get_db()
+    docs = list(db[COL_LOG].find({}).sort('at', -1).limit(limit))
+    for d in docs:
+        d['_id'] = str(d['_id'])
+    return {'logs': docs}
+
+# ---------- Symbols ----------
+class SymbolIn(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+
+class EnabledIn(BaseModel):
+    enabled: bool
+
+@app.get('/symbols')
+def list_symbols():
+    return sym_mod.list_symbols()
+
+@app.post('/symbols')
+def add_symbol(p: SymbolIn):
+    sym_mod.add_symbol(p.symbol, p.name)
+    return {'ok': True}
+
+@app.delete('/symbols/{symbol}')
+def remove_symbol(symbol: str):
+    return {'ok': sym_mod.remove_symbol(symbol)}
+
+@app.put('/symbols/{symbol}/enabled')
+def set_enabled(symbol: str, p: EnabledIn):
+    return {'ok': sym_mod.set_enabled(symbol, p.enabled)}
 
 
-@app.post("/options/daily-job")
-async def options_daily_job(req: OptionDailyJobReq):
-    """Start a background job for option daily OHLCV."""
-    underlyings = req.underlyings or get_monitored_symbols()
-    if not underlyings:
-        raise HTTPException(400, "No underlyings")
-    job_id = str(uuid.uuid4())
-    job_set(job_id, status="QUEUED", total=0, processed=0, records=0, errors=0,
-            message="در صف", underlyings=underlyings, force=req.force)
-    threading.Thread(target=fetch_option_daily_job,
-                     args=(job_id, underlyings, req.force),
-                     daemon=True).start()
-    return {"job_id": job_id, "status": "QUEUED", "underlyings": underlyings}
+# ---------- Jobs ----------
+class FullBackfillIn(BaseModel):
+    symbols: Optional[List[str]] = None
+    dateFrom: str  # jalali or gregorian
+    dateTo: str
+    includeStockIntraday: bool = True
+    includeStockDaily: bool = True
+    includeOptionHistory: bool = True
+    includeOptionSnapshot: bool = True
+    includeAggregate: bool = True
+
+def _run_full_backfill(job_id: str, payload: dict):
+    try:
+        job_mod.update_job(job_id, status='RUNNING', started_at=datetime.now(timezone.utc))
+        symbols = payload.get('symbols') or sym_mod.get_enabled_names()
+        date_from = payload['dateFrom']
+        date_to = payload['dateTo']
+
+        stats = {
+            'stock_intraday': {'symbols_done': 0, 'candles': 0, 'errors': 0},
+            'stock_daily': {'symbols_done': 0, 'candles': 0, 'errors': 0},
+            'option_history': {'symbols_done': 0, 'contracts': 0, 'with_iv': 0, 'errors': 0},
+            'option_snapshot': {'symbols_done': 0, 'ticks': 0},
+            'aggregate': {'symbols_done': 0, 'candles': 0},
+        }
+
+        # Phase 1: stock intraday
+        if payload.get('includeStockIntraday'):
+            for i, sym in enumerate(symbols, 1):
+                if job_mod.is_cancelled(job_id):
+                    job_mod.finish_job(job_id, 'CANCELLED')
+                    return
+                try:
+                    records, err = stk_mod.fetch_intraday_1m(sym, date_from, date_to)
+                    if err:
+                        stats['stock_intraday']['errors'] += 1
+                        job_mod.append_error(job_id, f'{sym}: {err}')
+                    elif records:
+                        written = stk_mod.write_base(records)
+                        stats['stock_intraday']['candles'] += written
+                except Exception as e:
+                    stats['stock_intraday']['errors'] += 1
+                    job_mod.append_error(job_id, f'{sym}: {e}')
+                stats['stock_intraday']['symbols_done'] = i
+                job_mod.set_phase(job_id, 'stock_intraday', {
+                    'current': i, 'total': len(symbols),
+                    'current_symbol': sym,
+                    'stats': stats['stock_intraday'],
+                })
+
+        # Phase 2: stock daily
+        if payload.get('includeStockDaily'):
+            for i, sym in enumerate(symbols, 1):
+                if job_mod.is_cancelled(job_id):
+                    job_mod.finish_job(job_id, 'CANCELLED')
+                    return
+                try:
+                    records, err = stk_mod.fetch_daily(sym, date_from, date_to)
+                    if err:
+                        stats['stock_daily']['errors'] += 1
+                        job_mod.append_error(job_id, f'{sym} daily: {err}')
+                    elif records:
+                        written = stk_mod.write_daily(records)
+                        stats['stock_daily']['candles'] += written
+                except Exception as e:
+                    stats['stock_daily']['errors'] += 1
+                    job_mod.append_error(job_id, f'{sym} daily: {e}')
+                stats['stock_daily']['symbols_done'] = i
+                job_mod.set_phase(job_id, 'stock_daily', {
+                    'current': i, 'total': len(symbols),
+                    'current_symbol': sym,
+                    'stats': stats['stock_daily'],
+                })
+
+        # Phase 3: option history
+        if payload.get('includeOptionHistory'):
+            rf = get_current_rf()
+            for i, sym in enumerate(symbols, 1):
+                if job_mod.is_cancelled(job_id):
+                    job_mod.finish_job(job_id, 'CANCELLED')
+                    return
+                try:
+                    df, err = opt_mod.fetch_market(sym)
+                    if err or df is None or len(df) == 0:
+                        stats['option_history']['errors'] += 1
+                        job_mod.append_warning(job_id, f'{sym}: option market empty')
+                        continue
+                    import json
+                    raw = json.loads(df.to_json(orient='records', date_format='iso'))
+                    docs = opt_mod.analyze_records(raw, rf)
+                    if docs:
+                        written = opt_mod.write_history(docs)
+                        stats['option_history']['contracts'] += written
+                        stats['option_history']['with_iv'] += sum(1 for d in docs if d.get('ivApi'))
+                except Exception as e:
+                    stats['option_history']['errors'] += 1
+                    job_mod.append_error(job_id, f'{sym} options: {e}')
+                stats['option_history']['symbols_done'] = i
+                job_mod.set_phase(job_id, 'option_history', {
+                    'current': i, 'total': len(symbols),
+                    'current_symbol': sym,
+                    'stats': stats['option_history'],
+                })
+
+        # Phase 4: option snapshot ticks
+        if payload.get('includeOptionSnapshot'):
+            for i, sym in enumerate(symbols, 1):
+                try:
+                    import json
+                    df, err = opt_mod.fetch_market(sym)
+                    if df is None or len(df) == 0:
+                        continue
+                    raw = json.loads(df.to_json(orient='records', date_format='iso'))
+                    n = opt_mod.write_snapshot_ticks(sym, raw)
+                    stats['option_snapshot']['ticks'] += n
+                except Exception as e:
+                    job_mod.append_error(job_id, f'{sym} snapshot: {e}')
+                stats['option_snapshot']['symbols_done'] = i
+                job_mod.set_phase(job_id, 'option_snapshot', {
+                    'current': i, 'total': len(symbols),
+                    'current_symbol': sym,
+                    'stats': stats['option_snapshot'],
+                })
+
+        # Phase 5: aggregate
+        if payload.get('includeAggregate'):
+            for i, sym in enumerate(symbols, 1):
+                try:
+                    r = agg_mod.rebuild_symbol(sym)
+                    stats['aggregate']['candles'] += r.get('written', 0)
+                except Exception as e:
+                    job_mod.append_error(job_id, f'{sym} aggregate: {e}')
+                stats['aggregate']['symbols_done'] = i
+                job_mod.set_phase(job_id, 'aggregate', {
+                    'current': i, 'total': len(symbols),
+                    'current_symbol': sym,
+                    'stats': stats['aggregate'],
+                })
+
+        job_mod.finish_job(job_id, 'DONE', {'stats': stats})
+    except Exception as e:
+        import traceback
+        job_mod.append_error(job_id, str(e))
+        job_mod.finish_job(job_id, 'FAILED', {'error': str(e)})
 
 
-@app.get("/jobs/{job_id}")
-async def get_job(job_id: str):
-    j = job_get(job_id)
+@app.post('/jobs/full-backfill')
+def start_full_backfill(p: FullBackfillIn):
+    payload = p.dict()
+    job = job_mod.create_job('full-backfill', payload)
+    t = threading.Thread(
+        target=_run_full_backfill,
+        args=(job['_id'], payload),
+        daemon=True,
+    )
+    t.start()
+    return {'jobId': job['_id'], 'status': 'QUEUED'}
+
+@app.get('/jobs/{job_id}')
+def get_job(job_id: str):
+    j = job_mod.get_job(job_id)
     if not j:
-        raise HTTPException(404, "Job not found")
+        raise HTTPException(404, 'job not found')
+    # ObjectId-to-str
+    j['_id'] = str(j['_id'])
     return j
 
+@app.get('/jobs')
+def list_jobs(limit: int = 30):
+    js = job_mod.list_jobs(limit)
+    for j in js:
+        j['_id'] = str(j['_id'])
+    return js
 
-@app.get("/jobs")
-async def list_jobs(limit: int = 20):
-    with JOBS_LOCK:
-        items = list(JOBS.values())[-limit:]
-    return {"jobs": items}
-
-
-@app.post("/options/history")
-async def options_history(req: OptionHistoryReq):
-    """Bulk fetch option history for one symbol's active contracts."""
-    job_id = str(uuid.uuid4())
-    job_set(job_id, status="QUEUED", total=0, processed=0, message="در صف")
-    threading.Thread(target=fetch_option_daily_job,
-                     args=(job_id, [req.symbol], True),
-                     daemon=True).start()
-    return {"job_id": job_id, "status": "QUEUED"}
+@app.post('/jobs/{job_id}/cancel')
+def cancel_job(job_id: str):
+    job_mod.cancel_job(job_id)
+    return {'ok': True}
 
 
-@app.get("/chart/{symbol}")
-async def chart(symbol: str, interval: str = Query("1min"), months: int = Query(6)):
-    """Get chart data for a symbol. Falls back to online fetch if local data missing."""
-    interval = interval.strip()
-    allowed = {"1min", "3min", "5min", "10min", "15min", "30min", "1h", "1d"}
-    if interval not in allowed:
-        raise HTTPException(400, f"interval نامعتبر: {interval}")
-    months = min(max(int(months or 6), 1), 24)
-    loop = asyncio.get_event_loop()
-    candles = await loop.run_in_executor(None, lambda: fetch_chart_sync(symbol, interval, months))
-    return {"symbol": symbol, "interval": interval, "months": months,
-            "count": len(candles), "candles": candles}
+# ---------- Coverage ----------
+@app.get('/coverage')
+def coverage():
+    return {'symbols': rpt_mod.coverage_report()}
 
 
-@app.post("/backfill/all")
-async def backfill_all(req: FullBackfillReq):
-    symbols = get_monitored_symbols()
-    if not symbols:
-        raise HTTPException(400, "No monitored symbols")
-    months = min(max(int(req.months or 6), 1), 24)
-    stock_result = await backfill_stocks_async(symbols, months)
-    option_result = None
-    if req.with_options:
-        loop = asyncio.get_event_loop()
-        option_result = await loop.run_in_executor(None, lambda: fetch_option_snapshot_sync(symbols))
-    return {"stocks": stock_result, "options": option_result}
+# ---------- Risk-free ----------
+@app.get('/risk-free')
+def risk_free():
+    return {'rate': get_current_rf()}
 
 
-@app.get("/logs")
-async def get_logs(limit: int = 100):
-    limit = min(max(limit, 1), 500)
-    docs = db[COL_LOG].find({}, {"_id": 0}).sort("at", DESCENDING).limit(limit)
-    return {"logs": [{**d, "at": d["at"].isoformat() if d.get("at") else None} for d in docs]}
+# ---------- Ticker ----------
+class TickerIn(BaseModel):
+    intervalSec: int = 10
+    action: str = 'start'  # start | stop
+
+@app.post('/ticker')
+def control_ticker(p: TickerIn):
+    if p.action == 'start':
+        ok = live_mod.start_ticker(sym_mod.get_enabled_names, get_current_rf, p.intervalSec)
+        return {'ok': ok, 'interval': p.intervalSec}
+    else:
+        live_mod.stop_ticker()
+        return {'ok': True}
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+# ---------- Wipe ----------
+@app.post('/admin/wipe')
+def wipe(confirm: str):
+    if confirm != 'I_KNOW_WHAT_IM_DOING':
+        raise HTTPException(400, 'confirm string invalid')
+    db = get_db()
+    from pipeline.db import (
+        COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF,
+        COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
+    )
+    counts = {}
+    for col in [COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF,
+                COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
+                'backtest_trade_cache', 'backtest_jobs', 'backtest_result_cache',
+                'signals_state', 'signal_history']:
+        r = db[col].delete_many({})
+        counts[col] = r.deleted_count
+    log('admin_wipe', 'data wiped', counts)
+    return {'ok': True, 'deleted': counts}

@@ -95,6 +95,11 @@ function aggregateCandles(baseCandles, tfMin) {
         const bh = Math.floor(b / 60), bm = b % 60;
         const key = `${t.year}-${t.month}-${t.day}-${bh}-${bm}`;
 
+        // 🆕 skip flat candles (O=H=L=C) — noise from bad tick data
+        if (c.high === c.low && c.open === c.close && c.high === c.open) {
+            continue;
+        }
+
         if (!map.has(key)) {
             map.set(key, {
                 time: Math.floor(tehranPartsToUTCDate(t.year, t.month, t.day, bh, bm).getTime() / 1000),
@@ -194,8 +199,17 @@ function aggregateDailyForChart(rows, tf) {
 // ============================================================
 async function getBaseCandles(symbol) {
     const db = deps.getDB();
+    // 🆕 فیلتر flat candles در query (بهتر از JS filter)
     const base = await db.collection(COLLECTIONS.CANDLES_BASE)
-        .find({ symbol }).sort({ time: 1 }).toArray();
+        .find({
+            symbol,
+            $expr: { $not: { $and: [
+                { $eq: ['$open', '$high'] },
+                { $eq: ['$high', '$low'] },
+                { $eq: ['$low', '$close'] }
+            ]}}
+        })
+        .sort({ time: 1 }).toArray();
     return base.map(c => ({
         time: Math.floor(c.time.getTime() / 1000),
         open: c.open, high: c.high, low: c.low, close: c.close,
@@ -231,10 +245,21 @@ async function getCandlesFull(symbol, tf) {
 // ============================================================
 async function upsertLiveCandle(symbol, time, price, volDelta) {
     const db = deps.getDB();
+    // 🆕 فقط اگه کندل real OHLC وجود نداره، از last price بنویس
+    // این جلوی overwrite دیتای backfill شده رو می‌گیره
+    const existing = await db.collection(COLLECTIONS.CANDLES_BASE).findOne(
+        { symbol, time },
+        { projection: { source: 1 } }
+    );
+    if (existing && existing.source === 'algotik_intraday') {
+        // دیتای سالم داریم، tick جدید رو نادیده بگیر
+        return;
+    }
+
     await db.collection(COLLECTIONS.CANDLES_BASE).updateOne(
         { symbol, time },
         {
-            $setOnInsert: { symbol, time, open: price },
+            $setOnInsert: { symbol, time, open: price, source: 'live_tick' },
             $set: { close: price },
             $max: { high: price },
             $min: { low: price },

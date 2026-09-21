@@ -1,42 +1,34 @@
 'use strict';
 // ============================================================
-// risk-free.job.js — نرخ بدون ریسک روزانه
+// risk-free.job.js — خواندن نرخ بدون ریسک از DB
 // ============================================================
-// - از MongoDB (risk_free_cache) می‌خونه
-// - به settings تزریق می‌کنه
-// - هر ۶ ساعت refresh
-// ============================================================
+// Collector نرخ رو از اخزا می‌گیره و در risk_free_cache ذخیره می‌کنه.
+// این job فقط می‌خونه و به settings تزریق می‌کنه.
 
 const cron = require('node-cron');
 
 let deps = { getDB: null, settings: null, logger: null };
-
 function init(d) { deps = { ...deps, ...d }; }
 
 async function refresh() {
     try {
         const db = deps.getDB();
-        const docs = await db.collection('risk_free_cache')
-            .find({}).sort({ date: -1 }).limit(1).toArray();
+        const doc = await db.collection('risk_free_cache')
+            .find({}).sort({ date: -1 }).limit(1).next();
 
-        if (!docs.length) {
-            deps.logger && deps.logger.warn('risk-free: cache خالیه');
+        if (!doc) {
+            deps.logger && deps.logger.warn('risk-free: cache empty');
             return null;
         }
 
-        const { date, rate, count, source } = docs[0];
+        const rate = doc.rate;
+        if (!Number.isFinite(rate) || rate <= 0) return null;
 
-        if (!Number.isFinite(rate) || rate <= 0) {
-            deps.logger && deps.logger.warn(`risk-free: rate نامعتبر ${rate}`);
-            return null;
-        }
-
-        deps.settings.setRiskFreeRate(rate, date);
+        deps.settings.setRiskFreeRate(rate, doc.date);
         deps.logger && deps.logger.info(
-            `risk-free: ${rate.toFixed(4)} (${date}, ${count} bonds, source=${source})`
+            `risk-free: ${rate.toFixed(4)} (${doc.date}, ${doc.count} bonds)`
         );
-
-        return { rate, date, count, source };
+        return { rate, date: doc.date };
     } catch (e) {
         deps.logger && deps.logger.error('risk-free refresh: ' + e.message);
         return null;
@@ -44,16 +36,11 @@ async function refresh() {
 }
 
 let task = null;
-
 function start() {
     if (task) return;
-    // هر ۶ ساعت (00:00, 06:00, 12:00, 18:00 تهران)
-    task = cron.schedule('0 */6 * * *', refresh, { timezone: 'Asia/Tehran' });
-    deps.logger && deps.logger.info('risk-free.job started (every 6h)');
+    task = cron.schedule('0 */2 * * *', refresh, { timezone: 'Asia/Tehran' });
+    deps.logger && deps.logger.info('risk-free.job started');
 }
-
-function stop() {
-    if (task) { task.stop(); task = null; }
-}
+function stop() { if (task) { task.stop(); task = null; } }
 
 module.exports = { init, refresh, start, stop };
