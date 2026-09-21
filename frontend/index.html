@@ -1024,8 +1024,10 @@ function guideFull() {
 // ============================================================
 // Jalali Date Picker — helper ها
 // ============================================================
+// ============================================================
+// Jalali Date Picker — helpers
+// ============================================================
 function jdpTodayJalali() {
-    // امروز به وقت تهران
     const now = new Date();
     const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
         timeZone: 'Asia/Tehran',
@@ -1049,7 +1051,6 @@ function jdpMonthsAgo(n) {
 }
 
 function jdpNormalize(str) {
-    // "1405/04/01" → "1405-04-01"  (فرمت backend)
     return String(str || '').trim().replace(/\//g, '-');
 }
 
@@ -1057,10 +1058,9 @@ function jdpInit(attempt) {
     attempt = attempt || 0;
     if (typeof jalaliDatepicker === 'undefined') {
         if (attempt < 20) {
-            // تا ۱۰ ثانیه صبر کن، شاید script داره لود می‌شه
             setTimeout(() => jdpInit(attempt + 1), 500);
         } else {
-            console.warn('jalaliDatepicker not loaded after 10s — fallback به input معمولی');
+            console.warn('jalaliDatepicker not loaded after 10s');
         }
         return;
     }
@@ -1076,31 +1076,6 @@ function jdpInit(attempt) {
     });
     console.log('✅ jalaliDatepicker initialized');
 }
-    const to   = document.getElementById('algotikToDate');
-    if (from && !from.value) from.value = jdpMonthsAgo(3);
-    if (to   && !to.value)   to.value   = jdpTodayJalali();
-    jalaliDatepicker.startWatch({
-        selector: 'input[data-jdp]',
-        minDate: '1400/01/01',
-        maxDate: 'today',
-        zIndex: 3000,
-        autoShow: true,
-        autoHide: true,
-        hideAfterChange: true,
-        persianDigits: false,
-        date: true,
-        time: false,
-    });
-
-
-window.addEventListener('load', async () => {
-    if (!await waitForBackend()) { document.getElementById('bootMessage').textContent = 'اتصال برقرار نشد.'; document.getElementById('bootRetryBtn').style.display = 'inline-block'; return; }
-    if (!await loadStrategiesLibrary()) { document.getElementById('bootMessage').textContent = 'بارگذاری استراتژی ناموفق.'; document.getElementById('bootRetryBtn').style.display = 'inline-block'; return; }
-    document.getElementById('bootOverlay').style.display = 'none';
-    jdpInit();   // ← این خط اضافه
-    await checkBackendStatus();
-    // ...
-});
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });
 </script>
 </body>
