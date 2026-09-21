@@ -6,6 +6,8 @@
 <title>شکارچی آپشن</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/jalali-date-picker@1.0.8/dist/jalali-date-picker.min.css">
+<script src="https://unpkg.com/jalali-date-picker@1.0.8/dist/jalali-date-picker.min.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 :root { --bg:#0e1013; --bg-card:#14161a; --bg-input:#0e1013; --border:#21242a; --border-light:#2a2e35; --text:#dfe2e6; --text-dim:#7d8590; --text-bright:#f0f2f5; --accent:#3d7dd8; --accent-hover:#326ec2; --good:#2ea88a; --bad:#d9534f; --warn:#c9973d; }
@@ -309,11 +311,21 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
             <div id="ptab-backfill" style="display:none;">
                 <div class="pipeline-block">
                     <h3>📥 Backfill کامل</h3>
-                    <div class="form-row" style="align-items:end; margin-bottom:8px;">
-                        <div class="field" style="min-width:120px;"><label>از تاریخ</label><input type="text" id="algotikFromDate" value="1402-01-01" placeholder="1402-01-01" style="direction:ltr;"></div>
-                        <div class="field" style="min-width:120px;"><label>تا تاریخ</label><input type="text" id="algotikToDate" value="1404-12-29" placeholder="1404-12-29" style="direction:ltr;"></div>
-                        <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button>
-                    </div>
+            <div class="form-row" style="align-items:end; margin-bottom:8px;">
+                <div class="field" style="min-width:150px;">
+                    <label>از تاریخ</label>
+                    <input type="text" id="algotikFromDate" placeholder="1405/01/01"
+                        data-jdp data-jdp-only-date
+                        style="direction:ltr; text-align:center;">
+                </div>
+                <div class="field" style="min-width:150px;">
+                    <label>تا تاریخ</label>
+                    <input type="text" id="algotikToDate" placeholder="1405/06/30"
+                        data-jdp data-jdp-only-date
+                        style="direction:ltr; text-align:center;">
+                </div>
+                <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button>
+            </div>
                     <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div>
                     <div id="algotikBackfillJobArea" style="margin-top:10px;"></div>
                 </div>
@@ -617,8 +629,8 @@ async function algotikRefresh() {
 }
 
 async function algotikStartBackfill(btn) {
-    const from = document.getElementById('algotikFromDate').value.trim();
-    const to = document.getElementById('algotikToDate').value.trim();
+    const from = jdpNormalize(document.getElementById('algotikFromDate').value);
+    const to   = jdpNormalize(document.getElementById('algotikToDate').value);
     if (!from || !to) return showAlert('تاریخ شروع و پایان را وارد کن', 'warn');
     if (!confirm(`Backfill کامل از ${from} تا ${to}؟\n\nهشدار: چند ساعت طول می‌کشد.`)) return;
     if (btn) { btn.disabled = true; btn.textContent = 'در حال شروع...'; }
@@ -1008,28 +1020,68 @@ function guideFull() {
 }
 
 // ==================== Boot ====================
+// ============================================================
+// Jalali Date Picker — helper ها
+// ============================================================
+function jdpTodayJalali() {
+    // امروز به وقت تهران
+    const now = new Date();
+    const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
+        timeZone: 'Asia/Tehran',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    const parts = {};
+    fmt.formatToParts(now).forEach(p => parts[p.type] = p.value);
+    return `${parts.year}/${parts.month}/${parts.day}`;
+}
+
+function jdpMonthsAgo(n) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - n);
+    const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
+        timeZone: 'Asia/Tehran',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    const parts = {};
+    fmt.formatToParts(d).forEach(p => parts[p.type] = p.value);
+    return `${parts.year}/${parts.month}/${parts.day}`;
+}
+
+function jdpNormalize(str) {
+    // "1405/04/01" → "1405-04-01"  (فرمت backend)
+    return String(str || '').trim().replace(/\//g, '-');
+}
+
+function jdpInit() {
+    if (typeof jalaliDatepicker === 'undefined') {
+        console.warn('jalaliDatepicker not loaded');
+        return;
+    }
+    const from = document.getElementById('algotikFromDate');
+    const to   = document.getElementById('algotikToDate');
+    if (from && !from.value) from.value = jdpMonthsAgo(3);
+    if (to   && !to.value)   to.value   = jdpTodayJalali();
+    jalaliDatepicker.startWatch({
+        selector: 'input[data-jdp]',
+        minDate: '1400/01/01',
+        maxDate: 'today',
+        zIndex: 3000,
+        autoShow: true,
+        autoHide: true,
+        hideAfterChange: true,
+        persianDigits: false,
+        date: true,
+        time: false,
+    });
+}
+
 window.addEventListener('load', async () => {
     if (!await waitForBackend()) { document.getElementById('bootMessage').textContent = 'اتصال برقرار نشد.'; document.getElementById('bootRetryBtn').style.display = 'inline-block'; return; }
     if (!await loadStrategiesLibrary()) { document.getElementById('bootMessage').textContent = 'بارگذاری استراتژی ناموفق.'; document.getElementById('bootRetryBtn').style.display = 'inline-block'; return; }
     document.getElementById('bootOverlay').style.display = 'none';
+    jdpInit();   // ← این خط اضافه
     await checkBackendStatus();
-    await loadTimeframes();
-    await loadStrategies();
-    await loadMonitoredSymbols();
-    await loadConfigs();
-    await loadSignalHistory();
-    await loadOptionPositions();
-    updateIndCount();
-    await algotikRefresh();
-    updateTickerStatus();
-    startSystemPolling();
-    setInterval(checkBackendStatus, 60000);
-    setInterval(loadConfigs, 60000);
-    setInterval(loadMonitoredSymbols, 120000);
-    setInterval(refreshQuotesOnly, 30000);
-    setInterval(loadSignalHistory, 60000);
-    setInterval(loadOptionPositions, 60000);
-    startDataPipelinePolling();
+    // ...
 });
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });
 </script>
