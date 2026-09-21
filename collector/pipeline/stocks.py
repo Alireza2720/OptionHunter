@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """Stock data: intraday 1m OHLC + daily OHLCV."""
 import algotik_tse as att
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+# Tehran local = UTC+3:30
+TEHRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 from typing import Any
 from pymongo import UpdateOne
 from .db import get_db, COL_CANDLES_BASE, COL_CANDLES_DAILY
@@ -79,8 +82,15 @@ def fetch_intraday_1m(symbol, from_date, to_date):
     for idx, row in df.iterrows():
         try:
             ts = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts)
+
+            # algotik زمان رو به وقت تهران بدون tzinfo می‌ده
+            # پس اول Tehran رو attach می‌کنیم، بعد به UTC تبدیل
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=TEHRAN_TZ)
+            ts = ts.astimezone(timezone.utc)
+
             o, h, l, c = float(row['Open']), float(row['High']), float(row['Low']), float(row['Close'])
             if not (o > 0 and h > 0 and l > 0 and c > 0):
                 continue
