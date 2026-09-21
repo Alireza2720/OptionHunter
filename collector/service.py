@@ -185,12 +185,13 @@ def set_enabled_endpoint(symbol: str, p: EnabledIn):
 # ---------- Jobs ----------
 class FullBackfillIn(BaseModel):
     symbols: Optional[List[str]] = None
-    dateFrom: str  # jalali or gregorian
+    dateFrom: str
     dateTo: str
     includeStockIntraday: bool = True
     includeStockDaily: bool = True
     includeOptionHistory: bool = True
     includeOptionSnapshot: bool = True
+    includeOptionMigration: bool = True  # 🆕
     includeAggregate: bool = True
 
 def _run_full_backfill(job_id: str, payload: dict):
@@ -205,6 +206,7 @@ def _run_full_backfill(job_id: str, payload: dict):
             'stock_daily': {'symbols_done': 0, 'candles': 0, 'errors': 0},
             'option_history': {'symbols_done': 0, 'contracts': 0, 'with_iv': 0, 'errors': 0},
             'option_snapshot': {'symbols_done': 0, 'ticks': 0},
+            'option_migration': {'total_processed': 0, 'written': 0, 'skipped': 0, 'errors': 0},
             'aggregate': {'symbols_done': 0, 'candles': 0},
         }
 
@@ -305,7 +307,21 @@ def _run_full_backfill(job_id: str, payload: dict):
                     'current_symbol': sym,
                     'stats': stats['option_snapshot'],
                 })
-
+        # 🆕 Phase 4.5: options migration (historical data from AlgoTik raw)
+        if payload.get('includeOptionMigration'):
+            try:
+                from pipeline import options as opt_mod
+                result = opt_mod.migrate_from_daily_algotik(
+                    underlyings=symbols,
+                    dry_run=False,
+                )
+                stats['option_migration'] = result
+                job_mod.set_phase(job_id, 'option_migration', {
+                    'current': len(symbols), 'total': len(symbols),
+                    'stats': result,
+                })
+            except Exception as e:
+                job_mod.append_error(job_id, f'option migration: {e}')
         # Phase 5: aggregate
         if payload.get('includeAggregate'):
             for i, sym in enumerate(symbols, 1):
@@ -367,6 +383,20 @@ def cancel_job(job_id: str):
 def coverage():
     return {'symbols': rpt_mod.coverage_report()}
 
+# ---------- Options Migration ----------
+class MigrateOptionsIn(BaseModel):
+    underlyings: Optional[List[str]] = None
+    dryRun: bool = False
+
+@app.post('/migrate-options')
+def migrate_options(p: MigrateOptionsIn):
+    """Migrate option_daily_algotik → option_history with IV/Greeks."""
+    result = opt_mod.migrate_from_daily_algotik(
+        underlyings=p.underlyings,
+        dry_run=p.dryRun,
+    )
+    log('options_migration', f'migrated {result["written"]} docs', result)
+    return result
 # ---------- Audit ----------
 @app.get('/audit')
 def audit_all_endpoint(days: int = 730):

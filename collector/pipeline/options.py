@@ -200,6 +200,160 @@ def analyze_records(records, risk_free_rate):
         if d:
             docs.append(d)
     return docs
+def migrate_from_daily_algotik(underlyings=None, dry_run=False, log_fn=None):
+    """
+    Migrate option_daily_algotik → option_history with IV/Greeks.
+    Returns stats dict.
+    """
+    import pandas as pd
+    db = get_db()
+
+    q = {}
+    if underlyings:
+        q['underlying'] = {'$in': underlyings}
+
+    # Preload candles_daily for S
+    candle_cache = {}
+    for c in db['candles_daily'].find({}, {'symbol': 1, 'time': 1, 'close': 1}):
+        s = c.get('symbol'); t = c.get('time')
+        if s and t:
+            try:
+                date_str = t.strftime('%Y-%m-%d')
+                candle_cache.setdefault(s, {})[date_str] = c.get('close')
+            except Exception:
+                pass
+
+    # Get current risk-free
+    rf = 0.414
+    try:
+        rf_doc = db['risk_free_cache'].find_one({}, sort=[('date', -1)])
+        if rf_doc:
+            rf = float(rf_doc.get('rate', 0.414))
+    except Exception:
+        pass
+
+    total = written = skipped = errors = 0
+    ops = []
+
+    for doc in db['option_daily_algotik'].find(q):
+        total += 1
+        underlying = doc.get('underlying')
+        date_str = doc.get('date')
+        strike = doc.get('strike')
+        end_date = doc.get('end_date')
+        option_type = (doc.get('option_type') or 'call').lower()
+        close_px = doc.get('close') or doc.get('last')
+
+        if not all([underlying, date_str, strike, end_date, close_px]):
+            skipped += 1; continue
+        if float(close_px) <= 1:
+            skipped += 1; continue
+        if not (doc.get('volume') or 0) > 0:
+            skipped += 1; continue
+
+        S = candle_cache.get(underlying, {}).get(date_str)
+        if not S or S <= 0:
+            skipped += 1; continue
+
+        try:
+            y1, m1, d1 = map(int, date_str.split('-'))
+            y2, m2, d2 = map(int, end_date.split('-'))
+            days_left = (datetime(y2, m2, d2) - datetime(y1, m1, d1)).days
+        except Exception:
+            skipped += 1; continue
+
+        if days_left <= 0:
+            skipped += 1; continue
+
+        T = days_left / 365.0
+
+        # IV
+        iv = None
+        try:
+            iv_res = att.implied_volatility(float(close_px), float(S), float(strike), T, rf, option_type)
+            if isinstance(iv_res, dict):
+                iv = iv_res.get('ImpliedVolatility')
+            if iv and (iv < 0.05 or iv > 5.0):
+                iv = None
+        except Exception:
+            iv = None
+
+        # Greeks
+        delta = gamma = theta = vega = None
+        if iv:
+            try:
+                g = att.black_scholes_greeks(float(S), float(strike), T, rf, iv, option_type)
+                if isinstance(g, dict):
+                    delta = g.get('Delta')
+                    gamma = g.get('Gamma')
+                    theta = g.get('ThetaPerDay')
+                    vega = g.get('Vega')
+            except Exception:
+                pass
+
+        # Convert date to UTC (Tehran 12:30 = UTC 09:00)
+        try:
+            y, m, d = map(int, date_str.split('-'))
+            time_val = datetime(y, m, d, 9, 0, 0, tzinfo=timezone.utc)
+        except Exception:
+            skipped += 1; continue
+
+        rec = {
+            'symbol': doc.get('symbol'),
+            'underlying': underlying,
+            'time': time_val,
+            'strike': float(strike) if strike else None,
+            'expiry': end_date,
+            'daysLeft': days_left,
+            'size': int(doc.get('contract_size') or 1000),
+            'isCall': option_type == 'call',
+            'S': float(S),
+            'bid': None,
+            'ask': None,
+            'last': float(doc.get('last') or 0) or None,
+            'close': float(close_px),
+            'oi': None,
+            'volume': float(doc.get('volume') or 0),
+            'trades': float(doc.get('trade_count') or 0),
+            'ivApi': iv,
+            'deltaApi': delta,
+            'gammaApi': gamma,
+            'thetaApi': theta,
+            'vegaApi': vega,
+            'riskFreeRate': rf,
+            'source': 'migrated_daily',
+            'migratedAt': datetime.now(timezone.utc),
+        }
+
+        ops.append(UpdateOne(
+            {'symbol': rec['symbol'], 'time': time_val},
+            {'$set': rec},
+            upsert=True,
+        ))
+
+        if len(ops) >= 500:
+            if not dry_run:
+                try:
+                    res = db[COL_OPTION_HISTORY].bulk_write(ops, ordered=False)
+                    written += res.upserted_count + res.modified_count
+                except Exception as e:
+                    errors += 1
+                    if log_fn: log_fn(f'bulk error: {e}')
+            ops = []
+
+    if ops and not dry_run:
+        try:
+            res = db[COL_OPTION_HISTORY].bulk_write(ops, ordered=False)
+            written += res.upserted_count + res.modified_count
+        except Exception as e:
+            errors += 1
+
+    return {
+        'total_processed': total,
+        'written': written,
+        'skipped': skipped,
+        'errors': errors,
+    }
 
 def write_history(docs):
     if not docs:
