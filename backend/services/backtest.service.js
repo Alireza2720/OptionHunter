@@ -476,6 +476,10 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
     const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).findOne({ symbol });
     if (!monitored) return { symbol, error: 'نماد در لیست پایش نیست' };
 
+    // 🆕 عمق دیتا برای threshold داینامیک
+    const dataDays = await computeDataDays(db, symbol);
+    const th = getThresholds(dataDays);
+
     const STRATEGIES = deps.strategies.STRATEGIES;
     const strategies = Object.values(STRATEGIES).filter(s => s.id !== 'ensemble');
     const results = [];
@@ -526,7 +530,7 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
                     diagnostic: result.diagnostic
                 }
             };
-            r.score = scoreStrategy(r);
+            r.score = scoreStrategy(r, dataDays);   // 🆕
             results.push(r);
         } catch (e) {
             if (String(e.message).includes(ERROR_CODES.CANCELED_BY_USER)) throw e;
@@ -551,15 +555,20 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
             else {
                 const s = r.stock || {};
                 const o = r.option || {};
-                if ((s.closed || 0) < 7) reasons.push(`معامله سهم ${s.closed || 0} < 7`);
-                else if ((o.count || 0) < 3) reasons.push(`معامله آپشن ${o.count || 0} < 3`);
-                else if ((o.profitFactor || 0) < 1.1) reasons.push(`PF ${(o.profitFactor || 0).toFixed(2)} < 1.1`);
+                if ((s.closed || 0) < th.minTrades)
+                    reasons.push(`معامله سهم ${s.closed || 0} < ${th.minTrades}`);
+                else if ((o.count || 0) < th.minOptCount)
+                    reasons.push(`معامله آپشن ${o.count || 0} < ${th.minOptCount}`);
+                else if ((o.profitFactor || 0) < th.minPF)
+                    reasons.push(`PF ${(o.profitFactor || 0).toFixed(2)} < ${th.minPF}`);
             }
             return { strategyId: r.strategyId, strategyName: r.strategyName, reasons };
         });
         return {
             symbol,
-            error: 'هیچ استراتژی معتبری پیدا نشد (7 معامله سهم + 3 آپشن + PF > 1.1)',
+            error: `هیچ استراتژی معتبری پیدا نشد (${th.minTrades} معامله سهم + ${th.minOptCount} آپشن + PF > ${th.minPF}) — dataDays=${dataDays}`,
+            dataDays,              // 🆕
+            thresholds: th,        // 🆕
             results,
             rejectionReasons
         };
@@ -570,6 +579,8 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
 
     return {
         symbol,
+        dataDays,                  // 🆕
+        thresholds: th,            // 🆕
         leader: {
             strategyId: leader.strategyId,
             strategyName: leader.strategyName,
@@ -599,17 +610,38 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
     };
 }
 
-function scoreStrategy(res) {
+// 🆕 threshold داینامیک بر اساس عمق دیتا
+function getThresholds(dataDays) {
+    const d = Number.isFinite(dataDays) ? dataDays : 90;
+    if (d < 100) {
+        // ۳ ماه اول: سختی کمتر
+        return { minTrades: 4, minOptCount: 2, minPF: 1.0 };
+    }
+    if (d < 180) {
+        return { minTrades: 5, minOptCount: 2, minPF: 1.05 };
+    }
+    if (d < 365) {
+        return { minTrades: 6, minOptCount: 3, minPF: 1.1 };
+    }
+    // دیتای یک‌ساله+
+    return { minTrades: 7, minOptCount: 3, minPF: 1.1 };
+}
+
+function scoreStrategy(res, dataDays) {
     if (!res || res.error) return -Infinity;
+    const th = getThresholds(dataDays);
     const s = res.stock || {};
     const o = res.option || {};
+
     const trades = s.closed || 0;
-    if (trades < 7) return -Infinity;
+    if (trades < th.minTrades) return -Infinity;
+
     const optCount = o.count || 0;
-    if (optCount < 3) return -Infinity;
+    if (optCount < th.minOptCount) return -Infinity;
+
     const optPF = (o.profitFactor !== null && o.profitFactor !== undefined && isFinite(o.profitFactor))
         ? o.profitFactor : 0;
-    if (optPF < 1.1) return -Infinity;
+    if (optPF < th.minPF) return -Infinity;
 
     const winRate = (s.winRate || 0) / 100;
     const optAvg = o.avgPnl || 0;
