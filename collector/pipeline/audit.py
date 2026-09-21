@@ -76,7 +76,39 @@ def _find_earliest_data_date():
     if earliest.tzinfo is None:
         return earliest.replace(tzinfo=timezone.utc)
     return earliest
+def _find_symbol_option_start(symbol):
+    """Find the earliest option date for a specific symbol.
+    Returns aware UTC datetime or None.
+    """
+    db = get_db()
 
+    # From option_daily_algotik (date string)
+    doc = db['option_daily_algotik'].find_one(
+        {'underlying': symbol, 'date': {'$exists': True}},
+        sort=[('date', 1)],
+        projection={'date': 1},
+    )
+    if doc and doc.get('date'):
+        try:
+            d = datetime.strptime(doc['date'], '%Y-%m-%d')
+            return d.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    # Fallback to option_history
+    doc2 = db[COL_OPTION_HISTORY].find_one(
+        {'underlying': symbol, 'time': {'$exists': True}},
+        sort=[('time', 1)],
+        projection={'time': 1},
+    )
+    if doc2 and doc2.get('time'):
+        d = doc2['time']
+        if isinstance(d, datetime):
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            return d
+
+    return None
 def audit_symbol(symbol, from_date=None, to_date=None):
     """Audit one symbol. Returns detailed coverage report."""
     db = get_db()
@@ -202,34 +234,11 @@ def audit_symbol(symbol, from_date=None, to_date=None):
 
     return result
 
-
-def audit_all(symbols=None, days=None):
-    """Audit all symbols.
-
-    Args:
-        days: If None → dynamic mode (uses earliest option data as anchor).
-              If int  → fixed N-day lookback.
-    """
-    db = get_db()
-    if not symbols:
-        symbols = [s['symbol'] for s in db[COL_MONITORED].find({})]
-
-    to_date = datetime.now(timezone.utc)
-
-    if days is None:
-        earliest = _find_earliest_data_date()
-        if earliest:
-            from_date = earliest
-            mode = 'dynamic'
-        else:
-            from_date = to_date - timedelta(days=730)
-            mode = 'fallback_730'
-    else:
-        from_date = to_date - timedelta(days=days)
-        mode = 'fixed'
-
+def _audit_many(symbols, from_date, to_date, mode='fixed'):
+    """Simple wrapper for fixed-range audit."""
     reports = []
     summary = {'ok': 0, 'warn': 0, 'critical': 0}
+
     for sym in symbols:
         try:
             r = audit_symbol(sym, from_date, to_date)
@@ -237,7 +246,12 @@ def audit_all(symbols=None, days=None):
             reports.append(r)
             summary[r['overall']] = summary.get(r['overall'], 0) + 1
         except Exception as e:
-            reports.append({'symbol': sym, 'overall': 'critical', 'error': str(e)})
+            reports.append({
+                'symbol': sym,
+                'overall': 'critical',
+                'error': str(e),
+                'audit_mode': mode,
+            })
             summary['critical'] += 1
 
     return {
@@ -245,6 +259,62 @@ def audit_all(symbols=None, days=None):
         'audit_mode': mode,
         'period_days': (to_date - from_date).days,
         'from': from_date.isoformat()[:10],
+        'to': to_date.isoformat()[:10],
+        'summary': summary,
+        'symbols': reports,
+    }
+
+def audit_all(symbols=None, days=None):
+    """Audit all symbols.
+
+    Args:
+        days: If None → dynamic per-symbol mode (each symbol's option start).
+              If int  → fixed N-day lookback (global).
+    """
+    db = get_db()
+    if not symbols:
+        symbols = [s['symbol'] for s in db[COL_MONITORED].find({})]
+
+    to_date = datetime.now(timezone.utc)
+
+    # Global mode
+    if days is not None:
+        from_date = to_date - timedelta(days=days)
+        return _audit_many(symbols, from_date, to_date, mode='fixed')
+
+    # Dynamic per-symbol mode
+    global_earliest = _find_earliest_data_date()
+    if global_earliest is None:
+        global_earliest = to_date - timedelta(days=730)
+
+    reports = []
+    summary = {'ok': 0, 'warn': 0, 'critical': 0}
+
+    for sym in symbols:
+        sym_start = _find_symbol_option_start(sym)
+        if sym_start is None:
+            sym_start = global_earliest  # fallback
+
+        try:
+            r = audit_symbol(sym, sym_start, to_date)
+            r['audit_mode'] = 'dynamic'
+            r['symbol_option_start'] = sym_start.isoformat()[:10]
+            reports.append(r)
+            summary[r['overall']] = summary.get(r['overall'], 0) + 1
+        except Exception as e:
+            reports.append({
+                'symbol': sym,
+                'overall': 'critical',
+                'error': str(e),
+                'audit_mode': 'dynamic',
+            })
+            summary['critical'] += 1
+
+    return {
+        'at': datetime.now(timezone.utc).isoformat(),
+        'audit_mode': 'dynamic',
+        'period_days': (to_date - global_earliest).days,
+        'from': global_earliest.isoformat()[:10],
         'to': to_date.isoformat()[:10],
         'summary': summary,
         'symbols': reports,
