@@ -401,3 +401,12 @@ def wipe(confirm: str):
         counts[col] = r.deleted_count
     log('admin_wipe', 'data wiped', counts)
     return {'ok': True, 'deleted': counts}
+
+
+# ---------- Main ----------
+if __name__ == '__main__':
+    import uvicorn
+    port = int(os.getenv('PORT', '5000'))
+    host = os.getenv('HOST', '127.0.0.1')
+    print(f'🚀 Collector starting on {host}:{port}')
+    uvicorn.run(app, host=host, port=port)
