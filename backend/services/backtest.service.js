@@ -555,12 +555,17 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
             else {
                 const s = r.stock || {};
                 const o = r.option || {};
+                // 🆕 محاسبه PF درست (Infinity handling)
+                let pf = o.profitFactor;
+                if (pf === null || pf === undefined || !Number.isFinite(pf)) {
+                    pf = (o.avgPnl || 0) > 0 ? Infinity : 0;
+                }
                 if ((s.closed || 0) < th.minTrades)
                     reasons.push(`معامله سهم ${s.closed || 0} < ${th.minTrades}`);
                 else if ((o.count || 0) < th.minOptCount)
                     reasons.push(`معامله آپشن ${o.count || 0} < ${th.minOptCount}`);
-                else if ((o.profitFactor || 0) < th.minPF)
-                    reasons.push(`PF ${(o.profitFactor || 0).toFixed(2)} < ${th.minPF}`);
+                else if (pf < th.minPF)
+                    reasons.push(`PF ${Number.isFinite(pf) ? pf.toFixed(2) : '∞'} < ${th.minPF}`);
             }
             return { strategyId: r.strategyId, strategyName: r.strategyName, reasons };
         });
@@ -639,13 +644,19 @@ function scoreStrategy(res, dataDays) {
     const optCount = o.count || 0;
     if (optCount < th.minOptCount) return -Infinity;
 
-    const optPF = (o.profitFactor !== null && o.profitFactor !== undefined && isFinite(o.profitFactor))
-        ? o.profitFactor : 0;
+    // 🆕 PF: Infinity یعنی همه سود — بهترین حالت، نباید reject بشه
+    let optPF = o.profitFactor;
+    if (optPF === null || optPF === undefined || !Number.isFinite(optPF)) {
+        // اگه avgPnl مثبت بود → PF = ∞ (بهترین)، وگرنه 0
+        optPF = (o.avgPnl || 0) > 0 ? 99 : 0;
+    }
     if (optPF < th.minPF) return -Infinity;
 
     const winRate = (s.winRate || 0) / 100;
     const optAvg = o.avgPnl || 0;
-    let score = optPF * 0.4 + winRate * 0.3 +
+    // 🆕 cap PF برای score (تا ۱۰) وگرنه score دоминирует
+    const cappedPF = Math.min(optPF, 10);
+    let score = cappedPF * 0.4 + winRate * 0.3 +
         Math.min(trades, 20) / 20 * 0.1 +
         Math.max(-1, Math.min(2, optAvg / 50)) * 0.2;
     if (trades >= 20) score *= 1.2;
