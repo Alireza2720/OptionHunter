@@ -45,63 +45,84 @@ async function close() {
         db = null;
     }
 }
-
+// ----------------------------------------------------------------
+// Idempotent index helper — هم‌راست با collector/pipeline/db.py
+// ----------------------------------------------------------------
+async function safeCreateIndex(collection, keys, options = {}) {
+    try {
+        await collection.createIndex(keys, options);
+        return true;
+    } catch (e) {
+        const msg = String(e.message || '');
+        if (
+            e.code === 86 ||                          // IndexKeySpecsConflict
+            e.code === 85 ||                          // IndexOptionsConflict
+            e.codeName === 'IndexKeySpecsConflict' ||
+            e.codeName === 'IndexOptionsConflict' ||
+            msg.includes('already exists') ||
+            msg.includes('same name as the requested index')
+        ) {
+            return false;   // skip — tolerance
+        }
+        throw e;            // خطای واقعی → بالا بره
+    }
+}
 async function ensureIndexes() {
     // --- کندل‌ها ---
     try { await db.collection(COLLECTIONS.CANDLES_BASE).dropIndex('time_1'); } catch (_) {}
-    await db.collection(COLLECTIONS.CANDLES_BASE).createIndex({ time: 1 });
-    await db.collection(COLLECTIONS.CANDLES_BASE).createIndex({ symbol: 1, time: 1 }, { unique: true });
-    await db.collection(COLLECTIONS.CANDLES_BASE).createIndex({ source: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { time: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { symbol: 1, time: 1 }, { unique: true });
+    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { source: 1 });
 
-    await db.collection(COLLECTIONS.CANDLES_DAILY).createIndex({ symbol: 1, time: 1 }, { unique: true });
+    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_DAILY), { symbol: 1, time: 1 }, { unique: true });
 
-    await db.collection(COLLECTIONS.CANDLES_TF).createIndex({ symbol: 1, tf: 1, time: 1 }, { unique: true });
+    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_TF), { symbol: 1, tf: 1, time: 1 }, { unique: true });
 
     // --- سیگنال‌ها ---
-    await db.collection(COLLECTIONS.SIGNAL_HISTORY).createIndex({ createdAt: -1 });
-    await db.collection(COLLECTIONS.SIGNAL_HISTORY).createIndex({ symbol: 1, createdAt: -1 });
-    await db.collection(COLLECTIONS.SIGNALS_STATE).createIndex({ configId: 1 }, { unique: true });
+    await safeCreateIndex(db.collection(COLLECTIONS.SIGNAL_HISTORY), { createdAt: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.SIGNAL_HISTORY), { symbol: 1, createdAt: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.SIGNALS_STATE), { configId: 1 }, { unique: true });
 
     // --- کانفیگ‌ها ---
-    await db.collection(COLLECTIONS.STRATEGY_CONFIGS).createIndex({ symbol: 1 });
-    await db.collection(COLLECTIONS.STRATEGY_CONFIGS).createIndex({ enabled: 1 });
-    await db.collection(COLLECTIONS.MONITORED_SYMBOLS).createIndex({ symbol: 1 }, { unique: true });
+    await safeCreateIndex(db.collection(COLLECTIONS.STRATEGY_CONFIGS), { symbol: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.STRATEGY_CONFIGS), { enabled: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.MONITORED_SYMBOLS), { symbol: 1 }, { unique: true });
 
     // --- Jobs ---
-    await db.collection(COLLECTIONS.BACKTEST_JOBS).createIndex({ status: 1, createdAt: 1 });
-    await db.collection(COLLECTIONS.BACKTEST_JOBS).createIndex({ createdAt: -1 });
-    await db.collection(COLLECTIONS.BACKTEST_JOBS).createIndex({ 'progress.chunks.status': 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_JOBS), { status: 1, createdAt: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_JOBS), { createdAt: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_JOBS), { 'progress.chunks.status': 1 });
 
     // --- کش ----
-    await db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE).createIndex({ computedAt: 1 });
-    await db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE).createIndex({ 'signature.symbol': 1 });
-    await db.collection(COLLECTIONS.BACKTEST_RESULT_CACHE).createIndex(
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE), { computedAt: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE), { 'signature.symbol': 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_RESULT_CACHE),
         { createdAt: 1 },
         { expireAfterSeconds: 7 * 86400 }
     );
 
     // --- آپشن ---
-    await db.collection(COLLECTIONS.OPTION_SNAPSHOTS).createIndex({ symbol: 1, time: 1 });
-    await db.collection(COLLECTIONS.OPTION_SNAPSHOTS).createIndex({ time: 1 });
-    await db.collection(COLLECTIONS.OPTION_DAILY).createIndex({ symbol: 1, date: 1 }, { unique: true });
-    await db.collection(COLLECTIONS.OPTION_DAILY).createIndex({ underlying: 1, date: 1 });
-    await db.collection(COLLECTIONS.OPTION_POSITIONS).createIndex({ status: 1, configId: 1 });
-    await db.collection(COLLECTIONS.OPTION_HISTORY).createIndex({ symbol: 1, time: 1 });
-    await db.collection(COLLECTIONS.OPTION_HISTORY).createIndex({ underlying: 1, time: 1 });
-    await db.collection(COLLECTIONS.OPTION_HISTORY).createIndex({ time: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_SNAPSHOTS), { symbol: 1, time: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_SNAPSHOTS), { time: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_DAILY), { symbol: 1, date: 1 }, { unique: true });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_DAILY), { underlying: 1, date: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_POSITIONS), { status: 1, configId: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { symbol: 1, time: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { underlying: 1, time: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { time: 1 });
 
     // --- Telegram ---
-    await db.collection(COLLECTIONS.TELEGRAM_OUTBOX).createIndex({ sentAt: 1, createdAt: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.TELEGRAM_OUTBOX), { sentAt: 1, createdAt: 1 });
 
     // --- TSETMC ---
-    await db.collection(COLLECTIONS.TSETMC_FETCH_LOG).createIndex({ symbol: 1, date: 1 });
-    await db.collection(COLLECTIONS.TSETMC_FETCH_LOG).createIndex({ createdAt: -1 });
-    await db.collection(COLLECTIONS.TSETMC_FETCH_LOG).createIndex({ symbol: 1, date: 1, status: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.TSETMC_FETCH_LOG), { symbol: 1, date: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.TSETMC_FETCH_LOG), { createdAt: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.TSETMC_FETCH_LOG), { symbol: 1, date: 1, status: 1 });
 
     // --- لاگ‌ها ---
     try { await db.collection(COLLECTIONS.LOGS).dropIndex('at_1'); } catch (_) {}
-    await db.collection(COLLECTIONS.LOGS).createIndex({ at: 1 });
-    await db.collection(COLLECTIONS.LOGS).createIndex({ level: 1, at: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { at: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { level: 1, at: -1 });
 }
 
 async function cleanupLegacy() {
