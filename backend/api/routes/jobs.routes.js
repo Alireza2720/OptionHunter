@@ -33,6 +33,17 @@ function register(app, deps) {
             backtestService.processQueue().catch(() => {});
         } catch (e) { next(e); }
     });
+    // 🆕 Apply config از نتایج بک تست (بدون بک تست مجدد)
+    app.post('/api/jobs/apply-from-results', async (req, res, next) => {
+        try {
+            const { results } = req.body || {};
+            if (!Array.isArray(results) || !results.length) {
+                return res.status(400).json({ error: 'نتیجه‌ای برای اعمال نیست' });
+            }
+            const out = await backtestService.applyConfigFromResults(results);
+            res.json(out);
+        } catch (e) { next(e); }
+    });
 
     // ---- Auto-config job ----
     app.post('/api/jobs/auto-config', async (req, res, next) => {
@@ -75,6 +86,43 @@ function register(app, deps) {
 
             res.json({ jobId: String(job._id), status: 'QUEUED' });
             backtestService.processQueue().catch(() => {});
+        } catch (e) { next(e); }
+    });
+
+    // 🆕 Compare details — لیست
+    app.get('/api/jobs/:id/details', async (req, res, next) => {
+        try {
+            const { symbol, strategyId } = req.query;
+            const list = await backtestService.listCompareDetails(
+                req.params.id,
+                { symbol, strategyId }
+            );
+            res.json({ count: list.length, details: list });
+        } catch (e) { next(e); }
+    });
+
+    // 🆕 Compare details — یک ترکیب خاص با trades + advanced
+    app.get('/api/jobs/:id/details/:symbol/:strategyId', async (req, res, next) => {
+        try {
+            const d = await backtestService.getCompareDetail(
+                req.params.id,
+                decodeURIComponent(req.params.symbol),
+                req.params.strategyId
+            );
+            if (!d) return res.status(404).json({ error: 'جزئیات یافت نشد' });
+            res.json(d);
+        } catch (e) { next(e); }
+    });
+
+    // 🆕 Download full job result as JSON
+    app.get('/api/jobs/:id/download', async (req, res, next) => {
+        try {
+            const job = await backtestService.getJob(req.params.id);
+            if (!job) return res.status(404).json({ error: 'Job یافت نشد' });
+            const filename = `job_${job.type}_${String(job._id)}.json`;
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.send(JSON.stringify(job, null, 2));
         } catch (e) { next(e); }
     });
 

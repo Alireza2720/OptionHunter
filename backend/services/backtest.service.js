@@ -75,7 +75,28 @@ async function createJob(type, payload, chunksPlan) {
 async function getJob(id) {
     return deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).findOne({ _id: new ObjectId(id) });
 }
+// 🆕 دریافت جزئیات یک ترکیب خاص
+async function getCompareDetail(jobId, symbol, strategyId) {
+    return deps.getDB().collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS).findOne({
+        jobId: String(jobId),
+        symbol,
+        strategyId
+    });
+}
 
+// 🆕 لیست جزئیات یک job (بدون trades و advanced — فقط برای پیش‌نمایش)
+async function listCompareDetails(jobId, opts = {}) {
+    const q = { jobId: String(jobId) };
+    if (opts.symbol) q.symbol = opts.symbol;
+    if (opts.strategyId) q.strategyId = opts.strategyId;
+
+    return deps.getDB().collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
+        .find(q, { projection: {
+            trades: 0, advanced: 0   // برای پیش‌نمایش، فقط متادیتا
+        }})
+        .sort({ symbol: 1, strategyId: 1 })
+        .toArray();
+}
 async function listJobs(limit = 50, onlyActive = true) {
     const q = onlyActive ? { status: { $in: ACTIVE_JOB_STATUSES } } : {};
     return deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
@@ -123,7 +144,11 @@ async function forceCancelJob(id) {
 }
 
 async function deleteJob(id) {
-    await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).deleteOne({ _id: new ObjectId(id) });
+    const db = deps.getDB();
+    const sid = String(id);
+    await db.collection(COLLECTIONS.BACKTEST_JOBS).deleteOne({ _id: new ObjectId(id) });
+    // 🆕 پاک کردن جزئیات مرتبط
+    await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS).deleteMany({ jobId: sid });
 }
 
 async function isCancelled(id) {
@@ -239,7 +264,12 @@ async function runBacktestCompareJob(job) {
     const fromTs = dateFrom ? parseInt(dateFrom) : null;
     const toTs = dateTo ? parseInt(dateTo) : null;
 
+    const db = deps.getDB();
+    const jobId = String(job._id);
     const allResults = [];
+
+    // 🆕 پاک کردن جزئیات قدیمی (اگه job دوباره اجرا شد)
+    await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS).deleteMany({ jobId });
 
     for (let i = 0; i < symbols.length; i++) {
         if (await isCancelled(job._id)) throw new Error(ERROR_CODES.CANCELED_BY_USER);
@@ -250,10 +280,6 @@ async function runBacktestCompareJob(job) {
 
         for (const s of strategies) {
             if (await isCancelled(job._id)) throw new Error(ERROR_CODES.CANCELED_BY_USER);
-
-            const STRATEGIES = deps.signals && deps.signals.STRATEGIES
-                ? deps.signals.STRATEGIES
-                : null;
 
             const def = deps.strategies.STRATEGIES[s.id];
             if (!def) continue;
@@ -271,11 +297,16 @@ async function runBacktestCompareJob(job) {
                 }
             };
 
+            let summary = null;
+            let errorMsg = null;
+
             try {
                 const result = await deps.backtest.runBacktest(cfg, fromTs, toTs, {
                     useRealOption: !!useRealOption
                 });
-                allResults.push({
+
+                // 🆕 خلاصه سبک برای لیست اصلی
+                summary = {
                     symbol,
                     strategyId: s.id,
                     strategyName: def.name,
@@ -289,20 +320,69 @@ async function runBacktestCompareJob(job) {
                         approxUsed: result.approxUsed || 0,
                         diagnostic: result.diagnostic || null
                     },
-                    optionMode: result.mode
-                });
+                    optionMode: result.mode,
+                    // 🆕 flag برای نشون دادن اینکه جزئیات داره
+                    hasDetails: true
+                };
+
+                // 🆕 ذخیره‌ی جزئیات کامل در کالکشن جدا
+                try {
+                    await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS).updateOne(
+                        { jobId, symbol, strategyId: s.id },
+                        {
+                            $set: {
+                                jobId,
+                                symbol,
+                                strategyId: s.id,
+                                strategyName: def.name,
+                                timeframe: cfg.timeframe,
+                                htfTimeframe: cfg.htfTimeframe,
+                                // 🆕 محتوای کامل
+                                stockStats: result.stockStats,
+                                optionStats: result.stats,
+                                advanced: result.advanced,
+                                trades: result.trades,
+                                stockTradesCount: result.stockTradesCount,
+                                stockClosedCount: result.stockClosedCount,
+                                realUsed: result.realUsed || 0,
+                                approxUsed: result.approxUsed || 0,
+                                diagnostic: result.diagnostic || null,
+                                assumptions: result.assumptions,
+                                mode: result.mode,
+                                dateRange: result.dateRange,
+                                trainingMeta: result.trainingMeta,
+                                overlapWarning: result.overlapWarning,
+                                overlapSeverity: result.overlapSeverity,
+                                cacheSignature: result.cacheSignature,
+                                createdAt: new Date()
+                            }
+                        },
+                        { upsert: true }
+                    );
+                } catch (saveErr) {
+                    // اگه ذخیره‌ی جزئیات شکست خورد، حداقل خلاصه رو نگه دار
+                    deps.logger && deps.logger.warn(
+                        `compare-details save failed for ${symbol}/${s.id}: ${saveErr.message}`
+                    );
+                    summary.hasDetails = false;
+                }
+
             } catch (e) {
                 if (String(e.message).includes(ERROR_CODES.CANCELED_BY_USER)) throw e;
-                allResults.push({
+                errorMsg = e.message;
+                summary = {
                     symbol,
                     strategyId: s.id,
                     strategyName: def.name,
                     timeframe: cfg.timeframe,
                     htfTimeframe: cfg.htfTimeframe,
                     candleType: cfg.candleType,
-                    error: e.message
-                });
+                    error: errorMsg,
+                    hasDetails: false
+                };
             }
+
+            allResults.push(summary);
             await new Promise(r => setImmediate(r));
         }
 
@@ -316,7 +396,8 @@ async function runBacktestCompareJob(job) {
 
     return {
         results: allResults,
-        aggregate: aggregateCompare(allResults)
+        aggregate: aggregateCompare(allResults),
+        detailsCount: allResults.filter(r => r.hasDetails).length   // 🆕
     };
 }
 
@@ -754,23 +835,142 @@ async function resumeStuckJobs() {
     return r.modifiedCount;
 }
 
-async function cleanupOldJobs(daysOld = 7) {
+async function cleanupOldJobs(daysOld = 90) {
     const cutoff = new Date(Date.now() - daysOld * 86400 * 1000);
-    const r = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).deleteMany({
+    const db = deps.getDB();
+
+    // پیدا کردن jobهای قدیمی
+    const oldJobs = await db.collection(COLLECTIONS.BACKTEST_JOBS).find({
         status: { $in: FINISHED_JOB_STATUSES },
         finishedAt: { $lt: cutoff }
+    }, { projection: { _id: 1 } }).toArray();
+
+    const oldIds = oldJobs.map(j => String(j._id));
+
+    // 🆕 پاک کردن جزئیات مرتبط
+    if (oldIds.length) {
+        await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
+            .deleteMany({ jobId: { $in: oldIds } });
+    }
+
+    const r = await db.collection(COLLECTIONS.BACKTEST_JOBS).deleteMany({
+        _id: { $in: oldJobs.map(j => j._id) }
     });
     return r.deletedCount;
+}
+
+// ============================================================
+// 🆕 Apply config from existing backtest results (بدون بک تست مجدد)
+// ============================================================
+async function applyConfigFromResults(results) {
+    if (!Array.isArray(results) || !results.length) {
+        return { applied: [], error: 'نتیجه‌ای برای اعمال نیست' };
+    }
+
+    const db = deps.getDB();
+
+    // گروه‌بندی بر اساس symbol
+    const bySymbol = {};
+    for (const r of results) {
+        if (!r || r.error || !r.symbol) continue;
+        if (!bySymbol[r.symbol]) bySymbol[r.symbol] = [];
+        bySymbol[r.symbol].push(r);
+    }
+
+    const plans = [];
+
+    for (const [symbol, rows] of Object.entries(bySymbol)) {
+        const dataDays = await computeDataDays(db, symbol);
+        const th = getThresholds(dataDays);
+
+        // امتیازدهی هر استراتژی
+        const scored = [];
+        for (const r of rows) {
+            const s = r.stock || {};
+            const o = r.option || {};
+
+            const trades = s.count || s.closed || 0;
+            if (trades < th.minTrades) continue;
+
+            const optCount = o.count || 0;
+            if (optCount < th.minOptCount) continue;
+
+            let pf = o.profitFactor;
+            if (pf === null || pf === undefined || !Number.isFinite(pf)) {
+                pf = (o.avgPnl || 0) > 0 ? 99 : 0;
+            }
+            if (pf < th.minPF) continue;
+
+            const score = scoreStrategy({
+                stock: s,
+                option: o
+            }, dataDays);
+
+            if (!Number.isFinite(score)) continue;
+
+            scored.push({
+                strategyId: r.strategyId,
+                strategyName: r.strategyName,
+                timeframe: r.timeframe,
+                htfTimeframe: r.htfTimeframe || '1d',
+                score: Math.round(score * 100) / 100,
+                stats: r
+            });
+        }
+
+        scored.sort((a, b) => b.score - a.score);
+
+        if (!scored.length) {
+            plans.push({
+                symbol,
+                error: 'هیچ استراتژی معتبری برای اعمال نیست',
+                dataDays,
+                thresholds: th
+            });
+            continue;
+        }
+
+        const leader = scored[0];
+        const confirmers = scored.slice(1, 3);   // حداکثر ۲ confirmer
+
+        plans.push({
+            symbol,
+            dataDays,
+            thresholds: th,
+            leader,
+            confirmers,
+            allResults: scored
+        });
+    }
+
+    if (!plans.some(p => !p.error)) {
+        return {
+            applied: false,
+            error: 'هیچ نماد معتبری پیدا نشد',
+            results: plans
+        };
+    }
+
+    // اعمال
+    const applied = await applyAutoConfig(plans, null);
+
+    return {
+        applied: true,
+        results: applied,
+        plans
+    };
 }
 
 module.exports = {
     init,
     createJob, getJob, listJobs,
+    getCompareDetail, listCompareDetails,
     updateProgress, updateChunk,
     cancelJob, forceCancelJob, deleteJob,
     isCancelled, finishJob,
     processQueue,
     runBacktestJob, runAutoConfigJob, runBacktestCompareJob,
     applyAutoConfig, autoConfigureSingle,
+    applyConfigFromResults,
     resumeStuckJobs, cleanupOldJobs
 };

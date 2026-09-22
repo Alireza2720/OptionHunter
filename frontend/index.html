@@ -235,7 +235,6 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <div class="menu-divider"></div>
         <div class="menu-label">ابزار</div>
         <button class="menu-item" onclick="openBacktestCompare(); toggleMenu();">بک تست مقایسه ای</button>
-        <button class="menu-item" onclick="openAutoConfigure(); toggleMenu();">تنظیم خودکار</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -946,16 +945,34 @@ async function refreshJobsPanel() {
         const allJobs = r.jobs || [];
         const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED'].includes(j.status));
         const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).filter(j => !j.finishedAt || Date.now() - new Date(j.finishedAt).getTime() < 24 * 3600 * 1000);
-        const renderJob = (j, isDone) => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; return `<div class="job-card ${j.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${j.status}</span><span class="job-msg" style="margin-right:auto;">${esc(j.progress ? j.progress.message : '')}</span><div class="job-actions" style="margin-right:auto; display:flex; gap:6px;">${!isDone ? `<button class="btn tiny danger" onclick="cancelActiveJob('${j._id}')">لغو</button>` : ''}${isDone ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}</div></div>${!isDone ? renderJobProgress(j) : ''}</div>`; };
+        const renderJob = (j, isDone) => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; return `<div class="job-card ${j.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${j.status}</span><span class="job-msg" style="margin-right:auto;">${esc(j.progress ? j.progress.message : '')}</span><div class="job-actions" style="margin-right:auto; display:flex; gap:6px;">${!isDone ? `<button class="btn tiny danger" onclick="cancelActiveJob('${j._id}')">لغو</button>` : ''}${isDone ? `<button class="btn tiny outline" onclick="downloadJob('${j._id}')">⬇ دانلود</button>` : ''}${isDone ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}</div></div>${!isDone ? renderJobProgress(j) : ''}</div>`; };
+        const doneCount = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).length;
         const activeRows = activeJobs.length ? activeJobs.map(j => renderJob(j, false)).join('') : '<div class="empty-note">فعال نیست</div>';
         const doneRows = doneJobs.length ? doneJobs.map(j => renderJob(j, true)).join('') : '<div class="empty-note">تاریخچه خالی</div>';
-        openModal('Jobs', `<div class="jobs-panel-container"><div class="tabs" style="margin-bottom:14px;"><button class="tab active" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button><button class="tab" onclick="switchJobsTab('done', this)">تاریخچه (${doneJobs.length})</button></div><div id="jobsTab-active">${activeRows}</div><div id="jobsTab-done" style="display:none;">${doneRows}</div></div>`);
+        openModal('Jobs', `<div class="jobs-panel-container"><div class="tabs" style="margin-bottom:14px;"><button class="tab active" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button><button class="tab" onclick="switchJobsTab('done', this)">تاریخچه (${doneJobs.length}/${doneCount})</button></div><div id="jobsTab-active">${activeRows}</div><div id="jobsTab-done" style="display:none;">${doneRows}</div></div>`);
     } catch (e) { openModal('Jobs', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 function switchJobsTab(w, btn) { document.querySelectorAll('#modalBody .tabs .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); document.getElementById('jobsTab-active').style.display = w === 'active' ? 'block' : 'none'; document.getElementById('jobsTab-done').style.display = w === 'done' ? 'block' : 'none'; }
 async function cancelActiveJob(id) { if (!confirm('لغو شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteJob(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, { method: 'DELETE' }); refreshJobsPanel(); } catch (e) { showAlert('خطا: ' + e.message); } }
-
+function downloadJob(id) {
+    const url = `${BACKEND_URL}/api/jobs/${id}/download`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    // چون endpoint نیاز به admin-token داره، از fetch استفاده می‌کنیم
+    apiFetch(url, {}, 0).then(data => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const burl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = burl;
+        link.download = `job_${id}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(burl);
+    }).catch(e => showAlert('خطا: ' + e.message, 'error'));
+}
 // ==================== Auto Configure ====================
 function setAcRange(months) { const to = new Date(); const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months); document.getElementById('acTo').value = to.toISOString().slice(0, 10); document.getElementById('acFrom').value = from.toISOString().slice(0, 10); }
 function btAutoSelectAll(checked) {
@@ -968,10 +985,54 @@ function btAutoSelectGood() {
     });
 }
 async function autoConfigureFromBacktest() {
-    const symbols = Array.from(document.querySelectorAll('.bt-auto-symbol:checked')).map(c => c.value);
-    if (!symbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
-    closeModal();
-    await openAutoConfigure(symbols);
+    const selectedSymbols = Array.from(document.querySelectorAll('.bt-auto-symbol:checked')).map(c => c.value);
+    if (!selectedSymbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
+
+    // پیدا کردن نتایج بک تست فعلی
+    const lastCompareResult = window._lastBtCompareResult;
+    if (!lastCompareResult || !lastCompareResult.results) {
+        return showAlert('نتایج بک تست یافت نشد', 'warn');
+    }
+
+    const filtered = lastCompareResult.results.filter(r =>
+        selectedSymbols.includes(r.symbol) && !r.error
+    );
+
+    if (!filtered.length) return showAlert('نتیجه معتبری برای این نمادها نیست', 'warn');
+
+    if (!confirm(`اعمال تنظیم روی ${selectedSymbols.length} نماد؟\n\nاین کار configهای قبلی این نمادها را جایگزین می‌کند.`)) return;
+
+    showLoader('در حال اعمال تنظیم...');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs/apply-from-results`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ results: filtered })
+        });
+
+        if (r.error && !r.applied) {
+            showAlert('خطا: ' + r.error, 'error', 8000);
+            return;
+        }
+
+        const okCount = (r.results || []).filter(x => !x.error).length;
+        const failCount = (r.results || []).filter(x => x.error).length;
+        showAlert(`✅ ${okCount} نماد تنظیم شد${failCount ? ` | ❌ ${failCount} رد` : ''}`, 'success', 8000);
+
+        // نمایش خلاصه در مودال
+        const lines = (r.results || []).map(x => {
+            if (x.error) return `❌ ${x.symbol}: ${x.error}`;
+            return `✅ ${x.symbol}: ${x.leader || '?'} (${x.leaderName || ''}) + ${(x.confirmers || []).length} تایید`;
+        }).join('\n');
+
+        openModal('نتیجه تنظیم خودکار', `<pre style="font-family:inherit; font-size:13px; direction:rtl; text-align:right; white-space:pre-wrap;">${esc(lines)}</pre><div style="margin-top:12px;"><button class="btn" onclick="closeModal(); loadConfigs();">باشه</button></div>`);
+
+        await loadConfigs();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error', 8000);
+    } finally {
+        hideLoader();
+    }
 }
 async function openAutoConfigure(preselectedSymbols = null) {
     try {
@@ -1057,7 +1118,17 @@ async function runBacktestCompare() {
         const jA = document.getElementById('btCompareJobArea');
         jA.innerHTML = renderJobProgress({ _id: r.jobId, status: 'QUEUED', type: 'backtest-compare', progress: { current: 0, total: symbols.length, message: 'در صف...' } });
         loadActiveJobs();
-        trackJob(r.jobId, (job) => { jA.innerHTML = renderJobProgress(job); if (job.status === 'DONE') { renderBtCompareResult(job.result); btn.disabled = false; btn.textContent = 'اجرا'; } else if (['FAILED','CANCELLED'].includes(job.status)) { document.getElementById('btCompareResultArea').innerHTML = `<div class="empty-note">${job.status}</div>`; btn.disabled = false; btn.textContent = 'اجرا'; } });
+        trackJob(r.jobId, (job) => {
+            jA.innerHTML = renderJobProgress(job);
+            if (job.status === 'DONE') {
+                window._lastBtCompareJobId = r.jobId;   // 🆕
+                renderBtCompareResult(job.result);
+                btn.disabled = false; btn.textContent = 'اجرا';
+            } else if (['FAILED','CANCELLED'].includes(job.status)) {
+                document.getElementById('btCompareResultArea').innerHTML = `<div class="empty-note">${job.status}</div>`;
+                btn.disabled = false; btn.textContent = 'اجرا';
+            }
+        });
     } catch (e) { rDiv.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = 'اجرا'; }
 }
 async function setBtcRangeAll() {
@@ -1069,10 +1140,15 @@ async function setBtcRangeAll() {
 }
 function renderBtCompareResult(r) {
     const area = document.getElementById('btCompareResultArea'); if (!area) return;
+    window._lastBtCompareResult = r;   // 🆕 ذخیره برای اعمال بعدی
     if (!r || !r.results) { area.innerHTML = '<div class="empty-note">داده ای نیست</div>'; return; }
     const agg = r.aggregate || {}; const all = r.results;
     const sorted = [...all].sort((a, b) => ((b.option && b.option.profitFactor) || -1) - ((a.option && a.option.profitFactor) || -1));
-    const detailRows = sorted.map((x, i) => { if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);">${esc(x.error)}</td></tr>`; if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);">${esc(x.error)}</td></tr>`; const o = x.option || {}, s = x.stock || {}; return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${s.count || s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}%</td><td>${pct(s.avgPnl)}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}%</td><td>${pct(o.avgPnl)}</td><td>${pct(o.totalPnl)}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`; }).join('');
+    const detailRows = sorted.map((x, i) => { if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);">${esc(x.error)}</td></tr>`; if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);">${esc(x.error)}</td></tr>`;                 const o = x.option || {}, s = x.stock || {};
+                const detailsBtn = window._lastBtCompareJobId
+                    ? `<button class="btn tiny outline" onclick="openCompareDetail('${esc(x.symbol)}', '${esc(x.strategyId)}')" title="جزئیات کامل">🔍</button>`
+                    : '';
+                return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)} ${detailsBtn}</td><td>${s.count || s.closed || 0}</td>...<td>${(s.winRate || 0).toFixed(1)}%</td><td>${pct(s.avgPnl)}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}%</td><td>${pct(o.avgPnl)}</td><td>${pct(o.totalPnl)}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`; }).join('');
     // 🆕 پنل تنظیم خودکار بر اساس نتایج بک تست
     const uniqueSymbols = [...new Set(all.filter(x => !x.error).map(x => x.symbol))];
     const symbolsPanel = uniqueSymbols.length ? `
@@ -1107,6 +1183,119 @@ function renderBtCompareResult(r) {
 
 
     area.innerHTML = symbolsPanel + `<div class="hint">${all.length} ترکیب - <span style="color:var(--good);">${agg.validCount || 0} موفق</span> · <span style="color:var(--warn);">${agg.insufficientCount || 0} ناکافی</span> · <span style="color:var(--bad);">${agg.errorCount || 0} خطا</span></div><div class="tabs" style="margin-top:14px;"><button class="tab active" onclick="switchBtResultTab('bySymbol', this)">نماد</button><button class="tab" onclick="switchBtResultTab('byStrategy', this)">استراتژی</button><button class="tab" onclick="switchBtResultTab('details', this)">جزئیات</button></div><div id="btRes-bySymbol"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th><th>منبع</th></tr></thead><tbody>${(agg.bySymbol || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.symbol)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td><td><small>${b.option.realUsed}R/${b.option.approxUsed}A</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="8">-</td></tr>'}</tbody></table></div></div><div id="btRes-byStrategy" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>استراتژی</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th></tr></thead><tbody>${(agg.byStrategy || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td></tr>`).join('') || '<tr class="empty-row"><td colspan="7">-</td></tr>'}</tbody></table></div></div><div id="btRes-details" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>سهم</th><th>وین</th><th>میانگین</th><th>آپشن</th><th>وین</th><th>میانگین</th><th>کل</th><th>PF</th><th>منبع</th></tr></thead><tbody>${detailRows}</tbody></table></div></div>`;
+}
+async function openCompareDetail(symbol, strategyId) {
+    const jobId = window._lastBtCompareJobId;
+    if (!jobId) return showAlert('Job یافت نشد', 'warn');
+
+    showLoader('در حال بارگذاری جزئیات...');
+    try {
+        const d = await apiFetch(
+            `${BACKEND_URL}/api/jobs/${jobId}/details/${encodeURIComponent(symbol)}/${encodeURIComponent(strategyId)}`,
+            {}, 0
+        );
+        hideLoader();
+        renderCompareDetailModal(d);
+    } catch (e) {
+        hideLoader();
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
+
+function renderCompareDetailModal(d) {
+    const s = d.stockStats || {};
+    const o = d.optionStats || {};
+    const adv = d.advanced || {};
+    const trades = d.trades || [];
+
+    const pct = v => typeof v === 'number' ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '-';
+    const statBox = (label, value) => `<div class="stat"><small>${label}</small><b>${value}</b></div>`;
+
+    // trades rows
+    const tradeRows = trades.length
+        ? trades.slice().reverse().map(t => {
+            const src = t.source === 'real' ? '✅ واقعی' : '⚠️ تقریبی';
+            return `<tr>
+                <td>${new Date((t.entryTime || 0) * 1000).toLocaleString('fa-IR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                <td>${Math.round(t.stockEntry || 0).toLocaleString()} → ${Math.round(t.stockExit || 0).toLocaleString()}</td>
+                <td>${Math.round(t.strike || 0).toLocaleString()}</td>
+                <td>${Math.round(t.optionEntry || 0).toLocaleString()} → ${Math.round(t.optionExit || 0).toLocaleString()}</td>
+                <td>${t.delta ? t.delta.toFixed(2) : '-'}</td>
+                <td>${t.iv ? (t.iv * 100).toFixed(0) + '%' : '-'}</td>
+                <td>${pct(t.pnlPct)}</td>
+                <td>${src}</td>
+                <td style="font-size:10px;">${esc(t.exitReason || '-')}</td>
+            </tr>`;
+        }).join('')
+        : '<tr class="empty-row"><td colspan="9">معامله‌ای نیست</td></tr>';
+
+    // equity curve
+    const eq = adv.equityCurve || [];
+    const eqSummary = eq.length
+        ? `<div class="hint">Equity: start=100, end=${eq[eq.length - 1].equity.toFixed(1)}</div>`
+        : '';
+
+    const html = `
+        <div class="stats-grid">
+            ${statBox('نماد', esc(d.symbol))}
+            ${statBox('استراتژی', esc(d.strategyName || d.strategyId))}
+            ${statBox('تایم فریم', d.timeframe)}
+            ${statBox('دیتای واقعی/تقریبی', `${d.realUsed}R / ${d.approxUsed}A`)}
+        </div>
+
+        <h4 style="margin:14px 0 6px; color:var(--accent);">سهم</h4>
+        <div class="stats-grid">
+            ${statBox('تعداد', s.count || 0)}
+            ${statBox('وین ریت', s.count ? s.winRate.toFixed(1) + '%' : '-')}
+            ${statBox('میانگین', pct(s.avgPnl))}
+            ${statBox('PF', s.profitFactor != null ? (Number.isFinite(s.profitFactor) ? s.profitFactor.toFixed(2) : '∞') : '-')}
+            ${statBox('Sharpe', s.sharpe != null ? s.sharpe.toFixed(2) : '-')}
+            ${statBox('MaxDD', s.maxDrawdownPct != null ? s.maxDrawdownPct.toFixed(1) + '%' : '-')}
+        </div>
+
+        <h4 style="margin:14px 0 6px; color:var(--accent);">آپشن</h4>
+        <div class="stats-grid">
+            ${statBox('تعداد', o.count || 0)}
+            ${statBox('وین ریت', o.count ? o.winRate.toFixed(1) + '%' : '-')}
+            ${statBox('میانگین', pct(o.avgPnl))}
+            ${statBox('PF', o.profitFactor != null ? (Number.isFinite(o.profitFactor) ? o.profitFactor.toFixed(2) : '∞') : '-')}
+            ${statBox('Sharpe', o.sharpe != null ? o.sharpe.toFixed(2) : '-')}
+            ${statBox('MaxDD', o.maxDrawdownPct != null ? o.maxDrawdownPct.toFixed(1) + '%' : '-')}
+        </div>
+
+        ${d.diagnostic ? `<div class="msg-warn" style="display:block;background:rgba(201,151,61,.1);color:var(--warn);padding:8px 12px;border-radius:6px;margin:12px 0;">${esc(d.diagnostic)}</div>` : ''}
+
+        <h4 style="margin:14px 0 6px; color:var(--accent);">معاملات (${trades.length})</h4>
+        ${eqSummary}
+        <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+            <table class="data-table">
+                <thead><tr><th>ورود</th><th>سهم</th><th>اعمال</th><th>پرمیوم</th><th>Δ</th><th>IV</th><th>بازده</th><th>منبع</th><th>دلیل</th></tr></thead>
+                <tbody>${tradeRows}</tbody>
+            </table>
+        </div>
+
+        <div style="margin-top:16px; display:flex; gap:8px;">
+            <button class="btn" onclick="closeModal()">بستن</button>
+            <button class="btn outline" onclick="downloadCompareDetail('${esc(d.jobId)}', '${esc(d.symbol)}', '${esc(d.strategyId)}')">⬇ دانلود JSON</button>
+        </div>
+    `;
+
+    openModal(`جزئیات ${d.symbol} / ${d.strategyName || d.strategyId}`, html);
+}
+
+function downloadCompareDetail(jobId, symbol, strategyId) {
+    const url = `${BACKEND_URL}/api/jobs/${jobId}/details/${encodeURIComponent(symbol)}/${encodeURIComponent(strategyId)}`;
+    apiFetch(url, {}, 0).then(data => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const burl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = burl;
+        link.download = `detail_${symbol}_${strategyId}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(burl);
+    }).catch(e => showAlert('خطا: ' + e.message, 'error'));
 }
 function switchBtResultTab(w, btn) { ['bySymbol','byStrategy','details'].forEach(k => { const el = document.getElementById(`btRes-${k}`); if (el) el.style.display = k === w ? 'block' : 'none'; }); document.querySelectorAll('#btResults > .tabs > .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
 

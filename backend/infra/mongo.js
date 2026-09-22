@@ -94,6 +94,13 @@ async function ensureIndexes() {
     await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_JOBS), { 'progress.chunks.status': 1 });
 
     // --- کش ----
+        // 🆕 compare details
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS),
+        { jobId: 1, symbol: 1, strategyId: 1 }, { unique: true });
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS),
+        { jobId: 1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS),
+        { createdAt: -1 });
     await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE), { computedAt: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE), { 'signature.symbol': 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_RESULT_CACHE),

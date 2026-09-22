@@ -26,7 +26,7 @@ let tasks = [];
 
 async function cleanupOldJobs() {
     try {
-        const n = await deps.backtestService.cleanupOldJobs(7);
+    const n = await deps.backtestService.cleanupOldJobs(90);
         deps.logger && deps.logger.info(`cleaned ${n} old jobs`);
     } catch (e) {
         deps.logger && deps.logger.error('cleanup jobs: ' + e.message);

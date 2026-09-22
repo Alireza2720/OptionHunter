@@ -69,6 +69,7 @@ const COLLECTIONS = {
     SIGNALS_STATE: 'signals_state',
     SIGNAL_HISTORY: 'signal_history',
     BACKTEST_JOBS: 'backtest_jobs',
+    BACKTEST_COMPARE_DETAILS: 'backtest_compare_details',
     BACKTEST_TRADE_CACHE: 'backtest_trade_cache',
     BACKTEST_RESULT_CACHE: 'backtest_result_cache',
     OPTION_SNAPSHOTS: 'option_snapshots',
