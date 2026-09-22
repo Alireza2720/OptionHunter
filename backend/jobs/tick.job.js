@@ -2,7 +2,7 @@
 // ============================================================
 // tick.job.js — اجرای دوره‌ای tick در ساعات بازار
 // ============================================================
-// - cron هر دقیقه
+// - cron هر ۱۰ ثانیه
 // - چک ساعت بازار و تعطیلی
 // - فراخوانی signalService.tick()
 // ============================================================
@@ -18,6 +18,7 @@ let deps = {
     getDB: null,
     signalService: null,
     dataService: null,
+    algotik: null,
     logger: null,
     notify: null
 };
@@ -43,9 +44,10 @@ async function runTick() {
     // چک تعطیلی: فقط هر ۵ دقیقه یک‌بار بررسی
     if (holiday === today) {
         if (t.minute % 5 !== 0) return;
+
         // آیا بازار واقعاً فعال شده؟
         try {
-            const raw = await deps.algotik.getLiveMarket(true);
+            const raw = await deps.algotik.getLiveMarket();
             const active = raw.filter(s => +s.tno > 0).length;
             if (active >= 20) {
                 await deps.signalService.clearHoliday();
@@ -64,8 +66,8 @@ async function runTick() {
 function start() {
     if (task) return;
 
-    // هر دقیقه، در ثانیه 0
-            const raw = await deps.algotik.getLiveMarket();
+    // هر ۱۰ ثانیه
+    task = cron.schedule('*/10 * * * * *', async () => {
         try {
             const t = deps.dataService.getTehranParts();
             if (!isMarketOpen(t)) return;
