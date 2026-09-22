@@ -283,7 +283,12 @@ async function runBacktestCompareJob(job) {
                     htfTimeframe: cfg.htfTimeframe,
                     candleType: cfg.candleType,
                     stock: result.stockStats,
-                    option: result.stats,
+                    option: {
+                        ...result.stats,
+                        realUsed: result.realUsed || 0,
+                        approxUsed: result.approxUsed || 0,
+                        diagnostic: result.diagnostic || null
+                    },
                     optionMode: result.mode
                 });
             } catch (e) {

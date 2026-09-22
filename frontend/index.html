@@ -785,7 +785,23 @@ async function runOptionBacktest(id) {
     const it = configs.find(c => c._id === id); if (!it) return;
     const today = new Date(); const six = new Date(); six.setUTCMonth(six.getUTCMonth() - 6);
     const toStr = today.toISOString().slice(0, 10); const fromStr = six.toISOString().slice(0, 10);
-    openModal(`بک تست ${it.symbol}`, `<div class="date-range-row"><label>از: <input type="date" id="btFrom" value="${fromStr}"></label><label>تا: <input type="date" id="btTo" value="${toStr}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtRange(12)">1 سال</button></div></div><div style="display:flex; gap:16px; margin:10px 0; font-size:13px; flex-wrap:wrap;"><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btForceRecompute"> محاسبه مجدد</label></div><button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button><div id="btJobArea" style="margin-top:14px;"></div><div id="btResultArea"></div>`);
+    openModal(`بک تست ${it.symbol}`, `<div class="date-range-row"><label>از: <input type="date" id="btFrom" value="${fromStr}"></label><label>تا: <input type="date" id="btTo" value="${toStr}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtRange(12)">1 سال</button><button class="btn tiny outline" onclick="setBtRangeAll()">🔓 کل دیتا</button></div></div><div style="display:flex; gap:16px; margin:10px 0; font-size:13px; flex-wrap:wrap;"><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btForceRecompute"> محاسبه مجدد</label></div><button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button><div id="btJobArea" style="margin-top:14px;"></div><div id="btResultArea"></div>`);
+}
+async function fetchFullDataRange() {
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
+        if (!r.from || !r.to) return null;
+        return { from: r.from, to: r.to, days: r.days };
+    } catch (e) {
+        return null;
+    }
+}
+async function setBtRangeAll() {
+    const r = await fetchFullDataRange();
+    if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+    document.getElementById('btFrom').value = r.from;
+    document.getElementById('btTo').value = r.to;
+    showAlert(`بازه: ${r.from} → ${r.to} (${r.days} روز)`, 'success', 4000);
 }
 function setBtRange(months) { const to = new Date(); const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months); document.getElementById('btTo').value = to.toISOString().slice(0, 10); document.getElementById('btFrom').value = from.toISOString().slice(0, 10); }
 async function execBtSingle(id) {
@@ -942,9 +958,35 @@ async function deleteJob(id) { if (!confirm('حذف؟')) return; try { await api
 
 // ==================== Auto Configure ====================
 function setAcRange(months) { const to = new Date(); const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months); document.getElementById('acTo').value = to.toISOString().slice(0, 10); document.getElementById('acFrom').value = from.toISOString().slice(0, 10); }
-async function openAutoConfigure() {
+function btAutoSelectAll(checked) {
+    document.querySelectorAll('.bt-auto-symbol').forEach(c => c.checked = checked);
+}
+function btAutoSelectGood() {
+    document.querySelectorAll('.bt-auto-symbol').forEach(c => {
+        const pf = parseFloat(c.dataset.bestpf) || 0;
+        c.checked = pf >= 1.2;
+    });
+}
+async function autoConfigureFromBacktest() {
+    const symbols = Array.from(document.querySelectorAll('.bt-auto-symbol:checked')).map(c => c.value);
+    if (!symbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
+    closeModal();
+    await openAutoConfigure(symbols);
+}
+async function openAutoConfigure(preselectedSymbols = null) {
     try {
-        const symbolsHtml = monitoredSymbols.map(s => `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="ac-symbol" value="${esc(s.symbol)}"> ${esc(s.symbol)}</label>`).join('');
+        const preselectedSet = (preselectedSymbols && preselectedSymbols.length)
+            ? new Set(preselectedSymbols)
+            : null;
+
+        const pool = preselectedSet
+            ? monitoredSymbols.filter(s => preselectedSet.has(s.symbol))
+            : monitoredSymbols;
+
+        const symbolsHtml = pool.map(s => {
+            const checked = preselectedSet ? ' checked' : '';
+            return `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="ac-symbol" value="${esc(s.symbol)}"${checked}> ${esc(s.symbol)}</label>`;
+        }).join('');
         if (!symbolsHtml) return openModal('تنظیم خودکار', '<div class="empty-note">ابتدا نماد اضافه کنید.</div>');
         openModal('تنظیم خودکار', `<div class="hint">معیار: 7 معامله سهم + 3 معامله آپشن + PF >= 1.1</div><div style="margin:14px 0;"><div class="menu-label">نمادها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${symbolsHtml}</div></div><div class="form-row"><div class="field"><label>تعداد تاییدکننده</label><select id="acMaxConfirmers"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></div></div><div class="date-range-row"><label>از: <input type="date" id="acFrom" value="${new Date(Date.now() - 180*86400000).toISOString().slice(0,10)}"></label><label>تا: <input type="date" id="acTo" value="${new Date().toISOString().slice(0,10)}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setAcRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setAcRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setAcRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setAcRange(12)">1 سال</button></div></div><div style="display:flex; gap:8px; margin-top:12px;"><button class="btn outline" id="acPreviewBtn" onclick="previewAutoConfigure()">پیش نمایش</button><button class="btn success" id="acApplyBtn" onclick="applyAutoConfigure()">اعمال</button></div><div id="acResults" style="margin-top:16px;"></div>`);
     } catch (e) { showAlert('خطا: ' + e.message); }
@@ -992,7 +1034,7 @@ async function openBacktestCompare() {
         const symbolsHtml = monitoredSymbols.map(s => `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="bt-symbol" value="${esc(s.symbol)}"> ${esc(s.symbol)}</label>`).join('');
         if (!symbolsHtml) return openModal('بک تست مقایسه ای', '<div class="empty-note">ابتدا نماد اضافه کنید.</div>');
         const stratList = strategiesInfo.map(s => `<div class="bt-strategy-row"><label><input type="checkbox" class="bt-strategy-check" value="${esc(s.id)}" checked> <b>${esc(s.name)}</b></label><span class="hint" style="margin:0;">${TF_LABELS[s.defaultTimeframe]||s.defaultTimeframe}</span></div>`).join('');
-        openModal('بک تست مقایسه ای', `<div class="hint">هر استراتژی با پارامترهای پیش فرض.</div><div style="margin:14px 0;"><div class="menu-label">نمادها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${symbolsHtml}</div></div><div style="margin:14px 0;"><div class="menu-label">استراتژی ها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${stratList}</div></div><div style="margin:14px 0;"><label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label></div><div class="date-range-row"><label>از: <input type="date" id="btcFrom" value="${new Date(Date.now() - 180*86400000).toISOString().slice(0,10)}"></label><label>تا: <input type="date" id="btcTo" value="${new Date().toISOString().slice(0,10)}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtcRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtcRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtcRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtcRange(12)">1 سال</button></div></div><button class="btn" id="btRunBtn" onclick="runBacktestCompare()">اجرا</button><div id="btResults" style="margin-top:16px;"></div>`);
+        openModal('بک تست مقایسه ای', `<div class="hint">هر استراتژی با پارامترهای پیش فرض.</div><div style="margin:14px 0;"><div class="menu-label">نمادها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-symbol').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${symbolsHtml}</div></div><div style="margin:14px 0;"><div class="menu-label">استراتژی ها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt-strategy-check').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${stratList}</div></div><div style="margin:14px 0;"><label style="display:inline-flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label></div><div class="date-range-row"><label>از: <input type="date" id="btcFrom" value="${new Date(Date.now() - 180*86400000).toISOString().slice(0,10)}"></label><label>تا: <input type="date" id="btcTo" value="${new Date().toISOString().slice(0,10)}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtcRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtcRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtcRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtcRange(12)">1 سال</button><button class="btn tiny outline" onclick="setBtcRangeAll()">🔓 کل دیتا</button></div></div><button class="btn" id="btRunBtn" onclick="runBacktestCompare()">اجرا</button><div id="btResults" style="margin-top:16px;"></div>`);
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
 function setBtcRange(months) { const to = new Date(); const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months); document.getElementById('btcTo').value = to.toISOString().slice(0, 10); document.getElementById('btcFrom').value = from.toISOString().slice(0, 10); }
@@ -1018,13 +1060,53 @@ async function runBacktestCompare() {
         trackJob(r.jobId, (job) => { jA.innerHTML = renderJobProgress(job); if (job.status === 'DONE') { renderBtCompareResult(job.result); btn.disabled = false; btn.textContent = 'اجرا'; } else if (['FAILED','CANCELLED'].includes(job.status)) { document.getElementById('btCompareResultArea').innerHTML = `<div class="empty-note">${job.status}</div>`; btn.disabled = false; btn.textContent = 'اجرا'; } });
     } catch (e) { rDiv.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = 'اجرا'; }
 }
+async function setBtcRangeAll() {
+    const r = await fetchFullDataRange();
+    if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+    document.getElementById('btcFrom').value = r.from;
+    document.getElementById('btcTo').value = r.to;
+    showAlert(`بازه: ${r.from} → ${r.to} (${r.days} روز)`, 'success', 4000);
+}
 function renderBtCompareResult(r) {
     const area = document.getElementById('btCompareResultArea'); if (!area) return;
     if (!r || !r.results) { area.innerHTML = '<div class="empty-note">داده ای نیست</div>'; return; }
     const agg = r.aggregate || {}; const all = r.results;
     const sorted = [...all].sort((a, b) => ((b.option && b.option.profitFactor) || -1) - ((a.option && a.option.profitFactor) || -1));
-    const detailRows = sorted.map((x, i) => { if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);">${esc(x.error)}</td></tr>`; if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);">${esc(x.error)}</td></tr>`; const o = x.option || {}, s = x.stock || {}; return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}%</td><td>${pct(s.avgPnl)}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}%</td><td>${pct(o.avgPnl)}</td><td>${pct(o.totalPnl)}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`; }).join('');
-    area.innerHTML = `<div class="hint">${all.length} ترکیب - <span style="color:var(--good);">${agg.validCount || 0} موفق</span> · <span style="color:var(--warn);">${agg.insufficientCount || 0} ناکافی</span> · <span style="color:var(--bad);">${agg.errorCount || 0} خطا</span></div><div class="tabs" style="margin-top:14px;"><button class="tab active" onclick="switchBtResultTab('bySymbol', this)">نماد</button><button class="tab" onclick="switchBtResultTab('byStrategy', this)">استراتژی</button><button class="tab" onclick="switchBtResultTab('details', this)">جزئیات</button></div><div id="btRes-bySymbol"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th><th>منبع</th></tr></thead><tbody>${(agg.bySymbol || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.symbol)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td><td><small>${b.option.realUsed}R/${b.option.approxUsed}A</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="8">-</td></tr>'}</tbody></table></div></div><div id="btRes-byStrategy" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>استراتژی</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th></tr></thead><tbody>${(agg.byStrategy || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td></tr>`).join('') || '<tr class="empty-row"><td colspan="7">-</td></tr>'}</tbody></table></div></div><div id="btRes-details" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>سهم</th><th>وین</th><th>میانگین</th><th>آپشن</th><th>وین</th><th>میانگین</th><th>کل</th><th>PF</th><th>منبع</th></tr></thead><tbody>${detailRows}</tbody></table></div></div>`;
+    const detailRows = sorted.map((x, i) => { if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);">${esc(x.error)}</td></tr>`; if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);">${esc(x.error)}</td></tr>`; const o = x.option || {}, s = x.stock || {}; return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td>${s.count || s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}%</td><td>${pct(s.avgPnl)}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}%</td><td>${pct(o.avgPnl)}</td><td>${pct(o.totalPnl)}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`; }).join('');
+    // 🆕 پنل تنظیم خودکار بر اساس نتایج بک تست
+    const uniqueSymbols = [...new Set(all.filter(x => !x.error).map(x => x.symbol))];
+    const symbolsPanel = uniqueSymbols.length ? `
+<div style="margin: 12px 0; padding: 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;">
+    <div class="menu-label" style="margin-bottom:8px;">⚡ تنظیم خودکار بر اساس بک تست</div>
+    <div style="margin-bottom:8px; font-size:12px; color:var(--text-dim);">${uniqueSymbols.length} نماد با نتیجه معتبر</div>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+        <button class="btn tiny outline" onclick="btAutoSelectAll(true)">همه</button>
+        <button class="btn tiny outline" onclick="btAutoSelectAll(false)">هیچ</button>
+        <button class="btn tiny outline" onclick="btAutoSelectGood()">فقط PF>1.2</button>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+        ${uniqueSymbols.map(sym => {
+            const pfs = all
+                .filter(x => x.symbol === sym && !x.error && x.option)
+                .map(x => {
+                    const pf = x.option.profitFactor;
+                    if (pf === null || pf === undefined) return 0;
+                    return Number.isFinite(pf) ? pf : 99;
+                });
+            const bestPF = pfs.length ? Math.max(...pfs) : 0;
+            const color = bestPF >= 1.2 ? 'var(--good)' : bestPF >= 1 ? 'var(--warn)' : 'var(--text-dim)';
+            return `<label style="display:inline-flex; align-items:center; gap:4px; padding:4px 8px; background:var(--bg-card); border:1px solid var(--border); border-radius:6px; font-size:12px; cursor:pointer;">
+                <input type="checkbox" class="bt-auto-symbol" value="${esc(sym)}" data-bestpf="${bestPF.toFixed(2)}">
+                <span style="color:${color}; font-weight:600;">${esc(sym)}</span>
+                <span style="color:var(--text-dim); font-size:10px;">PF=${bestPF.toFixed(2)}</span>
+            </label>`;
+        }).join('')}
+    </div>
+    <button class="btn success" onclick="autoConfigureFromBacktest()">⚡ تنظیم خودکار روی انتخاب‌شده‌ها</button>
+</div>` : '';
+
+
+    area.innerHTML = symbolsPanel + `<div class="hint">${all.length} ترکیب - <span style="color:var(--good);">${agg.validCount || 0} موفق</span> · <span style="color:var(--warn);">${agg.insufficientCount || 0} ناکافی</span> · <span style="color:var(--bad);">${agg.errorCount || 0} خطا</span></div><div class="tabs" style="margin-top:14px;"><button class="tab active" onclick="switchBtResultTab('bySymbol', this)">نماد</button><button class="tab" onclick="switchBtResultTab('byStrategy', this)">استراتژی</button><button class="tab" onclick="switchBtResultTab('details', this)">جزئیات</button></div><div id="btRes-bySymbol"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th><th>منبع</th></tr></thead><tbody>${(agg.bySymbol || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.symbol)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td><td><small>${b.option.realUsed}R/${b.option.approxUsed}A</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="8">-</td></tr>'}</tbody></table></div></div><div id="btRes-byStrategy" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>استراتژی</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th></tr></thead><tbody>${(agg.byStrategy || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td></tr>`).join('') || '<tr class="empty-row"><td colspan="7">-</td></tr>'}</tbody></table></div></div><div id="btRes-details" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>سهم</th><th>وین</th><th>میانگین</th><th>آپشن</th><th>وین</th><th>میانگین</th><th>کل</th><th>PF</th><th>منبع</th></tr></thead><tbody>${detailRows}</tbody></table></div></div>`;
 }
 function switchBtResultTab(w, btn) { ['bySymbol','byStrategy','details'].forEach(k => { const el = document.getElementById(`btRes-${k}`); if (el) el.style.display = k === w ? 'block' : 'none'; }); document.querySelectorAll('#btResults > .tabs > .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
 

@@ -65,7 +65,7 @@ function start() {
     if (task) return;
 
     // هر دقیقه، در ثانیه 0
-    task = cron.schedule('*/10 * * * * *', async () => {
+            const raw = await deps.algotik.getLiveMarket();
         try {
             const t = deps.dataService.getTehranParts();
             if (!isMarketOpen(t)) return;
