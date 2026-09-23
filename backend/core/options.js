@@ -1055,11 +1055,6 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     }
     if (!exitBid) return null;
 
-    // 🆕 محاسبه half-spread واقعی از bid/ask قرارداد
-    const halfSpread = best.ask > 0 && best.bid > 0
-        ? (best.ask - best.bid) / 2
-        : 0;
-
     // 🆕 اگر bid/ask نداریم، از close استفاده کن
     const basePrice = best.close > 0 ? best.close : (best.last > 0 ? best.last : 0);
     const useAsk = best.ask > 0 ? best.ask : basePrice;
@@ -1072,8 +1067,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const realHalfSpread = (best.ask > 0 && best.bid > 0)
         ? (best.ask - best.bid) / 2
         : 0;
-    const synthHalfSpread = realHalfSpread > 0 ? realHalfSpread : (useAsk * 0.005);
-    const halfSpread = synthHalfSpread;
+    const halfSpread = realHalfSpread > 0 ? realHalfSpread : (useAsk * 0.005);
 
     // 🆕 قیمت مؤثر خرید: ask + half-spread + slippage + impact
     const entryFillPrice = useAsk
