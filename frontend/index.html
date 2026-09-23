@@ -9,7 +9,6 @@
 <link rel="stylesheet" href="https://unpkg.com/@majidh1/jalalidatepicker@1.0.0/dist/jalalidatepicker.min.css">
 <script src="https://unpkg.com/@majidh1/jalalidatepicker@1.0.0/dist/jalalidatepicker.min.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 :root { --bg:#0e1013; --bg-card:#14161a; --bg-input:#0e1013; --border:#21242a; --border-light:#2a2e35; --text:#dfe2e6; --text-dim:#7d8590; --text-bright:#f0f2f5; --accent:#3d7dd8; --accent-hover:#326ec2; --good:#2ea88a; --bad:#d9534f; --warn:#c9973d; }
 [data-theme="light"] { --bg:#f5f6f8; --bg-card:#ffffff; --bg-input:#f0f1f4; --border:#e2e4e8; --border-light:#d1d4da; --text:#2c2f35; --text-dim:#7a7f8a; --text-bright:#1a1d22; --accent:#3d7dd8; --accent-hover:#2f6bc4; --good:#1e8a6e; --bad:#c9433e; --warn:#b8862a; }
@@ -19,7 +18,7 @@
 * { box-sizing:border-box; margin:0; padding:0; }
 html, body { overflow-x:hidden; max-width:100%; }
 body { font-family:'Vazirmatn',Tahoma,sans-serif; background:var(--bg); color:var(--text); padding:24px; line-height:1.7; }
-body.menu-open { overflow:hidden !important; position:fixed; width:100%; top:0; left:0; }
+body.menu-open, body.modal-open { overflow:hidden !important; position:fixed; width:100%; top:0; left:0; }
 .container { max-width:1280px; margin:0 auto; }
 header { text-align:center; margin-bottom:22px; }
 .brand { font-size:30px; font-weight:700; background:linear-gradient(135deg, var(--accent), var(--good)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; letter-spacing:-0.5px; margin-bottom:2px; }
@@ -118,8 +117,6 @@ header { text-align:center; margin-bottom:22px; }
 .sym-btn { background:transparent; border:1px solid var(--border-light); color:var(--text-dim); cursor:pointer; font-size:11px; padding:4px 8px; border-radius:5px; font-family:inherit; }
 .sym-btn:hover { color:var(--text-bright); background:var(--border-light); }
 .sym-btn.x:hover { background:var(--bad); color:#fff; }
-.sym-btn.auto { border-color:var(--good); color:var(--good); }
-.sym-btn.auto:hover { background:var(--good); color:#fff; }
 .pipeline-block { margin-top:12px; padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; }
 .pipeline-block h3 { font-size:13px; margin-bottom:10px; color:var(--text-bright); }
 .empty-note { color:var(--text-dim); font-size:12.5px; padding:10px 0; }
@@ -167,7 +164,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
 .loader-spinner { width:44px; height:44px; border:4px solid rgba(255,255,255,.15); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
 .loader-text { color:#fff; font-size:13.5px; text-align:center; }
 .loader-sub { color:rgba(255,255,255,.65); font-size:11.5px; text-align:center; }
-.modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:900; display:none; align-items:center; justify-content:center; padding:16px; }
+.modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:900; display:none; align-items:center; justify-content:center; padding:16px; overscroll-behavior:contain; }
 .modal-bg.open { display:flex; }
 .modal { background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; max-width:1100px; width:100%; max-height:90vh; overflow:auto; padding:20px; }
 .modal h3 { font-size:15px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
@@ -185,6 +182,16 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
 .auto-role-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; font-size: 12px; }
 .auto-score { font-size: 11px; color: var(--text-dim); margin-left: auto; }
 .bt-strategy-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px; font-size: 12.5px; }
+.date-range-row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:10px 0; }
+.date-range-row label { display:flex; align-items:center; gap:6px; font-size:13px; }
+.date-range-row input { background:var(--bg-input); border:1px solid var(--border-light); color:var(--text); padding:8px 12px; border-radius:7px; font-family:inherit; font-size:13px; }
+.range-presets { display:flex; gap:4px; flex-wrap:wrap; }
+.msg-warn { padding:8px 12px; border-radius:6px; margin-bottom:10px; }
+.bulk-toolbar { display:none; gap:6px; flex-wrap:wrap; align-items:center; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; margin-bottom:10px; }
+.bulk-toolbar.show { display:flex; }
+.sel-count { font-size:12px; color:var(--text-dim); margin-left:auto; }
+.config-checkbox, .sym-collect { cursor:pointer; }
+.insufficient-row { background:rgba(201,151,61,.04); }
 ::-webkit-scrollbar { width:7px; height:7px; }
 ::-webkit-scrollbar-thumb { background:var(--border-light); border-radius:4px; }
 @media (max-width:640px) {
@@ -267,7 +274,10 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
     </div>
 </div>
 
-<div class="modal-bg" id="modalBg" onclick="if(event.target===this) closeModal()">
+<div class="modal-bg" id="modalBg"
+     onclick="if(event.target===this) closeModal()"
+     onmousedown="_jobsPanelUserActive=true"
+     onmouseup="setTimeout(()=>{_jobsPanelUserActive=false;}, 2000);">
     <div class="modal">
         <h3><span id="modalTitle"></span><button class="btn small outline" onclick="closeModal()">بستن</button></h3>
         <div id="modalBody"></div>
@@ -311,22 +321,22 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
             <div id="ptab-backfill" style="display:none;">
                 <div class="pipeline-block">
                     <h3>📥 Backfill کامل</h3>
-            <div class="form-row" style="align-items:end; margin-bottom:8px;">
-                <div class="field" style="min-width:150px;">
-                    <label>از تاریخ</label>
-                    <input type="text" id="algotikFromDate" placeholder="1405/01/01"
-                        data-jdp data-jdp-only-date
-                        style="direction:ltr; text-align:center;">
-                </div>
-                <div class="field" style="min-width:150px;">
-                    <label>تا تاریخ</label>
-                    <input type="text" id="algotikToDate" placeholder="1405/06/30"
-                        data-jdp data-jdp-only-date
-                        style="direction:ltr; text-align:center;">
-                </div>
-                <button class="btn outline" onclick="algotikUseAllData()">🔓 استفاده از کل دیتا</button>
-                <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button>
-            </div>
+                    <div class="form-row" style="align-items:end; margin-bottom:8px;">
+                        <div class="field" style="min-width:150px;">
+                            <label>از تاریخ</label>
+                            <input type="text" id="algotikFromDate" placeholder="1405/01/01"
+                                data-jdp data-jdp-only-date
+                                style="direction:ltr; text-align:center;">
+                        </div>
+                        <div class="field" style="min-width:150px;">
+                            <label>تا تاریخ</label>
+                            <input type="text" id="algotikToDate" placeholder="1405/06/30"
+                                data-jdp data-jdp-only-date
+                                style="direction:ltr; text-align:center;">
+                        </div>
+                        <button class="btn outline" onclick="algotikUseAllData()">🔓 استفاده از کل دیتا</button>
+                        <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button>
+                    </div>
                     <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div>
                     <div id="algotikBackfillJobArea" style="margin-top:10px;"></div>
                 </div>
@@ -503,8 +513,36 @@ function switchMenuTab(which, btn) {
 function toggleCard(id) { document.getElementById(id).classList.toggle('open'); }
 function switchPipelineTab(which, btn) { btn.parentNode.querySelectorAll('.subtab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); ['symbols','backfill','coverage'].forEach(k => { const el = document.getElementById('ptab-'+k); if (el) el.style.display = k === which ? 'block' : 'none'; }); if (which === 'coverage') loadDataPipeline(); }
 function switchStrategyTab(which, btn) { btn.parentNode.querySelectorAll('.subtab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); ['configs','create','chart'].forEach(k => { const el = document.getElementById('stab-'+k); if (el) el.style.display = k === which ? 'block' : 'none'; }); }
-function openModal(title, html) { document.getElementById('modalTitle').textContent = title; document.getElementById('modalBody').innerHTML = html; document.getElementById('modalBg').classList.add('open'); }
-function closeModal() { document.getElementById('modalBg').classList.remove('open'); }
+
+// ============================================================
+// 🆕 Modal stack — با push و close به درستی
+// ============================================================
+const _modalStack = [];
+function openModal(title, html, pushStack) {
+    const isOpen = document.getElementById('modalBg').classList.contains('open');
+    if (pushStack && isOpen) {
+        _modalStack.push({
+            title: document.getElementById('modalTitle').textContent,
+            html: document.getElementById('modalBody').innerHTML
+        });
+    } else if (!pushStack) {
+        _modalStack.length = 0;
+    }
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = html;
+    document.getElementById('modalBg').classList.add('open');
+    document.body.classList.add('modal-open');
+}
+function closeModal() {
+    if (_modalStack.length > 0) {
+        const prev = _modalStack.pop();
+        document.getElementById('modalTitle').textContent = prev.title;
+        document.getElementById('modalBody').innerHTML = prev.html;
+        return;
+    }
+    document.getElementById('modalBg').classList.remove('open');
+    document.body.classList.remove('modal-open');
+}
 function showLoader(text, sub) { document.getElementById('loaderText').textContent = text || 'در حال پردازش...'; document.getElementById('loaderSub').textContent = sub || ''; document.getElementById('globalLoader').classList.add('show'); }
 function hideLoader() { document.getElementById('globalLoader').classList.remove('show'); }
 
@@ -520,7 +558,7 @@ const pct = v => typeof v === 'number' ? `<span class="${v>=0?'pos':'neg'}">${v>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtN = n => n === null || n === undefined ? '-' : Math.round(n).toLocaleString();
 const fmtIv = v => v ? (v*100).toFixed(0)+'%' : '-';
-const fmtPF = v => v === null || v === undefined ? '-' : (v === Infinity ? '∞' : (typeof v === 'number' ? v.toFixed(2) : '-'));
+const fmtPF = v => v === null || v === undefined ? '-' : (v === Infinity ? '∞' : (typeof v === 'number' && !isNaN(v) ? v.toFixed(2) : '-'));
 const trendBadge = t => { if (!t) return '<span class="badge none">-</span>'; const up = /up|bull|صعود/i.test(t), dn = /down|bear|نزول/i.test(t); return `<span class="badge ${up?'long':dn?'short':'none'}">${esc(t)}</span>`; };
 
 function getToken() { return localStorage.getItem('adminToken') || ''; }
@@ -613,7 +651,7 @@ document.addEventListener('click', e => { if (!e.target.closest('.field')) { con
 async function addMonitoredSymbol() { if (!selectedSymbol) return showAlert('یک نماد انتخاب کنید.', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: selectedSymbol }) }); showAlert(`«${selectedSymbol}» اضافه شد.`, 'success', 4000); document.getElementById('symbolSearchInput').value = ''; selectedSymbol = null; await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function loadMonitoredSymbols() { try { monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, {}, 0); try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); } catch (e) {} renderMonitoredSymbols(); renderConfigSymbolOptions(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function refreshQuotesOnly() { try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); if (monitoredSymbols.length) renderMonitoredSymbols(); } catch (e) {} }
-function renderMonitoredSymbols() { const g = document.getElementById('symbolGrid'); if (!g) return; const cnt = document.getElementById('symbolCountLabel'); if (cnt) cnt.textContent = monitoredSymbols.length; if (!monitoredSymbols.length) { g.innerHTML = '<div class="empty-note">نمادی اضافه نشده است</div>'; return; } g.innerHTML = monitoredSymbols.map(s => { const initial = (s.symbol || '?').trim().charAt(0); const q = window._symbolQuotes && window._symbolQuotes[s.symbol]; const collectOn = s.collectEnabled !== false; const priceHtml = q && q.price ? `<span>قیمت: <b>${q.price.toLocaleString()}</b></span>` + (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') + (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '') : '<span style="opacity:.5;">در حال دریافت...</span>'; return `<div class="symbol-item ${collectOn ? '' : 'collect-off'}"><input type="checkbox" class="sym-collect" ${collectOn ? 'checked' : ''} onchange="toggleMonitoredCollect('${s._id}', this.checked)"><div class="sym-avatar">${esc(initial)}</div><div class="sym-body"><div class="sym-name">${esc(s.symbol)}</div><div class="sym-meta"><span>1m: <b>${s.candleCount}</b></span><span>daily: <b>${s.dailyCount}</b></span>${priceHtml}</div></div><div class="sym-actions"><button class="sym-btn auto" onclick="autoConfigureOne('${esc(s.symbol)}')">تنظیم خودکار</button><button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button><button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">حذف</button></div></div>`; }).join(''); }
+function renderMonitoredSymbols() { const g = document.getElementById('symbolGrid'); if (!g) return; const cnt = document.getElementById('symbolCountLabel'); if (cnt) cnt.textContent = monitoredSymbols.length; if (!monitoredSymbols.length) { g.innerHTML = '<div class="empty-note">نمادی اضافه نشده است</div>'; return; } g.innerHTML = monitoredSymbols.map(s => { const initial = (s.symbol || '?').trim().charAt(0); const q = window._symbolQuotes && window._symbolQuotes[s.symbol]; const collectOn = s.collectEnabled !== false; const priceHtml = q && q.price ? `<span>قیمت: <b>${q.price.toLocaleString()}</b></span>` + (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') + (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '') : '<span style="opacity:.5;">در حال دریافت...</span>'; return `<div class="symbol-item ${collectOn ? '' : 'collect-off'}"><input type="checkbox" class="sym-collect" ${collectOn ? 'checked' : ''} onchange="toggleMonitoredCollect('${s._id}', this.checked)"><div class="sym-avatar">${esc(initial)}</div><div class="sym-body"><div class="sym-name">${esc(s.symbol)}</div><div class="sym-meta"><span>1m: <b>${s.candleCount}</b></span><span>daily: <b>${s.dailyCount}</b></span>${priceHtml}</div></div><div class="sym-actions"><button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button><button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">حذف</button></div></div>`; }).join(''); }
 async function toggleMonitoredCollect(id, enabled) { try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collectEnabled: enabled }) }); const sym = monitoredSymbols.find(x => x._id === id); if (sym) sym.collectEnabled = enabled; renderMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function bulkCollectToggle(enabled) { const ids = monitoredSymbols.map(s => s._id); if (!ids.length) return showAlert('نمادی وجود ندارد', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/bulk-collect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, collectEnabled: enabled }) }); showAlert('به‌روز شد.', 'success', 3000); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteMonitoredSymbol(id, sym) { if (!confirm(`نماد «${sym}» حذف شود؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
@@ -629,29 +667,27 @@ async function algotikRefresh() {
     } catch (e) { const el = document.getElementById('algotikStats'); if (el) el.innerHTML = `<div class="sys-stat"><div class="label">Collector</div><div class="value" style="color:var(--bad); font-size:12px;">آفلاین</div><div class="sub">${esc(e.message)}</div></div>`; }
 }
 
-async function algotikUseAllData() {
-    try {
-        const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
-        if (!r.from || !r.to) {
-            return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
-        }
-        document.getElementById('algotikFromDate').value = gregToJalali(r.from);
-        document.getElementById('algotikToDate').value = gregToJalali(r.to);
-        showAlert(`بازه: ${gregToJalali(r.from)} → ${gregToJalali(r.to)} (${r.days} روز)`, 'success', 6000);
-    } catch (e) {
-        showAlert('خطا: ' + e.message);
-    }
-}
-
+// ============================================================
+// 🆕 Use full data range in backfill
+// ============================================================
+function jdpNormalize(str) { return String(str || '').trim().replace(/\//g, '-'); }
 function gregToJalali(gregStr) {
     const d = new Date(gregStr + 'T00:00:00Z');
     const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', {
-        timeZone: 'UTC',
-        year: 'numeric', month: '2-digit', day: '2-digit'
+        timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit'
     }).formatToParts(d);
     const m = {};
     parts.forEach(p => m[p.type] = p.value);
     return `${m.year}/${m.month}/${m.day}`;
+}
+async function algotikUseAllData() {
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
+        if (!r.from || !r.to) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+        document.getElementById('algotikFromDate').value = gregToJalali(r.from);
+        document.getElementById('algotikToDate').value = gregToJalali(r.to);
+        showAlert(`بازه: ${gregToJalali(r.from)} → ${gregToJalali(r.to)} (${r.days} روز)`, 'success', 5000);
+    } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
 async function algotikStartBackfill(btn) {
@@ -659,11 +695,10 @@ async function algotikStartBackfill(btn) {
     const to   = jdpNormalize(document.getElementById('algotikToDate').value);
     if (!from || !to) return showAlert('تاریخ شروع و پایان را وارد کن', 'warn');
     if (!confirm(`Backfill کامل از ${from} تا ${to}؟\n\nهشدار: چند ساعت طول می‌کشد.`)) return;
-    // 🆕 Collector خودش clamp می‌کنه اگه قدیمی‌تر از floor بود
     if (btn) { btn.disabled = true; btn.textContent = 'در حال شروع...'; }
     const jobArea = document.getElementById('algotikBackfillJobArea');
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/algotik/full-backfill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dateFrom: from, dateTo: to, includeStockIntraday: true, includeStockDaily: true, includeOptionHistory: true, includeOptionSnapshot: true, includeAggregate: true }) }, 0);
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/full-backfill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dateFrom: from, dateTo: to, includeStockIntraday: true, includeStockDaily: true, includeOptionHistory: true, includeOptionSnapshot: true, includeAggregate: true, includeOptionMigration: true }) }, 0);
         showAlert('Backfill در پس‌زمینه شروع شد.', 'success', 8000);
         jobArea.innerHTML = renderCollectorJobProgress({ _id: r.jobId, status: 'QUEUED', phase: 'init', phases: {} });
         const timer = setInterval(async () => {
@@ -684,7 +719,7 @@ async function algotikStartBackfill(btn) {
 function renderCollectorJobProgress(j) {
     const phases = j.phases || {};
     let html = `<div class="job-card"><div class="job-header"><span class="job-type full-backfill">Backfill</span><span class="job-status ${j.status}">${j.status === 'RUNNING' ? 'در حال اجرا' : j.status === 'QUEUED' ? 'در صف' : j.status === 'DONE' ? 'تکمیل' : j.status === 'FAILED' ? 'خطا' : j.status}</span><span class="job-msg" style="margin-right:auto;">فاز: ${j.phase || '-'}</span></div>`;
-    const labels = { stock_intraday: 'کندل 1m', stock_daily: 'روزانه سهام', option_history: 'آپشن + IV', option_snapshot: 'snapshot', aggregate: 'aggregation' };
+    const labels = { stock_intraday: 'کندل 1m', stock_daily: 'روزانه سهام', option_history: 'آپشن + IV', option_snapshot: 'snapshot', option_migration: 'migration', aggregate: 'aggregation' };
     for (const [name, ph] of Object.entries(phases)) {
         if (!ph || typeof ph !== 'object') continue;
         const cur = ph.current || 0, total = ph.total || 0, pctv = total ? Math.round(cur/total*100) : 0;
@@ -780,20 +815,12 @@ async function toggleConfigEnabled(id, en) { try { await apiFetch(`${BACKEND_URL
 async function deleteConfig(id) { if (!confirm('حذف شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'DELETE' }); if (selectedConfigId === id) selectedConfigId = null; await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
 // ==================== Backtest ====================
-async function runOptionBacktest(id) {
-    const it = configs.find(c => c._id === id); if (!it) return;
-    const today = new Date(); const six = new Date(); six.setUTCMonth(six.getUTCMonth() - 6);
-    const toStr = today.toISOString().slice(0, 10); const fromStr = six.toISOString().slice(0, 10);
-    openModal(`بک تست ${it.symbol}`, `<div class="date-range-row"><label>از: <input type="date" id="btFrom" value="${fromStr}"></label><label>تا: <input type="date" id="btTo" value="${toStr}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtRange(12)">1 سال</button><button class="btn tiny outline" onclick="setBtRangeAll()">🔓 کل دیتا</button></div></div><div style="display:flex; gap:16px; margin:10px 0; font-size:13px; flex-wrap:wrap;"><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btForceRecompute"> محاسبه مجدد</label></div><button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button><div id="btJobArea" style="margin-top:14px;"></div><div id="btResultArea"></div>`);
-}
 async function fetchFullDataRange() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
         if (!r.from || !r.to) return null;
         return { from: r.from, to: r.to, days: r.days };
-    } catch (e) {
-        return null;
-    }
+    } catch (e) { return null; }
 }
 async function setBtRangeAll() {
     const r = await fetchFullDataRange();
@@ -801,6 +828,19 @@ async function setBtRangeAll() {
     document.getElementById('btFrom').value = r.from;
     document.getElementById('btTo').value = r.to;
     showAlert(`بازه: ${r.from} → ${r.to} (${r.days} روز)`, 'success', 4000);
+}
+async function setBtcRangeAll() {
+    const r = await fetchFullDataRange();
+    if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+    document.getElementById('btcFrom').value = r.from;
+    document.getElementById('btcTo').value = r.to;
+    showAlert(`بازه: ${r.from} → ${r.to} (${r.days} روز)`, 'success', 4000);
+}
+async function runOptionBacktest(id) {
+    const it = configs.find(c => c._id === id); if (!it) return;
+    const today = new Date(); const six = new Date(); six.setUTCMonth(six.getUTCMonth() - 6);
+    const toStr = today.toISOString().slice(0, 10); const fromStr = six.toISOString().slice(0, 10);
+    openModal(`بک تست ${it.symbol}`, `<div class="date-range-row"><label>از: <input type="date" id="btFrom" value="${fromStr}"></label><label>تا: <input type="date" id="btTo" value="${toStr}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtRange(12)">1 سال</button><button class="btn tiny outline" onclick="setBtRangeAll()">🔓 کل دیتا</button></div></div><div style="display:flex; gap:16px; margin:10px 0; font-size:13px; flex-wrap:wrap;"><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btForceRecompute"> محاسبه مجدد</label></div><button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button><div id="btJobArea" style="margin-top:14px;"></div><div id="btResultArea"></div>`);
 }
 function setBtRange(months) { const to = new Date(); const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months); document.getElementById('btTo').value = to.toISOString().slice(0, 10); document.getElementById('btFrom').value = from.toISOString().slice(0, 10); }
 async function execBtSingle(id) {
@@ -928,7 +968,7 @@ async function openSettings() {
 }
 function switchSettingsTab(which, btn) { ['trading','capital','factors','confluence','option'].forEach(w => { const el = document.getElementById(`tab-${w}`); if (el) el.style.display = w === which ? 'block' : 'none'; }); document.querySelectorAll('.modal .tabs .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
 async function saveTradingSettings(keys) { const body = {}; keys.forEach(k => { const el = document.getElementById(`ts_${k}`); if (el) { const v = el.value.trim(); if (v !== '') body[k] = v; } }); try { await apiFetch(`${BACKEND_URL}/api/trading-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); await checkBackendStatus(); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function saveOptionSettings() { const body = {}; Object.keys(JSON.parse(JSON.stringify({ minDays:0 }))); const defaults = { minDays:15,maxDays:45,maxSpreadPct:7,minOI:200,minTrades:1,minPremium:200,deltaMin:0.4,deltaMax:0.75,maxIvHv:1.5,rewardRisk:3,topN:3,optionStopPct:20,take1Pct:50,take2Pct:100,closeDaysBefore:5 }; for (const k of Object.keys(defaults)) { const el = document.getElementById(`opt_${k}`); if (el) body[k] = parseFloat(el.value); } try { await apiFetch(`${BACKEND_URL}/api/options/settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function saveOptionSettings() { const body = {}; const defaults = { minDays:15,maxDays:45,maxSpreadPct:7,minOI:200,minTrades:1,minPremium:200,deltaMin:0.4,deltaMax:0.75,maxIvHv:1.5,rewardRisk:3,topN:3,optionStopPct:20,take1Pct:50,take2Pct:100,closeDaysBefore:5 }; for (const k of Object.keys(defaults)) { const el = document.getElementById(`opt_${k}`); if (el) body[k] = parseFloat(el.value); } try { await apiFetch(`${BACKEND_URL}/api/options/settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function openStrategyDefaults() { openModal('پیش فرض استراتژی ها', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>'); try { const d = await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, {}, 0); const defaults = d.defaults, overrides = d.overrides; let html = `<div class="hint">مقادیر پایه ای که همه جا استفاده می شوند.</div>`; for (const s of strategiesInfo) { const values = defaults[s.id] || s.defaultParams; const hasOv = overrides[s.id] && Object.keys(overrides[s.id]).length > 0; const fields = Object.entries(values).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" data-sid="${s.id}" data-param="${k}" value="${v}"></div>`).join(''); html += `<div class="adv-accordion ${hasOv ? 'open' : ''}" id="sd-${s.id}"><div class="adv-header" onclick="document.getElementById('sd-${s.id}').classList.toggle('open')"><span>${esc(s.name)} ${hasOv ? '<span class="badge warn">ویرایش شده</span>' : ''}</span><span class="chev">▼</span></div><div class="adv-body"><div class="form-row">${fields}</div><button class="btn tiny outline" onclick="resetStrategyDefault('${s.id}')">بازگردانی</button></div></div>`; } html += `<div style="margin-top:16px; display:flex; gap:8px;"><button class="btn" onclick="saveStrategyDefaults()">ذخیره</button><button class="btn outline" onclick="resetAllStrategyDefaults()">بازگردانی همه</button></div>`; openModal('پیش فرض استراتژی ها', html); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function saveStrategyDefaults() { const overrides = {}; document.querySelectorAll('[data-sid][data-param]').forEach(inp => { const sid = inp.dataset.sid, k = inp.dataset.param; if (!overrides[sid]) overrides[sid] = {}; const v = parseFloat(inp.value); if (Number.isFinite(v)) overrides[sid][k] = v; }); try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ overrides }) }); showAlert('ذخیره شد.', 'success', 3000); await loadStrategies(); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function resetStrategyDefault(sid) { if (!confirm(`بازگردانی ${sid}؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults/${sid}`, { method: 'DELETE' }); showAlert('بازگشت.', 'success', 3000); await openStrategyDefaults(); await loadStrategies(); } catch (e) { showAlert('خطا: ' + e.message); } }
@@ -938,29 +978,85 @@ async function resetAllStrategyDefaults() { if (!confirm('بازگردانی ه�
 const jobTrackersTimers = new Map();
 function trackJob(jobId, onUpdate) { if (jobTrackersTimers.has(jobId)) return; const tick = async () => { try { const job = await apiFetch(`${BACKEND_URL}/api/jobs/${jobId}`, {}, 0); if (onUpdate) onUpdate(job); if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') { clearInterval(jobTrackersTimers.get(jobId)); jobTrackersTimers.delete(jobId); loadActiveJobs(); } } catch (e) {} }; tick(); const t = setInterval(tick, 3000); jobTrackersTimers.set(jobId, t); }
 function renderJobProgress(job) { const chunks = (job.progress && job.progress.chunks) || []; const dc = chunks.filter(c => c.status === 'DONE').length; const tt = chunks.length || (job.progress && job.progress.total) || 1; const pv = tt > 0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0; const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card ${job.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span><span class="job-status ${job.status}">${statusLabels[job.status] || job.status}</span><span class="job-msg" style="margin-right:auto;">${esc(job.progress ? job.progress.message : '')}</span></div><div class="progress-bar"><div class="progress-fill" style="width:${pv}%"></div></div><div class="job-msg">${dc} / ${tt} (${pv}%)</div></div>`; }
-async function openJobsPanel() { openModal('Jobs', '<div style="text-align:center;padding:30px;">...</div>'); await refreshJobsPanel(); const t = setInterval(() => { const m = document.getElementById('modalBg'); if (m && m.classList.contains('open') && document.getElementById('modalBody').innerHTML.includes('jobs-panel-container')) refreshJobsPanel().catch(() => {}); else clearInterval(t); }, 5000); }
+
+// ============================================================
+// 🆕 Jobs panel — fix: no auto-close, show N symbols, view detail
+// ============================================================
+let _jobsPanelTimer = null;
+let _jobsPanelUserActive = false;
+async function openJobsPanel() {
+    openModal('Jobs', '<div style="text-align:center;padding:30px;">...</div>');
+    await refreshJobsPanel();
+    if (_jobsPanelTimer) clearInterval(_jobsPanelTimer);
+    _jobsPanelTimer = setInterval(() => {
+        const m = document.getElementById('modalBg');
+        const jobsContainer = document.querySelector('.jobs-panel-container');
+        if (!m || !m.classList.contains('open') || !jobsContainer) {
+            clearInterval(_jobsPanelTimer);
+            _jobsPanelTimer = null;
+            return;
+        }
+        if (_jobsPanelUserActive) return;
+        refreshJobsPanel().catch(() => {});
+    }, 5000);
+}
+
 async function refreshJobsPanel() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/jobs?limit=50&all=1`, {}, 0);
         const allJobs = r.jobs || [];
         const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED'].includes(j.status));
         const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).filter(j => !j.finishedAt || Date.now() - new Date(j.finishedAt).getTime() < 24 * 3600 * 1000);
-        const renderJob = (j, isDone) => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; return `<div class="job-card ${j.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${j.status}</span><span class="job-msg" style="margin-right:auto;">${esc(j.progress ? j.progress.message : '')}</span><div class="job-actions" style="margin-right:auto; display:flex; gap:6px;">${!isDone ? `<button class="btn tiny danger" onclick="cancelActiveJob('${j._id}')">لغو</button>` : ''}${isDone ? `<button class="btn tiny outline" onclick="downloadJob('${j._id}')">⬇ دانلود</button>` : ''}${isDone ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}</div></div>${!isDone ? renderJobProgress(j) : ''}</div>`; };
         const doneCount = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).length;
+
+        const renderJob = (j, isDone) => {
+            const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' };
+            const total = (j.progress && j.progress.total) || 0;
+            const current = (j.progress && j.progress.current) || 0;
+            const symCount = (j.payload && j.payload.symbols && j.payload.symbols.length) || 1;
+            const progressLabel = j.status === 'DONE' ? `${current}/${total}` : (j.progress ? j.progress.message : '');
+            const symbolInfo = symCount > 1 ? ` · ${symCount} نماد` : '';
+            return `<div class="job-card ${j.cancelRequested ? 'danger' : ''}">
+                <div class="job-header">
+                    <span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span>
+                    <span class="job-status ${j.status}">${j.status}</span>
+                    <span class="job-msg" style="margin-right:auto;">${esc(progressLabel)}${symbolInfo}</span>
+                    <div class="job-actions" style="margin-right:auto; display:flex; gap:6px;">
+                        ${!isDone ? `<button class="btn tiny danger" onclick="cancelActiveJob('${j._id}')">لغو</button>` : ''}
+                        ${isDone ? `<button class="btn tiny outline" onclick="viewJobDetail('${j._id}')">👁 جزئیات</button>` : ''}
+                        ${isDone ? `<button class="btn tiny outline" onclick="downloadJob('${j._id}')">⬇ JSON</button>` : ''}
+                        ${isDone ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}
+                    </div>
+                </div>
+                ${!isDone ? renderJobProgress(j) : ''}
+            </div>`;
+        };
         const activeRows = activeJobs.length ? activeJobs.map(j => renderJob(j, false)).join('') : '<div class="empty-note">فعال نیست</div>';
         const doneRows = doneJobs.length ? doneJobs.map(j => renderJob(j, true)).join('') : '<div class="empty-note">تاریخچه خالی</div>';
-        openModal('Jobs', `<div class="jobs-panel-container"><div class="tabs" style="margin-bottom:14px;"><button class="tab active" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button><button class="tab" onclick="switchJobsTab('done', this)">تاریخچه (${doneJobs.length}/${doneCount})</button></div><div id="jobsTab-active">${activeRows}</div><div id="jobsTab-done" style="display:none;">${doneRows}</div></div>`);
+
+        const newHtml = `<div class="jobs-panel-container">
+            <div class="tabs" style="margin-bottom:14px;">
+                <button class="tab active" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button>
+                <button class="tab" onclick="switchJobsTab('done', this)">تاریخچه (${doneJobs.length}/${doneCount})</button>
+            </div>
+            <div id="jobsTab-active">${activeRows}</div>
+            <div id="jobsTab-done" style="display:none;">${doneRows}</div>
+        </div>`;
+
+        const container = document.querySelector('.jobs-panel-container');
+        if (container) {
+            container.outerHTML = newHtml;
+        } else {
+            openModal('Jobs', newHtml);
+        }
     } catch (e) { openModal('Jobs', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 function switchJobsTab(w, btn) { document.querySelectorAll('#modalBody .tabs .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); document.getElementById('jobsTab-active').style.display = w === 'active' ? 'block' : 'none'; document.getElementById('jobsTab-done').style.display = w === 'done' ? 'block' : 'none'; }
 async function cancelActiveJob(id) { if (!confirm('لغو شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteJob(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, { method: 'DELETE' }); refreshJobsPanel(); } catch (e) { showAlert('خطا: ' + e.message); } }
+
 function downloadJob(id) {
     const url = `${BACKEND_URL}/api/jobs/${id}/download`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '';
-    // چون endpoint نیاز به admin-token داره، از fetch استفاده می‌کنیم
     apiFetch(url, {}, 0).then(data => {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const burl = URL.createObjectURL(blob);
@@ -973,67 +1069,93 @@ function downloadJob(id) {
         URL.revokeObjectURL(burl);
     }).catch(e => showAlert('خطا: ' + e.message, 'error'));
 }
+
+async function viewJobDetail(id) {
+    showLoader('در حال بارگذاری...');
+    try {
+        const job = await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, {}, 0);
+        hideLoader();
+        renderJobDetailModal(job);
+    } catch (e) {
+        hideLoader();
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
+
+function renderJobDetailModal(job) {
+    const r = job.result || {};
+    let html = `<div class="hint">
+        نوع: <b>${job.type}</b> ·
+        وضعیت: <b>${job.status}</b> ·
+        شروع: ${job.startedAt ? new Date(job.startedAt).toLocaleString('fa-IR') : '-'} ·
+        پایان: ${job.finishedAt ? new Date(job.finishedAt).toLocaleString('fa-IR') : '-'}
+    </div>`;
+
+    if (job.type === 'backtest-compare' && r.results) {
+        const good = r.results.filter(x => !x.error && x.option && (x.option.profitFactor === undefined || x.option.profitFactor > 1)).length;
+        const total = r.results.length;
+        html += `<div class="stats-grid" style="margin-top:12px;">
+            <div class="stat"><small>کل ترکیب</small><b>${total}</b></div>
+            <div class="stat"><small>سودده</small><b>${good}</b></div>
+            <div class="stat"><small>جزئیات ذخیره‌شده</small><b>${r.detailsCount || 0}</b></div>
+        </div>
+        <div class="hint">برای دیدن نتیجه کامل، در جدول بک تست روی 🔍 کنار هر ترکیب بزن.</div>`;
+    }
+    else if (job.type === 'backtest' && (r.stockStats || r.optionStats || r.stats)) {
+        const s = r.stockStats || {};
+        const o = r.optionStats || r.stats || {};
+        html += `<div class="stats-grid" style="margin-top:12px;">
+            <div class="stat"><small>سهم</small><b>${s.count || 0}</b></div>
+            <div class="stat"><small>وین سهم</small><b>${s.count ? s.winRate.toFixed(1) + '%' : '-'}</b></div>
+            <div class="stat"><small>آپشن</small><b>${o.count || 0}</b></div>
+            <div class="stat"><small>وین آپشن</small><b>${o.count ? o.winRate.toFixed(1) + '%' : '-'}</b></div>
+            <div class="stat"><small>PF آپشن</small><b>${o.profitFactor != null ? (Number.isFinite(o.profitFactor) ? o.profitFactor.toFixed(2) : '∞') : '-'}</b></div>
+            <div class="stat"><small>R/A</small><b>${r.realUsed || 0}/${r.approxUsed || 0}</b></div>
+        </div>`;
+    }
+    else if (job.type === 'auto-config' && r.results) {
+        const applied = r.results.filter(x => !x.error).length;
+        const failed = r.results.filter(x => x.error).length;
+        html += `<div class="stats-grid" style="margin-top:12px;">
+            <div class="stat"><small>موفق</small><b>${applied}</b></div>
+            <div class="stat"><small>رد</small><b>${failed}</b></div>
+        </div>
+        <div class="table-responsive" style="max-height:400px; overflow-y:auto; margin-top:12px;">
+            <table class="data-table">
+                <thead><tr><th>نماد</th><th>نتیجه</th></tr></thead>
+                <tbody>${r.results.map(x => `<tr><td><b>${esc(x.symbol)}</b></td><td>${x.error ? '❌ ' + esc(x.error) : '✅ ' + esc(x.leader || '?')}</td></tr>`).join('')}</tbody>
+            </table>
+        </div>`;
+    }
+
+    if (job.progress && job.progress.chunks && job.progress.chunks.length) {
+        html += `<div class="hint" style="margin-top:12px;">فازها:</div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead><tr><th>#</th><th>برچسب</th><th>وضعیت</th><th>معاملات</th></tr></thead>
+                <tbody>${job.progress.chunks.map((c, i) => `<tr><td>${i + 1}</td><td>${esc(c.label)}</td><td>${c.status}</td><td>${c.tradesCount || 0}</td></tr>`).join('')}</tbody>
+            </table>
+        </div>`;
+    }
+
+    const errs = (job.errors || []);
+    if (errs.length) {
+        html += `<div class="hint" style="margin-top:12px; color:var(--bad);">خطاها (${errs.length}):</div>
+        <div style="max-height:200px; overflow-y:auto; font-size:11px; background:var(--bg-input); padding:8px; border-radius:6px;">
+            ${errs.map(e => `<div>${esc(e.msg || e)}</div>`).join('')}
+        </div>`;
+    }
+
+    html += `<div style="margin-top:16px; display:flex; gap:8px;">
+        <button class="btn outline" onclick="closeModal()">بازگشت</button>
+        <button class="btn" onclick="downloadJob('${job._id}')">⬇ دانلود JSON</button>
+    </div>`;
+
+    openModal(`جزئیات Job`, html, true);
+}
+
 // ==================== Auto Configure ====================
 function setAcRange(months) { const to = new Date(); const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months); document.getElementById('acTo').value = to.toISOString().slice(0, 10); document.getElementById('acFrom').value = from.toISOString().slice(0, 10); }
-function btAutoSelectAll(checked) {
-    document.querySelectorAll('.bt-auto-symbol').forEach(c => c.checked = checked);
-}
-function btAutoSelectGood() {
-    document.querySelectorAll('.bt-auto-symbol').forEach(c => {
-        const pf = parseFloat(c.dataset.bestpf) || 0;
-        c.checked = pf >= 1.2;
-    });
-}
-async function autoConfigureFromBacktest() {
-    const selectedSymbols = Array.from(document.querySelectorAll('.bt-auto-symbol:checked')).map(c => c.value);
-    if (!selectedSymbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
-
-    // پیدا کردن نتایج بک تست فعلی
-    const lastCompareResult = window._lastBtCompareResult;
-    if (!lastCompareResult || !lastCompareResult.results) {
-        return showAlert('نتایج بک تست یافت نشد', 'warn');
-    }
-
-    const filtered = lastCompareResult.results.filter(r =>
-        selectedSymbols.includes(r.symbol) && !r.error
-    );
-
-    if (!filtered.length) return showAlert('نتیجه معتبری برای این نمادها نیست', 'warn');
-
-    if (!confirm(`اعمال تنظیم روی ${selectedSymbols.length} نماد؟\n\nاین کار configهای قبلی این نمادها را جایگزین می‌کند.`)) return;
-
-    showLoader('در حال اعمال تنظیم...');
-    try {
-        const r = await apiFetch(`${BACKEND_URL}/api/jobs/apply-from-results`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ results: filtered })
-        });
-
-        if (r.error && !r.applied) {
-            showAlert('خطا: ' + r.error, 'error', 8000);
-            return;
-        }
-
-        const okCount = (r.results || []).filter(x => !x.error).length;
-        const failCount = (r.results || []).filter(x => x.error).length;
-        showAlert(`✅ ${okCount} نماد تنظیم شد${failCount ? ` | ❌ ${failCount} رد` : ''}`, 'success', 8000);
-
-        // نمایش خلاصه در مودال
-        const lines = (r.results || []).map(x => {
-            if (x.error) return `❌ ${x.symbol}: ${x.error}`;
-            return `✅ ${x.symbol}: ${x.leader || '?'} (${x.leaderName || ''}) + ${(x.confirmers || []).length} تایید`;
-        }).join('\n');
-
-        openModal('نتیجه تنظیم خودکار', `<pre style="font-family:inherit; font-size:13px; direction:rtl; text-align:right; white-space:pre-wrap;">${esc(lines)}</pre><div style="margin-top:12px;"><button class="btn" onclick="closeModal(); loadConfigs();">باشه</button></div>`);
-
-        await loadConfigs();
-    } catch (e) {
-        showAlert('خطا: ' + e.message, 'error', 8000);
-    } finally {
-        hideLoader();
-    }
-}
 async function openAutoConfigure(preselectedSymbols = null) {
     try {
         const preselectedSet = (preselectedSymbols && preselectedSymbols.length)
@@ -1049,7 +1171,7 @@ async function openAutoConfigure(preselectedSymbols = null) {
             return `<label style="display:inline-flex; align-items:center; gap:6px; margin:4px 8px 4px 0; font-size:13px;"><input type="checkbox" class="ac-symbol" value="${esc(s.symbol)}"${checked}> ${esc(s.symbol)}</label>`;
         }).join('');
         if (!symbolsHtml) return openModal('تنظیم خودکار', '<div class="empty-note">ابتدا نماد اضافه کنید.</div>');
-        openModal('تنظیم خودکار', `<div class="hint">معیار: 7 معامله سهم + 3 معامله آپشن + PF >= 1.1</div><div style="margin:14px 0;"><div class="menu-label">نمادها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${symbolsHtml}</div></div><div class="form-row"><div class="field"><label>تعداد تاییدکننده</label><select id="acMaxConfirmers"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></div></div><div class="date-range-row"><label>از: <input type="date" id="acFrom" value="${new Date(Date.now() - 180*86400000).toISOString().slice(0,10)}"></label><label>تا: <input type="date" id="acTo" value="${new Date().toISOString().slice(0,10)}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setAcRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setAcRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setAcRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setAcRange(12)">1 سال</button></div></div><div style="display:flex; gap:8px; margin-top:12px;"><button class="btn outline" id="acPreviewBtn" onclick="previewAutoConfigure()">پیش نمایش</button><button class="btn success" id="acApplyBtn" onclick="applyAutoConfigure()">اعمال</button></div><div id="acResults" style="margin-top:16px;"></div>`);
+        openModal('تنظیم خودکار', `<div class="hint">معیار: threshold داینامیک بر اساس عمق دیتا</div><div style="margin:14px 0;"><div class="menu-label">نمادها</div><div><button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.ac-symbol').forEach(c=>c.checked=false)">لغو</button></div><div style="margin-top:6px;">${symbolsHtml}</div></div><div class="form-row"><div class="field"><label>تعداد تاییدکننده</label><select id="acMaxConfirmers"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></div></div><div class="date-range-row"><label>از: <input type="date" id="acFrom" value="${new Date(Date.now() - 180*86400000).toISOString().slice(0,10)}"></label><label>تا: <input type="date" id="acTo" value="${new Date().toISOString().slice(0,10)}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setAcRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setAcRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setAcRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setAcRange(12)">1 سال</button></div></div><div style="display:flex; gap:8px; margin-top:12px;"><button class="btn outline" id="acPreviewBtn" onclick="previewAutoConfigure()">پیش نمایش</button><button class="btn success" id="acApplyBtn" onclick="applyAutoConfigure()">اعمال</button></div><div id="acResults" style="margin-top:16px;"></div>`);
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function previewAutoConfigure() {
@@ -1087,7 +1209,6 @@ async function applyAutoConfigure() {
     } catch (e) { rEl.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = 'اعمال'; }
 }
 function renderAutoPlan(plan) { const rEl = document.getElementById('acResults'); if (!plan || !plan.length) { rEl.innerHTML = '<div class="empty-note">نتیجه ای نیست.</div>'; return; } let html = ''; for (const p of plan) { if (p.error) { let rj = ''; if (p.rejectionReasons && p.rejectionReasons.length) rj = `<div style="font-size:11px;color:var(--text-dim);padding:6px;background:var(--bg-input);border-radius:6px;margin-top:6px;">${p.rejectionReasons.slice(0,3).map(r => `<div>- <b>${esc(r.strategyName)}</b>: ${esc((r.reasons||[]).join(', '))}</div>`).join('')}</div>`; html += `<div class="auto-plan-card"><h5>${esc(p.symbol)}</h5><div style="color:var(--bad);font-size:12px;">${esc(p.error)}</div>${rj}</div>`; continue; } const ln = p.leader ? (strategiesInfo.find(s => s.id === p.leader.strategyId)?.name || p.leader.strategyName) : '-'; html += `<div class="auto-plan-card"><h5>${esc(p.symbol)} <span style="font-size:11px;color:var(--text-dim);">(${ln} + ${p.confirmers.length} تایید)</span></h5><div class="auto-role-row"><span class="role-badge leader">لیدر</span><b>${esc(ln)}</b><span class="auto-score">${p.leader.score}</span></div>`; for (const c of p.confirmers) { const cn = strategiesInfo.find(s => s.id === c.strategyId)?.name || c.strategyName; html += `<div class="auto-role-row"><span class="role-badge confirmer">تایید</span><b>${esc(cn)}</b><span class="auto-score">${c.score}</span></div>`; } html += `</div>`; } rEl.innerHTML = html; }
-async function autoConfigureOne(symbol) { if (!confirm(`تنظیم خودکار «${symbol}»؟`)) return; showLoader(`تنظیم «${symbol}»...`, 'ممکن است چند دقیقه طول بکشد'); try { await apiFetch(`${BACKEND_URL}/api/jobs/auto-config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbols: [symbol], maxConfirmers: 2, dryRun: false }) }, 0); showAlert('Job شروع شد.', 'success', 6000); loadActiveJobs(); } catch (e) { showAlert('خطا: ' + e.message, 'error', 8000); } finally { hideLoader(); } }
 
 // ==================== Backtest Compare ====================
 async function openBacktestCompare() {
@@ -1121,7 +1242,8 @@ async function runBacktestCompare() {
         trackJob(r.jobId, (job) => {
             jA.innerHTML = renderJobProgress(job);
             if (job.status === 'DONE') {
-                window._lastBtCompareJobId = r.jobId;   // 🆕
+                window._lastBtCompareJobId = r.jobId;
+                window._lastBtCompareResult = job.result;
                 renderBtCompareResult(job.result);
                 btn.disabled = false; btn.textContent = 'اجرا';
             } else if (['FAILED','CANCELLED'].includes(job.status)) {
@@ -1131,25 +1253,74 @@ async function runBacktestCompare() {
         });
     } catch (e) { rDiv.innerHTML = `<div class="empty-note">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = 'اجرا'; }
 }
-async function setBtcRangeAll() {
-    const r = await fetchFullDataRange();
-    if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
-    document.getElementById('btcFrom').value = r.from;
-    document.getElementById('btcTo').value = r.to;
-    showAlert(`بازه: ${r.from} → ${r.to} (${r.days} روز)`, 'success', 4000);
+
+// 🆕 helper functions for auto-config panel
+function btAutoSelectAll(checked) {
+    document.querySelectorAll('.bt-auto-symbol').forEach(c => c.checked = checked);
 }
+function btAutoSelectGood() {
+    document.querySelectorAll('.bt-auto-symbol').forEach(c => {
+        const pf = parseFloat(c.dataset.bestpf) || 0;
+        c.checked = pf >= 1.2 || pf >= 99;
+    });
+}
+async function autoConfigureFromBacktest() {
+    const selectedSymbols = Array.from(document.querySelectorAll('.bt-auto-symbol:checked')).map(c => c.value);
+    if (!selectedSymbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
+
+    const lastCompareResult = window._lastBtCompareResult;
+    if (!lastCompareResult || !lastCompareResult.results) {
+        return showAlert('نتایج بک تست یافت نشد', 'warn');
+    }
+
+    const filtered = lastCompareResult.results.filter(r =>
+        selectedSymbols.includes(r.symbol) && !r.error
+    );
+
+    if (!filtered.length) return showAlert('نتیجه معتبری برای این نمادها نیست', 'warn');
+
+    if (!confirm(`اعمال تنظیم روی ${selectedSymbols.length} نماد؟\n\nاین کار configهای قبلی این نمادها را جایگزین می‌کند.`)) return;
+
+    showLoader('در حال اعمال تنظیم...');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/jobs/apply-from-results`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ results: filtered })
+        });
+
+        if (r.error && !r.applied) {
+            showAlert('خطا: ' + r.error, 'error', 8000);
+            return;
+        }
+
+        const okCount = (r.results || []).filter(x => !x.error).length;
+        const failCount = (r.results || []).filter(x => x.error).length;
+        showAlert(`✅ ${okCount} نماد تنظیم شد${failCount ? ` | ❌ ${failCount} رد` : ''}`, 'success', 8000);
+
+        const lines = (r.results || []).map(x => {
+            if (x.error) return `❌ ${x.symbol}: ${x.error}`;
+            return `✅ ${x.symbol}: ${x.leader || '?'} (${x.leaderName || ''}) + ${(x.confirmers || []).length} تایید`;
+        }).join('\n');
+
+        openModal('نتیجه تنظیم خودکار', `<pre style="font-family:inherit; font-size:13px; direction:rtl; text-align:right; white-space:pre-wrap;">${esc(lines)}</pre><div style="margin-top:12px;"><button class="btn" onclick="closeModal(); loadConfigs();">باشه</button></div>`, true);
+
+        await loadConfigs();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error', 8000);
+    } finally {
+        hideLoader();
+    }
+}
+
 function renderBtCompareResult(r) {
     const area = document.getElementById('btCompareResultArea'); if (!area) return;
-    window._lastBtCompareResult = r;   // 🆕 ذخیره برای اعمال بعدی
     if (!r || !r.results) { area.innerHTML = '<div class="empty-note">داده ای نیست</div>'; return; }
+    window._lastBtCompareResult = r;
+
     const agg = r.aggregate || {}; const all = r.results;
-    const sorted = [...all].sort((a, b) => ((b.option && b.option.profitFactor) || -1) - ((a.option && a.option.profitFactor) || -1));
-    const detailRows = sorted.map((x, i) => { if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);">${esc(x.error)}</td></tr>`; if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);">${esc(x.error)}</td></tr>`;                 const o = x.option || {}, s = x.stock || {};
-                const detailsBtn = window._lastBtCompareJobId
-                    ? `<button class="btn tiny outline" onclick="openCompareDetail('${esc(x.symbol)}', '${esc(x.strategyId)}')" title="جزئیات کامل">🔍</button>`
-                    : '';
-                return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)} ${detailsBtn}</td><td>${s.count || s.closed || 0}</td>...<td>${(s.winRate || 0).toFixed(1)}%</td><td>${pct(s.avgPnl)}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}%</td><td>${pct(o.avgPnl)}</td><td>${pct(o.totalPnl)}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`; }).join('');
-    // 🆕 پنل تنظیم خودکار بر اساس نتایج بک تست
+
+    // 🆕 پنل تنظیم خودکار
     const uniqueSymbols = [...new Set(all.filter(x => !x.error).map(x => x.symbol))];
     const symbolsPanel = uniqueSymbols.length ? `
 <div style="margin: 12px 0; padding: 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;">
@@ -1165,25 +1336,42 @@ function renderBtCompareResult(r) {
             const pfs = all
                 .filter(x => x.symbol === sym && !x.error && x.option)
                 .map(x => {
-                    const pf = x.option.profitFactor;
-                    if (pf === null || pf === undefined) return 0;
-                    return Number.isFinite(pf) ? pf : 99;
+                    let pf = x.option.profitFactor;
+                    if (pf === null || pf === undefined || !Number.isFinite(pf)) {
+                        pf = (x.option.avgPnl || 0) > 0 ? 99 : 0;
+                    }
+                    return pf;
                 });
             const bestPF = pfs.length ? Math.max(...pfs) : 0;
+            const pfDisplay = bestPF >= 99 ? '∞' : bestPF.toFixed(2);
             const color = bestPF >= 1.2 ? 'var(--good)' : bestPF >= 1 ? 'var(--warn)' : 'var(--text-dim)';
+            const shouldCheck = bestPF >= 1.2 ? ' checked' : '';
             return `<label style="display:inline-flex; align-items:center; gap:4px; padding:4px 8px; background:var(--bg-card); border:1px solid var(--border); border-radius:6px; font-size:12px; cursor:pointer;">
-                <input type="checkbox" class="bt-auto-symbol" value="${esc(sym)}" data-bestpf="${bestPF.toFixed(2)}">
+                <input type="checkbox" class="bt-auto-symbol" value="${esc(sym)}" data-bestpf="${bestPF.toFixed(2)}"${shouldCheck}>
                 <span style="color:${color}; font-weight:600;">${esc(sym)}</span>
-                <span style="color:var(--text-dim); font-size:10px;">PF=${bestPF.toFixed(2)}</span>
+                <span style="color:var(--text-dim); font-size:10px;">PF=${pfDisplay}</span>
             </label>`;
         }).join('')}
     </div>
     <button class="btn success" onclick="autoConfigureFromBacktest()">⚡ تنظیم خودکار روی انتخاب‌شده‌ها</button>
 </div>` : '';
 
+    const sorted = [...all].sort((a, b) => ((b.option && b.option.profitFactor) || -1) - ((a.option && a.option.profitFactor) || -1));
+    const detailRows = sorted.map((x, i) => {
+        if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);">${esc(x.error)}</td></tr>`;
+        if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);">${esc(x.error)}</td></tr>`;
+        const o = x.option || {}, s = x.stock || {};
+        const detailsBtn = window._lastBtCompareJobId
+            ? `<button class="btn tiny outline" onclick="openCompareDetail('${esc(x.symbol)}', '${esc(x.strategyId)}')" title="جزئیات کامل">🔍</button>`
+            : '';
+        return `<tr><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)} ${detailsBtn}</td><td>${s.count || s.closed || 0}</td><td>${(s.winRate || 0).toFixed(1)}%</td><td>${pct(s.avgPnl)}</td><td>${o.count || 0}</td><td>${(o.winRate || 0).toFixed(1)}%</td><td>${pct(o.avgPnl)}</td><td>${pct(o.totalPnl)}</td><td><b>${fmtPF(o.profitFactor)}</b></td><td><small>${o.realUsed || 0}R/${o.approxUsed || 0}A</small></td></tr>`;
+    }).join('');
 
     area.innerHTML = symbolsPanel + `<div class="hint">${all.length} ترکیب - <span style="color:var(--good);">${agg.validCount || 0} موفق</span> · <span style="color:var(--warn);">${agg.insufficientCount || 0} ناکافی</span> · <span style="color:var(--bad);">${agg.errorCount || 0} خطا</span></div><div class="tabs" style="margin-top:14px;"><button class="tab active" onclick="switchBtResultTab('bySymbol', this)">نماد</button><button class="tab" onclick="switchBtResultTab('byStrategy', this)">استراتژی</button><button class="tab" onclick="switchBtResultTab('details', this)">جزئیات</button></div><div id="btRes-bySymbol"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th><th>منبع</th></tr></thead><tbody>${(agg.bySymbol || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.symbol)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td><td><small>${b.option.realUsed}R/${b.option.approxUsed}A</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="8">-</td></tr>'}</tbody></table></div></div><div id="btRes-byStrategy" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>استراتژی</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th></tr></thead><tbody>${(agg.byStrategy || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td></tr>`).join('') || '<tr class="empty-row"><td colspan="7">-</td></tr>'}</tbody></table></div></div><div id="btRes-details" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>سهم</th><th>وین</th><th>میانگین</th><th>آپشن</th><th>وین</th><th>میانگین</th><th>کل</th><th>PF</th><th>منبع</th></tr></thead><tbody>${detailRows}</tbody></table></div></div>`;
 }
+function switchBtResultTab(w, btn) { ['bySymbol','byStrategy','details'].forEach(k => { const el = document.getElementById(`btRes-${k}`); if (el) el.style.display = k === w ? 'block' : 'none'; }); document.querySelectorAll('#btResults > .tabs > .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
+
+// 🆕 openCompareDetail + renderCompareDetailModal
 async function openCompareDetail(symbol, strategyId) {
     const jobId = window._lastBtCompareJobId;
     if (!jobId) return showAlert('Job یافت نشد', 'warn');
@@ -1211,7 +1399,6 @@ function renderCompareDetailModal(d) {
     const pct = v => typeof v === 'number' ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '-';
     const statBox = (label, value) => `<div class="stat"><small>${label}</small><b>${value}</b></div>`;
 
-    // trades rows
     const tradeRows = trades.length
         ? trades.slice().reverse().map(t => {
             const src = t.source === 'real' ? '✅ واقعی' : '⚠️ تقریبی';
@@ -1229,7 +1416,6 @@ function renderCompareDetailModal(d) {
         }).join('')
         : '<tr class="empty-row"><td colspan="9">معامله‌ای نیست</td></tr>';
 
-    // equity curve
     const eq = adv.equityCurve || [];
     const eqSummary = eq.length
         ? `<div class="hint">Equity: start=100, end=${eq[eq.length - 1].equity.toFixed(1)}</div>`
@@ -1280,7 +1466,7 @@ function renderCompareDetailModal(d) {
         </div>
     `;
 
-    openModal(`جزئیات ${d.symbol} / ${d.strategyName || d.strategyId}`, html);
+    openModal(`جزئیات ${d.symbol} / ${d.strategyName || d.strategyId}`, html, true);
 }
 
 function downloadCompareDetail(jobId, symbol, strategyId) {
@@ -1297,7 +1483,6 @@ function downloadCompareDetail(jobId, symbol, strategyId) {
         URL.revokeObjectURL(burl);
     }).catch(e => showAlert('خطا: ' + e.message, 'error'));
 }
-function switchBtResultTab(w, btn) { ['bySymbol','byStrategy','details'].forEach(k => { const el = document.getElementById(`btRes-${k}`); if (el) el.style.display = k === w ? 'block' : 'none'; }); document.querySelectorAll('#btResults > .tabs > .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
 
 // ==================== Option Positions ====================
 let optPositionsLimit = 5, optPositionsCache = null;
@@ -1318,13 +1503,7 @@ function guideFull() {
     return `<h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">شروع سریع</h4><ol style="padding-right:18px;font-size:12px;line-height:1.8;"><li>نماد اضافه کن</li><li>تیک هر نماد رو بزن</li><li>از Backfill دیتا بگیر</li><li>استراتژی بساز یا Auto-Config</li><li>منتظر سیگنال</li></ol><h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">خط لوله داده</h4><ul style="padding-right:18px;font-size:12px;"><li><b>Backfill</b>: 5 فاز (1m, daily, option, IV, agg)</li><li><b>تیک</b>: 10 ثانیه‌ای در ساعات بازار</li><li><b>Coverage</b>: نمایش پوشش</li></ul><h4 style="font-size:13px;color:var(--accent);margin:14px 0 8px;">استراتژی ها</h4>${sb('RSI','پولبک در روند','30m','رنج')}${sb('SMC Unicorn','شکار نقدینگی','1h','حرکات بزرگ')}${sb('OB + Sweep','Sweep + MSS + OB','1h','برگشت')}${sb('Supply & Demand','ناحیه تقاضا','30m','همه')}${sb('OB After Sweep','Sweep به OB','1h','حرکات بزرگ')}${sb('London Breakout','شکست رنج','15m','ابتدای بازار')}${sb('ORB','بازه 30 دقیقه','15m','ابتدای بازار')}${sb('Pin Bar','شکار Pin','15m','برگشت از کف')}${sb('Ensemble','رای وزنی','30m','همه')}`;
 }
 
-// ==================== Boot ====================
-// ============================================================
-// Jalali Date Picker — helper ها
-// ============================================================
-// ============================================================
-// Jalali Date Picker — helpers
-// ============================================================
+// ==================== Jalali Date Picker ====================
 function jdpTodayJalali() {
     const now = new Date();
     const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
@@ -1335,7 +1514,6 @@ function jdpTodayJalali() {
     fmt.formatToParts(now).forEach(p => parts[p.type] = p.value);
     return `${parts.year}/${parts.month}/${parts.day}`;
 }
-
 function jdpMonthsAgo(n) {
     const d = new Date();
     d.setMonth(d.getMonth() - n);
@@ -1347,11 +1525,6 @@ function jdpMonthsAgo(n) {
     fmt.formatToParts(d).forEach(p => parts[p.type] = p.value);
     return `${parts.year}/${parts.month}/${parts.day}`;
 }
-
-function jdpNormalize(str) {
-    return String(str || '').trim().replace(/\//g, '-');
-}
-
 function jdpInit(attempt) {
     attempt = attempt || 0;
     if (typeof jalaliDatepicker === 'undefined') {
@@ -1374,6 +1547,8 @@ function jdpInit(attempt) {
     });
     console.log('✅ jalaliDatepicker initialized');
 }
+
+// ==================== Boot ====================
 window.addEventListener('load', async () => {
     if (!await waitForBackend()) {
         document.getElementById('bootMessage').textContent = 'اتصال به سرور برقرار نشد.';

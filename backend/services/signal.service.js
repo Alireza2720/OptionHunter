@@ -145,9 +145,15 @@ async function tick() {
     try {
         const db = deps.getDB();
         const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
-        if (!monitored.length) return;
+        if (!monitored.length) {
+            health.lastTickAt = new Date();
+            return;
+        }
 
         const tehran = deps.dataService.getTehranParts();
+        const mins = deps.dataService.minuteOfDay(tehran);
+        const isWithinMarketWindow = mins >= SESSION_START_MIN + 10 && mins <= SESSION_END_MIN + 5;
+
         let result;
         try {
             result = await buildMarketInfo(monitored);
@@ -158,8 +164,8 @@ async function tick() {
 
         const { marketInfo, activeCount } = result;
 
-        // تشخیص تعطیلی
-        if (deps.dataService.minuteOfDay(tehran) >= SESSION_START_MIN + 10) {
+        // تشخیص تعطیلی: فقط در ساعت بازار
+        if (isWithinMarketWindow) {
             if (activeCount < 20) {
                 if (++inactiveTicks >= 12) {
                     await markHoliday(tehran);
@@ -170,7 +176,6 @@ async function tick() {
             }
         }
 
-        // ارزیابی استراتژی‌ها
         const n = await deps.signals.evaluateAll(marketInfo);
 
         // مدیریت آپشن‌ها
