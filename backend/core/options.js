@@ -65,7 +65,15 @@ const OPT_BT_DEFAULTS = {
     spreadMoveMult: 3.0,
     maxReturnPct: 150,
     minExitDays: 0.5,
-    realEnabled: true
+    realEnabled: true,
+    // 🆕 Phase 2: Realism
+    closeHaircutPct: 0.025,       // 2.5% نصف اسپرد تخمینی (وقتی bid/ask نیست)
+    timeWindowDays: 1,            // 🆕 پنجره‌ی جستجو (قبلاً 3 روز)
+    dynSlipBase: 0.001,           // 0.1% slippage پایه
+    dynSlipImpactCoef: 0.5,       // ضریب Almgren-Chriss
+    minFillRatio: 0.05,           // حداقل نسبت پر شدن (5%)
+    maxParticipation: 0.2,        // حداکثر 20% از حجم روز
+    latencySec: 1                 // تأخیر ورود/خروج
 };
 
 const RELAX_LEVELS = [
@@ -91,6 +99,78 @@ const num = v => {
 const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 const f0 = n => Math.round(n).toLocaleString('en-US');
 const pc = v => v === null || v === undefined ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+
+// ============================================================
+// 🆕 Phase 2: Realism helpers
+// ============================================================
+
+/**
+ * قیمت خرید واقع‌گرایانه
+ * - اگه ask واقعی هست → استفاده کن
+ * - وگرنه close/last با haircut مثبت (چون ask > close معمولاً)
+ */
+function realisticBuyPrice(row, haircutPct) {
+    if (!row) return null;
+    if (row.ask > 0) return { price: row.ask, isReal: true, source: 'ask' };
+    const base = row.close > 0 ? row.close : (row.last > 0 ? row.last : 0);
+    if (!base) return null;
+    return { price: base * (1 + haircutPct), isReal: false, source: row.close > 0 ? 'close' : 'last' };
+}
+
+/**
+ * قیمت فروش واقع‌گرایانه
+ * - اگه bid واقعی هست → استفاده کن
+ * - وگرنه close/last با haircut منفی (چون bid < close معمولاً)
+ */
+function realisticSellPrice(row, haircutPct) {
+    if (!row) return null;
+    if (row.bid > 0) return { price: row.bid, isReal: true, source: 'bid' };
+    const base = row.close > 0 ? row.close : (row.last > 0 ? row.last : 0);
+    if (!base) return null;
+    return { price: base * (1 - haircutPct), isReal: false, source: row.close > 0 ? 'close' : 'last' };
+}
+
+/**
+ * Slippage داینامیک (Almgren-Chriss سبک)
+ * - نسبت سفارش به حجم روز → impact ∝ sqrt(ratio)
+ * - نقدینگی کم → جریمه بالاتر
+ */
+function computeDynamicSlippage(orderSize, dailyVolume, p) {
+    const base = p.dynSlipBase || 0.001;
+    const coef = p.dynSlipImpactCoef || 0.5;
+    if (!dailyVolume || dailyVolume <= 0) {
+        // نقدینگی صفر → جریمه‌ی سنگین (اسکالپ نمی‌شه)
+        return base + 0.015;
+    }
+    const ratio = Math.min(1, orderSize / dailyVolume);
+    const impact = coef * Math.sqrt(ratio) * 0.01;
+    return base + impact;
+}
+
+/**
+ * محاسبه‌ی نرخ پر شدن سفارش
+ * - اگه حجم روز خیلی کمه → فقط بخشی fill می‌شه
+ */
+function computeFillRatio(orderSize, dailyVolume, maxParticipation) {
+    if (!dailyVolume || dailyVolume <= 0) return 0;
+    const maxFill = dailyVolume * (maxParticipation || 0.2);
+    return Math.min(1, maxFill / orderSize);
+}
+
+/**
+ * 🆕 Time-Decay Aware: کاهش قیمت به خاطر theta در طول نگه‌داری
+ * برای trade های intraday که exit در همون روزه
+ */
+function applyIntradayThetaDecay(entryPrice, entryTime, exitTime, thetaDay, daysLeft) {
+    const heldSec = Math.max(0, exitTime - entryTime);
+    const heldDays = heldSec / 86400;
+    if (heldDays < 0.01 || !thetaDay || thetaDay >= 0) return entryPrice;
+    // فقط بخش کسری از theta روزانه رو اعمال کن
+    const intradayDecay = Math.abs(thetaDay) * heldDays;
+    // capped: نباید بیشتر از 30% قیمت رو ببره
+    const maxDecay = entryPrice * 0.3;
+    return entryPrice - Math.min(intradayDecay, maxDecay);
+}
 
 // ============================================================
 // Black-Scholes
@@ -995,44 +1075,39 @@ async function tryGetRealTradeData(symbol, t, p) {
         source: 'real'
     };
 }
-// نسخه سریع tryGetRealTradeData که از prefetched rows استفاده می‌کنه
-// 🆕 ضرایب realism در سطح ماژول (قابل تنظیم)
-const OPT_SLIPPAGE_PCT = 0.003;      // 0.3% لغزش
-const OPT_IMPACT_PCT = 0.001;         // 0.1% impact هزینه (پایه)
-const OPT_LATENCY_SEC = 1;            // ۱ ثانیه تأخیر
+// ============================================================
+// 🆕 نسخه سریع tryGetRealTradeData — Phase 2 Realism
+// ============================================================
+const OPT_SLIPPAGE_PCT = 0.003;      // base (legacy)
+const OPT_IMPACT_PCT = 0.001;        // base (legacy)
+const OPT_LATENCY_SEC = 1;           // legacy
 
 function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
-    const RISK_FREE = getRiskFree();
     const FEE_BUY = getFeeBuy();
     const FEE_SELL = getFeeSell();
 
-    // 🆕 Latency: به زمان ورود/خروج اضافه کن
-    const entrySec = (t.entryFillTime || t.entryTime) + OPT_LATENCY_SEC;
-    const exitSec = (t.exitFillTime || t.exitTime) + OPT_LATENCY_SEC;
+    // 🆕 Latency با p.latencySec
+    const latency = p.latencySec || 1;
+    const entrySec = (t.entryFillTime || t.entryTime) + latency;
+    const exitSec  = (t.exitFillTime  || t.exitTime)  + latency;
 
-    // 🆕 window گسترده‌تر برای پوشش دیتای daily (trade intraday + EOD close)
-    const WINDOW_SEC = 3 * 24 * 3600;
+    // 🆕 پنجره‌ی محدودتر (1 روز پیش‌فرض)
+    const WINDOW_SEC = (p.timeWindowDays || 1) * 24 * 3600;
 
-    // جمع کردن همه قراردادها تو بازه ورود
+    // ---- انتخاب قرارداد ورود ----
     const candidateRows = [];
     for (const [sym, rows] of rowsBySymbol) {
         for (const r of rows) {
             const sec = Math.floor(new Date(r.time).getTime() / 1000);
-            if (sec >= entrySec - WINDOW_SEC && sec <= entrySec + WINDOW_SEC) {
-                // 🆕 اگه bid/ask تخمینی یا صفر بودن، از close استفاده کن
-                const hasBidAsk = r.bid > 0 && r.ask > 0;
-                const hasClose = r.close > 0 || r.last > 0;
-                if (hasBidAsk || hasClose) {
-                    candidateRows.push(r);
-                }
+            if (sec < entrySec - WINDOW_SEC || sec > entrySec + WINDOW_SEC) continue;
+            if (r.bid > 0 || r.ask > 0 || r.close > 0 || r.last > 0) {
+                candidateRows.push(r);
             }
         }
     }
     if (!candidateRows.length) return null;
 
     const targetDelta = 0.55;
-
-    // 🆕 فیلتر delta و زمان
     const valid = candidateRows.filter(c => {
         const d = c.deltaApi;
         if (d === null || d === undefined) return false;
@@ -1040,7 +1115,6 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     });
     if (!valid.length) return null;
 
-    // 🆕 اولویت: نزدیک به targetDelta، بعد نزدیک به entrySec
     valid.sort((a, b) => {
         const da = Math.abs((a.deltaApi || 0) - targetDelta);
         const db = Math.abs((b.deltaApi || 0) - targetDelta);
@@ -1052,8 +1126,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
 
     const best = valid[0];
 
-    // 🆕 حالا برای همون قرارداد، نزدیک‌ترین دیتای خروج رو پیدا کن
-    // قبول: bid>0 یا close>0 یا last>0 (برای migrated_daily)
+    // ---- انتخاب رکورد خروج (نزدیک‌ترین) ----
     const contractRows = rowsBySymbol.get(best.symbol) || [];
     let exitRow = null, exitDist = Infinity;
     for (const r of contractRows) {
@@ -1061,69 +1134,65 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         if (sec < exitSec - WINDOW_SEC || sec > exitSec + WINDOW_SEC) continue;
         if (!(r.bid > 0 || r.close > 0 || r.last > 0)) continue;
         const dist = Math.abs(sec - exitSec);
-        if (dist < exitDist) {
-            exitDist = dist;
-            exitRow = r;
-        }
+        if (dist < exitDist) { exitDist = dist; exitRow = r; }
     }
     if (!exitRow) return null;
-    // قیمت خروج مبنا
-    const exitBid = exitRow.bid > 0 ? exitRow.bid
-                   : exitRow.close > 0 ? exitRow.close
-                   : exitRow.last;
 
-    // 🆕 اگر bid/ask نداریم، از close استفاده کن
-    const basePrice = best.close > 0 ? best.close : (best.last > 0 ? best.last : 0);
-    const useAsk = best.ask > 0 ? best.ask : basePrice;
-    const useBid = best.bid > 0 ? best.bid : basePrice;
-    if (useAsk <= 0 || useBid <= 0) {
-        return null;   // واقعاً هیچ قیمتی نیست
+    // ---- 🆕 قیمت‌های واقع‌گرایانه ----
+    const haircut = p.closeHaircutPct || 0.025;
+    const entry = realisticBuyPrice(best, haircut);
+    const exit  = realisticSellPrice(exitRow, haircut);
+    if (!entry || !exit) return null;
+
+    // ---- 🆕 Slippage داینامیک ----
+    const orderSize = best.size || 1000;
+    const dailyVol = best.volume || 0;
+    const dynSlip = computeDynamicSlippage(orderSize, dailyVol, p);
+
+    // ---- 🆕 پر شدن سفارش ----
+    const fillRatio = computeFillRatio(orderSize, dailyVol, p.maxParticipation);
+    if (fillRatio < (p.minFillRatio || 0.05)) {
+        return null;
     }
 
-    // 🆕 half-spread: اگه bid/ask داشتیم → واقعی، وگرنه تخمینی 0.5%
-    const realHalfSpread = (best.ask > 0 && best.bid > 0)
-        ? (best.ask - best.bid) / 2
-        : 0;
-    const halfSpread = realHalfSpread > 0 ? realHalfSpread : (useAsk * 0.005);
+    // ---- قیمت‌های نهایی ----
+    const entryFillPrice = entry.price * (1 + dynSlip);
+    const exitFillPrice  = exit.price  * (1 - dynSlip);
 
-    // 🆕 قیمت مؤثر خرید: ask + half-spread + slippage + impact
-    const entryFillPrice = useAsk
-        + halfSpread
-        + useAsk * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT);
+    // ---- 🆕 Intraday theta decay ----
+    const heldDays = (exitSec - entrySec) / 86400;
+    let thetaDecay = 0;
+    if (!entry.isReal && best.thetaApi && heldDays < 1) {
+        const thetaPct = Math.abs(best.thetaApi) / Math.max(entry.price, 1);
+        const intradayFraction = Math.min(1, heldDays / 1);
+        thetaDecay = entry.price * thetaPct * intradayFraction * 0.5;
+    }
+    const finalEntryPrice = entryFillPrice + thetaDecay;
 
-    // 🆕 قیمت مؤثر فروش
-    const exitBase = exitRow && exitRow.close > 0 ? exitRow.close
-                   : exitRow && exitRow.last > 0 ? exitRow.last
-                   : exitBid;
-    const useExitBid = exitRow && exitRow.bid > 0 ? exitRow.bid : exitBase;
-    const exitRealHalf = (exitRow && exitRow.ask > 0 && exitRow.bid > 0)
-        ? (exitRow.ask - exitRow.bid) / 2
-        : 0;
-    const exitHalfSpread = exitRealHalf > 0 ? exitRealHalf : (useExitBid * 0.005);
-    const exitFillPrice = Math.max(0,
-        useExitBid - exitHalfSpread - useExitBid * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT)
-    );
-
-    const entryCost = entryFillPrice * (1 + FEE_BUY);
+    const entryCost = finalEntryPrice * (1 + FEE_BUY);
     const exitProceeds = exitFillPrice * (1 - FEE_SELL);
+
     const spreadPct = best.bid > 0 && best.ask > 0
-        ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100 : null;
+        ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100
+        : (best.close > 0 && best.bid > 0 ? (best.close - best.bid) / best.close * 100 : null);
 
     return {
         entryTime: t.entryTime, exitTime: t.exitTime,
         entryFillTime: entrySec, exitFillTime: exitSec,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
         symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
-        // 🆕 قیمت‌های واقعی از دفتر (بدون تغییر)
-        optionEntryRaw: best.ask, optionExitRaw: exitBid,
-        optionEntryBid: best.bid, optionExitAsk: exitRow ? exitRow.ask : null,
-        // 🆕 قیمت‌های مؤثر (با slippage + spread + impact)
-        optionEntry: entryFillPrice, optionExit: exitFillPrice,
-        // 🆕 شفافیت: اجزا
-        halfSpreadEntry: halfSpread, halfSpreadExit: exitHalfSpread,
-        slippagePct: OPT_SLIPPAGE_PCT * 100,
-        impactPct: OPT_IMPACT_PCT * 100,
-        latencySec: OPT_LATENCY_SEC,
+
+        entrySource: entry.source, exitSource: exit.source,
+        entryWasReal: entry.isReal, exitWasReal: exit.isReal,
+
+        optionEntryRaw: entry.price, optionExitRaw: exit.price,
+        optionEntry: finalEntryPrice, optionExit: exitFillPrice,
+
+        slippagePct: dynSlip * 100,
+        thetaDecay: thetaDecay,
+        fillRatio: fillRatio * 100,
+        latencySec: latency,
+
         oi: best.oi, volume: best.volume, spreadPct,
         delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
         iv: best.ivApi, hv: best.hvApi,
@@ -1133,6 +1202,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         source: 'real'
     };
 }
+
 function tryGetApproxTradeData(t, closes, times, p) {
     const RISK_FREE = getRiskFree();
     const FEE_BUY = getFeeBuy();
@@ -1161,11 +1231,13 @@ function tryGetApproxTradeData(t, closes, times, p) {
     const entryTheo = bsCall(t.entryPrice, strike, Tentry, RISK_FREE, sigmaBase);
     const exitTheo = bsCall(t.exitPrice, strike, Texit, RISK_FREE, sigmaExit);
 
-    // 🆕 Slippage + impact روی قیمت تئوریک
+    // 🆕 Slippage داینامیک (چون حجم تقریبیه، از form بازه‌ی متوسط استفاده می‌کنیم)
+    const dynSlip = (p.dynSlipBase || 0.001) + (p.dynSlipImpactCoef || 0.5) * 0.5 * 0.01;
+
     const entryFillPrice = entryTheo.price
-        * (1 + halfSpreadEntry + OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT);
+        * (1 + halfSpreadEntry + dynSlip);
     const exitFillPrice = exitTheo.price
-        * (1 - halfSpreadExit - OPT_SLIPPAGE_PCT - OPT_IMPACT_PCT);
+        * (1 - halfSpreadExit - dynSlip);
 
     const entryCost = entryFillPrice * (1 + FEE_BUY);
     const exitProceeds = exitFillPrice * (1 - FEE_SELL);
@@ -1179,18 +1251,13 @@ function tryGetApproxTradeData(t, closes, times, p) {
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
         strike, hv, sigma: sigmaBase, sigmaExit, ivCrushFactor,
         dynamicSpreadPct,
-        // 🆕 قیمت‌های تئوریک خام
         optionEntryRaw: entryTheo.price,
         optionExitRaw: exitTheo.price,
-        // 🆕 قیمت‌های مؤثر
         optionEntry: entryFillPrice,
         optionExit: exitFillPrice,
         optionEntryBid: entryFillPrice * (1 - halfSpreadEntry),
         optionExitAsk: exitFillPrice * (1 + halfSpreadExit),
-        // 🆕 شفافیت
-        slippagePct: OPT_SLIPPAGE_PCT * 100,
-        impactPct: OPT_IMPACT_PCT * 100,
-        latencySec: OPT_LATENCY_SEC,
+        slippagePct: dynSlip * 100,
         delta: entryTheo.delta, deltaExit: exitTheo.delta,
         gamma: entryTheo.gamma, theta: entryTheo.thetaDay, vega: entryTheo.vega,
         iv: sigmaBase, ivHv: sigmaBase / hv,
@@ -1228,8 +1295,8 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                 allSec.push(t.entryFillTime || t.entryTime);
                 allSec.push(t.exitFillTime || t.exitTime);
             }
-            // 🆕 window 24h برای پوشش migrated_daily (EOD timestamps)
-            const WINDOW_MS = 7 * 24 * 3600 * 1000;
+            // 🆕 پنجره‌ی مبتنی بر p.timeWindowDays
+            const WINDOW_MS = (p.timeWindowDays || 1) * 24 * 3600 * 1000 * 2;
             const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
             const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
 
