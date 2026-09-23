@@ -92,7 +92,8 @@ async function buildMarketInfo(monitored) {
 
     const rawMap = new Map();
     for (const s of raw) {
-        if (s.symbol) rawMap.set(s.symbol, s);
+        const sym = s.Symbol || s.symbol;   // 🆕 algotik-tse: Symbol
+        if (sym) rawMap.set(sym, s);
     }
 
     const bucket1 = deps.dataService.getBucketTime(tehran, 1);
