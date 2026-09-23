@@ -963,15 +963,16 @@ async function tryGetRealTradeData(symbol, t, p) {
     }
     if (!exitBid) return null;
 
-    // 🆕 قیمت مؤثر: اگه تخمینی، از close استفاده کن
-    const bestAsk = best.bidEstimated ? (best.close || best.last) : best.ask;
-    const bestBid = best.bidEstimated ? (best.close || best.last) : best.bid;
-    const exitRowAsk = exitRow && exitRow.bidEstimated ? (exitRow.close || exitRow.last) : (exitRow ? exitRow.ask : null);
-    const exitRowBid = exitRow && exitRow.bidEstimated ? (exitRow.close || exitRow.last) : exitBid;
+    // 🆕 fallback: اگه ask/bid نداریم، از close/last استفاده کن
+    const bestBase = best.close > 0 ? best.close : (best.last > 0 ? best.last : 0);
+    const effectiveEntryAsk = best.ask > 0 ? best.ask : bestBase;
+    if (effectiveEntryAsk <= 0) return null;
 
-    // 🆕 fallback: اگه bid/ask تخمینی بود، از close استفاده کن
-    const effectiveEntryAsk = (best.bidEstimated && best.close) ? best.close : best.ask;
-    const effectiveExitBid = (exitRow && exitRow.bidEstimated && exitRow.close) ? exitRow.close : exitBid;
+    const exitBase = exitRow && exitRow.close > 0 ? exitRow.close
+                   : exitRow && exitRow.last > 0 ? exitRow.last
+                   : exitBid;
+    const effectiveExitBid = (exitRow && exitRow.bid > 0) ? exitRow.bid : exitBase;
+    if (effectiveExitBid <= 0) return null;
 
     const entryCost = effectiveEntryAsk * (1 + FEE_BUY);
     const exitProceeds = effectiveExitBid * (1 - FEE_SELL);
@@ -1059,17 +1060,37 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         ? (best.ask - best.bid) / 2
         : 0;
 
-    // 🆕 قیمت مؤثر خرید: ask + half-spread + slippage + impact
-    const entryFillPrice = best.ask
-        + halfSpread
-        + best.ask * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT);
+    // 🆕 اگر bid/ask نداریم، از close استفاده کن
+    const basePrice = best.close > 0 ? best.close : (best.last > 0 ? best.last : 0);
+    const useAsk = best.ask > 0 ? best.ask : basePrice;
+    const useBid = best.bid > 0 ? best.bid : basePrice;
+    if (useAsk <= 0 || useBid <= 0) {
+        return null;   // واقعاً هیچ قیمتی نیست
+    }
 
-    // 🆕 قیمت مؤثر فروش: bid - half-spread - slippage - impact
-    const exitHalfSpread = exitRow && exitRow.ask > 0 && exitRow.bid > 0
+    // 🆕 half-spread: اگه bid/ask داشتیم → واقعی، وگرنه تخمینی 0.5%
+    const realHalfSpread = (best.ask > 0 && best.bid > 0)
+        ? (best.ask - best.bid) / 2
+        : 0;
+    const synthHalfSpread = realHalfSpread > 0 ? realHalfSpread : (useAsk * 0.005);
+    const halfSpread = synthHalfSpread;
+
+    // 🆕 قیمت مؤثر خرید: ask + half-spread + slippage + impact
+    const entryFillPrice = useAsk
+        + halfSpread
+        + useAsk * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT);
+
+    // 🆕 قیمت مؤثر فروش
+    const exitBase = exitRow && exitRow.close > 0 ? exitRow.close
+                   : exitRow && exitRow.last > 0 ? exitRow.last
+                   : exitBid;
+    const useExitBid = exitRow && exitRow.bid > 0 ? exitRow.bid : exitBase;
+    const exitRealHalf = (exitRow && exitRow.ask > 0 && exitRow.bid > 0)
         ? (exitRow.ask - exitRow.bid) / 2
-        : halfSpread;
+        : 0;
+    const exitHalfSpread = exitRealHalf > 0 ? exitRealHalf : (useExitBid * 0.005);
     const exitFillPrice = Math.max(0,
-        exitBid - exitHalfSpread - exitBid * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT)
+        useExitBid - exitHalfSpread - useExitBid * (OPT_SLIPPAGE_PCT + OPT_IMPACT_PCT)
     );
 
     const entryCost = entryFillPrice * (1 + FEE_BUY);
@@ -1201,10 +1222,16 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
             const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
 
+            // 🆕 قبول رکوردهایی که bid/ask دارن یا close>0 دارن
             const bulkRows = await db.collection('option_history').find({
                 underlying: norm(symbol),
                 time: { $gte: minTime, $lte: maxTime },
-                daysLeft: { $gte: p.minDays, $lte: Math.max(p.maxDays, 200) }
+                daysLeft: { $gte: p.minDays, $lte: Math.max(p.maxDays, 200) },
+                $or: [
+                    { bid: { $gt: 0 }, ask: { $gt: 0 } },
+                    { close: { $gt: 0 } },
+                    { last: { $gt: 0 } }
+                ]
             }).toArray();
 
             // group by symbol
