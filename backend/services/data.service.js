@@ -259,14 +259,20 @@ async function upsertLiveCandle(symbol, time, price, volDelta) {
 
 async function upsertDailyCandle(symbol, time, s) {
     const db = deps.getDB();
-    const pl = +s.pl;
+    // 🆕 algotik-tse: Last, Close, Open, High, Low, Volume, TradeCount
+    const pl = +s.Last || +s.Close || +s.pl || 0;
+    if (!pl) return;
     const num = v => (+v > 0 ? +v : pl);
     await db.collection(COLLECTIONS.CANDLES_DAILY).updateOne(
         { symbol, time },
         { $set: {
             symbol, time,
-            open: num(s.pf), high: num(s.pmax), low: num(s.pmin),
-            close: pl, volume: +s.tvol || 0, trades: +s.tno || 0,
+            open: num(+s.Open || +s.pf),
+            high: num(+s.High || +s.pmax),
+            low: num(+s.Low || +s.pmin),
+            close: pl,
+            volume: +(s.Volume || s.tvol || 0),
+            trades: +(s.TradeCount || s.tno || 0),
             source: 'live'
         }},
         { upsert: true }

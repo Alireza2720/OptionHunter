@@ -48,7 +48,8 @@ async function runTick() {
         // آیا بازار واقعاً فعال شده؟
         try {
             const raw = await deps.algotik.getLiveMarket();
-            const active = raw.filter(s => +s.tno > 0).length;
+            // 🆕 algotik-tse: TradeCount (نه tno)
+            const active = raw.filter(s => +(s.TradeCount || s.Volume || 0) > 0).length;
             if (active >= 20) {
                 await deps.signalService.clearHoliday();
                 await deps.notify('بازار فعال شد.');

@@ -102,20 +102,25 @@ async function buildMarketInfo(monitored) {
     for (const m of monitored) {
         const s = rawMap.get(m.symbol);
         if (!s) continue;
-        const price = +s.pl || +s.last || 0;
+
+        // 🆕 algotik-tse: Last, Close, MaxAllowed, MinAllowed, TradeCount, Volume
+        const price = +s.Last || +s.Close || +s.pl || 0;
         if (!price) continue;
 
-        const tmax = +s.tmax || 0;
-        const tmin = +s.tmin || 0;
+        const tmax = +s.MaxAllowed || +s.tmax || 0;
+        const tmin = +s.MinAllowed || +s.tmin || 0;
         const atUpper = tmax > 0 && price >= tmax;
         const atLower = tmin > 0 && price <= tmin;
         const queue = atUpper ? 'buy' : atLower ? 'sell' : null;
 
-        const tno = +s.tno || 0;
-        const tvol = +s.tvol || 0;
+        // 🆕 کلیدهای درست
+        const tno = +(s.TradeCount || s.tno || 0);
+        const tvol = +(s.Volume || s.tvol || 0);
+
         const prev = lastSnap.get(m.symbol);
         const traded = !prev || tno !== prev.tno;
-        const volDelta = prev && tvol >= prev.tvol ? tvol - prev.tvol : 0;
+        // 🆕 اگه prev نبود، volDelta = tvol (شروع روز جدید)
+        const volDelta = prev && tvol >= prev.tvol ? tvol - prev.tvol : tvol;
         lastSnap.set(m.symbol, { tno, tvol });
 
         marketInfo.set(m.symbol, { price, queue });
