@@ -1031,29 +1031,46 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     if (!candidateRows.length) return null;
 
     const targetDelta = 0.55;
-    let best = null, bestDiff = Infinity;
-    for (const c of candidateRows) {
-        const delta = c.deltaApi || 0;
-        if (delta < p.deltaMin || delta > p.deltaMax) continue;
-        const diff = Math.abs(delta - targetDelta);
-        if (diff < bestDiff) { bestDiff = diff; best = c; }
-    }
-    if (!best) return null;
 
-    // حالا برای همون قرارداد، دیتای خروج رو پیدا کن
+    // 🆕 فیلتر delta و زمان
+    const valid = candidateRows.filter(c => {
+        const d = c.deltaApi;
+        if (d === null || d === undefined) return false;
+        return d >= p.deltaMin && d <= p.deltaMax;
+    });
+    if (!valid.length) return null;
+
+    // 🆕 اولویت: نزدیک به targetDelta، بعد نزدیک به entrySec
+    valid.sort((a, b) => {
+        const da = Math.abs((a.deltaApi || 0) - targetDelta);
+        const db = Math.abs((b.deltaApi || 0) - targetDelta);
+        if (Math.abs(da - db) > 0.01) return da - db;
+        const secA = Math.floor(new Date(a.time).getTime() / 1000);
+        const secB = Math.floor(new Date(b.time).getTime() / 1000);
+        return Math.abs(secA - entrySec) - Math.abs(secB - entrySec);
+    });
+
+    const best = valid[0];
+
+    // 🆕 حالا برای همون قرارداد، نزدیک‌ترین دیتای خروج رو پیدا کن
+    // قبول: bid>0 یا close>0 یا last>0 (برای migrated_daily)
     const contractRows = rowsBySymbol.get(best.symbol) || [];
-    let exitBid = null, exitRow = null;
+    let exitRow = null, exitDist = Infinity;
     for (const r of contractRows) {
         const sec = Math.floor(new Date(r.time).getTime() / 1000);
-        if (sec >= exitSec - WINDOW_SEC && sec <= exitSec + WINDOW_SEC) {
-            if (r.bid > 0) {
-                exitBid = r.bid;
-                exitRow = r;
-                break;
-            }
+        if (sec < exitSec - WINDOW_SEC || sec > exitSec + WINDOW_SEC) continue;
+        if (!(r.bid > 0 || r.close > 0 || r.last > 0)) continue;
+        const dist = Math.abs(sec - exitSec);
+        if (dist < exitDist) {
+            exitDist = dist;
+            exitRow = r;
         }
     }
-    if (!exitBid) return null;
+    if (!exitRow) return null;
+    // قیمت خروج مبنا
+    const exitBid = exitRow.bid > 0 ? exitRow.bid
+                   : exitRow.close > 0 ? exitRow.close
+                   : exitRow.last;
 
     // 🆕 اگر bid/ask نداریم، از close استفاده کن
     const basePrice = best.close > 0 ? best.close : (best.last > 0 ? best.last : 0);
