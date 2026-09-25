@@ -28,6 +28,88 @@ function buildWindows(totalDays, numWindows = 4, trainPct = 0.7) {
     }
     return windows;
 }
+// ------------------------------------------------------------
+// Aggregate evaluation — چند پنجره‌ی زمانی sequential
+// ------------------------------------------------------------
+function evaluateAggregate(trades, numWindows = 4, minPerWindow = 5) {
+    const sorted = [...trades]
+        .filter(t => Number.isFinite(t.pnlPct))
+        .sort((a, b) => (a.entryTime || 0) - (b.entryTime || 0));
+    const N = sorted.length;
+
+    if (N < numWindows * minPerWindow) {
+        // کاهش تعداد windows
+        const possible = Math.floor(N / minPerWindow);
+        if (possible < 2) {
+            return {
+                error: `trade کم (${N}) — حداقل ${numWindows * minPerWindow} لازم`,
+                totalTrades: N,
+                minPerWindow
+            };
+        }
+        numWindows = possible;
+    }
+
+    const windowSize = Math.floor(N / numWindows);
+    const windows = [];
+    for (let i = 0; i < numWindows; i++) {
+        const from = i * windowSize;
+        const to = i === numWindows - 1 ? N : (i + 1) * windowSize;
+        const seg = sorted.slice(from, to);
+        const s = computeStats(seg);
+        windows.push({
+            idx: i + 1,
+            fromIdx: from,
+            toIdx: to,
+            count: s.count,
+            pf: s.pf,
+            winRate: s.winRate,
+            avgPnl: s.avgPnl,
+            totalPnl: s.totalPnl
+        });
+    }
+
+    const profitable = windows.filter(w => w.pf > 1);
+    const consistencyPct = windows.length ? (profitable.length / windows.length * 100) : 0;
+    const avgPF = windows.length
+        ? windows.reduce((s, w) => s + w.pf, 0) / windows.length
+        : 0;
+
+    // Sharpe روی همه‌ی tradeها
+    const pnls = sorted.map(t => t.pnlPct);
+    const mean = pnls.reduce((s, x) => s + x, 0) / pnls.length;
+    const variance = pnls.length > 1
+        ? pnls.reduce((s, x) => s + (x - mean) ** 2, 0) / (pnls.length - 1)
+        : 0;
+    const sd = Math.sqrt(variance);
+    const sharpe = sd > 0 ? (mean / sd) * Math.sqrt(pnls.length) : null;
+
+    // PF کل
+    const allStats = computeStats(sorted);
+
+    // Gate
+    const gate = {
+        minWindowsOk: windows.length >= 3,
+        profitable75: profitable.length >= Math.ceil(windows.length * 0.75),
+        avgPFOk: avgPF >= 1.2,
+        sharpeOk: sharpe !== null && sharpe > 0.5
+    };
+    gate.allPassed = Object.values(gate).every(v => v === true);
+
+    return {
+        totalTrades: N,
+        numWindows,
+        windowSize,
+        windows,
+        allStats,
+        profitableWindows: profitable.length,
+        consistencyPct: Math.round(consistencyPct * 10) / 10,
+        avgPF: Math.round(avgPF * 100) / 100,
+        sharpe: sharpe !== null ? Math.round(sharpe * 100) / 100 : null,
+        gate,
+        note: N < 40 ? 'دیتای کم — infra آماده' : null
+    };
+}
 
 function computeStats(trades) {
     if (!trades || !trades.length) {
@@ -41,7 +123,11 @@ function computeStats(trades) {
     const losses = pnls.filter(x => x <= 0);
     const gp = wins.reduce((s, x) => s + x, 0);
     const gl = -losses.reduce((s, x) => s + x, 0);
-    const pf = gl > 0 ? gp / gl : (gp > 0 ? 999 : 0);
+    // PF با cap هوشمند: اگه هیچ ضرری نبود → 999، اگه هیچ سودی نبود → 0
+    let pf;
+    if (gl > 0) pf = gp / gl;
+    else if (gp > 0) pf = 999;
+    else pf = 0;
 
     const mean = pnls.reduce((s, x) => s + x, 0) / pnls.length;
     const variance = pnls.length > 1
@@ -143,4 +229,10 @@ function evaluateOverfit(windows, opts = {}) {
     };
 }
 
-module.exports = { buildWindows, computeStats, deflatedSharpe, evaluateOverfit };
+module.exports = {
+    buildWindows,
+    computeStats,
+    deflatedSharpe,
+    evaluateOverfit,
+    evaluateAggregate
+};

@@ -162,4 +162,75 @@ async function runWhitelist(jobId, opts = {}) {
     };
 }
 
-module.exports = { init, runOnePair, runWhitelist };
+// ------------------------------------------------------------
+// 🆕 Aggregate: همه‌ی tradeهای whitelist در پنجره‌های زمانی
+// ------------------------------------------------------------
+async function runAggregate(jobId, opts = {}) {
+    const db = deps.getDB();
+    const minTrades = opts.minTrades || 5;
+    const wl = await deps.signalFilterService.getWhitelist();
+    if (!wl) return { error: 'whitelist ساخته نشده' };
+
+    // ۱) همه‌ی tradeها
+    const allTrades = [];
+    for (const pair of wl.pairs) {
+        const [symbol, strategyId] = pair.split('::');
+        const detail = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS).findOne({
+            jobId: String(jobId),
+            symbol,
+            strategyId
+        });
+        if (!detail || !detail.trades) continue;
+        if (detail.trades.length < minTrades) continue;
+        for (const t of detail.trades) {
+            allTrades.push({
+                ...t,
+                symbol,
+                strategyId,
+                strategyName: detail.strategyName
+            });
+        }
+    }
+
+    // ۲) Aggregate کل
+    const overall = wfCore.evaluateAggregate(allTrades, opts.numWindows || 4, 5);
+
+    // ۳) Aggregate به تفکیک استراتژی
+    const byStrategy = {};
+    for (const t of allTrades) {
+        if (!byStrategy[t.strategyId]) byStrategy[t.strategyId] = [];
+        byStrategy[t.strategyId].push(t);
+    }
+    const perStrategy = {};
+    for (const [sid, trades] of Object.entries(byStrategy)) {
+        perStrategy[sid] = wfCore.evaluateAggregate(trades, opts.numWindows || 4, 5);
+    }
+
+    // ۴) Deflated Sharpe
+    let deflated = null;
+    if (overall.sharpe !== null && overall.totalTrades >= 5) {
+        deflated = wfCore.deflatedSharpe(
+            overall.sharpe,
+            opts.numTrials || 234,
+            overall.totalTrades
+        );
+    }
+
+    return {
+        jobId,
+        analyzedAt: new Date(),
+        totalWhitelistPairs: wl.pairs.size,
+        totalTrades: allTrades.length,
+        overall,
+        perStrategy,
+        deflated,
+        gate: {
+            ...(overall.gate || {}),
+            deflatedSharpeOk: deflated !== null && deflated.deflated > 0.5,
+            allPassed: (overall.gate && overall.gate.allPassed) &&
+                       (deflated !== null && deflated.deflated > 0.5)
+        }
+    };
+}
+
+module.exports = { init, runOnePair, runWhitelist, runAggregate };

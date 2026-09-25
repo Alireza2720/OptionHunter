@@ -41,6 +41,19 @@ function register(app, deps) {
             res.json(r);
         } catch (e) { next(e); }
     });
+
+    // 🆕 Aggregate walk-forward — همه‌ی tradeهای whitelist در پنجره‌های زمانی
+    app.post('/api/wf/aggregate/:jobId', async (req, res, next) => {
+        try {
+            const opts = req.body || {};
+            const r = await wfService.runAggregate(req.params.jobId, {
+                numWindows: opts.windows || 4,
+                minTrades: opts.minTrades || 5,
+                numTrials: opts.numTrials || 234
+            });
+            res.json(r);
+        } catch (e) { next(e); }
+    });
 }
 
 module.exports = { register };
