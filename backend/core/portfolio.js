@@ -103,6 +103,7 @@ function simulate(trades, limitsInput = {}) {
         exposureBySymbol: {},
         openPositions: []   // {exitTime, value, symbol}
     };
+    let peakExposure = 0;   // 🆕
 
     const acceptedTrades = [];
     const rejectedTrades = [];
@@ -157,6 +158,7 @@ function simulate(trades, limitsInput = {}) {
 
         // ثبت در پرتفولیو
         portfolio.totalExposure += entryValue;
+        if (portfolio.totalExposure > peakExposure) peakExposure = portfolio.totalExposure;   // 🆕
         portfolio.exposureBySymbol[t.symbol] = (portfolio.exposureBySymbol[t.symbol] || 0) + entryValue;
         portfolio.openPositions.push({
             symbol: t.symbol,
@@ -164,8 +166,10 @@ function simulate(trades, limitsInput = {}) {
             exitTime: exitTs
         });
 
-        // به‌روزرسانی equity
-        equity *= (1 + posReturnPct / 100);
+        // 🆕 به‌روزرسانی equity — PnL نسبی به کل سرمایه، نه به کل equity
+        // فرمول درست: equity *= (1 + (position_value / capital) * (return_pct / 100))
+        const pnlPctOfCapital = (entryValue / capital) * (posReturnPct / 100);
+        equity *= (1 + pnlPctOfCapital);
         if (equity > peakEquity) peakEquity = equity;
         const dd = ((peakEquity - equity) / peakEquity) * 100;
         if (dd > maxDD) maxDD = dd;
@@ -219,7 +223,7 @@ function simulate(trades, limitsInput = {}) {
             profitFactor: pf === Infinity ? null : pf,
             sharpe: sharpe !== null ? Math.round(sharpe * 100) / 100 : null,
             avgReturn: Math.round(meanRet * 100) / 100,
-            peakExposure: Math.max(...acceptedTrades.map(t => t.entryValue), 0)
+            peakExposure
         }
     };
 }
