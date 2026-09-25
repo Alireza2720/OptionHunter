@@ -205,7 +205,8 @@ async function bootstrap() {
         getDB: mongo.getDB,
         logger,
         settings: settingsModule,
-        correlationService
+        correlationService,
+        analysisService   // 🆕
     });
 
     // 11.8) correlation job

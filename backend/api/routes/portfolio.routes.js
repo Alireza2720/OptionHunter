@@ -14,6 +14,32 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // 🆕 محاسبه‌ی پیش‌نمایش فیلتر بدون sim
+    app.post('/api/portfolio/filter-preview/:jobId', async (req, res, next) => {
+        try {
+            const analysis = await deps.analysisService.analyzeJob(req.params.jobId, { minTrades: 5, iterations: 1000 });
+            const { filterTrades } = require('../../core/signal-filter');
+            // استخراج tradeها
+            const db = deps.getDB();
+            const details = await db.collection('backtest_compare_details')
+                .find({ jobId: String(req.params.jobId) }).toArray();
+            const allTrades = [];
+            for (const d of details) {
+                if (!d.trades || d.trades.length < 5) continue;
+                for (const t of d.trades) {
+                    allTrades.push({ ...t, symbol: d.symbol, strategyId: d.strategyId, strategyName: d.strategyName });
+                }
+            }
+            const r = filterTrades(allTrades, analysis, req.body || {});
+            res.json({
+                filter: r.filter,
+                droppedSample: (r.dropped || []).slice(0, 20).map(x => ({
+                    symbol: x.symbol, strategyId: x.strategyId, reason: x._dropReason
+                }))
+            });
+        } catch (e) { next(e); }
+    });
+
     // 🆕 Correlation matrix endpoints
     app.get('/api/portfolio/correlation', async (req, res, next) => {
         try {

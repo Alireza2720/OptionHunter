@@ -7,12 +7,14 @@ const { COLLECTIONS } = require('../config/constants');
 const portfolioCore = require('../core/portfolio');
 const sizing = require('../core/sizing');
 const { getSectorMap } = require('../core/sectors');
+const { filterTrades } = require('../core/signal-filter');
 
 let deps = {
     getDB: null,
     logger: null,
     settings: null,
-    correlationService: null
+    correlationService: null,
+    analysisService: null   // 🆕
 };
 function init(d) { deps = { ...deps, ...d }; }
 
@@ -39,6 +41,30 @@ async function simulateFromJob(jobId, opts = {}) {
 
     if (!allTrades.length) {
         return { error: 'هیچ معامله‌ی معتبری برای شبیه‌سازی نیست', jobId };
+    }
+
+    // 🆕 Phase 3.5: Signal Quality Filter
+    let filterReport = { applied: false };
+    let filteredTrades = allTrades;
+    if (opts.useSignalFilter !== false && deps.analysisService) {
+        try {
+            const analysis = await deps.analysisService.analyzeJob(jobId, { minTrades, iterations: 2000 });
+            const fr = filterTrades(allTrades, analysis, {
+                useWhitelist: true,
+                minStrategyPF: opts.minStrategyPF || 1.3,
+                minSymbolLB: opts.minSymbolLB || 1.0,
+                minTradesPerStrategy: opts.minTradesPerStrategy || 5
+            });
+            filteredTrades = fr.trades;
+            filterReport = fr.filter;
+            if (fr.filter.applied) {
+                deps.logger && deps.logger.info(
+                    `signal filter: ${fr.filter.keptCount} / ${fr.filter.originalCount} kept`
+                );
+            }
+        } catch (e) {
+            deps.logger && deps.logger.warn('signal filter: ' + e.message);
+        }
     }
 
     // 🆕 Correlation matrix
@@ -77,7 +103,7 @@ async function simulateFromJob(jobId, opts = {}) {
         maxSectorPct: opts.maxSectorPct || 40,
     };
 
-    const result = portfolioCore.simulate(allTrades, limits, {
+    const result = portfolioCore.simulate(filteredTrades, limits, {
         corrMatrix,
         sectorMap
     });
@@ -94,6 +120,7 @@ async function simulateFromJob(jobId, opts = {}) {
             ? { symbols: Object.keys(corrMatrix).length }
             : null,
         sectorMap,
+        signalFilter: filterReport,   // 🆕
         ...result,
         advanced: {
             cvar95: cvar,
