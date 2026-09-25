@@ -255,6 +255,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="openWfPanel(); toggleMenu();" title="تقسیم بازه به پنجره‌های زمانی — چک پایداری edge">اعتبارسنجی زمانی</button>
         <button class="menu-item" onclick="openRegimePanel(); toggleMenu();" title="تشخیص bull/bear/range هر نماد — soft filter روی سایز">وضعیت بازار</button>
         <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();" title="آخرین کندل هر نماد — تشخیص نمادهای قدیمی">تازگی دیتا</button>
+        <button class="menu-item" onclick="openPipelinePanel(); toggleMenu();" title="اجرای همه فازها یکجا: بک‌تست → تحلیل → WF → رژیم → تنظیم → پورتفولیو" style="background:linear-gradient(135deg, rgba(61,125,216,.15), rgba(46,168,138,.15)); border:1px solid var(--accent);">🎯 Pipeline کامل (Auto-Pilot)</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -2360,6 +2361,157 @@ async function openFreshnessPanel() {
         openModal('تازگی دیتا', `<div class="empty-note">${esc(e.message)}</div>`);
     }
 }
+
+// ============================================================
+// Pipeline (Auto-Pilot) — همه فازها یکجا
+// ============================================================
+async function openPipelinePanel() {
+    try {
+        const strats = strategiesInfo.map(s =>
+            `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">
+                <input type="checkbox" class="pl-strat" value="${esc(s.id)}" ${s.id==='ensemble'?'':'checked'}> ${esc(s.name)}
+            </label>`
+        ).join('');
+
+        const syms = monitoredSymbols.length
+            ? monitoredSymbols.map(s =>
+                `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">
+                    <input type="checkbox" class="pl-sym" value="${esc(s.symbol)}"> ${esc(s.symbol)}
+                </label>`).join('')
+            : '<div class="empty-note">نمادی نیست</div>';
+
+        const today = new Date().toISOString().slice(0, 10);
+        const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+
+        openModal('🎯 Pipeline کامل (Auto-Pilot)', `
+            <div class="hint">اجرای زنجیره‌ای همه فازها: بک‌تست مقایسه‌ای → تحلیل آماری → Walk-Forward → رژیم → تنظیم خودکار → شبیه‌سازی پورتفولیو.</div>
+
+            <div style="margin:12px 0;">
+                <div class="menu-label">نمادها</div>
+                <div style="margin:4px 0;">
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-sym').forEach(c=>c.checked=true)">همه</button>
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-sym').forEach(c=>c.checked=false)">هیچ</button>
+                </div>
+                <div>${syms}</div>
+            </div>
+
+            <div style="margin:12px 0;">
+                <div class="menu-label">استراتژی‌ها</div>
+                <div style="margin:4px 0;">
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-strat').forEach(c=>c.checked=true)">همه</button>
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-strat').forEach(c=>c.checked=false)">هیچ</button>
+                </div>
+                <div>${strats}</div>
+            </div>
+
+            <div class="form-row">
+                <div class="field"><label>سرمایه</label><input type="number" id="plCapital" value="100000000"></div>
+                <div class="field"><label>ریسک %</label><input type="number" id="plRisk" value="2" step="0.1"></div>
+                <div class="field"><label>حداقل PF</label><input type="number" id="plMinPF" value="2.0" step="0.1"></div>
+                <div class="field"><label>حداقل معامله</label><input type="number" id="plMinTrades" value="5"></div>
+                <div class="field"><label>حداکثر تأییدکننده</label><input type="number" id="plMaxConf" value="2" min="1" max="3"></div>
+            </div>
+            <div class="date-range-row">
+                <label>از: <input type="date" id="plFrom" value="${from}"></label>
+                <label>تا: <input type="date" id="plTo" value="${today}"></label>
+            </div>
+
+            <button class="btn success" id="plRunBtn" onclick="runPipeline()" style="width:100%;margin-top:10px;">🚀 اجرای Pipeline کامل</button>
+            <div id="plResult" style="margin-top:16px;"></div>
+        `);
+    } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+
+async function runPipeline() {
+    const symbols = Array.from(document.querySelectorAll('.pl-sym:checked')).map(c => c.value);
+    const strategies = Array.from(document.querySelectorAll('.pl-strat:checked')).map(c => ({ id: c.value }));
+    if (!symbols.length) return showAlert('حداقل یک نماد', 'warn');
+    if (!strategies.length) return showAlert('حداقل یک استراتژی', 'warn');
+
+    const from = Math.floor(new Date(document.getElementById('plFrom').value + 'T00:00:00Z').getTime() / 1000);
+    const to   = Math.floor(new Date(document.getElementById('plTo').value   + 'T23:59:59Z').getTime() / 1000);
+
+    const body = {
+        symbols, strategies,
+        capital: +document.getElementById('plCapital').value,
+        riskPct: +document.getElementById('plRisk').value,
+        minPF: +document.getElementById('plMinPF').value,
+        minTrades: +document.getElementById('plMinTrades').value,
+        maxConfirmers: +document.getElementById('plMaxConf').value,
+        dateFrom: from, dateTo: to
+    };
+
+    const btn = document.getElementById('plRunBtn');
+    const rEl = document.getElementById('plResult');
+    btn.disabled = true; btn.textContent = '...';
+
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/pipeline/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }, 0);
+
+        rEl.innerHTML = `<div class="hint">Job: ${r.jobId}</div>`;
+        trackJob(r.jobId, (job) => {
+            const pctv = job.progress ? Math.round((job.progress.current / Math.max(1, job.progress.total)) * 100) : 0;
+            rEl.innerHTML = `
+                <div class="job-card">
+                    <div class="job-header">
+                        <span class="job-type">Pipeline</span>
+                        <span class="job-status ${job.status}">${job.status}</span>
+                    </div>
+                    <div class="job-msg">${esc((job.progress && job.progress.message) || '')}</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width:${pctv}%"></div></div>
+                </div>
+                ${job.status === 'DONE' ? renderPipelineResult(job.result) : ''}
+                ${job.status === 'FAILED' ? `<div class="empty-note">خطا: ${esc(job.error || '')}</div>` : ''}
+            `;
+            if (['DONE','FAILED','CANCELLED'].includes(job.status)) {
+                btn.disabled = false; btn.textContent = '🚀 اجرای Pipeline کامل';
+            }
+        });
+    } catch (e) {
+        rEl.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
+        btn.disabled = false; btn.textContent = '🚀 اجرای Pipeline کامل';
+    }
+}
+
+function renderPipelineResult(r) {
+    if (!r) return '';
+    const steps = (r.steps || []).map(s => `
+        <tr>
+            <td>${esc(s.name)}</td>
+            <td>${s.status === 'ok' ? '<span class="badge long">OK</span>' : '<span class="badge short">FAIL</span>'}</td>
+            <td>${(s.ms/1000).toFixed(1)}s</td>
+            <td style="font-size:10px;">${esc(s.error || '')}</td>
+        </tr>`).join('');
+
+    return `
+        <div class="stats-grid" style="margin-top:10px;">
+            <div class="stat"><small>کل زمان</small><b>${((r.totalMs||0)/1000).toFixed(0)}s</b></div>
+            <div class="stat"><small>تحلیل PASS</small><b>${(r.analysis && r.analysis.passing) || 0}</b></div>
+            <div class="stat"><small>WF برنده</small><b>${(r.wf && r.wf.strategies || []).length}</b></div>
+            <div class="stat"><small>نمادهای تنظیم</small><b>${r.applied || 0}</b></div>
+        </div>
+        <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">مراحل اجرا</h4>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead><tr><th>مرحله</th><th>وضعیت</th><th>زمان</th><th>خطا</th></tr></thead>
+                <tbody>${steps}</tbody>
+            </table>
+        </div>
+        ${r.portfolio ? `
+        <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">پورتفولیو نهایی</h4>
+        <div class="stats-grid">
+            <div class="stat"><small>معاملات</small><b>${r.portfolio.accepted || 0}/${r.portfolio.totalTrades || 0}</b></div>
+            <div class="stat"><small>بازده</small><b>${pct(r.portfolio.returnPct)}</b></div>
+            <div class="stat"><small>MaxDD</small><b>${(r.portfolio.maxDD||0).toFixed(1)}%</b></div>
+            <div class="stat"><small>PF</small><b>${r.portfolio.pf ?? '-'}</b></div>
+        </div>` : ''}
+    `;
+}
+
 window.addEventListener('load', async () => {
     if (!await waitForBackend()) {
         document.getElementById('bootMessage').textContent = 'اتصال به سرور برقرار نشد.';

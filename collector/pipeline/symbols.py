@@ -10,7 +10,12 @@ def list_symbols(only_enabled=False):
         q = {'$or': [{'enabled': True}, {'collectEnabled': True}]}
     else:
         q = {}
-    return list(db[COL_MONITORED].find(q).sort('symbol', 1))
+    docs = list(db[COL_MONITORED].find(q).sort('symbol', 1))
+    # ObjectId → str برای JSON serialization
+    for d in docs:
+        if '_id' in d:
+            d['_id'] = str(d['_id'])
+    return docs
 
 
 def get_enabled_names():
