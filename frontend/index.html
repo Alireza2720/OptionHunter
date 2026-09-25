@@ -1363,6 +1363,8 @@ async function runPortfolioSim() {
         useSectors: document.getElementById('pfUseSectors').checked,
         useCVaR: document.getElementById('pfUseCvar').checked,
         useSignalFilter: document.getElementById('pfUseFilter').checked,
+        filterMode: 'pair',   // یا 'strategy' برای فیلتر ساده‌تر
+        minPairPF: 2.0,
         minTrades: 5
     };
     const btn = document.getElementById('pfRunBtn');
@@ -1440,8 +1442,32 @@ function renderPortfolioResults(d) {
         </div>`
         : '';
 
+    // 🆕 Pair-level decisions
+    const pd = sf.pairDecisions || [];
+    const allowed = pd.filter(d => d.allowed);
+    const pairTable = pd.length ? `
+        <div style="margin:10px 0;">
+            <div class="menu-label" style="margin-bottom:6px;">تصمیم‌گیری pair (${allowed.length} مجاز)</div>
+            <div class="table-responsive" style="max-height:250px; overflow-y:auto;">
+                <table class="data-table">
+                    <thead><tr><th>نماد</th><th>استراتژی</th><th>N</th><th>PF</th><th>LB</th><th>WR</th><th>نتیجه</th><th>دلیل</th></tr></thead>
+                    <tbody>${pd.map(d => `<tr style="${d.allowed ? 'background:rgba(46,168,138,.05);' : ''}">
+                        <td><b>${esc(d.symbol)}</b></td>
+                        <td>${esc(d.strategyId)}</td>
+                        <td>${d.trades}</td>
+                        <td>${d.pf === Infinity ? '∞' : (typeof d.pf === 'number' ? d.pf.toFixed(2) : '-')}</td>
+                        <td>${typeof d.lb === 'number' ? d.lb.toFixed(2) : '-'}</td>
+                        <td>${typeof d.winRate === 'number' ? d.winRate.toFixed(1) + '%' : '-'}</td>
+                        <td>${d.allowed ? '<span class="badge long">مجاز</span>' : '<span class="badge short">رد</span>'}</td>
+                        <td style="font-size:10px;">${esc(d.reason || '')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>
+            </div>
+        </div>` : '';
+
     rEl.innerHTML = `
         ${filterBox}
+        ${pairTable}
         <div class="stats-grid">
             ${statBox('کل معاملات', d.totalTrades || 0)}
             ${statBox('قبول‌شده', d.acceptedTrades || 0, 'highlight-good')}

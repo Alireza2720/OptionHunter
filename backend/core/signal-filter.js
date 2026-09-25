@@ -1,107 +1,147 @@
 'use strict';
 // ============================================================
-// signal-filter.js — فیلتر کیفیت سیگنال (Phase 3.5)
+// signal-filter.js — فیلتر کیفیت سیگنال (Phase 3.5 — v2)
 // ============================================================
-// قبل از sim، tradeها رو بر اساس:
-//  - symbol whitelist (از analysis فاز ۱)
-//  - strategy whitelist
-//  - min PF per strategy
-// فیلتر می‌کنیم
+// v2: pair-level (symbol × strategy) — نه aggregate استراتژی
 // ============================================================
 
 /**
  * @param {Array} trades — tradeهای خام
  * @param {Object} analysis — نتیجه‌ی analysisService.analyzeJob
  * @param {Object} opts
- *   - minStrategyPF: حداقل PF استراتژی (default 1.3)
- *   - minSymbolLB: حداقل lower bound PF نماد (default 1.0)
- *   - useWhitelist: فعال/غیرفعال (default true)
+ *   - minPairPF: حداقل PF هر pair (default 2.0)
+ *   - minPairTrades: حداقل معامله‌ی pair (default 5)
+ *   - minPairLB: حداقل LB (default 1.0) — alternative gate
+ *   - minStrategyPF: fallback aggregate (default 1.3)
+ *   - mode: 'pair' (default) | 'strategy' | 'off'
  */
 function filterTrades(trades, analysis, opts = {}) {
+    const mode = opts.mode || 'pair';
+    const minPairPF = opts.minPairPF ?? 2.0;
+    const minPairTrades = opts.minPairTrades ?? 5;
+    const minPairLB = opts.minPairLB ?? 1.0;
     const minStrategyPF = opts.minStrategyPF ?? 1.3;
-    const minSymbolLB = opts.minSymbolLB ?? 1.0;
-    const minTradesPerStrategy = opts.minTradesPerStrategy ?? 5;
+    const minStrategyTrades = opts.minStrategyTrades ?? 5;
 
-    if (!opts.useWhitelist || !analysis || !analysis.results) {
-        return { trades, filter: { applied: false } };
+    if (mode === 'off' || !analysis || !analysis.results) {
+        return { trades, filter: { applied: false, mode } };
     }
 
-    // ۱) از نتایج analysis، آمار استراتژی‌ها رو جمع کن
-    const strategyStats = {};
-    const symbolBestLB = {};
-
+    // ─── 1) ساخت نقشه‌ی pair → metrics ───
+    const pairs = new Map();   // "symbol::strategyId" → {symbol, strategyId, pf, lb, trades, winRate}
     for (const r of analysis.results) {
-        const sid = r.strategyId;
-
-        // استراتژی aggregate
-        if (!strategyStats[sid]) {
-            strategyStats[sid] = { trades: 0, wins: 0, totalPF: 0, count: 0 };
-        }
-        strategyStats[sid].trades += r.tradeCount;
-        const wr = r.rawStats.winRate || 0;
-        strategyStats[sid].wins += (r.tradeCount * wr / 100);
-        if (typeof r.rawStats.pf === 'number' && Number.isFinite(r.rawStats.pf)) {
-            strategyStats[sid].totalPF += r.rawStats.pf;
-            strategyStats[sid].count += 1;
-        }
-
-        // نماد: بهترین LB از این نماد
+        const key = `${r.symbol}::${r.strategyId}`;
+        const pf = typeof r.rawStats.pf === 'number' ? r.rawStats.pf : 0;
         const lb = r.bootstrap?.pf?.p2_5 ?? 0;
-        if (!symbolBestLB[r.symbol] || lb > symbolBestLB[r.symbol]) {
-            symbolBestLB[r.symbol] = lb;
-        }
+        pairs.set(key, {
+            symbol: r.symbol,
+            strategyId: r.strategyId,
+            strategyName: r.strategyName,
+            pf,
+            lb,
+            trades: r.tradeCount,
+            winRate: r.rawStats.winRate
+        });
     }
 
-    // استراتژی‌های مجاز
-    const allowedStrategies = new Set();
+    // ─── 2) strategy-level aggregate (برای fallback) ───
+    const strategyAgg = {};
+    for (const p of pairs.values()) {
+        const sid = p.strategyId;
+        if (!strategyAgg[sid]) {
+            strategyAgg[sid] = { count: 0, totalPF: 0, trades: 0, wins: 0 };
+        }
+        strategyAgg[sid].count += 1;
+        strategyAgg[sid].totalPF += p.pf === Infinity ? 5 : p.pf;
+        strategyAgg[sid].trades += p.trades;
+        strategyAgg[sid].wins += (p.trades * p.winRate / 100);
+    }
+
+    const trustedStrategies = new Set();
     const strategyInfo = {};
-    for (const [sid, st] of Object.entries(strategyStats)) {
-        if (st.trades < minTradesPerStrategy) continue;
-        const avgPF = st.count > 0 ? st.totalPF / st.count : 0;
-        const wr = st.trades > 0 ? (st.wins / st.trades) * 100 : 0;
-        const ok = avgPF >= minStrategyPF;
-        if (ok) allowedStrategies.add(sid);
+    for (const [sid, a] of Object.entries(strategyAgg)) {
+        const avgPF = a.count ? a.totalPF / a.count : 0;
+        const wr = a.trades ? (a.wins / a.trades) * 100 : 0;
+        const trusted = a.trades >= minStrategyTrades && avgPF >= minStrategyPF;
+        if (trusted) trustedStrategies.add(sid);
         strategyInfo[sid] = {
-            trades: st.trades,
+            totalTrades: a.trades,
             avgPF: Math.round(avgPF * 100) / 100,
             winRate: Math.round(wr * 100) / 100,
-            allowed: ok,
-            reason: !ok ? `PF ${avgPF.toFixed(2)} < ${minStrategyPF}` : 'ok'
+            trusted
         };
     }
 
-    // نمادهای مجاز
-    const allowedSymbols = new Set();
-    for (const [sym, lb] of Object.entries(symbolBestLB)) {
-        if (lb >= minSymbolLB) allowedSymbols.add(sym);
+    // ─── 3) pair decision ───
+    const allowedPairs = new Set();   // "symbol::strategyId"
+    const pairDecisions = [];
+
+    for (const [key, p] of pairs) {
+        let decision = null;
+        let reason = null;
+
+        if (mode === 'pair') {
+            // gate مستقیم pair
+            if (p.pf >= minPairPF && p.trades >= minPairTrades) {
+                decision = true;
+                reason = `pair PF=${p.pf.toFixed(2)} >= ${minPairPF}`;
+            } else if (p.lb >= minPairLB) {
+                decision = true;
+                reason = `pair LB=${p.lb.toFixed(2)} >= ${minPairLB}`;
+            } else if (trustedStrategies.has(p.strategyId) && p.pf >= 1.0 && p.trades >= 3) {
+                // fallback: استراتژی معتمده + pair حداقل سودآور
+                decision = true;
+                reason = `trusted strategy + pair PF>=1`;
+            } else {
+                decision = false;
+                reason = `PF=${p.pf.toFixed(2)}, LB=${p.lb.toFixed(2)}, strategy=${trustedStrategies.has(p.strategyId) ? 'trusted' : 'no'}`;
+            }
+        } else if (mode === 'strategy') {
+            decision = trustedStrategies.has(p.strategyId);
+            reason = decision ? 'strategy trusted' : 'strategy not trusted';
+        }
+
+        if (decision) allowedPairs.add(key);
+        pairDecisions.push({
+            key, symbol: p.symbol, strategyId: p.strategyId,
+            pf: p.pf, lb: p.lb, trades: p.trades, winRate: p.winRate,
+            allowed: decision, reason
+        });
     }
 
-    // فیلتر
+    // ─── 4) filter trades ───
     const kept = [];
     const dropped = [];
     for (const t of trades) {
-        if (!allowedStrategies.has(t.strategyId)) {
-            dropped.push({ ...t, _dropReason: `strategy ${t.strategyId} not in whitelist` });
-            continue;
+        const key = `${t.symbol}::${t.strategyId}`;
+        if (allowedPairs.has(key)) {
+            kept.push(t);
+        } else {
+            dropped.push({ ...t, _dropReason: `pair ${key} not whitelisted` });
         }
-        if (!allowedSymbols.has(t.symbol)) {
-            dropped.push({ ...t, _dropReason: `symbol ${t.symbol} not in whitelist` });
-            continue;
-        }
-        kept.push(t);
     }
+
+    // ─── 5) report ───
+    const allowedSymbols = new Set(pairDecisions.filter(d => d.allowed).map(d => d.symbol));
+    const allowedStrategies = new Set(pairDecisions.filter(d => d.allowed).map(d => d.strategyId));
 
     return {
         trades: kept,
         dropped,
         filter: {
             applied: true,
+            mode,
             originalCount: trades.length,
             keptCount: kept.length,
             droppedCount: dropped.length,
-            allowedStrategies: Array.from(allowedStrategies),
+            allowedPairs: Array.from(allowedPairs),
             allowedSymbols: Array.from(allowedSymbols),
-            strategyInfo
+            allowedStrategies: Array.from(allowedStrategies),
+            trustedStrategies: Array.from(trustedStrategies),
+            strategyInfo,
+            pairDecisions: pairDecisions
+                .sort((a, b) => (b.allowed - a.allowed) || (b.pf - a.pf))
+                .slice(0, 50)   // top 50
         }
     };
 }

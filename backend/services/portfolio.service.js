@@ -50,10 +50,12 @@ async function simulateFromJob(jobId, opts = {}) {
         try {
             const analysis = await deps.analysisService.analyzeJob(jobId, { minTrades, iterations: 2000 });
             const fr = filterTrades(allTrades, analysis, {
-                useWhitelist: true,
+                mode: opts.filterMode || 'pair',
+                minPairPF: opts.minPairPF || 2.0,
+                minPairTrades: opts.minPairTrades || 5,
+                minPairLB: opts.minPairLB || 1.0,
                 minStrategyPF: opts.minStrategyPF || 1.3,
-                minSymbolLB: opts.minSymbolLB || 1.0,
-                minTradesPerStrategy: opts.minTradesPerStrategy || 5
+                minStrategyTrades: opts.minStrategyTrades || 5
             });
             filteredTrades = fr.trades;
             filterReport = fr.filter;
