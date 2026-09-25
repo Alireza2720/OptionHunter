@@ -23,11 +23,8 @@ from pipeline import options as opt_mod
 from pipeline import aggregate as agg_mod
 from pipeline import jobs as job_mod
 
-# 🆕 Floor: کف داده — جلوگیری از دانلود قدیمی‌تر
-# دلیل: option data از این تاریخ شروع می‌شه
-# ⚠️ فرمت باید شمسی با - باشه (هم‌راست با frontend jdpNormalize)
-# 1405/03/19 معادل میلادی 2026-06-09 است
-DATA_FLOOR = '1405-03-19'
+# 🆕 حذف شد: دیگر floor نداریم
+# چون backtest روی تاریخ مورد نظر قفل شده، backfill از هر تاریخی امن است
 from pipeline import report as rpt_mod
 from pipeline import live as live_mod
 from pipeline.db import (
@@ -206,15 +203,7 @@ def _run_full_backfill(job_id: str, payload: dict):
         symbols = payload.get('symbols') or sym_mod.get_enabled_names()
         date_from = payload['dateFrom']
         date_to = payload['dateTo']
-
-        # 🆕 Clamp: اگه کاربر قدیمی‌تر خواست، به floor ببر
-        if isinstance(date_from, str) and date_from < DATA_FLOOR:
-            log('backfill_clamp', f'dateFrom {date_from} → {DATA_FLOOR}')
-            date_from = DATA_FLOOR
-        if isinstance(date_to, str) and date_to < DATA_FLOOR:
-            job_mod.append_warning(job_id, f'dateTo {date_to} < floor — skipped')
-            job_mod.finish_job(job_id, 'DONE', {'skipped': 'dateTo < floor'})
-            return
+        # 🆕 بدون clamp — کاربر از هر تاریخی می‌تونه backfill کنه
 
         stats = {
             'stock_intraday': {'symbols_done': 0, 'candles': 0, 'errors': 0},
@@ -464,12 +453,11 @@ def data_range():
             pass
     if not to_dt:
         to_dt = datetime.now(timezone.utc)
-
+        
     return {
         'from': from_dt.strftime('%Y-%m-%d'),
         'to': to_dt.strftime('%Y-%m-%d'),
         'days': (to_dt - from_dt).days,
-        'floor': DATA_FLOOR,
     }
 
 
