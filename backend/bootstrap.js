@@ -31,6 +31,7 @@ const portfolioService = require('./services/portfolio.service');
 const correlationService = require('./services/correlation.service');
 const correlationJob = require('./jobs/correlation.job');
 const signalFilterService = require('./services/signal-filter.service');
+const wfService = require('./services/wf.service');
 const executionGuard = require('./core/execution-guard');
 
 // settings (ساده — از فایل اصلی)
@@ -206,6 +207,13 @@ async function bootstrap() {
         analysisService
     });
 
+    // 11.9) walk-forward service (Phase 5)
+    wfService.init({
+        getDB: mongo.getDB,
+        logger,
+        signalFilterService
+    });
+
     // 11.6) correlation service (Phase 3 Step 2)
     correlationService.init({
         getDB: mongo.getDB,
@@ -332,6 +340,7 @@ async function bootstrap() {
         correlationService,
         correlationJob,
         signalFilterService,
+        wfService,
         // jobs
         tickJob,
         eodJob,

@@ -44,6 +44,7 @@ async function start() {
             portfolioService: deps.portfolioService,
             correlationService: deps.correlationService,
             signalFilterService: deps.signalFilterService,
+            wfService: deps.wfService,
             autoConfigJob: deps.autoConfigJob,
             strategies: deps.strategies,
             getUnderlyingNames: deps.getUnderlyingNames,
