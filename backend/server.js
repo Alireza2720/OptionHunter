@@ -41,6 +41,7 @@ async function start() {
             backtestService: deps.backtestService,
             signalService: deps.signalService,
             analysisService: deps.analysisService,
+            portfolioService: deps.portfolioService,
             autoConfigJob: deps.autoConfigJob,
             strategies: deps.strategies,
             getUnderlyingNames: deps.getUnderlyingNames,
