@@ -70,18 +70,74 @@ async function getResults(jobId) {
         finishedAt: job.finishedAt
     };
 
-    // اگه تمام نشده، فقط پیشرفت
     if (job.status !== 'DONE') return base;
 
-    // در DB یک بار ذخیره شده؟
-    const meta = await db.collection(COLLECTIONS.META)
-        .findOne({ _id: 'backtest_result_' + jobId });
-    if (meta && meta.cachedAt && (Date.now() - new Date(meta.cachedAt).getTime()) < 5 * 60 * 1000) {
-        return { ...base, result: meta.result };
+    const cacheId = 'backtest_result_' + jobId;
+    const cached = await db.collection(COLLECTIONS.META).findOne({ _id: cacheId });
+
+    // compute تمام شده → نتیجه رو برگردون
+    if (cached && cached.result && !cached.computing) {
+        return { ...base, result: cached.result };
     }
 
+    // در حال compute → flag رو برگردون
+    if (cached && cached.computing) {
+        const elapsed = cached.startedAt
+            ? Math.round((Date.now() - new Date(cached.startedAt).getTime()) / 1000)
+            : 0;
+        return { ...base, computing: true, computingFor: elapsed };
+    }
+
+    // هنوز شروع نشده → در پس‌زمینه شروع کن، بلافاصله برگردون
+    computeInBackground(jobId).catch(e =>
+        deps.logger && deps.logger.error('[bt-compute] ' + e.message));
+    return { ...base, computing: true, computingFor: 0 };
+}
+
+// ------------------------------------------------------------
+// Compute in background — سنگین‌ترین بخش
+// ------------------------------------------------------------
+async function computeInBackground(jobId) {
+    const db = deps.getDB();
+    const cacheId = 'backtest_result_' + jobId;
+
+    // flag اول
+    await db.collection(COLLECTIONS.META).updateOne(
+        { _id: cacheId },
+        { $set: { computing: true, startedAt: new Date() } },
+        { upsert: true }
+    );
+
+    const t0 = Date.now();
+    try {
+        const job = await db.collection(COLLECTIONS.BACKTEST_JOBS)
+            .findOne({ _id: new ObjectId(jobId) });
+        if (!job) throw new Error('job disappeared');
+
+        const result = await computeFullResult(job, jobId);
+
+        await db.collection(COLLECTIONS.META).updateOne(
+            { _id: cacheId },
+            { $set: { computing: false, result, cachedAt: new Date() }, $unset: { startedAt: '' } }
+        );
+        deps.logger && deps.logger.info(
+            `[bt-compute] ${jobId} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    } catch (e) {
+        await db.collection(COLLECTIONS.META).updateOne(
+            { _id: cacheId },
+            { $set: { computing: false, error: e.message }, $unset: { startedAt: '' } }
+        );
+        deps.logger && deps.logger.error(`[bt-compute] ${jobId} FAILED: ${e.message}`);
+    }
+}
+
+async function computeFullResult(job, jobId) {
+    const db = deps.getDB();
     const panels = (job.payload && job.payload.panels) || {};
     const mode = (job.payload && job.payload.mode) || 'option';
+    const symbols = (job.payload && job.payload.symbols) || [];
+
+    deps.logger && deps.logger.info(`[bt-compute] ${jobId} start (${symbols.length} symbols)`);
 
     const details = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
         .find({ jobId: String(jobId) })
@@ -118,10 +174,18 @@ async function getResults(jobId) {
 
     // ---- Analysis ----
     if (panels.analysis && panels.analysis.enabled) {
+        deps.logger && deps.logger.info(`[bt-compute] ${jobId} analysis...`);
         try {
+            // 🆕 کاهش خودکار iterations بر اساس تعداد combos
+            const totalCombos = details.length;
+            let iter = panels.analysis.iterations || 10000;
+            if (totalCombos > 100) iter = Math.min(iter, 1000);
+            else if (totalCombos > 50) iter = Math.min(iter, 2000);
+            else if (totalCombos > 20) iter = Math.min(iter, 5000);
+
             result.analysis = await deps.analysisService.analyzeJob(jobId, {
                 minTrades: panels.analysis.minTrades || 5,
-                iterations: Math.min(panels.analysis.iterations || 10000, 50000)
+                iterations: iter
             });
         } catch (e) {
             result.analysis = { error: e.message };
@@ -130,12 +194,11 @@ async function getResults(jobId) {
 
     // ---- WF ----
     if (panels.wf && panels.wf.enabled) {
+        deps.logger && deps.logger.info(`[bt-compute] ${jobId} wf...`);
         try {
             await deps.signalFilterService.buildAndSaveWhitelist(jobId, {
                 filterMode: 'pair',
-                minPairPF: 2.0,
-                minPairTrades: 5,
-                minPairLB: 1.0
+                minPairPF: 2.0, minPairTrades: 5, minPairLB: 1.0
             });
             const wf = await deps.wfService.runAggregate(jobId, {
                 numWindows: panels.wf.windows || 4,
@@ -156,16 +219,13 @@ async function getResults(jobId) {
 
     // ---- Regime ----
     if (panels.regime && panels.regime.enabled) {
+        deps.logger && deps.logger.info(`[bt-compute] ${jobId} regime...`);
         try {
-            // refresh اول
             await deps.regimeService.refreshAll();
             const all = await deps.regimeService.getAllCached();
             result.regimes = all.map(r => ({
-                symbol: r.symbol,
-                macro: r.macro,
-                vol: r.vol,
-                slopePct: r.macroSlopePct || null,
-                close: r.close || null
+                symbol: r.symbol, macro: r.macro, vol: r.vol,
+                slopePct: r.macroSlopePct || null, close: r.close || null
             }));
         } catch (e) {
             result.regimes = [];
@@ -174,6 +234,7 @@ async function getResults(jobId) {
 
     // ---- Portfolio ----
     if (panels.portfolio && panels.portfolio.enabled) {
+        deps.logger && deps.logger.info(`[bt-compute] ${jobId} portfolio...`);
         try {
             const p = panels.portfolio;
             result.portfolio = await deps.portfolioService.simulateFromJob(jobId, {
@@ -202,14 +263,8 @@ async function getResults(jobId) {
     // ---- Auto-Config Suggestion ----
     result.autoConfigSuggestion = buildAutoConfigSuggestion(result, symbols);
 
-    // cache
-    await db.collection(COLLECTIONS.META).updateOne(
-        { _id: 'backtest_result_' + jobId },
-        { $set: { result, cachedAt: new Date() } },
-        { upsert: true }
-    );
-
-    return { ...base, result };
+    deps.logger && deps.logger.info(`[bt-compute] ${jobId} done`);
+    return result;
 }
 
 // ------------------------------------------------------------

@@ -27,7 +27,18 @@ function register(app, deps) {
     app.get('/api/backtest/results/:jobId', async (req, res, next) => {
         try {
             const r = await backtestOrchestrator.getResults(req.params.jobId);
-            if (r.error) return res.status(404).json({ error: r.error });
+            if (r.error && r.error === 'job not found')
+                return res.status(404).json({ error: r.error });
+            res.json(r);
+        } catch (e) { next(e); }
+    });
+
+    // POST /api/backtest/recompute/:jobId — force recompute
+    app.post('/api/backtest/recompute/:jobId', async (req, res, next) => {
+        try {
+            const db = deps.getDB();
+            await db.collection('meta').deleteOne({ _id: 'backtest_result_' + req.params.jobId });
+            const r = await backtestOrchestrator.getResults(req.params.jobId);
             res.json(r);
         } catch (e) { next(e); }
     });
