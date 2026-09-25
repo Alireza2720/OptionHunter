@@ -8,6 +8,8 @@ const portfolioCore = require('../core/portfolio');
 const sizing = require('../core/sizing');
 const { getSectorMap } = require('../core/sectors');
 const { filterTrades } = require('../core/signal-filter');
+const scoreMod = require('../core/signal-score');
+const regimeCore = require('../core/regime');
 
 let deps = {
     getDB: null,
@@ -15,7 +17,8 @@ let deps = {
     settings: null,
     correlationService: null,
     analysisService: null,
-    signalFilterService: null   // 🆕
+    signalFilterService: null,
+    regimeService: null   // 🆕 Phase 6
 };
 function init(d) { deps = { ...deps, ...d }; }
 
@@ -104,7 +107,7 @@ async function simulateFromJob(jobId, opts = {}) {
             corrMatrix = cached.matrix;
         } else {
             deps.logger && deps.logger.info('no correlation cache — computing now...');
-            const r = await deps.correlationService.computeAndStore(30);
+            await deps.correlationService.computeAndStore(30);
             const fresh = await deps.correlationService.getCached();
             if (fresh && fresh.matrix) corrMatrix = fresh.matrix;
         }
@@ -114,6 +117,36 @@ async function simulateFromJob(jobId, opts = {}) {
     const symbols = [...new Set(allTrades.map(t => t.symbol))];
     const sectorMap = getSectorMap(symbols);
 
+    // 🆕 Regime map (Phase 6)
+    const regimeMap = {};
+    if (opts.useRegime !== false && deps.regimeService) {
+        try {
+            const regimes = await deps.regimeService.getAllCached();
+            for (const r of regimes) {
+                regimeMap[r.symbol] = { macro: r.macro, vol: r.vol };
+            }
+            deps.logger && deps.logger.info(`regime map: ${Object.keys(regimeMap).length} symbols`);
+        } catch (e) {
+            deps.logger && deps.logger.warn('regime map: ' + e.message);
+        }
+    }
+
+    // 🆕 Compute signal score per trade (Phase 4)
+    if (opts.useSignalScore !== false) {
+        let scored = 0;
+        for (const t of filteredTrades) {
+            try {
+                const sc = scoreMod.computeHistoricalScore(t, regimeMap[t.symbol]);
+                t.signalScore = sc.score;
+                scored++;
+            } catch (e) {
+                t.signalScore = null;
+            }
+        }
+        deps.logger && deps.logger.info(`signal scores computed: ${scored}/${filteredTrades.length}`);
+    }
+
+    // Limits
     const limits = {
         capital: opts.capital || 100_000_000,
         riskPct: opts.riskPct || 1.5,
@@ -130,11 +163,18 @@ async function simulateFromJob(jobId, opts = {}) {
         maxClusterPct: opts.maxClusterPct || 30,
         useSectors: opts.useSectors !== false,
         maxSectorPct: opts.maxSectorPct || 40,
+        // 🆕 Phase 4 + 6
+        useRegime: opts.useRegime !== false,
+        useSignalScore: opts.useSignalScore !== false,
+        useSignalFilter: opts.useSignalFilter !== false,
+        // Filter
+        minTrades: minTrades
     };
 
     const result = portfolioCore.simulate(filteredTrades, limits, {
         corrMatrix,
-        sectorMap
+        sectorMap,
+        regimeMap   // 🆕 Phase 6
     });
 
     // Advanced
@@ -149,7 +189,8 @@ async function simulateFromJob(jobId, opts = {}) {
             ? { symbols: Object.keys(corrMatrix).length }
             : null,
         sectorMap,
-        signalFilter: filterReport,   // 🆕
+        regimeMapSize: Object.keys(regimeMap).length,
+        signalFilter: filterReport,
         ...result,
         advanced: {
             cvar95: cvar,

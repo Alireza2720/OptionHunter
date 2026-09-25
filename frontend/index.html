@@ -1251,6 +1251,8 @@ async function openPortfolioSim() {
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCorr" checked> Correlation</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseSectors" checked> Sectors</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseFilter" checked> Signal Filter</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseRegime" checked> Regime (soft)</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseScore" checked> Signal Score</label>
                 <button class="btn success" id="pfRunBtn" onclick="runPortfolioSim()">اجرا</button>
                 <button class="btn outline small" onclick="refreshCorrelation()">رفرش Correlation</button>
             </div>
@@ -1276,6 +1278,8 @@ async function runPortfolioSim() {
         useCorrelation: document.getElementById('pfUseCorr').checked,
         useSectors: document.getElementById('pfUseSectors').checked,
         useSignalFilter: document.getElementById('pfUseFilter').checked,
+        useRegime: document.getElementById('pfUseRegime').checked,
+        useSignalScore: document.getElementById('pfUseScore').checked,
         filterMode: 'pair',
         minPairPF: 2.0,
         minTrades: 5
@@ -1361,18 +1365,24 @@ function renderPortfolioResults(d) {
 
     const tradesRows = (d.trades || []).slice(0, 50).map((t, i) => {
         const ret = t.pnlPct;
-        const limitCls = t.bindingLimit && t.bindingLimit.includes('binding') ? 'style="font-size:10px; color:var(--warn);"' : 'style="font-size:10px; color:var(--text-dim);"';
+        const score = t.signalScore !== null && t.signalScore !== undefined ? t.signalScore.toFixed(2) : '-';
+        const rf = t.regimeFactor !== undefined ? t.regimeFactor.toFixed(2) : '-';
+        const sf = t.scoreFactor !== undefined ? t.scoreFactor.toFixed(2) : '-';
+        const cf = t.combinedFactor !== undefined ? t.combinedFactor.toFixed(2) : '-';
+        const cfColor = cf !== '-' && parseFloat(cf) >= 1.0 ? 'var(--good)' : parseFloat(cf) < 0.5 ? 'var(--bad)' : 'var(--warn)';
         return `<tr>
             <td>${i+1}</td>
             <td><b>${esc(t.symbol)}</b></td>
-            <td style="font-size:10px;">${esc(t.sector || '-')}</td>
             <td>${esc(t.strategyName || t.strategyId)}</td>
             <td>${new Date(t.entryTime * 1000).toLocaleString('fa-IR', {month:'2-digit', day:'2-digit'})}</td>
             <td>${t.positionSize || 0}</td>
             <td>${Math.round(t.entryValue || 0).toLocaleString()}</td>
+            <td>${score}</td>
+            <td>${rf}</td>
+            <td>${sf}</td>
+            <td style="color:${cfColor}; font-weight:600;">${cf}×</td>
             <td>${pct(ret)}</td>
             <td>${Math.round(t.pnlAbs || 0).toLocaleString()}</td>
-            <td ${limitCls}>${esc(t.bindingLimit || '-')}</td>
         </tr>`;
     }).join('');
 
@@ -1410,6 +1420,11 @@ function renderPortfolioResults(d) {
         <div class="hint" style="margin-top:8px;">
             Kelly ${gs.halfKellyPct || 0}% · CVaR95 ${gs.cvar95Pct || 0}% · risk% مؤثر ${gs.effectiveRiskPct || 0}% · ${gs.clustersFound || 0} خوشه
         </div>
+        <div class="hint" style="margin-top:4px; font-size:10.5px;">
+            میانگین ضریب: Regime ${(d.trades||[]).length ? (d.trades.reduce((s,t)=>s+(t.regimeFactor||1),0)/(d.trades||[]).length).toFixed(2) : '-'}× ·
+            Score ${(d.trades||[]).length ? (d.trades.reduce((s,t)=>s+(t.scoreFactor||1),0)/(d.trades||[]).length).toFixed(2) : '-'}× ·
+            ترکیبی ${(d.trades||[]).length ? (d.trades.reduce((s,t)=>s+(t.combinedFactor||1),0)/(d.trades||[]).length).toFixed(2) : '-'}×
+        </div>
         ${eqStr}
         ${chartSvg}
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
@@ -1425,8 +1440,8 @@ function renderPortfolioResults(d) {
         <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">معاملات (${(d.trades || []).length})</h4>
         <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
             <table class="data-table">
-                <thead><tr><th>#</th><th>نماد</th><th>صنعت</th><th>استراتژی</th><th>ورود</th><th>حجم</th><th>ارزش</th><th>بازده</th><th>سود</th><th>محدودیت</th></tr></thead>
-                <tbody>${tradesRows || '<tr class="empty-row"><td colspan="10">معامله‌ای نیست</td></tr>'}</tbody>
+                <thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>ورود</th><th>حجم</th><th>ارزش</th><th>Score</th><th>R×</th><th>S×</th><th>ترکیبی</th><th>بازده</th><th>سود</th></tr></thead>
+                <tbody>${tradesRows || '<tr class="empty-row"><td colspan="12">معامله‌ای نیست</td></tr>'}</tbody>
             </table>
         </div>
     `;

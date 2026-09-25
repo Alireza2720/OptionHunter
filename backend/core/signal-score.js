@@ -125,15 +125,34 @@ function computeSignalScore(input) {
 // Size factor from score
 // ------------------------------------------------------------
 function scoreToSizeFactor(score) {
-    if (score >= 0.75) return 1.2;   // قوی‌ترین سیگنال: 120% حجم پایه
-    if (score >= 0.60) return 1.0;
-    if (score >= 0.45) return 0.7;
-    if (score >= 0.30) return 0.4;
-    return 0;                         // خیلی ضعیف → skip
+    if (score >= 0.80) return 1.3;
+    if (score >= 0.65) return 1.0;
+    if (score >= 0.50) return 0.8;
+    if (score >= 0.35) return 0.6;
+    if (score >= 0.20) return 0.4;
+    return 0.2;   // حداقل — نه صفر، چون می‌خوایم سیگنال بگیریم
+}
+
+// ------------------------------------------------------------
+// Historical Score — برای بک‌تست
+// ------------------------------------------------------------
+// از داده‌ی تاریخی موجود، score تقریبی می‌سازد
+function computeHistoricalScore(trade, regimeAtEntry) {
+    return computeSignalScore({
+        confluenceEffective: trade.confluenceEffective || 1,
+        htfTrend: trade.htfTrend || null,
+        atr: trade.atr || null,
+        price: trade.stockEntry || null,
+        rsiFast: trade.rsiFast || null,
+        ivHv: trade.ivHv || null,
+        regimeMacro: regimeAtEntry ? regimeAtEntry.macro : 'unknown',
+        regimeVol: regimeAtEntry ? regimeAtEntry.vol : 'normal'
+    });
 }
 
 module.exports = {
     diversityWeightedConfluence,
     computeSignalScore,
+    computeHistoricalScore,
     scoreToSizeFactor
 };

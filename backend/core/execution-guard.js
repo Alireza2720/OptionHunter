@@ -10,6 +10,8 @@
 
 const { findClusters } = require('./correlation');
 const { getSector } = require('./sectors');
+const regimeCore = require('./regime');
+const scoreMod = require('./signal-score');
 
 // ============================================================
 // پیش‌فرض‌ها
@@ -34,7 +36,11 @@ const DEFAULT_LIMITS = {
 
     // Phase 3.5
     useSignalFilter: true,
-    signalWhitelist: null   // Set of "symbol::strategyId"
+    signalWhitelist: null,
+
+    // Phase 4 + 6
+    useRegime: true,
+    useSignalScore: true
 };
 
 // ============================================================
@@ -156,6 +162,11 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     let baseSize = Math.floor(riskAmt / contractValue);
     baseSize = Math.min(baseSize, limits.maxPositionSize);
 
+    // 🆕 Soft multipliers (regime + score)
+    if (ctx.combinedFactor && ctx.combinedFactor !== 1.0) {
+        baseSize = Math.floor(baseSize * ctx.combinedFactor);
+    }
+
     const curSym = portfolio.exposureBySymbol[candidate.symbol] || 0;
     const remainSym = Math.max(0, maxSym - curSym);
     const bySymbol = Math.floor(remainSym / contractValue);
@@ -261,6 +272,35 @@ function canOpen(candidate, portfolio, limits, ctx) {
         };
     }
 
+    // 🆕 Regime check (soft — فقط خیلی خطرناک رو رد می‌کنه)
+    let regimeFactor = 1.0;
+    let regimeReason = 'ok';
+    if (limits.useRegime && ctx.regimeMap) {
+        const r = ctx.regimeMap[candidate.symbol];
+        if (r && r.macro && r.macro !== 'unknown') {
+            const rf = regimeCore.regimeSizeFactor(candidate.strategyId, r.macro, r.vol);
+            regimeFactor = rf.factor;
+            regimeReason = rf.reason;
+            if (regimeFactor === 0) {
+                return {
+                    allowed: false,
+                    size: 0,
+                    reason: `Regime خطرناک: ${rf.reason}`,
+                    violations: [...violations, { rule: 'regime', message: rf.reason }],
+                    sizing: null
+                };
+            }
+        }
+    }
+
+    // 🆕 Signal score check (soft)
+    let scoreFactor = 1.0;
+    let scoreReason = 'ok';
+    if (limits.useSignalScore && candidate.signalScore !== undefined && candidate.signalScore !== null) {
+        scoreFactor = scoreMod.scoreToSizeFactor(candidate.signalScore);
+        scoreReason = `score=${candidate.signalScore} → ${scoreFactor}×`;
+    }
+
     // 3) محاسبه‌ی cluster/sector exposure
     const clusterExposure = computeClusterExposure(
         candidate.symbol, portfolio, ctx.corrMatrix, limits, ctx.clusters
@@ -270,10 +310,12 @@ function canOpen(candidate, portfolio, limits, ctx) {
         : 0;
 
     // 4) Sizing — همه‌ی سقف‌ها
+    const combinedFactor = regimeFactor * scoreFactor;
     const sizing = calcPositionSize(candidate, portfolio, limits, {
         effectiveRiskPct: ctx.effectiveRiskPct,
         clusterExposure,
-        sectorExposure
+        sectorExposure,
+        combinedFactor
     });
 
     if (sizing.size <= 0) {
@@ -295,12 +337,17 @@ function canOpen(candidate, portfolio, limits, ctx) {
     return {
         allowed: true,
         size: sizing.size,
-        reason: sizing.limitReason || 'ok',   // binding limit اگه بود
+        reason: sizing.limitReason || 'ok',
         violations,
         sizing,
         clusterExposure,
         sectorExposure,
-        effectiveRiskPct: ctx.effectiveRiskPct
+        effectiveRiskPct: ctx.effectiveRiskPct,
+        regimeFactor,
+        regimeReason,
+        scoreFactor,
+        scoreReason,
+        combinedFactor
     };
 }
 

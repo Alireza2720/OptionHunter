@@ -136,6 +136,51 @@ const STRATEGY_REGIME_MAP = {
     keltner_pb:     { macro: ['bull'], vol: ['normal'] }
 };
 
+// ------------------------------------------------------------
+// Regime Size Factor (Soft) — فیلوسوفی جدید
+// ------------------------------------------------------------
+// به جای رد کردن سیگنال، سایز رو کم می‌کنه
+// مگر در حالت بسیار خطرناک (bear+high+strategy نامناسب) → 0
+function regimeSizeFactor(strategyId, macro, vol) {
+    const rule = STRATEGY_REGIME_MAP[strategyId];
+
+    // استراتژی نامعلوم → محافظه‌کارانه
+    if (!rule) {
+        return { factor: 0.7, reason: 'استراتژی نامعلوم' };
+    }
+
+    const macroMatch = !rule.macro || rule.macro.length === 0 || rule.macro.includes(macro);
+    const volMatch = !rule.vol || rule.vol.length === 0 || rule.vol.includes(vol);
+
+    // حالت بسیار خطرناک → صفر
+    // (استراتژی برای bull طراحی شده ولی بازار bear+high هست)
+    if (macro === 'bear' && vol === 'high' && !macroMatch) {
+        return { factor: 0, reason: 'بسیار خطرناک: bear + high vol + استراتژی نامناسب' };
+    }
+
+    let factor = 1.0;
+    const reasons = [];
+
+    // ضریب رژیم
+    if (!macroMatch) {
+        if (macro === 'bear') { factor *= 0.3; reasons.push('bear 30%'); }
+        else if (macro === 'range') { factor *= 0.6; reasons.push('range 60%'); }
+        else if (macro === 'unknown') { factor *= 0.7; reasons.push('unknown 70%'); }
+    }
+
+    // ضریب نوسان
+    if (!volMatch) {
+        if (vol === 'high') { factor *= 0.7; reasons.push('vol-high 70%'); }
+        else if (vol === 'low') { factor *= 0.9; reasons.push('vol-low 90%'); }
+    }
+
+    return {
+        factor: Math.round(factor * 1000) / 1000,
+        reason: reasons.length ? reasons.join(' + ') : 'ok'
+    };
+}
+
+// سازگاری با کد قدیمی — hard reject (فقط برای reference)
 function isStrategyAllowed(strategyId, macro, vol) {
     const rule = STRATEGY_REGIME_MAP[strategyId];
     if (!rule) return { allowed: true, reason: 'no rule' };
@@ -153,5 +198,6 @@ module.exports = {
     computeEMA, computeATR,
     detectMacroRegime, detectVolatilityState,
     STRATEGY_REGIME_MAP,
-    isStrategyAllowed
+    isStrategyAllowed,
+    regimeSizeFactor
 };

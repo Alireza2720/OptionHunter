@@ -22,7 +22,8 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
     // Context (stats + clusters + effectiveRiskPct)
     const ctx = guard.buildContext(limits, trades, {
         corrMatrix: ctxInput.corrMatrix,
-        sectorMap: ctxInput.sectorMap
+        sectorMap: ctxInput.sectorMap,
+        regimeMap: ctxInput.regimeMap   // 🆕 Phase 6
     });
 
     // Sort
@@ -66,7 +67,8 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
             optionEntry: t.optionEntry,
             size: t.size,
             entryTime: entryTs,
-            pnlPct: t.pnlPct
+            pnlPct: t.pnlPct,
+            signalScore: t.signalScore   // 🆕 Phase 4
         };
 
         // تصمیم
@@ -118,7 +120,14 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
             equityAfter: equity,
             bindingLimit: decision.sizing.limitReason,
             clusterExposure: decision.clusterExposure || 0,
-            sectorExposure: decision.sectorExposure
+            sectorExposure: decision.sectorExposure,
+            // 🆕 Phase 4 + 6
+            signalScore: t.signalScore || null,
+            regimeFactor: decision.regimeFactor || 1,
+            scoreFactor: decision.scoreFactor || 1,
+            combinedFactor: decision.combinedFactor || 1,
+            regimeReason: decision.regimeReason || null,
+            scoreReason: decision.scoreReason || null
         });
 
         usedStrategies.add(t.strategyId);

@@ -578,20 +578,23 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
 
     const baseSize = riskAmt / effectiveContractValue;
     const confluence = (signalStrength && signalStrength.confluence) || 1;
-    const confluenceEffective = (signalStrength && signalStrength.signalScore && signalStrength.signalScore.score) ? null : null;
+    const scoreMod = require('./signal-score');
+
+    // ۱. Confluence factor (موجود)
     let signalFac = deps.settings.signalFactor(confluence);
 
-    // 🆕 اگه signalScore داشتیم، از scoreToSizeFactor استفاده کن
-    if (signalStrength && signalStrength.signalScore) {
-        const scoreMod = require('./signal-score');
-        const scoreFac = scoreMod.scoreToSizeFactor(signalStrength.signalScore.score);
-        if (scoreFac > 0) {
-            // میانگین بین signalFactor و scoreFactor
-            signalFac = (signalFac + scoreFac) / 2;
-        } else {
-            signalFac = 0;   // score پایین → صفر
-        }
+    // ۲. Signal Score factor (Phase 4)
+    let scoreFac = 1.0;
+    if (signalStrength && signalStrength.signalScore && typeof signalStrength.signalScore.score === 'number') {
+        scoreFac = scoreMod.scoreToSizeFactor(signalStrength.signalScore.score);
     }
+
+    // ۳. Regime factor (Phase 6)
+    const regimeFac = (signalStrength && signalStrength.regimeFactor) || 1.0;
+
+    // 🆕 ترکیب نهایی: میانگین هندسی برای حفظ توازن
+    const combinedFac = Math.pow(signalFac * scoreFac * regimeFac, 1/3);
+    signalFac = combinedFac;
     const level = pick.level || 'A+';
     const levelFac = deps.settings.levelFactor(level);
     const ivFac = deps.settings.ivFactor(pick.ivHv);
@@ -742,14 +745,14 @@ function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title 
 // ============================================================
 // Signal handler
 // ============================================================
-async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [], signalScore = null }) {
+async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [], signalScore = null, regimeFactor = 1.0, regimeReason = null }) {
     const s = await getSettings();
     const chain = await requireDep('getChain')();
     const sc = await buildScenario(config, price, liveS, indicators, s);
     const names = getNames(config.symbol);
     const res = selectCalls(chain, names, sc, s);
     const portfolio = await getPortfolioState();
-    const signalStrength = { confluence, confirmers, signalScore };
+    const signalStrength = { confluence, confirmers, signalScore, regimeFactor, regimeReason };
 
     for (const p of res.picks) {
         try {

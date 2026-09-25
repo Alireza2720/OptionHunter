@@ -73,28 +73,28 @@ async function buildPortfolioState() {
 // 🆕 Phase 6 — Regime Guard
 // ============================================================
 async function checkRegimeGuard(config) {
-    if (!deps.regimeService) return { allowed: true, reason: 'regime service not wired' };
+    if (!deps.regimeService) return { allowed: true, factor: 1.0, reason: 'regime service not wired' };
 
     try {
         const regime = await deps.regimeService.getForSymbol(config.symbol);
         if (!regime || !regime.macro || regime.macro === 'unknown') {
-            // اگه رژیم محاسبه نشده، اجازه بده (fail-open)
-            return { allowed: true, reason: 'رژیم محاسبه نشده', regime: 'unknown' };
+            return { allowed: true, factor: 0.7, reason: 'رژیم محاسبه نشده (70%)', regime: 'unknown' };
         }
 
         const regimeCore = require('./regime');
-        const result = regimeCore.isStrategyAllowed(config.strategyId, regime.macro, regime.vol);
+        const rf = regimeCore.regimeSizeFactor(config.strategyId, regime.macro, regime.vol);
 
         return {
-            allowed: result.allowed,
+            allowed: rf.factor > 0,
+            factor: rf.factor,
             regime: `${regime.macro}/${regime.vol}`,
             macro: regime.macro,
             vol: regime.vol,
-            reason: result.reason
+            reason: rf.reason
         };
     } catch (e) {
         deps.logger && deps.logger.warn('checkRegimeGuard: ' + e.message);
-        return { allowed: true, error: e.message };
+        return { allowed: true, factor: 1.0, error: e.message };
     }
 }
 
@@ -425,29 +425,10 @@ async function evaluateConfig(config, marketInfo) {
 
     // 🆕 اگه BUY هست، guardهای مختلف رو چک کن
     if (last.signalType === 'BUY') {
-        // ۰. Signal score gate
-        if (signalScoreResult && signalScoreResult.score < 0.30) {
-            const reasonText = `⛔ سیگنال ${config.symbol} رد شد (Score پایین)\n${def.name}\nScore: ${signalScoreResult.score}`;
-            await deps.notify(reasonText);
-
-            await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
-                configId, symbol: config.symbol,
-                strategyId: config.strategyId, strategyName: def.name,
-                timeframe: config.timeframe,
-                signalType: last.signalType,
-                price: lastPrice, time: last.time,
-                reason: last.reason || null,
-                rejected: true,
-                rejectionReason: `Score ${signalScoreResult.score} < 0.30`,
-                signalScore: signalScoreResult,
-                createdAt: new Date()
-            });
-            return;
-        }
-        // ۱. Regime guard
+        // ۱. Regime guard (soft — فقط خیلی خطرناک رو رد می‌کنه)
         const regimeResult = await checkRegimeGuard(config);
         if (!regimeResult.allowed) {
-            const reasonText = `⛔ سیگنال ${config.symbol} رد شد (Regime)\n${def.name}\nرژیم: ${regimeResult.regime}\nدلیل: ${regimeResult.reason}`;
+            const reasonText = `⛔ سیگنال ${config.symbol} رد شد (Regime خطرناک)\n${def.name}\nرژیم: ${regimeResult.regime}\nدلیل: ${regimeResult.reason}`;
             await deps.notify(reasonText);
 
             await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
@@ -458,7 +439,7 @@ async function evaluateConfig(config, marketInfo) {
                 price: lastPrice, time: last.time,
                 reason: last.reason || null,
                 rejected: true,
-                rejectionReason: `Regime: ${regimeResult.reason}`,
+                rejectionReason: `Regime خطرناک: ${regimeResult.reason}`,
                 regime: regimeResult.regime,
                 createdAt: new Date()
             });
@@ -536,7 +517,9 @@ async function evaluateConfig(config, marketInfo) {
                 tradeId: null,
                 confluence,
                 confirmers: confirmersList,
-                signalScore: signalScoreResult   // 🆕 Phase 4
+                signalScore: signalScoreResult,
+                regimeFactor: regimeResult.factor || 1.0,   // 🆕 Phase 6
+                regimeReason: regimeResult.reason
             });
         } catch (e) {
             await deps.notify(`انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`);
