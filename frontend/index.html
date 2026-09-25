@@ -301,6 +301,12 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <div class="brand-sub">Option Hunter</div>
     </header>
 
+    <!-- Live Dashboard -->
+    <div class="card" id="cardLiveDashboard">
+        <h2>داشبورد زنده <button class="btn tiny outline" onclick="loadLiveDashboard()">رفرش</button></h2>
+        <div id="dashboardContent"><div class="empty-note">در حال بارگذاری...</div></div>
+    </div>
+
     <div class="card collapsible open" id="cardPipeline">
         <h2 onclick="toggleCard('cardPipeline')"><span class="h2-title">خط لوله داده</span><span class="chev">▼</span></h2>
         <div class="card-body">
@@ -906,6 +912,99 @@ let signalHistoryLimit = 5, signalHistoryCache = null;
 async function loadSignalHistory() { try { signalHistoryCache = await apiFetch(`${BACKEND_URL}/api/signal-history`, {}, 0); signalHistoryLimit = 5; renderSignalHistory(); } catch (e) {} }
 function renderSignalHistory() { const tb = document.getElementById('signalHistoryBody'); if (!tb) return; const list = signalHistoryCache || []; if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="9">سیگنالی نیست</td></tr>'; const shown = list.slice(0, signalHistoryLimit); tb.innerHTML = shown.map(x => { let roleTag = '<span class="role-badge leader">لیدر</span>'; if (x.role === 'confirmer') roleTag = '<span class="role-badge confirmer">تایید</span>'; else if (x.role === 'multi-confirmer') roleTag = '<span class="role-badge leader">چند-تایید</span>'; const confTag = x.confirmers && x.confirmers.length ? `<span class="badge long">${x.confirmers.length} تایید</span>` : ''; const badges = `${x.confluence>1?`<span class="badge long">${x.confluence}x</span>`:''}${x.queue==='buy'?'<span class="badge warn">صف خرید</span>':''}${confTag}`; return `<tr><td>${fmtT(x.time)}</td><td>${esc(x.symbol)}</td><td>${esc(x.strategyName||x.strategyId)} - ${TF_LABELS[x.timeframe]||''}</td><td>${roleTag}</td><td>${SIGNAL_LABELS[x.signalType]||x.signalType}</td><td>${x.price?x.price.toLocaleString():'-'}</td><td>${trendBadge(x.htfTrend)}</td><td style="font-size:11px;">${esc(x.reason||'-')}</td><td>${badges}</td></tr>`; }).join(''); if (list.length > signalHistoryLimit) tb.innerHTML += `<tr><td colspan="9" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش بیشتر (${list.length - signalHistoryLimit})</button></td></tr>`; }
 async function clearSignalHistory() { if (!confirm('کل تاریخچه پاک شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/signal-history`, { method:'DELETE' }); await loadSignalHistory(); } catch (e) { showAlert('خطا: ' + e.message); } }
+
+// ============================================================
+// Live Dashboard
+// ============================================================
+async function loadLiveDashboard() {
+    const el = document.getElementById('dashboardContent');
+    if (!el) return;
+    try {
+        const d = await apiFetch(`${BACKEND_URL}/api/dashboard/live`, {}, 0);
+
+        const fmtM = n => (n / 1000000).toFixed(1) + 'M';
+        const capital = d.capital || {};
+        const open = d.openPositions || {};
+        const today = d.today || {};
+        const d30 = d.last30d || {};
+        const drift = d.drift;
+
+        const statBox = (label, val, cls) => `<div class="stat ${cls||''}"><small>${label}</small><b>${val}</b></div>`;
+
+        const driftBox = drift ? `
+            <div style="margin-top:10px; padding:8px 12px; border-radius:6px; background:${drift.severity === 'critical' ? 'rgba(217,83,79,.12)' : drift.severity === 'warn' ? 'rgba(201,151,61,.12)' : 'rgba(46,168,138,.08)'};">
+                <b>Drift:</b> Live PF = <b>${drift.livePF ?? '—'}</b> | Backtest PF = <b>${drift.backtestPF}</b> | نسبت = <b>${(drift.ratio * 100).toFixed(0)}%</b>
+                ${drift.message ? ' — ' + esc(drift.message) : ''}
+            </div>
+        ` : `<div class="hint" style="margin-top:10px;">Backtest PF ثبت نشده — drift غیرفعال</div>`;
+
+        const positionsRows = (open.positions || []).slice(0, 10).map(p => `<tr>
+            <td><b>${esc(p.underlying)}</b></td>
+            <td>${esc(p.symbol)}</td>
+            <td>${fmtN(p.strike)}</td>
+            <td>${p.expiry || '-'}</td>
+            <td>${fmtN(p.entryAsk)}</td>
+            <td>${p.positionSize}</td>
+            <td>${fmtN(p.entryValue)}</td>
+            <td>${pct(p.lastPnlPct)}</td>
+            <td>${fmtN(p.unrealized)}</td>
+        </tr>`).join('');
+
+        el.innerHTML = `
+            <div class="stats-grid">
+                ${statBox('سرمایه کل', fmtM(capital.total) + ' T', '')}
+                ${statBox('درگیری', fmtM(capital.exposure) + ' (' + capital.exposurePct + '%)', capital.exposurePct > 40 ? 'highlight-bad' : '')}
+                ${statBox('نقد', fmtM(capital.cash) + ' T')}
+                ${statBox('پوزیشن باز', open.count || 0, open.count > 0 ? 'highlight-good' : '')}
+                ${statBox('Unrealized', fmtM(open.totalUnrealized || 0))}
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px;">
+                <div>
+                    <div class="menu-label">امروز</div>
+                    <div class="menu-status-grid" style="font-size:11.5px;">
+                        <div class="menu-status-row"><span>سیگنال</span><b>${today.signals || 0}</b></div>
+                        <div class="menu-status-row"><span>رد شده</span><b style="color:${today.rejected > 0 ? 'var(--warn)' : 'var(--text-dim)'};">${today.rejected || 0}</b></div>
+                        <div class="menu-status-row"><span>باز شده</span><b>${today.opened || 0}</b></div>
+                        <div class="menu-status-row"><span>بسته شده</span><b>${today.closed || 0}</b></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="menu-label">30 روز اخیر</div>
+                    <div class="menu-status-grid" style="font-size:11.5px;">
+                        <div class="menu-status-row"><span>معاملات</span><b>${d30.trades || 0}</b></div>
+                        <div class="menu-status-row"><span>وین ریت</span><b>${d30.winRate || 0}%</b></div>
+                        <div class="menu-status-row"><span>PF</span><b>${d30.pf ?? '—'}</b></div>
+                        <div class="menu-status-row"><span>میانگین</span><b>${pct(d30.avgPnl)}</b></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="menu-label">Drift</div>
+                    ${drift ? `
+                        <div class="menu-status-grid" style="font-size:11.5px;">
+                            <div class="menu-status-row"><span>Live PF</span><b>${drift.livePF ?? '—'}</b></div>
+                            <div class="menu-status-row"><span>Backtest PF</span><b>${drift.backtestPF}</b></div>
+                            <div class="menu-status-row"><span>نسبت</span><b style="color:${drift.severity === 'critical' ? 'var(--bad)' : drift.severity === 'warn' ? 'var(--warn)' : 'var(--good)'};">${(drift.ratio * 100).toFixed(0)}%</b></div>
+                        </div>
+                    ` : '<div class="empty-note">—</div>'}
+                </div>
+            </div>
+            ${driftBox}
+
+            ${positionsRows ? `
+                <h4 style="font-size:13px; color:var(--accent); margin:14px 0 6px;">پوزیشن‌های باز (${open.count})</h4>
+                <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
+                    <table class="data-table">
+                        <thead><tr><th>پایه</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>ورود</th><th>حجم</th><th>ارزش</th><th>PnL%</th><th>Unrealized</th></tr></thead>
+                        <tbody>${positionsRows}</tbody>
+                    </table>
+                </div>
+            ` : '<div class="empty-note" style="margin-top:10px;">هیچ پوزیشن بازی نیست</div>'}
+        `;
+    } catch (e) {
+        el.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
+    }
+}
 
 async function openAnalysisPanel() {
     openModal('تحلیل آماری (فاز ۱)', '<div style="text-align:center;padding:30px;">در حال دریافت لیست jobها...</div>');
@@ -2111,6 +2210,7 @@ window.addEventListener('load', async () => {
     await loadConfigs();
     await loadSignalHistory();
     await loadOptionPositions();
+    await loadLiveDashboard();
     updateIndCount();
     await algotikRefresh();
     updateTickerStatus();
@@ -2121,6 +2221,7 @@ window.addEventListener('load', async () => {
     setInterval(refreshQuotesOnly, 30000);
     setInterval(loadSignalHistory, 60000);
     setInterval(loadOptionPositions, 60000);
+    setInterval(loadLiveDashboard, 30000);
     startDataPipelinePolling();
 });
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });
