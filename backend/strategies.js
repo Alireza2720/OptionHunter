@@ -1014,11 +1014,87 @@
 
     // ==================== رجیستری ====================
     const STRATEGIES = {
-        // ⛔ حذف شد — backtest: -13% روی 77 معامله
-        // orb: { ... },
-        // ⛔ حذف شد —
-        //  backtest: -72% روی 76 معامله، WR=34% vwap_bounce
-        // rsi50_2 (PF=0.17), pin_bar (PF=0.32), london_breakout (PF=0.44)
+        smc_unicorn: {
+            id: 'smc_unicorn',
+            name: 'SMC Unicorn',
+            defaultTimeframe: '1h',
+            htfTimeframe: '1d',
+            defaultParams: SMC_DEFAULTS,
+            indicators: ['atr', 'trend'],
+            run: runSMCUnicorn
+        },
+        ob_sweep: {
+            id: 'ob_sweep',
+            name: 'OB + Sweep',
+            defaultTimeframe: '1h',
+            htfTimeframe: '1d',
+            defaultParams: OB_DEFAULTS,
+            indicators: ['atr'],
+            run: runOBSweep
+        },
+        supply_demand: {
+            id: 'supply_demand',
+            name: 'Supply & Demand',
+            defaultTimeframe: '30m',
+            htfTimeframe: '1d',
+            defaultParams: SDZ_DEFAULTS,
+            indicators: ['atr'],
+            run: runSupplyDemand
+        },
+        ob_after_sweep: {
+            id: 'ob_after_sweep',
+            name: 'OB After Sweep',
+            defaultTimeframe: '1h',
+            htfTimeframe: '1d',
+            defaultParams: OBAS_DEFAULTS,
+            indicators: ['atr'],
+            run: runOBAfterSweep
+        },
+        supertrend: {
+            id: 'supertrend',
+            name: 'Supertrend',
+            defaultTimeframe: '30m',
+            htfTimeframe: '1d',
+            defaultParams: ST_DEFAULTS,
+            indicators: ['atr', 'supertrendDir'],
+            run: runSupertrend
+        },
+        bb_squeeze: {
+            id: 'bb_squeeze',
+            name: 'BB Squeeze Breakout',
+            defaultTimeframe: '30m',
+            htfTimeframe: '1d',
+            defaultParams: BBSQ_DEFAULTS,
+            indicators: ['atr', 'squeeze'],
+            run: runBollingerSqueeze
+        },
+        donchian: {
+            id: 'donchian',
+            name: 'Donchian Breakout',
+            defaultTimeframe: '1h',
+            htfTimeframe: '1d',
+            defaultParams: DONCH_DEFAULTS,
+            indicators: ['atr'],
+            run: runDonchianBreakout
+        },
+        keltner_pb: {
+            id: 'keltner_pb',
+            name: 'Keltner Pullback',
+            defaultTimeframe: '30m',
+            htfTimeframe: '1d',
+            defaultParams: KCPB_DEFAULTS,
+            indicators: ['atr'],
+            run: runKeltnerPullback
+        },
+        ensemble: {
+            id: 'ensemble',
+            name: 'Ensemble',
+            defaultTimeframe: '30m',
+            htfTimeframe: '1d',
+            defaultParams: ENSEMBLE_DEFAULTS,
+            indicators: ['atr', 'buyWeight', 'exitWeight'],
+            run: runEnsemble
+        }
     };
 
     function getRequiredCandles(id, params) {
