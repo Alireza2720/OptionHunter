@@ -25,7 +25,9 @@ from pipeline import jobs as job_mod
 
 # 🆕 Floor: کف داده — جلوگیری از دانلود قدیمی‌تر
 # دلیل: option data از این تاریخ شروع می‌شه
-DATA_FLOOR = '2026-06-09'
+# ⚠️ فرمت باید شمسی با - باشه (هم‌راست با frontend jdpNormalize)
+# 1405/03/19 معادل میلادی 2026-06-09 است
+DATA_FLOOR = '1405-03-19'
 from pipeline import report as rpt_mod
 from pipeline import live as live_mod
 from pipeline.db import (
