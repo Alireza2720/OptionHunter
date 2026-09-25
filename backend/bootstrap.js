@@ -30,6 +30,8 @@ const analysisService = require('./services/analysis.service');
 const portfolioService = require('./services/portfolio.service');
 const correlationService = require('./services/correlation.service');
 const correlationJob = require('./jobs/correlation.job');
+const signalFilterService = require('./services/signal-filter.service');
+const executionGuard = require('./core/execution-guard');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -138,7 +140,7 @@ async function bootstrap() {
         getTehranParts: dataService.getTehranParts
     });
 
-    // 10) signals core
+    // 10) signals core (با guard مشترک)
     signalsCore.init({
         getDB: mongo.getDB,
         strategies: strategiesBundle,
@@ -149,7 +151,10 @@ async function bootstrap() {
         entryWindow: () => settingsModule.entryWindow(),
         confluenceWindow: () => settingsModule.confluenceTimeWindow(),
         multiConfirmerMin: () => settingsModule.multiConfirmerMin(),
-        minTargetPct: () => settingsModule.minTargetPct()
+        minTargetPct: () => settingsModule.minTargetPct(),
+        executionGuard,
+        signalFilterService,
+        correlationService
     });
 
     // 11) services
@@ -194,6 +199,13 @@ async function bootstrap() {
         logger
     });
 
+    // 11.5.5) signal filter service
+    signalFilterService.init({
+        getDB: mongo.getDB,
+        logger,
+        analysisService
+    });
+
     // 11.6) correlation service (Phase 3 Step 2)
     correlationService.init({
         getDB: mongo.getDB,
@@ -206,7 +218,8 @@ async function bootstrap() {
         logger,
         settings: settingsModule,
         correlationService,
-        analysisService   // 🆕
+        analysisService,
+        signalFilterService   // 🆕
     });
 
     // 11.8) correlation job

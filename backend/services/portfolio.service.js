@@ -14,7 +14,8 @@ let deps = {
     logger: null,
     settings: null,
     correlationService: null,
-    analysisService: null   // 🆕
+    analysisService: null,
+    signalFilterService: null   // 🆕
 };
 function init(d) { deps = { ...deps, ...d }; }
 
@@ -63,6 +64,32 @@ async function simulateFromJob(jobId, opts = {}) {
                 deps.logger && deps.logger.info(
                     `signal filter: ${fr.filter.keptCount} / ${fr.filter.originalCount} kept`
                 );
+
+                // 🆕 whitelist رو برای مسیر زنده ذخیره کن
+                if (deps.signalFilterService && fr.filter.allowedPairs) {
+                    try {
+                        const db2 = deps.getDB();
+                        await db2.collection('meta').updateOne(
+                            { _id: 'signal_whitelist' },
+                            { $set: {
+                                jobId: String(jobId),
+                                pairs: fr.filter.allowedPairs,
+                                strategies: fr.filter.allowedStrategies,
+                                symbols: fr.filter.allowedSymbols,
+                                filterMode: opts.filterMode || 'pair',
+                                computedAt: new Date(),
+                                stats: {
+                                    totalPairs: fr.filter.originalCount,
+                                    allowedPairs: fr.filter.allowedPairs.length
+                                }
+                            }},
+                            { upsert: true }
+                        );
+                        deps.logger.info(`signal whitelist saved: ${fr.filter.allowedPairs.length} pairs`);
+                    } catch (e) {
+                        deps.logger.warn('save whitelist: ' + e.message);
+                    }
+                }
             }
         } catch (e) {
             deps.logger && deps.logger.warn('signal filter: ' + e.message);

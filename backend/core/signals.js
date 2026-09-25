@@ -18,15 +18,19 @@ const { TIMEFRAME_MINUTES, COLLECTIONS } = require('../config/constants');
 
 let deps = {
     getDB: null,
-    strategies: null,           // { STRATEGIES, getRequiredCandles, getRequiredHtfCandles, TIMEFRAME_MINUTES }
-    dataService: null,          // services/data.service
-    options: null,              // core/options
-    settings: null,             // settings.js قدیمی
-    notify: null,               // infra/telegram.notify
+    strategies: null,
+    dataService: null,
+    options: null,
+    settings: null,
+    notify: null,
     entryWindow: () => ({ start: 9 * 60 + 30, end: 12 * 60 }),
     confluenceWindow: () => 0,
     multiConfirmerMin: () => 2,
-    minTargetPct: () => 4.5
+    minTargetPct: () => 4.5,
+    // 🆕 اجرای مشترک
+    executionGuard: null,
+    signalFilterService: null,
+    correlationService: null
 };
 
 function init(d) {
@@ -37,6 +41,94 @@ function init(d) {
 // Helpers
 // ============================================================
 const short = (s, n = 60) => String(s || '').slice(0, n);
+
+const { getSectorMap } = require('./sectors');
+
+// ============================================================
+// 🆕 ساخت state پرتفولیو از option_positions باز
+// ============================================================
+async function buildPortfolioState() {
+    const db = deps.getDB();
+    const open = await db.collection(COLLECTIONS.OPTION_POSITIONS)
+        .find({ status: 'open' }).toArray();
+    const portfolio = deps.executionGuard.emptyPortfolio();
+    const now = Math.floor(Date.now() / 1000);
+    for (const p of open) {
+        const value = (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
+        // تخمین exitTime: از scenario.horizonDays
+        const horizonDays = (p.scenario && p.scenario.horizonDays) || 14;
+        const entryTs = Math.floor(new Date(p.entryTime).getTime() / 1000);
+        const exitTs = entryTs + horizonDays * 86400;
+        // اگه منقضی شده (گذشته) نادیده بگیر
+        if (exitTs <= now) continue;
+        deps.executionGuard.addPosition(portfolio, p.underlying, value, exitTs);
+    }
+    return portfolio;
+}
+
+// ============================================================
+// 🆕 بررسی guard قبل از ارسال سیگنال BUY
+// ============================================================
+async function checkSignalGuard(config, last, lastPrice, info) {
+    if (!deps.executionGuard) return { allowed: true };   // backward compat
+
+    try {
+        // 1) portfolio state
+        const portfolio = await buildPortfolioState();
+
+        // 2) limits از settings
+        const s = deps.settings.get();
+        const whitelist = deps.signalFilterService
+            ? await deps.signalFilterService.getWhitelist()
+            : null;
+
+        const limits = {
+            ...deps.executionGuard.DEFAULT_LIMITS,
+            capital: deps.settings.capital(),
+            riskPct: s.RISK_PER_TRADE_PCT || 1.5,
+            maxSymPct: s.MAX_SYMBOL_EXPOSURE_PCT || 20,
+            maxTotalPct: s.MAX_TOTAL_EXPOSURE_PCT || 50,
+            useSignalFilter: !!whitelist,
+            signalWhitelist: whitelist ? whitelist.pairs : null
+        };
+
+        // 3) ctx
+        const corrDoc = deps.correlationService
+            ? await deps.correlationService.getCached()
+            : null;
+        const corrMatrix = corrDoc ? corrDoc.matrix : null;
+
+        const monitored = await deps.getDB()
+            .collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
+        const sectorMap = getSectorMap(monitored.map(m => m.symbol));
+
+        // 4) همه‌ی configهای enabled → stats
+        const allConfigs = await deps.getDB()
+            .collection(COLLECTIONS.STRATEGY_CONFIGS).find({ enabled: true }).toArray();
+        const allTrades = [];   // TODO: from backtest details اگه داشتیم — فعلاً خالی
+        const stats = deps.executionGuard.computeGlobalStats(allTrades);
+
+        const ctx = deps.executionGuard.buildContext(limits, [], {
+            corrMatrix, sectorMap, stats
+        });
+
+        // 5) candidate
+        const candidate = {
+            symbol: config.symbol,
+            strategyId: config.strategyId,
+            optionEntry: lastPrice,   // تخمین — actual entry در options.onBuySignal
+            size: 1000,
+            entryTime: Math.floor(Date.now() / 1000)
+        };
+
+        // 6) decision
+        const decision = deps.executionGuard.canOpen(candidate, portfolio, limits, ctx);
+        return decision;
+    } catch (e) {
+        deps.logger && deps.logger.warn('checkSignalGuard: ' + e.message);
+        return { allowed: true, error: e.message };   // در خطا، اجازه بده (fail-open)
+    }
+}
 
 function sameDay(t1, t2) {
     const a = deps.dataService.getTehranParts(new Date(t1 * 1000));
@@ -268,6 +360,29 @@ async function evaluateConfig(config, marketInfo) {
         `${info ? ` | لحظه ای: ${info.price.toLocaleString()}` : ''}\n` +
         `دلیل: ${short(last.reason || '-', 200)}` +
         `${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
+
+    // 🆕 اگه BUY هست، guard رو چک کن
+    if (last.signalType === 'BUY') {
+        const guardResult = await checkSignalGuard(config, last, lastPrice, info);
+        if (!guardResult.allowed) {
+            const reasonText = `⛔ سیگنال ${config.symbol} رد شد\n${config.strategyId}\nدلیل: ${guardResult.reason}`;
+            await deps.notify(reasonText);
+
+            await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
+                configId, symbol: config.symbol,
+                strategyId: config.strategyId, strategyName: def.name,
+                timeframe: config.timeframe,
+                signalType: last.signalType,
+                price: lastPrice, time: last.time,
+                reason: last.reason || null,
+                rejected: true,
+                rejectionReason: guardResult.reason,
+                violations: guardResult.violations || [],
+                createdAt: new Date()
+            });
+            return;
+        }
+    }
 
     await deps.notify(text);
 

@@ -12,6 +12,38 @@ function register(app, deps) {
             const r = await portfolioService.simulateFromJob(req.params.jobId, opts);
             res.json(r);
         } catch (e) { next(e); }
+        // 🆕 whitelist status/management
+    app.get('/api/portfolio/whitelist', async (req, res, next) => {
+        try {
+            const wl = await deps.signalFilterService.getWhitelist();
+            if (!wl) return res.status(404).json({ error: 'whitelist ساخته نشده' });
+            res.json({
+                jobId: wl.jobId,
+                computedAt: wl.computedAt,
+                filterMode: wl.filterMode,
+                pairsCount: wl.pairs.size,
+                strategies: Array.from(wl.strategies),
+                symbolsCount: wl.symbols.size,
+                pairs: Array.from(wl.pairs)
+            });
+        } catch (e) { next(e); }
+    });
+
+    app.post('/api/portfolio/whitelist/rebuild/:jobId', async (req, res, next) => {
+        try {
+            const r = await deps.signalFilterService.buildAndSaveWhitelist(
+                req.params.jobId, req.body || {}
+            );
+            res.json(r);
+        } catch (e) { next(e); }
+    });
+
+    app.delete('/api/portfolio/whitelist', async (req, res, next) => {
+        try {
+            await deps.signalFilterService.clear();
+            res.json({ success: true });
+        } catch (e) { next(e); }
+    });
     });
 
     // 🆕 محاسبه‌ی پیش‌نمایش فیلتر بدون sim
