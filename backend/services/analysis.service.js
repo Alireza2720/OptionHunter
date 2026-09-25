@@ -4,7 +4,7 @@
 // ============================================================
 // - Bootstrap CI 95% روی PF
 // - One-sample t-test (H0: mean=0)
-// - Rolling segments (پنجره‌های ۳ گانه)
+// - Rolling segments (پنجره‌های ۳ گانه) با skip برای N کم
 // - Sharpe ratio
 // - Gate evaluation
 // ============================================================
@@ -15,7 +15,7 @@ let deps = { getDB: null, logger: null };
 function init(d) { deps = { ...deps, ...d }; }
 
 // ============================================================
-// Statistical helpers
+// Helpers
 // ============================================================
 function mean(arr) {
     if (!arr.length) return 0;
@@ -35,8 +35,26 @@ function profitFactorFromPnls(pnls) {
     const gp = wins.reduce((s, x) => s + x, 0);
     const gl = -losses.reduce((s, x) => s + x, 0);
     if (gl > 0) return gp / gl;
-    if (gp > 0) return Infinity;
+    if (gp > 0) return Infinity;   // هیچ ضرری نبوده
     return 0;
+}
+
+// 🆕 round برای اعداد با پشتیبانی از Infinity
+function roundPF(v) {
+    if (v === null || v === undefined) return null;
+    if (v === Infinity) return 999;
+    if (!Number.isFinite(v)) return null;
+    return Math.round(v * 100) / 100;
+}
+
+function round2(v) {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    return Math.round(v * 100) / 100;
+}
+
+function round4(v) {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    return Math.round(v * 10000) / 10000;
 }
 
 // ============================================================
@@ -65,26 +83,33 @@ function bootstrapCI(pnls, iterations = 10000) {
     totalReturns.sort((a, b) => a - b);
 
     const pct = (arr, p) => arr[Math.max(0, Math.min(arr.length - 1, Math.floor(arr.length * p)))];
-    const capInf = v => Number.isFinite(v) ? v : 999;
+
+    // 🆕 cap بدترین PF روی 999 برای حلقه‌های بی‌ضرر
+    const capPF = v => Number.isFinite(v) ? v : 999;
+
+    const lowerBound = capPF(pct(pfs, 0.025));
+    const finalPF = profitFactorFromPnls(pnls);
 
     return {
         iterations,
+        // PF خام نمونه اصلی (بدون rounding)
+        rawPF: finalPF === Infinity ? 999 : round2(finalPF),
         pf: {
-            p2_5:   capInf(pct(pfs, 0.025)),
-            p5:     capInf(pct(pfs, 0.05)),
-            p25:    capInf(pct(pfs, 0.25)),
-            median: capInf(pct(pfs, 0.50)),
-            p75:    capInf(pct(pfs, 0.75)),
-            p95:    capInf(pct(pfs, 0.95)),
-            p97_5:  capInf(pct(pfs, 0.975)),
-            mean:   capInf(mean(pfs)),
-            significant: capInf(pct(pfs, 0.025)) > 1.0
+            p2_5:   capPF(pct(pfs, 0.025)),
+            p5:     capPF(pct(pfs, 0.05)),
+            p25:    capPF(pct(pfs, 0.25)),
+            median: capPF(pct(pfs, 0.50)),
+            p75:    capPF(pct(pfs, 0.75)),
+            p95:    capPF(pct(pfs, 0.95)),
+            p97_5:  capPF(pct(pfs, 0.975)),
+            mean:   capPF(mean(pfs)),
+            significant: lowerBound > 1.0
         },
         totalReturn: {
-            p2_5:   pct(totalReturns, 0.025),
-            median: pct(totalReturns, 0.50),
-            p97_5:  pct(totalReturns, 0.975),
-            probLoss: totalReturns.filter(x => x < 0).length / iterations * 100
+            p2_5:   round2(pct(totalReturns, 0.025)),
+            median: round2(pct(totalReturns, 0.50)),
+            p97_5:  round2(pct(totalReturns, 0.975)),
+            probLoss: round2(totalReturns.filter(x => x < 0).length / iterations * 100)
         }
     };
 }
@@ -108,7 +133,6 @@ function tTestOneSample(pnls, mu0 = 0) {
     };
 }
 
-// Student-t CDF via incomplete beta (Abramowitz & Stegun)
 function studentTCdf(t, df) {
     const x = df / (df + t * t);
     const ib = incompleteBeta(x, df / 2, 0.5);
@@ -166,32 +190,65 @@ function logGamma(x) {
 }
 
 // ============================================================
-// Rolling segments
+// Rolling segments — با حداقل اندازه‌ی segment
 // ============================================================
-function rollingSegments(pnls, numSegments = 3) {
+function rollingSegments(pnls, requestedSegments = 3, minSegSize = 3) {
     const N = pnls.length;
-    if (N < numSegments) return null;
+
+    // 🆕 اگه تعداد کمه، skip کن
+    if (N < requestedSegments * minSegSize) {
+        // تلاش برای کاهش تعداد segments
+        const possible = Math.floor(N / minSegSize);
+        if (possible < 2) {
+            return {
+                skipped: true,
+                reason: `only ${N} trades — need at least ${minSegSize * 2} for rolling`,
+                tradeCount: N,
+                minSegSize,
+                consistencyPct: null,
+                profitable: null,
+                segments: []
+            };
+        }
+        // با تعداد کمتر segments ادامه بده
+        return buildSegments(pnls, possible, minSegSize);
+    }
+    return buildSegments(pnls, requestedSegments, minSegSize);
+}
+
+function buildSegments(pnls, numSegments, minSegSize) {
+    const N = pnls.length;
     const segSize = Math.floor(N / numSegments);
     const segments = [];
     for (let i = 0; i < numSegments; i++) {
         const from = i * segSize;
         const to = i === numSegments - 1 ? N : (i + 1) * segSize;
         const seg = pnls.slice(from, to);
-        if (!seg.length) continue;
+        if (seg.length < minSegSize) continue;
+        const rawPf = profitFactorFromPnls(seg);
         segments.push({
             index: i + 1,
             count: seg.length,
-            pf: round2(profitFactorFromPnls(seg)),
+            // 🆕 هم نسخه‌ی گرد‌شده، هم خام
+            pf: roundPF(rawPf),
+            pfRaw: rawPf,
             mean: round2(mean(seg)),
+            totalPnl: round2(seg.reduce((s, x) => s + x, 0)),
             winRate: round2(seg.filter(x => x > 0).length / seg.length * 100)
         });
     }
-    const profitable = segments.filter(s => s.pf > 1).length;
+    const profitable = segments.filter(s => s.pfRaw > 1).length;
+    const withData = segments.length;
+    const consistency = withData > 0 ? (profitable / withData * 100) : null;
+
     return {
+        skipped: false,
         segments,
-        numSegments,
+        numSegments: withData,
         profitable,
-        consistencyPct: round2(profitable / numSegments * 100)
+        withData,
+        consistencyPct: round2(consistency),
+        minSegSize
     };
 }
 
@@ -223,22 +280,35 @@ async function analyzeConfig(jobId, symbol, strategyId, opts = {}) {
 
     const bootstrap = bootstrapCI(pnls, iterations);
     const ttest = tTestOneSample(pnls);
-    const rolling = rollingSegments(pnls, 3);
+    const rolling = rollingSegments(pnls, 3, 3);
 
-    // Sharpe (annualized-ish)
-    const annualFactor = Math.sqrt(245 / 65);  // ~104 trading days in sample
+    // Sharpe
+    const annualFactor = Math.sqrt(245 / 65);
     const sharpe = stdev(pnls) > 0
         ? round2((mean(pnls) / stdev(pnls)) * Math.sqrt(pnls.length) * annualFactor)
         : null;
 
+    // 🆕 Gate: اگه rolling skip شده، به عنوان pass در نظر نگیر ولی fail هم نکن
+    const rollingPassed = rolling.skipped
+        ? null  // → مشخص می‌کنه insufficient
+        : rolling.consistencyPct >= 66.7;
+
     const gate = {
         bootstrapLowerBoundPF: bootstrap.pf.p2_5 > 1.0,
         ttestSignificant: ttest.p < 0.05,
-        rollingConsistency: rolling ? rolling.consistencyPct >= 66.7 : false,
+        rollingConsistency: rollingPassed,
         sharpeOk: sharpe !== null && sharpe > 1.0
     };
-    gate.allPassed = gate.bootstrapLowerBoundPF && gate.ttestSignificant
-        && gate.rollingConsistency && gate.sharpeOk;
+
+    // 🆕 اگه rolling نامعلومه، فقط 3 شرط دیگه چک می‌شن
+    const hardGates = [gate.bootstrapLowerBoundPF, gate.ttestSignificant, gate.sharpeOk];
+    const allHardPassed = hardGates.every(x => x === true);
+
+    gate.allPassed = rollingPassed === null
+        ? allHardPassed  // rolling skip → 3 شرط سخت‌گیرانه دیگه
+        : (allHardPassed && rollingPassed);
+
+    gate.rollingInsufficient = rollingPassed === null;
 
     return {
         jobId, symbol, strategyId,
@@ -248,7 +318,7 @@ async function analyzeConfig(jobId, symbol, strategyId, opts = {}) {
         rawStats: {
             mean: round2(mean(pnls)),
             totalPnl: round2(pnls.reduce((s, x) => s + x, 0)),
-            pf: round2(profitFactorFromPnls(pnls)),
+            pf: roundPF(profitFactorFromPnls(pnls)),        // 🆕 Infinity→999
             winRate: round2(pnls.filter(x => x > 0).length / pnls.length * 100),
             stdev: round2(stdev(pnls)),
             sharpe
@@ -261,7 +331,7 @@ async function analyzeConfig(jobId, symbol, strategyId, opts = {}) {
 }
 
 // ============================================================
-// Analyze whole job (all candidates with >= minTrades)
+// Analyze whole job
 // ============================================================
 async function analyzeJob(jobId, opts = {}) {
     const db = deps.getDB();
@@ -281,8 +351,10 @@ async function analyzeJob(jobId, opts = {}) {
         }
     }
 
+    // sort by lower bound PF (کنسرواتیوترین معیار)
     results.sort((a, b) => (b.bootstrap.pf.p2_5 || 0) - (a.bootstrap.pf.p2_5 || 0));
     const passing = results.filter(r => r.gate.allPassed);
+    const rollingInsufficient = results.filter(r => r.gate.rollingInsufficient).length;
 
     return {
         jobId,
@@ -291,17 +363,9 @@ async function analyzeJob(jobId, opts = {}) {
         iterations: opts.iterations || 10000,
         totalAnalyzed: results.length,
         passing: passing.length,
+        rollingInsufficient,
         results
     };
-}
-
-function round2(v) {
-    if (v === null || v === undefined || !Number.isFinite(v)) return null;
-    return Math.round(v * 100) / 100;
-}
-function round4(v) {
-    if (v === null || v === undefined || !Number.isFinite(v)) return null;
-    return Math.round(v * 10000) / 10000;
 }
 
 module.exports = {
