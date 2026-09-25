@@ -4,18 +4,25 @@
 // ============================================================
 
 function register(app, deps) {
-    const { portfolioService, correlationService } = deps;
+    const { portfolioService, correlationService, signalFilterService, analysisService } = deps;
 
+    // ------------------------------------------------------------
+    // Simulate
+    // ------------------------------------------------------------
     app.post('/api/portfolio/simulate/:jobId', async (req, res, next) => {
         try {
             const opts = req.body || {};
             const r = await portfolioService.simulateFromJob(req.params.jobId, opts);
             res.json(r);
         } catch (e) { next(e); }
-        // 🆕 whitelist status/management
+    });
+
+    // ------------------------------------------------------------
+    // Whitelist
+    // ------------------------------------------------------------
     app.get('/api/portfolio/whitelist', async (req, res, next) => {
         try {
-            const wl = await deps.signalFilterService.getWhitelist();
+            const wl = await signalFilterService.getWhitelist();
             if (!wl) return res.status(404).json({ error: 'whitelist ساخته نشده' });
             res.json({
                 jobId: wl.jobId,
@@ -31,7 +38,7 @@ function register(app, deps) {
 
     app.post('/api/portfolio/whitelist/rebuild/:jobId', async (req, res, next) => {
         try {
-            const r = await deps.signalFilterService.buildAndSaveWhitelist(
+            const r = await signalFilterService.buildAndSaveWhitelist(
                 req.params.jobId, req.body || {}
             );
             res.json(r);
@@ -40,18 +47,18 @@ function register(app, deps) {
 
     app.delete('/api/portfolio/whitelist', async (req, res, next) => {
         try {
-            await deps.signalFilterService.clear();
+            await signalFilterService.clear();
             res.json({ success: true });
         } catch (e) { next(e); }
     });
-    });
 
-    // 🆕 محاسبه‌ی پیش‌نمایش فیلتر بدون sim
+    // ------------------------------------------------------------
+    // Filter preview
+    // ------------------------------------------------------------
     app.post('/api/portfolio/filter-preview/:jobId', async (req, res, next) => {
         try {
-            const analysis = await deps.analysisService.analyzeJob(req.params.jobId, { minTrades: 5, iterations: 1000 });
+            const analysis = await analysisService.analyzeJob(req.params.jobId, { minTrades: 5, iterations: 1000 });
             const { filterTrades } = require('../../core/signal-filter');
-            // استخراج tradeها
             const db = deps.getDB();
             const details = await db.collection('backtest_compare_details')
                 .find({ jobId: String(req.params.jobId) }).toArray();
@@ -72,7 +79,9 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // 🆕 Correlation matrix endpoints
+    // ------------------------------------------------------------
+    // Correlation matrix
+    // ------------------------------------------------------------
     app.get('/api/portfolio/correlation', async (req, res, next) => {
         try {
             const cached = await correlationService.getCached();
