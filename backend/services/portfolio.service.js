@@ -6,8 +6,14 @@
 const { COLLECTIONS } = require('../config/constants');
 const portfolioCore = require('../core/portfolio');
 const sizing = require('../core/sizing');
+const { getSectorMap } = require('../core/sectors');
 
-let deps = { getDB: null, logger: null, settings: null };
+let deps = {
+    getDB: null,
+    logger: null,
+    settings: null,
+    correlationService: null
+};
 function init(d) { deps = { ...deps, ...d }; }
 
 async function simulateFromJob(jobId, opts = {}) {
@@ -18,7 +24,6 @@ async function simulateFromJob(jobId, opts = {}) {
         .find({ jobId: String(jobId) })
         .toArray();
 
-    // جمع‌آوری همه‌ی tradeها
     const allTrades = [];
     for (const d of details) {
         if (!d.trades || d.trades.length < minTrades) continue;
@@ -36,49 +41,66 @@ async function simulateFromJob(jobId, opts = {}) {
         return { error: 'هیچ معامله‌ی معتبری برای شبیه‌سازی نیست', jobId };
     }
 
-    // limits
+    // 🆕 Correlation matrix
+    let corrMatrix = null;
+    if (opts.useCorrelation !== false) {
+        const cached = await deps.correlationService.getCached();
+        if (cached && cached.matrix) {
+            corrMatrix = cached.matrix;
+        } else {
+            deps.logger && deps.logger.info('no correlation cache — computing now...');
+            const r = await deps.correlationService.computeAndStore(30);
+            const fresh = await deps.correlationService.getCached();
+            if (fresh && fresh.matrix) corrMatrix = fresh.matrix;
+        }
+    }
+
+    // 🆕 Sector map
+    const symbols = [...new Set(allTrades.map(t => t.symbol))];
+    const sectorMap = getSectorMap(symbols);
+
     const limits = {
         capital: opts.capital || 100_000_000,
         riskPct: opts.riskPct || 1.5,
         maxSymPct: opts.maxSymPct || 20,
         maxTotalPct: opts.maxTotalPct || 50,
         minCashPct: opts.minCashPct || 20,
-        maxPositionSize: opts.maxPositionSize || 10
+        maxPositionSize: opts.maxPositionSize || 10,
+        // Step 2
+        useDuplicateGuard: opts.useDuplicateGuard !== false,
+        useKelly: opts.useKelly !== false,
+        kellyCapPct: opts.kellyCapPct || 3.0,
+        useCorrelation: opts.useCorrelation !== false,
+        corrThreshold: opts.corrThreshold || 0.7,
+        maxClusterPct: opts.maxClusterPct || 30,
+        useSectors: opts.useSectors !== false,
+        maxSectorPct: opts.maxSectorPct || 40,
+        useCVaR: opts.useCVaR !== false,
+        cvarBudgetPct: opts.cvarBudgetPct || 1.0
     };
 
-    const result = portfolioCore.simulate(allTrades, limits);
+    const result = portfolioCore.simulate(allTrades, limits, {
+        corrMatrix,
+        sectorMap
+    });
 
-    // CVaR روی tradeهای قبول‌شده
+    // Advanced
     const pnls = result.trades.map(t => t.pnlPct);
     const cvar = sizing.cvar95(pnls);
-
-    // Kelly
-    const wins = result.trades.filter(t => t.pnlPct > 0);
-    const losses = result.trades.filter(t => t.pnlPct <= 0);
-    const avgWin = wins.length ? wins.reduce((s, t) => s + t.pnlPct, 0) / wins.length : 0;
-    const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + t.pnlPct, 0) / losses.length) : 0;
-    const winRate = result.trades.length ? wins.length / result.trades.length : 0;
-    const kelly = sizing.kellyFraction(winRate, avgWin, avgLoss);
-    const halfK = sizing.halfKelly(winRate, avgWin, avgLoss);
 
     return {
         jobId,
         at: new Date(),
         limits,
-        totalTrades: result.totalTrades,
-        acceptedTrades: result.acceptedTrades,
-        rejectedTrades: result.rejectedTrades,
-        trades: result.trades,
-        rejected: result.rejected.slice(0, 50),   // فقط ۵۰ تای اول برای UI
-        equityCurve: result.equityCurve,
-        stats: result.stats,
+        corrMatrixMeta: corrMatrix
+            ? { symbols: Object.keys(corrMatrix).length }
+            : null,
+        sectorMap,
+        ...result,
         advanced: {
             cvar95: cvar,
-            kellyFraction: Math.round(kelly * 1000) / 1000,
-            halfKelly: Math.round(halfK * 1000) / 1000,
-            avgWin: Math.round(avgWin * 100) / 100,
-            avgLoss: Math.round(avgLoss * 100) / 100,
-            winRate: Math.round(winRate * 10000) / 100
+            kellyFraction: result.globalStats.halfKellyPct / 100 * 2,   // نمایش کامل kelly
+            halfKelly: result.globalStats.halfKellyPct / 100
         }
     };
 }

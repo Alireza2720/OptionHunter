@@ -28,6 +28,8 @@ const backtestService = require('./services/backtest.service');
 const signalService = require('./services/signal.service');
 const analysisService = require('./services/analysis.service');
 const portfolioService = require('./services/portfolio.service');
+const correlationService = require('./services/correlation.service');
+const correlationJob = require('./jobs/correlation.job');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -192,12 +194,30 @@ async function bootstrap() {
         logger
     });
 
-    // 11.6) portfolio service (Phase 3)
+    // 11.6) correlation service (Phase 3 Step 2)
+    correlationService.init({
+        getDB: mongo.getDB,
+        logger
+    });
+
+    // 11.7) portfolio service (Phase 3)
     portfolioService.init({
         getDB: mongo.getDB,
         logger,
-        settings: settingsModule
+        settings: settingsModule,
+        correlationService
     });
+
+    // 11.8) correlation job
+    correlationJob.init({
+        correlationService,
+        logger
+    });
+
+    // initial correlation compute (async, non-blocking)
+    correlationService.computeAndStore(30).catch(e =>
+        logger.warn('initial correlation compute: ' + e.message)
+    );
 
     // 12) jobs
     tickJob.init({
@@ -295,6 +315,8 @@ async function bootstrap() {
         signalService,
         analysisService,
         portfolioService,
+        correlationService,
+        correlationJob,
         // jobs
         tickJob,
         eodJob,

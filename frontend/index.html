@@ -1030,10 +1030,20 @@ async function openPortfolioSim() {
                     <select id="pfJobId">${jobOpts}</select>
                 </div>
                 <div class="field"><label>سرمایه کل</label><input type="number" id="pfCapital" value="100000000"></div>
-                <div class="field"><label>ریسک هر معامله %</label><input type="number" id="pfRiskPct" value="1.5" step="0.1"></div>
+                <div class="field"><label>ریسک %</label><input type="number" id="pfRiskPct" value="1.5" step="0.1"></div>
                 <div class="field"><label>سقف نماد %</label><input type="number" id="pfMaxSym" value="20"></div>
                 <div class="field"><label>سقف کل %</label><input type="number" id="pfMaxTotal" value="50"></div>
+                <div class="field"><label>سقف خوشه %</label><input type="number" id="pfMaxCluster" value="30"></div>
+                <div class="field"><label>سقف صنعت %</label><input type="number" id="pfMaxSector" value="40"></div>
+            </div>
+            <div style="display:flex; gap:14px; flex-wrap:wrap; margin:10px 0; font-size:12.5px;">
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseDup" checked> Duplicate Guard</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseKelly" checked> Kelly</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCorr" checked> Correlation</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseSectors" checked> Sectors</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCvar" checked> CVaR</label>
                 <button class="btn success" id="pfRunBtn" onclick="runPortfolioSim()">اجرا</button>
+                <button class="btn outline small" onclick="refreshCorrelation()">🔄 رفرش Correlation</button>
             </div>
             <div id="pfResults" style="margin-top:16px;"></div>
         `;
@@ -1050,6 +1060,13 @@ async function runPortfolioSim() {
         riskPct: +document.getElementById('pfRiskPct').value,
         maxSymPct: +document.getElementById('pfMaxSym').value,
         maxTotalPct: +document.getElementById('pfMaxTotal').value,
+        maxClusterPct: +document.getElementById('pfMaxCluster').value,
+        maxSectorPct: +document.getElementById('pfMaxSector').value,
+        useDuplicateGuard: document.getElementById('pfUseDup').checked,
+        useKelly: document.getElementById('pfUseKelly').checked,
+        useCorrelation: document.getElementById('pfUseCorr').checked,
+        useSectors: document.getElementById('pfUseSectors').checked,
+        useCVaR: document.getElementById('pfUseCvar').checked,
         minTrades: 5
     };
     const btn = document.getElementById('pfRunBtn');
@@ -1098,7 +1115,7 @@ function renderPortfolioResults(d) {
             <polyline fill="none" stroke="#3d7dd8" stroke-width="2" points="${pts}" />
         </svg>`;
     }
-
+}
     const tradesRows = (d.trades || []).slice(0, 30).map((t, i) => {
         const ret = t.pnlPct;
         return `<tr>
@@ -1114,29 +1131,64 @@ function renderPortfolioResults(d) {
         </tr>`;
     }).join('');
 
+    // 🆕 آمار Step 2
+    const gs = d.globalStats || {};
+    const rej = d.rejectionReasons || {};
+    const rejRows = Object.entries(rej).map(([k, v]) =>
+        `<div class="menu-status-row"><span>${esc(k)}</span><b>${v}</b></div>`
+    ).join('') || '<div class="empty-note">-</div>';
+
+    const clusterBadges = (d.clusterSummary || []).slice(0, 5).map(c => {
+        const symbolList = c.symbols.slice(0, 5).join(', ');
+        const more = c.symbols.length > 5 ? ` +${c.symbols.length - 5}` : '';
+        return `<div style="padding:4px 8px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; margin:2px 0; font-size:11px;">
+            <b>${c.symbols.length} نماد:</b> ${esc(symbolList)}${more}
+        </div>`;
+    }).join('') || '<div class="empty-note">هیچ خوشه‌ای</div>';
+
     rEl.innerHTML = `
         <div class="stats-grid">
             ${statBox('کل معاملات', d.totalTrades || 0)}
             ${statBox('قبول‌شده', d.acceptedTrades || 0, 'highlight-good')}
-            ${statBox('رد شده', d.rejectedTrades || 0, s.maxDD > 20 ? 'highlight-bad' : '')}
-            ${statBox('Equity نهایی', s.finalEquity ? s.finalEquity.toFixed(1) : '-')}
-            ${statBox('Total Return', s.totalReturnPct !== undefined ? pct(s.totalReturnPct) : '-')}
-            ${statBox('MaxDD', s.maxDD !== undefined ? s.maxDD.toFixed(1) + '%' : '-', s.maxDD > 20 ? 'highlight-bad' : '')}
+            ${statBox('رد شده', d.rejectedTrades || 0, '')}
+            ${statBox('Equity نهایی', s.finalEquity || 0)}
+            ${statBox('Total Return', pct(s.totalReturnPct || 0))}
+            ${statBox('MaxDD', s.maxDD !== undefined ? s.maxDD.toFixed(1) + '%' : '-', s.maxDD > 20 ? 'highlight-bad' : 'highlight-good')}
             ${statBox('Win Rate', s.winRate !== undefined ? s.winRate.toFixed(1) + '%' : '-')}
             ${statBox('PF', s.profitFactor !== null && s.profitFactor !== undefined ? (Number.isFinite(s.profitFactor) ? s.profitFactor.toFixed(2) : '∞') : '-')}
             ${statBox('Sharpe', s.sharpe !== null && s.sharpe !== undefined ? s.sharpe.toFixed(2) : '-')}
+            ${statBox('Peak Exposure', s.peakExposure ? (s.peakExposure / 1000000).toFixed(1) + 'M' : '-')}
+            ${statBox('صنایع', s.uniqueSectors || 0)}
+            ${statBox('استراتژی‌ها', s.uniqueStrategies || 0)}
+        </div>
+        <div class="hint" style="margin-top:8px;">
+            Phase 3 Step 2: <b>Kelly ${gs.halfKellyPct}%</b> ·
+            <b>CVaR95 ${gs.cvar95Pct}%</b> ·
+            <b>risk% مؤثر ${gs.effectiveRiskPct}%</b> ·
+            <b>${gs.clustersFound} خوشه</b>
         </div>
         ${eqStr}
         ${chartSvg}
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
+            <div>
+                <h4 style="font-size:12.5px; color:var(--accent); margin-bottom:6px;">دلایل رد</h4>
+                <div class="menu-status-grid" style="font-size:11.5px;">${rejRows}</div>
+            </div>
+            <div>
+                <h4 style="font-size:12.5px; color:var(--accent); margin-bottom:6px;">خوشه‌های همبسته</h4>
+                ${clusterBadges}
+            </div>
+        </div>
+
         <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">معاملات (${(d.trades || []).length})</h4>
         <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
             <table class="data-table">
-                <thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>ورود</th><th>حجم</th><th>ارزش</th><th>بازده</th><th>سود</th><th>توضیح</th></tr></thead>
-                <tbody>${tradesRows || '<tr class="empty-row"><td colspan="9">معامله‌ای نیست</td></tr>'}</tbody>
+                <thead><tr><th>#</th><th>نماد</th><th>صنعت</th><th>استراتژی</th><th>ورود</th><th>حجم</th><th>ارزش</th><th>بازده</th><th>سود</th><th>محدودیت</th></tr></thead>
+                <tbody>${tradesRows || '<tr class="empty-row"><td colspan="10">معامله‌ای نیست</td></tr>'}</tbody>
             </table>
         </div>
     `;
-}
 
 // ============================================================
 // 🆕 Phase 1 — Analysis Panel
@@ -1272,10 +1324,20 @@ async function openPortfolioSim() {
                     <select id="pfJobId">${jobOpts}</select>
                 </div>
                 <div class="field"><label>سرمایه کل</label><input type="number" id="pfCapital" value="100000000"></div>
-                <div class="field"><label>ریسک هر معامله %</label><input type="number" id="pfRiskPct" value="1.5" step="0.1"></div>
+                <div class="field"><label>ریسک %</label><input type="number" id="pfRiskPct" value="1.5" step="0.1"></div>
                 <div class="field"><label>سقف نماد %</label><input type="number" id="pfMaxSym" value="20"></div>
                 <div class="field"><label>سقف کل %</label><input type="number" id="pfMaxTotal" value="50"></div>
+                <div class="field"><label>سقف خوشه %</label><input type="number" id="pfMaxCluster" value="30"></div>
+                <div class="field"><label>سقف صنعت %</label><input type="number" id="pfMaxSector" value="40"></div>
+            </div>
+            <div style="display:flex; gap:14px; flex-wrap:wrap; margin:10px 0; font-size:12.5px;">
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseDup" checked> Duplicate Guard</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseKelly" checked> Kelly</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCorr" checked> Correlation</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseSectors" checked> Sectors</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCvar" checked> CVaR</label>
                 <button class="btn success" id="pfRunBtn" onclick="runPortfolioSim()">اجرا</button>
+                <button class="btn outline small" onclick="refreshCorrelation()">🔄 رفرش Correlation</button>
             </div>
             <div id="pfResults" style="margin-top:16px;"></div>
         `;
@@ -1292,6 +1354,13 @@ async function runPortfolioSim() {
         riskPct: +document.getElementById('pfRiskPct').value,
         maxSymPct: +document.getElementById('pfMaxSym').value,
         maxTotalPct: +document.getElementById('pfMaxTotal').value,
+        maxClusterPct: +document.getElementById('pfMaxCluster').value,
+        maxSectorPct: +document.getElementById('pfMaxSector').value,
+        useDuplicateGuard: document.getElementById('pfUseDup').checked,
+        useKelly: document.getElementById('pfUseKelly').checked,
+        useCorrelation: document.getElementById('pfUseCorr').checked,
+        useSectors: document.getElementById('pfUseSectors').checked,
+        useCVaR: document.getElementById('pfUseCvar').checked,
         minTrades: 5
     };
     const btn = document.getElementById('pfRunBtn');
@@ -1341,18 +1410,20 @@ function renderPortfolioResults(d) {
         </svg>`;
     }
 
-    const tradesRows = (d.trades || []).slice(0, 30).map((t, i) => {
+    const tradesRows = (d.trades || []).slice(0, 50).map((t, i) => {
         const ret = t.pnlPct;
+        const limitCls = t.bindingLimit && t.bindingLimit.includes('binding') ? 'style="font-size:10px; color:var(--warn);"' : 'style="font-size:10px; color:var(--text-dim);"';
         return `<tr>
             <td>${i+1}</td>
-            <td>${esc(t.symbol)}</td>
+            <td><b>${esc(t.symbol)}</b></td>
+            <td style="font-size:10px;">${esc(t.sector || '-')}</td>
             <td>${esc(t.strategyName || t.strategyId)}</td>
             <td>${new Date(t.entryTime * 1000).toLocaleString('fa-IR', {month:'2-digit', day:'2-digit'})}</td>
             <td>${t.positionSize || 0}</td>
             <td>${Math.round(t.entryValue || 0).toLocaleString()}</td>
             <td>${pct(ret)}</td>
             <td>${Math.round(t.pnlAbs || 0).toLocaleString()}</td>
-            <td style="font-size:10px;">${esc(t.skipReason || '-')}</td>
+            <td ${limitCls}>${esc(t.bindingLimit || '-')}</td>
         </tr>`;
     }).join('');
 
@@ -2033,7 +2104,20 @@ function jdpInit(attempt) {
     });
     console.log('✅ jalaliDatepicker initialized');
 }
-
+// ============================================================
+// 🆕 Correlation refresh
+// ============================================================
+async function refreshCorrelation() {
+    showLoader('در حال محاسبه ماتریس همبستگی...');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/portfolio/correlation/refresh?days=30`, { method: 'POST' }, 0);
+        showAlert(`✅ ${r.symbols} نماد، ${r.clusters} خوشه`, 'success', 5000);
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+    } finally {
+        hideLoader();
+    }
+}
 // ==================== Boot ====================
 window.addEventListener('load', async () => {
     if (!await waitForBackend()) {
