@@ -32,6 +32,8 @@ const correlationService = require('./services/correlation.service');
 const correlationJob = require('./jobs/correlation.job');
 const signalFilterService = require('./services/signal-filter.service');
 const wfService = require('./services/wf.service');
+const regimeService = require('./services/regime.service');
+const regimeJob = require('./jobs/regime.job');
 const executionGuard = require('./core/execution-guard');
 
 // settings (ساده — از فایل اصلی)
@@ -214,6 +216,23 @@ async function bootstrap() {
         signalFilterService
     });
 
+    // 11.10) regime service (Phase 6)
+    regimeService.init({
+        getDB: mongo.getDB,
+        logger
+    });
+
+    // 11.11) regime job
+    regimeJob.init({
+        regimeService,
+        logger
+    });
+
+    // refresh اولیه (async — non-blocking)
+    regimeService.refreshAll().catch(e =>
+        logger.warn('initial regime refresh: ' + e.message)
+    );
+
     // 11.6) correlation service (Phase 3 Step 2)
     correlationService.init({
         getDB: mongo.getDB,
@@ -341,6 +360,8 @@ async function bootstrap() {
         correlationJob,
         signalFilterService,
         wfService,
+        regimeService,
+        regimeJob,
         // jobs
         tickJob,
         eodJob,

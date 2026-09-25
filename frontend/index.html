@@ -253,6 +253,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="openAnalysisPanel(); toggleMenu();">تحلیل آماری (فاز ۱)</button>
         <button class="menu-item" onclick="openPortfolioSim(); toggleMenu();">شبیه‌سازی پرتفولیو (فاز ۳)</button>
         <button class="menu-item" onclick="openWfPanel(); toggleMenu();">Walk-Forward (فاز ۵)</button>
+        <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار (فاز ۶)</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -676,9 +677,108 @@ function selectSymbol(s) { selectedSymbol = s; document.getElementById('symbolSe
 document.addEventListener('click', e => { if (!e.target.closest('.field')) { const al = document.getElementById('autocompleteList'); if (al) al.style.display = 'none'; const cl = document.getElementById('chartSymbolAutocomplete'); if (cl) cl.style.display = 'none'; } });
 
 async function addMonitoredSymbol() { if (!selectedSymbol) return showAlert('یک نماد انتخاب کنید.', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: selectedSymbol }) }); showAlert(`«${selectedSymbol}» اضافه شد.`, 'success', 4000); document.getElementById('symbolSearchInput').value = ''; selectedSymbol = null; await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function loadMonitoredSymbols() { try { monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, {}, 0); try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); } catch (e) {} renderMonitoredSymbols(); renderConfigSymbolOptions(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function loadMonitoredSymbols() {
+    try {
+        monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, {}, 0);
+        try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); } catch (e) {}
+        try { await loadRegimeMap(); } catch (e) {}
+        renderMonitoredSymbols();
+        renderConfigSymbolOptions();
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+
+async function loadRegimeMap() {
+    try {
+        const d = await apiFetch(`${BACKEND_URL}/api/regime/all`, {}, 0);
+        const map = {};
+        for (const r of (d.symbols || [])) {
+            map[r.symbol] = { macro: r.macro, vol: r.vol };
+        }
+        window._regimeMap = map;
+    } catch (e) {
+        window._regimeMap = {};
+    }
+}
+
+async function openRegimePanel() {
+    openModal('رژیم بازار (فاز ۶)', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const [allRes, mapRes] = await Promise.all([
+            apiFetch(`${BACKEND_URL}/api/regime/all`, {}, 0),
+            apiFetch(`${BACKEND_URL}/api/regime/strategy-map`, {}, 0)
+        ]);
+        const symbols = allRes.symbols || [];
+        const stratMap = mapRes || {};
+
+        const macroLabel = m => m === 'bull' ? 'صعودی' : m === 'bear' ? 'نزولی' : m === 'range' ? 'رنج' : '؟';
+        const volLabel = v => v === 'high' ? 'بالا' : v === 'low' ? 'کم' : v === 'normal' ? 'نرمال' : '؟';
+
+        const symbolRows = symbols.sort((a, b) => a.symbol.localeCompare(b.symbol)).map(r => {
+            const macroCls = r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none';
+            return `<tr>
+                <td><b>${esc(r.symbol)}</b></td>
+                <td><span class="badge ${macroCls}">${macroLabel(r.macro)}</span></td>
+                <td>${r.macroSlopePct != null ? r.macroSlopePct.toFixed(2) + '%' : '-'}</td>
+                <td><span class="badge ${r.vol === 'high' ? 'warn' : r.vol === 'low' ? 'none' : 'none'}">${volLabel(r.vol)}</span></td>
+                <td>${r.volRatio != null ? r.volRatio.toFixed(2) + 'x' : '-'}</td>
+                <td>${r.close ? Math.round(r.close).toLocaleString() : '-'}</td>
+                <td>${r.ema200 ? Math.round(r.ema200).toLocaleString() : '-'}</td>
+            </tr>`;
+        }).join('');
+
+        const stratRows = Object.entries(stratMap).map(([sid, rule]) => `<tr>
+            <td><b>${esc(sid)}</b></td>
+            <td>${(rule.macro || []).map(m => `<span class="badge ${m === 'bull' ? 'long' : m === 'bear' ? 'short' : 'none'}">${macroLabel(m)}</span>`).join(' ')}</td>
+            <td>${(rule.vol || []).map(v => `<span class="badge none">${volLabel(v)}</span>`).join(' ')}</td>
+        </tr>`).join('');
+
+        const html = `
+            <div class="hint">تشخیص رژیم از EMA200 (روزانه) + ATR percentile 60 روز.</div>
+            <div style="display:flex; gap:8px; margin-bottom:12px;">
+                <button class="btn small" onclick="refreshRegime()">رفرش رژیم</button>
+            </div>
+
+            <h4 style="font-size:13px; color:var(--accent); margin:14px 0 6px;">رژیم نمادها (${symbols.length})</h4>
+            <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+                <table class="data-table">
+                    <thead><tr><th>نماد</th><th>رژیم</th><th>Slope</th><th>نوسان</th><th>ATR/Med</th><th>قیمت</th><th>EMA200</th></tr></thead>
+                    <tbody>${symbolRows || '<tr class="empty-row"><td colspan="7">داده‌ای نیست</td></tr>'}</tbody>
+                </table>
+            </div>
+
+            <h4 style="font-size:13px; color:var(--accent); margin:14px 0 6px;">نگاشت استراتژی → رژیم</h4>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead><tr><th>استراتژی</th><th>رژیم مجاز</th><th>نوسان مجاز</th></tr></thead>
+                    <tbody>${stratRows}</tbody>
+                </table>
+            </div>
+        `;
+        openModal('رژیم بازار (فاز ۶)', html);
+    } catch (e) {
+        openModal('رژیم بازار', `<div class="empty-note">${esc(e.message)}</div>`);
+    }
+}
+
+async function refreshRegime() {
+    showLoader('در حال محاسبه رژیم...');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/regime/refresh`, { method: 'POST' }, 0);
+        await loadRegimeMap();
+        renderMonitoredSymbols();
+        showAlert(`رژیم ${r.refreshed} نماد به‌روز شد`, 'success', 4000);
+        await openRegimePanel();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+    } finally {
+        hideLoader();
+    }
+}
 async function refreshQuotesOnly() { try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); if (monitoredSymbols.length) renderMonitoredSymbols(); } catch (e) {} }
-function renderMonitoredSymbols() { const g = document.getElementById('symbolGrid'); if (!g) return; const cnt = document.getElementById('symbolCountLabel'); if (cnt) cnt.textContent = monitoredSymbols.length; if (!monitoredSymbols.length) { g.innerHTML = '<div class="empty-note">نمادی اضافه نشده است</div>'; return; } g.innerHTML = monitoredSymbols.map(s => { const initial = (s.symbol || '?').trim().charAt(0); const q = window._symbolQuotes && window._symbolQuotes[s.symbol]; const collectOn = s.collectEnabled !== false; const priceHtml = q && q.price ? `<span>قیمت: <b>${q.price.toLocaleString()}</b></span>` + (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') + (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '') : '<span style="opacity:.5;">در حال دریافت...</span>'; return `<div class="symbol-item ${collectOn ? '' : 'collect-off'}"><input type="checkbox" class="sym-collect" ${collectOn ? 'checked' : ''} onchange="toggleMonitoredCollect('${s._id}', this.checked)"><div class="sym-avatar">${esc(initial)}</div><div class="sym-body"><div class="sym-name">${esc(s.symbol)}</div><div class="sym-meta"><span>1m: <b>${s.candleCount}</b></span><span>daily: <b>${s.dailyCount}</b></span>${priceHtml}</div></div><div class="sym-actions"><button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button><button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">حذف</button></div></div>`; }).join(''); }
+function renderMonitoredSymbols() { const g = document.getElementById('symbolGrid'); if (!g) return; const cnt = document.getElementById('symbolCountLabel'); if (cnt) cnt.textContent = monitoredSymbols.length; if (!monitoredSymbols.length) { g.innerHTML = '<div class="empty-note">نمادی اضافه نشده است</div>'; return; } g.innerHTML = monitoredSymbols.map(s => { const initial = (s.symbol || '?').trim().charAt(0); const q = window._symbolQuotes && window._symbolQuotes[s.symbol]; const collectOn = s.collectEnabled !== false;         
+const priceHtml = q && q.price ? `<span>قیمت: <b>${q.price.toLocaleString()}</b></span>` + (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') + (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '') : '<span style="opacity:.5;">در حال دریافت...</span>';
+        const r = (window._regimeMap && window._regimeMap[s.symbol]) || null;
+        const regimeHtml = r ? `<span class="badge ${r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none'}">${r.macro === 'bull' ? 'صعودی' : r.macro === 'bear' ? 'نزولی' : 'رنج'}</span>` + (r.vol === 'high' ? '<span class="badge warn">نوسان بالا</span>' : r.vol === 'low' ? '<span class="badge none">نوسان کم</span>' : '') : ''; return `<div class="symbol-item ${collectOn ? '' : 'collect-off'}"><input type="checkbox" class="sym-collect" ${collectOn ? 'checked' : ''} onchange="toggleMonitoredCollect('${s._id}', this.checked)"><div class="sym-avatar">${esc(initial)}</div><div class="sym-body"><div class="sym-name">${esc(s.symbol)}</div><div class="sym-meta"><span>1m: <b>${s.candleCount}</b></span><span>daily: <b>${s.dailyCount}</b></span>${regimeHtml}${priceHtml}</div></div><div class="sym-actions"><button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button><button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">حذف</button></div></div>`; }).join(''); }
 async function toggleMonitoredCollect(id, enabled) { try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collectEnabled: enabled }) }); const sym = monitoredSymbols.find(x => x._id === id); if (sym) sym.collectEnabled = enabled; renderMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function bulkCollectToggle(enabled) { const ids = monitoredSymbols.map(s => s._id); if (!ids.length) return showAlert('نمادی وجود ندارد', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/bulk-collect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, collectEnabled: enabled }) }); showAlert('به‌روز شد.', 'success', 3000); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteMonitoredSymbol(id, sym) { if (!confirm(`نماد «${sym}» حذف شود؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
@@ -2222,6 +2322,7 @@ window.addEventListener('load', async () => {
     setInterval(loadSignalHistory, 60000);
     setInterval(loadOptionPositions, 60000);
     setInterval(loadLiveDashboard, 30000);
+    setInterval(loadRegimeMap, 300000);
     startDataPipelinePolling();
 });
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });

@@ -45,6 +45,7 @@ async function start() {
             correlationService: deps.correlationService,
             signalFilterService: deps.signalFilterService,
             wfService: deps.wfService,
+            regimeService: deps.regimeService,
             autoConfigJob: deps.autoConfigJob,
             strategies: deps.strategies,
             getUnderlyingNames: deps.getUnderlyingNames,
@@ -84,7 +85,8 @@ async function start() {
         deps.autoConfigJob.start();
         if (deps.riskFreeJob) deps.riskFreeJob.start();
         if (deps.healthJob) deps.healthJob.start();   // 🆕
-        if (deps.correlationJob) deps.correlationJob.start();   // 🆕 Phase 3 Step 2
+        if (deps.correlationJob) deps.correlationJob.start();
+        if (deps.regimeJob) deps.regimeJob.start();
 
         // 6) startup notification
         await deps.telegram.notify(`سرور ری استارت شد (${SERVER_VERSION})`).catch(() => {});
