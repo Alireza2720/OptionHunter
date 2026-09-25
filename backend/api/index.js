@@ -30,6 +30,8 @@ const portfolioRoutes = require('./routes/portfolio.routes');
 const wfRoutes = require('./routes/wf.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const regimeRoutes = require('./routes/regime.routes');
+const pipelineRoutes = require('./routes/pipeline.routes');
+const tearsheetRoutes = require('./routes/tearsheet.routes');
 
 function createApp(deps) {
     const app = express();
@@ -63,6 +65,8 @@ function createApp(deps) {
     wfRoutes.register(app, deps);
     dashboardRoutes.register(app, deps);
     regimeRoutes.register(app, deps);
+    pipelineRoutes.register(app, deps);
+    tearsheetRoutes.register(app, deps);
 
     // ---- 404 + error ----
     app.use(errorMw.notFoundHandler);

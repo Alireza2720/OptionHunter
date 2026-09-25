@@ -248,12 +248,13 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button>
         <div class="menu-divider"></div>
         <div class="menu-label">ابزار</div>
-        <button class="menu-item" onclick="openBacktestCompare(); toggleMenu();">بک تست مقایسه ای</button>
-        <button class="menu-item" onclick="openAutoConfigure(); toggleMenu();">تنظیم خودکار</button>
-        <button class="menu-item" onclick="openAnalysisPanel(); toggleMenu();">تحلیل آماری (فاز ۱)</button>
-        <button class="menu-item" onclick="openPortfolioSim(); toggleMenu();">شبیه‌سازی پرتفولیو (فاز ۳)</button>
-        <button class="menu-item" onclick="openWfPanel(); toggleMenu();">Walk-Forward (فاز ۵)</button>
-        <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار (فاز ۶)</button>
+        <button class="menu-item" onclick="openBacktestCompare(); toggleMenu();" title="آزمون همه ترکیب‌های نماد × استراتژی روی بازه‌ی دلخواه">بک تست مقایسه‌ای</button>
+        <button class="menu-item" onclick="openAutoConfigure(); toggleMenu();" title="انتخاب بهترین استراتژی برای هر نماد بر اساس نتایج بک تست">تنظیم خودکار</button>
+        <button class="menu-item" onclick="openAnalysisPanel(); toggleMenu();" title="اثبات آماری edge — Bootstrap CI + t-test + rolling">تحلیل آماری کاندیدها</button>
+        <button class="menu-item" onclick="openPortfolioSim(); toggleMenu();" title="اجرای چند نماد همزمان با مدیریت سرمایه، Kelly، Correlation">شبیه‌سازی چند-نمادی</button>
+        <button class="menu-item" onclick="openWfPanel(); toggleMenu();" title="تقسیم بازه به پنجره‌های زمانی — چک پایداری edge">اعتبارسنجی زمانی</button>
+        <button class="menu-item" onclick="openRegimePanel(); toggleMenu();" title="تشخیص bull/bear/range هر نماد — soft filter روی سایز">وضعیت بازار</button>
+        <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();" title="آخرین کندل هر نماد — تشخیص نمادهای قدیمی">تازگی دیتا</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -806,10 +807,11 @@ function gregToJalali(gregStr) {
 async function algotikUseAllData() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
-        if (!r.from || !r.to) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+        if (!r.from) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+        const today = new Date().toISOString().slice(0, 10);
         document.getElementById('algotikFromDate').value = gregToJalali(r.from);
-        document.getElementById('algotikToDate').value = gregToJalali(r.to);
-        showAlert(`بازه: ${gregToJalali(r.from)} → ${gregToJalali(r.to)} (${r.days} روز)`, 'success', 5000);
+        document.getElementById('algotikToDate').value = gregToJalali(today);
+        showAlert(`بازه: ${gregToJalali(r.from)} → ${gregToJalali(today)}`, 'success', 5000);
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
@@ -945,16 +947,18 @@ async function fetchFullDataRange() {
 async function setBtRangeAll() {
     const r = await fetchFullDataRange();
     if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+    const today = new Date().toISOString().slice(0, 10);
     document.getElementById('btFrom').value = r.from;
-    document.getElementById('btTo').value = r.to;
-    showAlert(`بازه: ${r.from} → ${r.to} (${r.days} روز)`, 'success', 4000);
+    document.getElementById('btTo').value = today;
+    showAlert(`بازه: ${r.from} → ${today}`, 'success', 4000);
 }
 async function setBtcRangeAll() {
     const r = await fetchFullDataRange();
     if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
+    const today = new Date().toISOString().slice(0, 10);
     document.getElementById('btcFrom').value = r.from;
-    document.getElementById('btcTo').value = r.to;
-    showAlert(`بازه: ${r.from} → ${r.to} (${r.days} روز)`, 'success', 4000);
+    document.getElementById('btcTo').value = today;
+    showAlert(`بازه: ${r.from} → ${today}`, 'success', 4000);
 }
 async function runOptionBacktest(id) {
     const it = configs.find(c => c._id === id); if (!it) return;
@@ -2308,7 +2312,54 @@ async function refreshCorrelation() {
         hideLoader();
     }
 }
+async function openFreshnessPanel() {
+    openModal('تازگی دیتا', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/freshness`, {}, 0);
+        const symbols = r.symbols || [];
+        const stale = r.staleSymbols || [];
 
+        const rows = symbols.sort((a, b) => (b.gapDays || 0) - (a.gapDays || 0)).map(s => {
+            const cls = s.stale ? 'style="background:rgba(217,83,79,.1);"' : (s.gapDays > 1 ? 'style="background:rgba(201,151,61,.1);"' : '');
+            const gapBadge = s.gapDays === null
+                ? '<span class="badge short">ندارد</span>'
+                : s.gapDays === 0 ? '<span class="badge long">امروز</span>'
+                : s.gapDays === 1 ? '<span class="badge long">1 روز</span>'
+                : s.gapDays <= 3 ? `<span class="badge warn">${s.gapDays} روز</span>`
+                : `<span class="badge short">${s.gapDays} روز</span>`;
+            return `<tr ${cls}>
+                <td><b>${esc(s.symbol)}</b></td>
+                <td>${s.lastDaily || '—'}</td>
+                <td>${gapBadge}</td>
+            </tr>`;
+        }).join('');
+
+        const html = `
+            <div class="stats-grid" style="margin-bottom:12px;">
+                <div class="stat"><small>امروز</small><b>${r.today}</b></div>
+                <div class="stat"><small>کل نماد</small><b>${r.total}</b></div>
+                <div class="stat ${stale.length > 0 ? 'highlight-bad' : 'highlight-good'}">
+                    <small>قدیمی</small><b>${r.staleCount}</b>
+                </div>
+            </div>
+            ${stale.length > 0 ? `
+                <div class="hint" style="background:rgba(217,83,79,.1); padding:8px 12px; border-radius:6px; margin-bottom:10px;">
+                    <b>نمادهای قدیمی (gap > 3 روز):</b> ${stale.join('، ')}<br>
+                    → از Backfill → استفاده از کل دیتا بزن تا به‌روز شود.
+                </div>
+            ` : '<div class="hint" style="background:rgba(46,168,138,.1); padding:8px 12px; border-radius:6px; margin-bottom:10px;">همه نمادها به‌روز هستند ✓</div>'}
+            <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
+                <table class="data-table">
+                    <thead><tr><th>نماد</th><th>آخرین کندل روزانه</th><th>فاصله از امروز</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+        openModal('تازگی دیتا', html);
+    } catch (e) {
+        openModal('تازگی دیتا', `<div class="empty-note">${esc(e.message)}</div>`);
+    }
+}
 window.addEventListener('load', async () => {
     if (!await waitForBackend()) {
         document.getElementById('bootMessage').textContent = 'اتصال به سرور برقرار نشد.';

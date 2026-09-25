@@ -765,14 +765,23 @@ function aggregateCompare(allResults) {
         for (const r of arr) {
             const st = r.stock || {};
             const ot = r.option || {};
-            stockTrades += st.count || 0;
-            stockWins += ((st.count || 0) * (st.winRate || 0) / 100);
+            const sN = st.count || 0;
+            const oN = ot.count || 0;
+            const oWins = oN * (ot.winRate || 0) / 100;
+            const oLosses = oN - oWins;
+
+            stockTrades += sN;
+            stockWins += sN * (st.winRate || 0) / 100;
             stockSum += st.totalPnl || 0;
-            optTrades += ot.count || 0;
-            optWins += ((ot.count || 0) * (ot.winRate || 0) / 100);
+
+            optTrades += oN;
+            optWins += oWins;
             optSum += ot.totalPnl || 0;
             optReal += ot.realUsed || 0;
             optApprox += ot.approxUsed || 0;
+
+            optGrossWin += (ot.avgWin || 0) * oWins;
+            optGrossLoss += Math.abs(ot.avgLoss || 0) * oLosses;
         }
         const pf = optGrossLoss > 0 ? optGrossWin / optGrossLoss : (optGrossWin > 0 ? null : 0);
 

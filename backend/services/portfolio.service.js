@@ -202,6 +202,28 @@ async function simulateFromJob(jobId, opts = {}) {
     const pnls = result.trades.map(t => t.pnlPct);
     const cvar = sizing.cvar95(pnls);
 
+    // 🆕 ذخیره PF برای drift monitoring
+    try {
+        if (result.stats && Number.isFinite(result.stats.profitFactor)) {
+            await db.collection(COLLECTIONS.META).updateOne(
+                { _id: 'last_backtest_pf' },
+                { $set: {
+                    pf: result.stats.profitFactor,
+                    jobId: String(jobId),
+                    maxDD: result.stats.maxDD,
+                    returnPct: result.stats.totalReturnPct,
+                    sharpe: result.stats.sharpe,
+                    acceptedTrades: result.acceptedTrades,
+                    recordedAt: new Date()
+                }},
+                { upsert: true }
+            );
+            deps.logger && deps.logger.info(`last_backtest_pf saved: ${result.stats.profitFactor}`);
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('save last_backtest_pf: ' + e.message);
+    }
+
     return {
         jobId,
         at: new Date(),

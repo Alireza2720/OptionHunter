@@ -34,7 +34,10 @@ const signalFilterService = require('./services/signal-filter.service');
 const wfService = require('./services/wf.service');
 const regimeService = require('./services/regime.service');
 const regimeJob = require('./jobs/regime.job');
+const driftJob = require('./jobs/drift.job');
+const dailyBackfillJob = require('./jobs/daily-backfill.job');
 const executionGuard = require('./core/execution-guard');
+const pipelineService = require('./services/pipeline.service');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -44,7 +47,10 @@ const tickJob = require('./jobs/tick.job');
 const eodJob = require('./jobs/eod.job');
 const autoConfigJob = require('./jobs/auto-config.job');
 const riskFreeJob = require('./jobs/risk-free.job');
-const healthJob = require('./jobs/health.job');   // 🆕
+const healthJob = require('./jobs/health.job');
+const correlationJob = require('./jobs/correlation.job');
+const regimeJob = require('./jobs/regime.job');
+const driftJob = require('./jobs/drift.job');
 
 // strategies
 const strategiesModule = require('./strategies');
@@ -229,6 +235,33 @@ async function bootstrap() {
         logger
     });
 
+    // 11.12) drift job
+    driftJob.init({
+        getDB: mongo.getDB,
+        logger,
+        notify: telegram.notify
+    });
+
+    // daily-backfill
+    dailyBackfillJob.init({
+        logger,
+        algotik,
+        notify: telegram.notify
+    });
+
+    // 11.13) pipeline service
+    pipelineService.init({
+        getDB: mongo.getDB,
+        logger,
+        backtestService,
+        analysisService,
+        wfService,
+        regimeService,
+        portfolioService,
+        signalFilterService,
+        notify: telegram.notify
+    });
+
     // refresh اولیه (async — non-blocking)
     regimeService.refreshAll().catch(e =>
         logger.warn('initial regime refresh: ' + e.message)
@@ -369,11 +402,14 @@ async function bootstrap() {
         eodJob,
         autoConfigJob,
         riskFreeJob,
-        healthJob,   // 🆕
+        healthJob,
+        correlationJob,
+        regimeJob,
+        driftJob,
+        dailyBackfillJob,
         // misc
         strategies: strategiesModule,
-        getUnderlyingNames,
-        loadSymbolsCache
+        pipelineService,      // 🆕
     };
 }
 

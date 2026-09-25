@@ -93,6 +93,41 @@ function register(app, deps) {
             res.json(await algotik.controlTicker(action || 'start', intervalSec || 10));
         } catch (e) { res.status(400).json({ error: e.message }); }
     });
+    // 🆕 Data freshness — چک می‌کنه هر نماد آخرین کندل روزانه کِیه
+    app.get('/api/algotik/freshness', async (req, res, next) => {
+        try {
+            const { COLLECTIONS } = require('../../config/constants');
+            const db = getDB();
+            const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                .find({ enabled: true }).toArray();
+
+            const today = new Date();
+            today.setUTCHours(0, 0, 0, 0);
+
+            const results = [];
+            for (const m of monitored) {
+                const last = await db.collection(COLLECTIONS.CANDLES_DAILY)
+                    .find({ symbol: m.symbol }).sort({ time: -1 }).limit(1).toArray();
+                const lastTime = last[0] ? new Date(last[0].time) : null;
+                const gap = lastTime ? Math.floor((today - lastTime) / 86400000) : null;
+                results.push({
+                    symbol: m.symbol,
+                    lastDaily: lastTime ? lastTime.toISOString().slice(0, 10) : null,
+                    gapDays: gap,
+                    stale: gap !== null && gap > 3
+                });
+            }
+
+            const stale = results.filter(r => r.stale);
+            res.json({
+                today: today.toISOString().slice(0, 10),
+                total: results.length,
+                staleCount: stale.length,
+                staleSymbols: stale.map(r => r.symbol),
+                symbols: results
+            });
+        } catch (e) { next(e); }
+    });
 }
 
 module.exports = { register };

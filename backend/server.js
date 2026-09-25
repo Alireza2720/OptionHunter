@@ -49,6 +49,8 @@ async function start() {
             autoConfigJob: deps.autoConfigJob,
             strategies: deps.strategies,
             getUnderlyingNames: deps.getUnderlyingNames,
+            pipelineService: deps.pipelineService,     // 🆕
+
             // config
             adminToken: env.ADMIN_TOKEN,
             version: SERVER_VERSION,
@@ -87,6 +89,9 @@ async function start() {
         if (deps.healthJob) deps.healthJob.start();   // 🆕
         if (deps.correlationJob) deps.correlationJob.start();
         if (deps.regimeJob) deps.regimeJob.start();
+        if (deps.driftJob) deps.driftJob.start();
+        if (deps.dailyBackfillJob) deps.dailyBackfillJob.start();
+        if (deps.driftJob) deps.driftJob.start();     // 🆕
 
         // 6) startup notification
         await deps.telegram.notify(`سرور ری استارت شد (${SERVER_VERSION})`).catch(() => {});

@@ -551,33 +551,32 @@
     // ==================== ۶. Ensemble ====================
     const ENSEMBLE_DEFAULTS = {
         threshold: 1.2, minAgree: 2,
-        wRsi: 0,           // RSI حذف شد
-        wSmc: 1.70,
-        wOb: 1.40,
-        wObas: 1.30,
-        wSD: 1.15,
-        wLb: 0,            // London حذف شد
-        wOrb: 1.20,
-        wPbr: 0,           // Pin Bar حذف شد
-        wVwap: 0.9,        // 🆕
-        wSt: 1.2,          // 🆕
-        wBbsq: 1.0,        // 🆕
-        wDonch: 1.1,       // 🆕
-        wKc: 0.9,          // 🆕
+        // ⛔ حذف استراتژی‌های ضعیف (WR<40% یا PF<1.5)
+        wRsi: 0,          // حذف شد
+        wSmc: 1.70,       // برنده
+        wOb: 1.40,        // برنده
+        wObas: 1.30,      // برنده
+        wSD: 1.15,        // متوسط
+        wLb: 0,           // حذف شد
+        wOrb: 0,          // ⛔ حذف شد — ORB بازده -13%
+        wPbr: 0,          // حذف شد
+        wVwap: 0,         // ⛔ حذف شد — VWAP بازده -72%
+        wSt: 1.30,        // 🆕 بالا بردیم (WR=52%)
+        wBbsq: 1.0,
+        wDonch: 1.20,     // 🆕 بالا بردیم (WR=64%)
+        wKc: 0.85,        // پایین آوردیم (WR=43%)
         cooldownBars: 3, maxHoldBars: 30,
         atrPeriod: 14, atrMult: 2.0,
         htfEma: 20, htfRsiPeriod: 14
     };
     function runEnsemble(candles, params, ctx) {
         const p = { ...ENSEMBLE_DEFAULTS, ...(params || {}) };
-        // فقط استراتژی‌های باقیمانده
+        // ⛔ حذف شد: orb, vwap_bounce (strategy حذف شده)
         const subStrategies = [
             { id: 'smc_unicorn', weight: p.wSmc, run: runSMCUnicorn, defaults: SMC_DEFAULTS },
             { id: 'ob_sweep', weight: p.wOb, run: runOBSweep, defaults: OB_DEFAULTS },
             { id: 'ob_after_sweep', weight: p.wObas, run: runOBAfterSweep, defaults: OBAS_DEFAULTS },
             { id: 'supply_demand', weight: p.wSD, run: runSupplyDemand, defaults: SDZ_DEFAULTS },
-            { id: 'orb', weight: p.wOrb, run: runORB, defaults: ORB_DEFAULTS },
-            { id: 'vwap_bounce', weight: p.wVwap, run: runVwapBounce, defaults: VWAP_DEFAULTS },
             { id: 'supertrend', weight: p.wSt, run: runSupertrend, defaults: ST_DEFAULTS },
             { id: 'bb_squeeze', weight: p.wBbsq, run: runBollingerSqueeze, defaults: BBSQ_DEFAULTS },
             { id: 'donchian', weight: p.wDonch, run: runDonchianBreakout, defaults: DONCH_DEFAULTS },
@@ -1015,22 +1014,10 @@
 
     // ==================== رجیستری ====================
     const STRATEGIES = {
-        // 🟢 استراتژی‌های معتبر (WF PASS)
-        smc_unicorn: { id: 'smc_unicorn', name: 'SMC Unicorn', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: SMC_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSMCUnicorn },
-        ob_sweep: { id: 'ob_sweep', name: 'OB + Sweep', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: OB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runOBSweep },
-        supply_demand: { id: 'supply_demand', name: 'Supply & Demand', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: SDZ_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSupplyDemand },
-        ob_after_sweep: { id: 'ob_after_sweep', name: 'OB After Sweep', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: OBAS_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runOBAfterSweep },
-        orb: { id: 'orb', name: 'Opening Range Breakout', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: ORB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runORB },
-        ensemble: { id: 'ensemble', name: 'Ensemble (ترکیبی)', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: ENSEMBLE_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runEnsemble },
-
-        // 🆕 استراتژی‌های جدید
-        vwap_bounce: { id: 'vwap_bounce', name: 'VWAP Bounce', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: VWAP_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runVwapBounce },
-        supertrend: { id: 'supertrend', name: 'Supertrend', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: ST_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSupertrend },
-        bb_squeeze: { id: 'bb_squeeze', name: 'BB Squeeze Breakout', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: BBSQ_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runBollingerSqueeze },
-        donchian: { id: 'donchian', name: 'Donchian Breakout', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: DONCH_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runDonchianBreakout },
-        keltner_pb: { id: 'keltner_pb', name: 'Keltner Pullback', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: KCPB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runKeltnerPullback }
-
-        // ⛔ حذف‌شده — WF gate fail:
+        // ⛔ حذف شد — backtest: -13% روی 77 معامله
+        // orb: { ... },
+        // ⛔ حذف شد —
+        //  backtest: -72% روی 76 معامله، WR=34% vwap_bounce
         // rsi50_2 (PF=0.17), pin_bar (PF=0.32), london_breakout (PF=0.44)
     };
 
@@ -1047,7 +1034,7 @@
         if (id === 'donchian') return Math.max(p.entryPeriod, p.exitPeriod, p.atrPeriod) + 10;
         if (id === 'keltner_pb') return Math.max(p.kcPeriod, p.atrPeriod) + 10;
         if (id === 'ensemble') {
-            const subIds = ['smc_unicorn', 'ob_sweep', 'ob_after_sweep', 'supply_demand', 'orb', 'vwap_bounce', 'supertrend', 'bb_squeeze', 'donchian', 'keltner_pb'];
+            const subIds = ['smc_unicorn', 'ob_sweep', 'ob_after_sweep', 'supply_demand', 'supertrend', 'bb_squeeze', 'donchian', 'keltner_pb'];
             return Math.max(...subIds.map(sid => getRequiredCandles(sid, p)));
         }
         return 10;
