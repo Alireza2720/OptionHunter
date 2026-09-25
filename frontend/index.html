@@ -1041,7 +1041,7 @@ async function openPortfolioSim() {
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseKelly" checked> Kelly</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCorr" checked> Correlation</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseSectors" checked> Sectors</label>
-                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCvar" checked> CVaR</label>
+                <label style="display:flex; align-items:center; gap:5px; opacity:0.5; cursor:not-allowed;" title="CVaR فقط گزارش می‌شود"><input type="checkbox" disabled> CVaR (گزارش)</label>
                 <button class="btn success" id="pfRunBtn" onclick="runPortfolioSim()">اجرا</button>
                 <button class="btn outline small" onclick="refreshCorrelation()">🔄 رفرش Correlation</button>
             </div>
@@ -1066,7 +1066,6 @@ async function runPortfolioSim() {
         useKelly: document.getElementById('pfUseKelly').checked,
         useCorrelation: document.getElementById('pfUseCorr').checked,
         useSectors: document.getElementById('pfUseSectors').checked,
-        useCVaR: document.getElementById('pfUseCvar').checked,
         minTrades: 5
     };
     const btn = document.getElementById('pfRunBtn');
@@ -1335,7 +1334,7 @@ async function openPortfolioSim() {
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseKelly" checked> Kelly</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCorr" checked> Correlation</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseSectors" checked> Sectors</label>
-                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCvar" checked> CVaR</label>
+                <label style="display:flex; align-items:center; gap:5px; opacity:0.5; cursor:not-allowed;" title="CVaR فقط گزارش می‌شود"><input type="checkbox" disabled> CVaR (گزارش)</label>
                 <button class="btn success" id="pfRunBtn" onclick="runPortfolioSim()">اجرا</button>
                 <button class="btn outline small" onclick="refreshCorrelation()">🔄 رفرش Correlation</button>
             </div>

@@ -2,14 +2,6 @@
 // ============================================================
 // portfolio.js — شبیه‌ساز پرتفولیو (Phase 3 — Step 2)
 // ============================================================
-// Features:
-//  2.1 Duplicate guard (یک پوزیشن همزمان per symbol)
-//  2.2 Correlation matrix integration
-//  2.3 Cluster limits
-//  2.4 Sector limits
-//  2.5 Kelly sizing
-//  2.6 CVaR constraint
-// ============================================================
 
 const { findClusters } = require('./correlation');
 const { getSector } = require('./sectors');
@@ -21,7 +13,6 @@ const DEFAULT_LIMITS = {
     maxTotalPct: 50,
     minCashPct: 20,
     maxPositionSize: 10,
-    // Step 2 additions
     useDuplicateGuard: true,
     useKelly: true,
     kellyCapPct: 3.0,
@@ -29,25 +20,35 @@ const DEFAULT_LIMITS = {
     corrThreshold: 0.7,
     maxClusterPct: 30,
     useSectors: true,
-    maxSectorPct: 40,
-    useCVaR: true,
-    cvarBudgetPct: 1.0
+    maxSectorPct: 40
+    // ⚠️ CVaR از sizing حذف شد — فقط گزارش می‌شه
 };
 
 // ============================================================
-// آمار پایه
+// آمار پایه — robust به type
 // ============================================================
+function toNum(v) {
+    if (v === null || v === undefined) return NaN;
+    if (typeof v === 'number') return v;
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : NaN;
+}
+
 function computeGlobalStats(trades) {
-    const pnls = trades.map(t => t.pnlPct).filter(Number.isFinite);
+    const pnls = trades.map(t => toNum(t.pnlPct)).filter(Number.isFinite);
+    if (!pnls.length) {
+        return { count: 0, winRate: 0, avgWin: 0, avgLoss: 0, halfKelly: 0, cvar95Pct: 0 };
+    }
+
     const wins = pnls.filter(x => x > 0);
     const losses = pnls.filter(x => x <= 0);
-    const winRate = pnls.length ? wins.length / pnls.length : 0;
+    const winRate = wins.length / pnls.length;
     const avgWin = wins.length ? wins.reduce((s, x) => s + x, 0) / wins.length : 0;
     const avgLoss = losses.length ? Math.abs(losses.reduce((s, x) => s + x, 0) / losses.length) : 0;
 
-    // Kelly
+    // Kelly — robust
     let halfKelly = 0;
-    if (avgLoss > 0) {
+    if (avgLoss > 0 && avgWin > 0 && winRate > 0 && winRate < 1) {
         const R = avgWin / avgLoss;
         const kelly = (winRate * R - (1 - winRate)) / R;
         halfKelly = Math.max(0, Math.min(kelly * 0.5, 0.15));
@@ -62,14 +63,32 @@ function computeGlobalStats(trades) {
     return {
         count: pnls.length,
         winRate: winRate * 100,
-        avgWin, avgLoss,
+        avgWin: Math.round(avgWin * 100) / 100,
+        avgLoss: Math.round(avgLoss * 100) / 100,
         halfKelly,
         cvar95Pct: cvar
     };
 }
 
 // ============================================================
-// Sizing با همه محدودیت‌ها
+// تعیین effectiveRiskPct
+// ============================================================
+function computeEffectiveRiskPct(limits, stats) {
+    if (!limits.useKelly) return limits.riskPct;
+
+    const kellyPct = stats.halfKelly * 100;   // e.g. 7.0
+
+    // 🆕 اگه Kelly معنی‌دار نیست (≤ 0.5%)، fallback به riskPct کاربر
+    if (!Number.isFinite(kellyPct) || kellyPct <= 0.5) {
+        return limits.riskPct;
+    }
+
+    // Kelly معنی‌دار است → استفاده کن با cap
+    return Math.min(limits.riskPct, kellyPct, limits.kellyCapPct);
+}
+
+// ============================================================
+// Sizing
 // ============================================================
 function calcPositionSize(trade, portfolio, limits, ctx) {
     const capital = limits.capital;
@@ -83,10 +102,8 @@ function calcPositionSize(trade, portfolio, limits, ctx) {
         return { size: 0, reason: 'قیمت قرارداد نامعتبر' };
     }
 
-    // پایه: از ریسک
+    // پایه از ریسک
     let baseSize = Math.floor(riskAmt / contractValue);
-
-    // سقف تعداد
     baseSize = Math.min(baseSize, limits.maxPositionSize);
 
     // سقف نماد
@@ -102,7 +119,7 @@ function calcPositionSize(trade, portfolio, limits, ctx) {
     const availableCash = capital - portfolio.totalExposure;
     const byCash = Math.floor(availableCash / contractValue);
 
-    // 🆕 سقف Cluster
+    // سقف Cluster
     let byCluster = Infinity;
     if (limits.useCorrelation && ctx.clusterExposure !== null) {
         const maxCluster = capital * (limits.maxClusterPct / 100);
@@ -110,7 +127,7 @@ function calcPositionSize(trade, portfolio, limits, ctx) {
         byCluster = Math.floor(remainCluster / contractValue);
     }
 
-    // 🆕 سقف Sector
+    // سقف Sector
     let bySector = Infinity;
     if (limits.useSectors) {
         const maxSector = capital * (limits.maxSectorPct / 100);
@@ -118,40 +135,28 @@ function calcPositionSize(trade, portfolio, limits, ctx) {
         bySector = Math.floor(remainSector / contractValue);
     }
 
-    // 🆕 سقف CVaR
-    let byCVaR = Infinity;
-    if (limits.useCVaR && ctx.cvar95Pct < 0) {
-        const cvarFrac = Math.abs(ctx.cvar95Pct) / 100;   // e.g. 0.71
-        if (cvarFrac > 0) {
-            const budget = capital * (limits.cvarBudgetPct / 100);
-            const maxLossPerContract = contractValue * cvarFrac;
-            byCVaR = Math.max(0, Math.floor(budget / maxLossPerContract));
-        }
-    }
-
     const finalSize = Math.max(0, Math.min(
-        baseSize, bySymbol, byTotal, byCash, byCluster, bySector, byCVaR
+        baseSize, bySymbol, byTotal, byCash, byCluster, bySector
     ));
 
+    // 🆕 Priority: baseSize اول (چون ریشه‌ی واقعی)، بعد سقف‌ها
     let reason = null;
     if (finalSize === 0) {
-        if (bySymbol === 0) reason = 'سقف درگیری نماد پر شده';
+        if (baseSize === 0) {
+            reason = `سرمایه کافی نیست (risk=${effectiveRiskPct.toFixed(2)}%)`;
+        } else if (bySymbol === 0) reason = 'سقف درگیری نماد پر شده';
         else if (byTotal === 0) reason = 'سقف کل درگیری پر شده';
         else if (byCash === 0) reason = 'نقد کافی نیست';
         else if (byCluster === 0) reason = 'سقف خوشه همبسته پر شده';
         else if (bySector === 0) reason = 'سقف صنعت پر شده';
-        else if (byCVaR === 0) reason = 'بودجه‌ی CVaR تمام شده';
-        else if (baseSize === 0) reason = 'سرمایه برای این قرارداد کافی نیست';
         else reason = 'محدودیت';
     } else if (finalSize < baseSize) {
-        // کدوم محدودیت binding شد؟
         const arr = [
             { v: bySymbol, name: 'نماد' },
             { v: byTotal, name: 'کل' },
             { v: byCash, name: 'نقد' },
             { v: byCluster, name: 'خوشه' },
-            { v: bySector, name: 'صنعت' },
-            { v: byCVaR, name: 'CVaR' }
+            { v: bySector, name: 'صنعت' }
         ];
         const min = Math.min(...arr.map(a => a.v));
         const bound = arr.find(a => a.v === min);
@@ -164,7 +169,6 @@ function calcPositionSize(trade, portfolio, limits, ctx) {
         bySymbol, byTotal, byCash,
         byCluster: Number.isFinite(byCluster) ? byCluster : null,
         bySector: Number.isFinite(bySector) ? bySector : null,
-        byCVaR: Number.isFinite(byCVaR) ? byCVaR : null,
         limitReason: reason
     };
 }
@@ -193,16 +197,13 @@ function releaseExpired(portfolio, nowTs) {
 }
 
 // ============================================================
-// Cluster exposure
+// Cluster / Sector exposure
 // ============================================================
 function computeClusterExposure(symbol, portfolio, corrMatrix, limits, clusters) {
     if (!limits.useCorrelation) return null;
     if (!corrMatrix || !clusters) return null;
-
-    // پیدا کردن cluster حاوی symbol
     const cluster = clusters.find(c => c.includes(symbol));
     if (!cluster) return null;
-
     let total = 0;
     for (const sym of cluster) {
         total += portfolio.exposureBySymbol[sym] || 0;
@@ -227,19 +228,10 @@ function computeSectorExposure(symbol, portfolio, sectorMap) {
 function simulate(trades, limitsInput = {}, ctx = {}) {
     const limits = { ...DEFAULT_LIMITS, ...limitsInput };
     const capital = limits.capital;
-    const minCash = capital * (limits.minCashPct / 100);
 
-    // آمار برای Kelly/CVaR
+    // آمار
     const stats = computeGlobalStats(trades);
-    const effectiveRiskPct = limits.useKelly
-        ? Math.min(limits.riskPct, stats.halfKelly * 100 * (limits.kellyCapPct / 100) * 100 / 100)
-        : limits.riskPct;
-
-    // اصلاح ساده‌تر: cap = min(riskPct, halfKelly*100, kellyCapPct)
-    const kellyPct = stats.halfKelly * 100;
-    const finalRiskPct = limits.useKelly
-        ? Math.min(limits.riskPct, kellyPct, limits.kellyCapPct)
-        : limits.riskPct;
+    const effectiveRiskPct = computeEffectiveRiskPct(limits, stats);
 
     // Clusters
     const clusters = (limits.useCorrelation && ctx.corrMatrix)
@@ -261,7 +253,6 @@ function simulate(trades, limitsInput = {}, ctx = {}) {
     };
     let peakExposure = 0;
 
-    // Outputs
     const acceptedTrades = [];
     const rejectedTrades = [];
     const rejectionReasons = {};
@@ -274,7 +265,6 @@ function simulate(trades, limitsInput = {}, ctx = {}) {
         equity: 100
     }];
 
-    // Stats tracking
     const usedStrategies = new Set();
     const usedSectors = new Set();
 
@@ -282,22 +272,19 @@ function simulate(trades, limitsInput = {}, ctx = {}) {
         const entryTs = t.entryFillTime || t.entryTime || 0;
         const exitTs = t.exitFillTime || t.exitTime || (entryTs + 3600);
 
-        // 1. آزادسازی پوزیشن‌های منقضی
         releaseExpired(portfolio, entryTs);
 
-        // 2. Duplicate guard
+        // Duplicate guard
         if (limits.useDuplicateGuard && hasOpenForSymbol(portfolio, t.symbol, entryTs)) {
             rejectedTrades.push({
-                symbol: t.symbol,
-                strategyId: t.strategyId,
-                entryTime: t.entryTime,
-                skipReason: 'duplicate position on symbol'
+                symbol: t.symbol, strategyId: t.strategyId,
+                entryTime: t.entryTime, skipReason: 'duplicate position on symbol'
             });
-            rejectionReasons['duplicate'] = (rejectionReasons['duplicate'] || 0) + 1;
+            const key = 'duplicate';
+            rejectionReasons[key] = (rejectionReasons[key] || 0) + 1;
             continue;
         }
 
-        // 3. Cluster / Sector exposure
         const clusterExposure = computeClusterExposure(
             t.symbol, portfolio, ctx.corrMatrix, limits, clusters
         );
@@ -305,54 +292,53 @@ function simulate(trades, limitsInput = {}, ctx = {}) {
             ? computeSectorExposure(t.symbol, portfolio, ctx.sectorMap)
             : 0;
 
-        // 4. Sizing
         const sizing = calcPositionSize(t, portfolio, limits, {
-            effectiveRiskPct: finalRiskPct,
+            effectiveRiskPct,
             clusterExposure,
-            sectorExposure,
-            cvar95Pct: stats.cvar95Pct
+            sectorExposure
         });
 
         if (sizing.size <= 0) {
             rejectedTrades.push({
-                symbol: t.symbol,
-                strategyId: t.strategyId,
+                symbol: t.symbol, strategyId: t.strategyId,
                 entryTime: t.entryTime,
                 skipReason: sizing.limitReason || 'حجم صفر',
                 baseSize: sizing.baseSize
             });
-            const key = (sizing.limitReason || 'unknown').split(':')[0];
+            // کلید دقیق‌تر
+            let key = sizing.limitReason || 'unknown';
+            if (key.includes(':')) key = key.split(':')[0].trim();
+            if (key.includes('(')) key = key.split('(')[0].trim();
             rejectionReasons[key] = (rejectionReasons[key] || 0) + 1;
             continue;
         }
 
-        // 5. Accept trade
+        // Accept
         const contractValue = (t.optionEntry || 0) * (t.size || 1000);
         const entryValue = contractValue * sizing.size;
-        const posReturnPct = t.pnlPct || 0;
+        const posReturnPct = toNum(t.pnlPct) || 0;
         const pnlAbs = entryValue * (posReturnPct / 100);
 
         portfolio.totalExposure += entryValue;
         if (portfolio.totalExposure > peakExposure) peakExposure = portfolio.totalExposure;
         portfolio.exposureBySymbol[t.symbol] = (portfolio.exposureBySymbol[t.symbol] || 0) + entryValue;
         portfolio.openPositions.push({
-            symbol: t.symbol,
-            value: entryValue,
-            exitTime: exitTs
+            symbol: t.symbol, value: entryValue, exitTime: exitTs
         });
 
-        // Equity
         const pnlPctOfCapital = (entryValue / capital) * (posReturnPct / 100);
         equity *= (1 + pnlPctOfCapital);
         if (equity > peakEquity) peakEquity = equity;
         const dd = ((peakEquity - equity) / peakEquity) * 100;
         if (dd > maxDD) maxDD = dd;
 
+        const sector = ctx.sectorMap ? (ctx.sectorMap[t.symbol] || getSector(t.symbol)) : getSector(t.symbol);
+
         acceptedTrades.push({
             symbol: t.symbol,
             strategyId: t.strategyId,
             strategyName: t.strategyName,
-            sector: ctx.sectorMap ? (ctx.sectorMap[t.symbol] || getSector(t.symbol)) : getSector(t.symbol),
+            sector,
             entryTime: t.entryTime,
             exitTime: t.exitTime,
             positionSize: sizing.size,
@@ -362,11 +348,11 @@ function simulate(trades, limitsInput = {}, ctx = {}) {
             equityAfter: equity,
             bindingLimit: sizing.limitReason,
             clusterExposure: clusterExposure || 0,
-            sectorExposure: sectorExposure
+            sectorExposure
         });
 
         usedStrategies.add(t.strategyId);
-        usedSectors.add(ctx.sectorMap ? (ctx.sectorMap[t.symbol] || getSector(t.symbol)) : getSector(t.symbol));
+        usedSectors.add(sector);
 
         equityCurve.push({
             time: exitTs,
@@ -374,7 +360,7 @@ function simulate(trades, limitsInput = {}, ctx = {}) {
         });
     }
 
-    // آمار نهایی
+    // آمار
     const accepted = acceptedTrades;
     const wins = accepted.filter(t => t.pnlPct > 0);
     const losses = accepted.filter(t => t.pnlPct <= 0);
@@ -395,14 +381,16 @@ function simulate(trades, limitsInput = {}, ctx = {}) {
             duplicateGuard: limits.useDuplicateGuard,
             correlation: limits.useCorrelation,
             sectors: limits.useSectors,
-            kelly: limits.useKelly,
-            cvar: limits.useCVaR
+            kelly: limits.useKelly
         },
         globalStats: {
             halfKellyPct: Math.round(stats.halfKelly * 10000) / 100,
             cvar95Pct: Math.round(stats.cvar95Pct * 100) / 100,
-            effectiveRiskPct: Math.round(finalRiskPct * 100) / 100,
-            clustersFound: clusters ? clusters.length : 0
+            effectiveRiskPct: Math.round(effectiveRiskPct * 100) / 100,
+            clustersFound: clusters ? clusters.length : 0,
+            rawWinRate: Math.round(stats.winRate * 100) / 100,
+            rawAvgWin: stats.avgWin,
+            rawAvgLoss: stats.avgLoss
         },
         clusterSummary: clusters ? clusters.map(c => ({
             symbols: c,
@@ -434,5 +422,6 @@ module.exports = {
     simulate,
     calcPositionSize,
     computeGlobalStats,
+    computeEffectiveRiskPct,
     DEFAULT_LIMITS
 };

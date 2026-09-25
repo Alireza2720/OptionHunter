@@ -75,8 +75,6 @@ async function simulateFromJob(jobId, opts = {}) {
         maxClusterPct: opts.maxClusterPct || 30,
         useSectors: opts.useSectors !== false,
         maxSectorPct: opts.maxSectorPct || 40,
-        useCVaR: opts.useCVaR !== false,
-        cvarBudgetPct: opts.cvarBudgetPct || 1.0
     };
 
     const result = portfolioCore.simulate(allTrades, limits, {
@@ -99,8 +97,9 @@ async function simulateFromJob(jobId, opts = {}) {
         ...result,
         advanced: {
             cvar95: cvar,
-            kellyFraction: result.globalStats.halfKellyPct / 100 * 2,   // نمایش کامل kelly
-            halfKelly: result.globalStats.halfKellyPct / 100
+            kellyFraction: result.globalStats.halfKellyPct / 100 * 2,
+            halfKelly: result.globalStats.halfKellyPct / 100,
+            effectiveRiskPct: result.globalStats.effectiveRiskPct
         }
     };
 }
