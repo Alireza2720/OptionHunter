@@ -85,13 +85,36 @@ async function getWhitelist() {
     const db = deps.getDB();
     const doc = await db.collection(COLLECTIONS.META).findOne({ _id: 'signal_whitelist' });
     if (!doc) return null;
+
+    let pairs = doc.pairs || [];
+    let strategies = doc.strategies || [];
+
+    // 🆕 ترکیب با WF whitelist اگه موجود باشه
+    const wfDoc = await db.collection(COLLECTIONS.META).findOne({ _id: 'wf_strategy_whitelist' });
+    let wfApplied = false;
+    if (wfDoc && wfDoc.hasPassing && wfDoc.strategies && wfDoc.strategies.length > 0) {
+        const wfSet = new Set(wfDoc.strategies);
+        // فیلتر pairها بر اساس استراتژی‌های WF-passing
+        const filteredPairs = pairs.filter(p => {
+            const [sym, sid] = p.split('::');
+            return wfSet.has(sid);
+        });
+        if (filteredPairs.length > 0) {
+            pairs = filteredPairs;
+            strategies = wfDoc.strategies;
+            wfApplied = true;
+        }
+    }
+
     return {
-        pairs: new Set(doc.pairs || []),
-        strategies: new Set(doc.strategies || []),
+        pairs: new Set(pairs),
+        strategies: new Set(strategies),
         symbols: new Set(doc.symbols || []),
         jobId: doc.jobId,
         computedAt: doc.computedAt,
-        filterMode: doc.filterMode
+        filterMode: doc.filterMode,
+        wfApplied,
+        wfStrategies: wfApplied ? Array.from(strategies) : null
     };
 }
 

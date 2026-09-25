@@ -11,6 +11,62 @@ let deps = {
     logger: null,
     signalFilterService: null
 };
+
+// ------------------------------------------------------------
+// ذخیره‌ی WF strategy whitelist برای مسیر زنده
+// ------------------------------------------------------------
+async function saveWfStrategyWhitelist(jobId, aggregateResult) {
+    const db = deps.getDB();
+    const passingStrategies = [];
+    const perStrategy = aggregateResult.perStrategy || {};
+
+    for (const [sid, r] of Object.entries(perStrategy)) {
+        if (r.error) continue;
+        if (r.gate && r.gate.allPassed) {
+            passingStrategies.push({
+                strategyId: sid,
+                totalTrades: r.totalTrades,
+                avgPF: r.avgPF,
+                sharpe: r.sharpe,
+                consistencyPct: r.consistencyPct
+            });
+        }
+    }
+
+    // اگه هیچ استراتژی‌ای پاس نشد، همه‌ی whitelist رو حفظ کن
+    const hasPassing = passingStrategies.length > 0;
+
+    await db.collection('meta').updateOne(
+        { _id: 'wf_strategy_whitelist' },
+        { $set: {
+            jobId: String(jobId),
+            strategies: passingStrategies.map(s => s.strategyId),
+            details: passingStrategies,
+            hasPassing,
+            computedAt: new Date(),
+            // آمار کل
+            overallGate: aggregateResult.gate,
+            totalTrades: aggregateResult.totalTrades
+        }},
+        { upsert: true }
+    );
+
+    deps.logger && deps.logger.info(
+        `WF whitelist saved: ${passingStrategies.length} strategies passed`
+    );
+
+    return {
+        passingStrategies: passingStrategies.map(s => s.strategyId),
+        details: passingStrategies,
+        hasPassing
+    };
+}
+
+async function getWfStrategyWhitelist() {
+    const db = deps.getDB();
+    const doc = await db.collection('meta').findOne({ _id: 'wf_strategy_whitelist' });
+    return doc;
+}
 function init(d) { deps = { ...deps, ...d }; }
 
 // ------------------------------------------------------------
@@ -233,4 +289,8 @@ async function runAggregate(jobId, opts = {}) {
     };
 }
 
-module.exports = { init, runOnePair, runWhitelist, runAggregate };
+module.exports = {
+    init, runOnePair, runWhitelist, runAggregate,
+    saveWfStrategyWhitelist,
+    getWfStrategyWhitelist
+};

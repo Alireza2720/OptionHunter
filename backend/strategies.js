@@ -79,8 +79,6 @@
         for (let i = period + 1; i < c.length; i++) atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
         return atr;
     }
-
-    // 🆕 MACD
     function calculateMACD(closes, fastPeriod, slowPeriod, signalPeriod) {
         const emaFast = calculateEMA(closes, fastPeriod);
         const emaSlow = calculateEMA(closes, slowPeriod);
@@ -94,8 +92,6 @@
         const hist = macdLine.map((v, i) => (v === null || signal[i] === null) ? null : v - signal[i]);
         return { macd: macdLine, signal, hist };
     }
-
-    // 🆕 Bollinger Bands
     function calculateBollingerBands(closes, period, stdDevMult) {
         const upper = new Array(closes.length).fill(null);
         const middle = new Array(closes.length).fill(null);
@@ -111,8 +107,6 @@
         }
         return { upper, middle, lower };
     }
-
-    // 🆕 Ichimoku Cloud
     function calculateIchimoku(candles, tenkanPeriod, kijunPeriod, senkouBPeriod) {
         const n = candles.length;
         const tenkan = new Array(n).fill(null);
@@ -185,56 +179,7 @@
     }
     const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 
-    // ==================== ۱. RSI Pullback ====================
-    const RSI_DEFAULTS = { rsiFastPeriod: 2, rsiSlowPeriod: 50, rsiOversold: 10, rsiOverbought: 75, lookback: 4, maxHoldBars: 15, cooldownBars: 2, atrPeriod: 14, atrMult: 1.8, requireNoLowerWick: 0, htfEma: 20, htfRsiPeriod: 14 };
-    function runRSIPullback(candles, params, ctx) {
-        const p = { ...RSI_DEFAULTS, ...(params || {}) };
-        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
-        const closes = candles.map(c => c.close);
-        const rsiFast = calculateRSI(closes, p.rsiFastPeriod), rsiSlow = calculateRSI(closes, p.rsiSlowPeriod), atr = calculateATR(candles, p.atrPeriod);
-        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
-        const signals = [], trades = [];
-        let position = null, entry = null, cooldown = 0, lastTrend = null;
-        for (let i = 0; i < candles.length; i++) {
-            const c = candles[i], h = ha[i], hp = ha[i - 1];
-            const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
-            const ind = { rsiFast: round(rsiFast[i]), rsiSlow: round(rsiSlow[i]), atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
-            let signalType = null, reason = null;
-            if (rsiFast[i] === null || rsiSlow[i] === null || atr[i] === null) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
-            if (position === 'LONG') {
-                const bars = i - entry.idx;
-                if (rsiFast[i] >= p.rsiOverbought) reason = `RSI اشباع خرید`;
-                else if (c.close < entry.stop) reason = `حد ضرر ATR`;
-                else if (!h.bullish && hp && !hp.bullish) reason = 'دو HA نزولی';
-                else if (trend === 'نزولی') reason = `روند نزولی`;
-                else if (bars >= p.maxHoldBars) reason = `سقف زمانی`;
-                if (reason) {
-                    position = null; signalType = 'EXIT_LONG';
-                    const tr = trades[trades.length - 1]; if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
-                    entry = null; cooldown = p.cooldownBars;
-                }
-            } else {
-                if (cooldown > 0) cooldown--;
-                else if (trend === 'صعودی' && rsiSlow[i] > 50 && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
-                    let dipped = false;
-                    for (let k = Math.max(0, i - p.lookback); k < i; k++) if (rsiFast[k] !== null && rsiFast[k] <= p.rsiOversold) dipped = true;
-                    const flip = h.bullish && ((hp && !hp.bullish) || (rsiFast[i - 1] !== null && rsiFast[i - 1] <= p.rsiOversold));
-                    const strong = !p.requireNoLowerWick || noLowerWick(h);
-                    if (dipped && flip && strong && rsiFast[i] > p.rsiOversold) {
-                        position = 'LONG'; signalType = 'BUY';
-                        entry = { idx: i, price: c.close, stop: c.close - p.atrMult * atr[i] };
-                        ind.stop = round(entry.stop);
-                        reason = `پولبک RSI در روند ${htfName}`;
-                        trades.push({ type: 'خرید', entryDate: c.time, entryPrice: c.close, stop: entry.stop, reason });
-                    }
-                }
-            }
-            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
-        }
-        return { ha, signals, trades, htfTrend: lastTrend };
-    }
-
-    // ==================== ۲. SMC Unicorn ====================
+    // ==================== ۱. SMC Unicorn ====================
     const SMC_DEFAULTS = {
         swingLength: 2, htfEma: 20, htfRsiPeriod: 14,
         fvgMinGapPct: 0.01,
@@ -323,7 +268,7 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۳. OB + Sweep ====================
+    // ==================== ۲. OB + Sweep ====================
     const OB_DEFAULTS = { swingLength: 5, htfEma: 20, htfRsiPeriod: 14, atrPeriod: 14, atrMult: 1.5, maxHoldBars: 25, cooldownBars: 3, tp1R: 1.5, tp2R: 3.0, obLookback: 5, minSweepPct: 0.02, minConditions: 1 };
     function runOBSweep(candles, params, ctx) {
         const p = { ...OB_DEFAULTS, ...(params || {}) };
@@ -385,7 +330,7 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۴. Supply & Demand ====================
+    // ==================== ۳. Supply & Demand ====================
     const SDZ_DEFAULTS = { baseBars: 2, minMovePct: 1.5, zoneLookback: 30, zoneTouchPct: 0.5, atrPeriod: 14, atrMult: 2, maxHoldBars: 25, cooldownBars: 2, htfEma: 20, htfRsiPeriod: 14 };
     function runSupplyDemand(candles, params, ctx) {
         const p = { ...SDZ_DEFAULTS, ...(params || {}) };
@@ -453,7 +398,7 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۵. OB After Sweep ====================
+    // ==================== ۴. OB After Sweep ====================
     const OBAS_DEFAULTS = { swingLength: 4, htfEma: 20, htfRsiPeriod: 14, atrPeriod: 14, atrMult: 1.5, maxHoldBars: 20, cooldownBars: 3, tp1R: 1.5, tp2R: 3.0, obLookback: 12, minSweepPct: 0.02, sweepWithinBars: 10 };
     function runOBAfterSweep(candles, params, ctx) {
         const p = { ...OBAS_DEFAULTS, ...(params || {}) };
@@ -529,72 +474,7 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۶. London Breakout ====================
-    const LB_DEFAULTS = { rangeStart: 9.0, rangeEnd: 10.0, htfEma: 20, htfRsiPeriod: 14, atrPeriod: 14, atrMult: 1.5, maxHoldBars: 20, cooldownBars: 2, tp1R: 1.5, tp2R: 3.0, minRangePct: 0.2 };
-    function runLondonBreakout(candles, params, ctx) {
-        const p = { ...LB_DEFAULTS, ...(params || {}) };
-        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
-        const atr = calculateATR(candles, p.atrPeriod);
-        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
-        const signals = [], trades = [];
-        let position = null, entry = null, cooldown = 0, lastTrend = null;
-        let dayRange = null;
-        for (let i = 0; i < candles.length; i++) {
-            const c = candles[i], h = ha[i];
-            const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
-            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
-            if (i < 20 || atr[i] === null) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
-            const t = getTehranParts(new Date(c.time * 1000));
-            const hFloat = t.hour + t.minute / 60;
-            const dayKey = `${t.year}-${t.month}-${t.day}`;
-            if (hFloat < p.rangeEnd && hFloat >= p.rangeStart) {
-                if (!dayRange || dayRange.key !== dayKey) {
-                    dayRange = { hi: c.high, lo: c.low, key: dayKey };
-                } else {
-                    dayRange.hi = Math.max(dayRange.hi, c.high);
-                    dayRange.lo = Math.min(dayRange.lo, c.low);
-                }
-            }
-            let signalType = null, reason = null;
-            if (position === 'LONG') {
-                const bars = i - entry.idx; const R = entry.risk;
-                if (c.close < entry.stop) reason = 'حد ضرر';
-                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
-                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
-                else if (trend === 'نزولی') reason = 'روند نزولی';
-                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
-                if (reason) {
-                    position = null; signalType = 'EXIT_LONG';
-                    const tr = trades[trades.length - 1];
-                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
-                    entry = null; cooldown = p.cooldownBars;
-                }
-            } else {
-                if (cooldown > 0) cooldown--;
-                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
-                    if (dayRange && dayRange.key === dayKey && hFloat >= p.rangeEnd && hFloat <= p.rangeEnd + 2.0) {
-                        const rangePct = (dayRange.hi - dayRange.lo) / dayRange.lo * 100;
-                        if (rangePct >= p.minRangePct && c.close > dayRange.hi && h.bullish) {
-                            const entryPrice = c.close;
-                            const stopPrice = dayRange.lo - p.atrMult * atr[i];
-                            const risk = entryPrice - stopPrice;
-                            if (risk > 0) {
-                                position = 'LONG'; signalType = 'BUY';
-                                entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false, rangeHi: dayRange.hi, rangeLo: dayRange.lo };
-                                ind.stop = round(stopPrice);
-                                reason = `London Breakout`;
-                                trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
-                            }
-                        }
-                    }
-                }
-            }
-            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
-        }
-        return { ha, signals, trades, htfTrend: lastTrend };
-    }
-
-    // ==================== ۷. Opening Range Breakout (ORB) ====================
+    // ==================== ۵. ORB ====================
     const ORB_DEFAULTS = { rangeMinutes: 30, htfEma: 20, htfRsiPeriod: 14, atrPeriod: 14, atrMult: 1.5, maxHoldBars: 25, cooldownBars: 2, tp1R: 1.5, tp2R: 3.0, minRangePct: 0.2, requireVolume: 0 };
     function runORB(candles, params, ctx) {
         const p = { ...ORB_DEFAULTS, ...(params || {}) };
@@ -668,92 +548,40 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
-    // ==================== ۸. Pin Bar Reversal (PBR) ====================
-    const PBR_DEFAULTS = { htfEma: 20, htfRsiPeriod: 14, atrPeriod: 14, atrMult: 1.5, maxHoldBars: 15, cooldownBars: 2, tp1R: 1.5, tp2R: 3.0, minWickMult: 2.0, minWickPct: 0.3 };
-    function runPinBarReversal(candles, params, ctx) {
-        const p = { ...PBR_DEFAULTS, ...(params || {}) };
-        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
-        const atr = calculateATR(candles, p.atrPeriod);
-        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
-        const signals = [], trades = [];
-        let position = null, entry = null, cooldown = 0, lastTrend = null;
-        for (let i = 0; i < candles.length; i++) {
-            const c = candles[i], h = ha[i];
-            const row = htf.forTime(c.time), trend = row ? row.trend : null; if (trend) lastTrend = trend;
-            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
-            if (i < Math.max(p.atrPeriod + 3, 10) || atr[i] === null) { signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue; }
-            let signalType = null, reason = null;
-            if (position === 'LONG') {
-                const bars = i - entry.idx; const R = entry.risk;
-                if (c.close < entry.stop) reason = 'حد ضرر';
-                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
-                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
-                else if (trend === 'نزولی') reason = 'روند نزولی';
-                else if (bars >= p.maxHoldBars) reason = 'سقف زمان';
-                if (reason) {
-                    position = null; signalType = 'EXIT_LONG';
-                    const tr = trades[trades.length - 1];
-                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
-                    entry = null; cooldown = p.cooldownBars;
-                }
-            } else {
-                if (cooldown > 0) cooldown--;
-                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
-                    if (i < 2) continue;
-                    const prev = candles[i - 1];
-                    const body = Math.abs(prev.close - prev.open);
-                    const totalRange = prev.high - prev.low;
-                    if (totalRange <= 0) continue;
-                    const lowerWick = Math.min(prev.close, prev.open) - prev.low;
-                    const upperWick = prev.high - Math.max(prev.close, prev.open);
-                    const wickMult = body > 0 ? lowerWick / body : 999;
-                    const wickPct = lowerWick / prev.low * 100;
-                    const isBullishPin = lowerWick >= p.minWickMult * Math.max(body, 1) && wickPct >= p.minWickPct && lowerWick > upperWick * 2;
-                    if (isBullishPin && c.close > prev.high && h.bullish) {
-                        const entryPrice = c.close;
-                        const stopPrice = prev.low - p.atrMult * atr[i];
-                        const risk = entryPrice - stopPrice;
-                        if (risk > 0) {
-                            position = 'LONG'; signalType = 'BUY';
-                            entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false, pinLow: prev.low };
-                            ind.stop = round(stopPrice);
-                            reason = `PBR (Pin Bar صعودی)`;
-                            trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
-                        }
-                    }
-                }
-            }
-            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
-        }
-        return { ha, signals, trades, htfTrend: lastTrend };
-    }
-
-    // ==================== ۹. Ensemble (۸ زیراستراتژی، وزن‌های به‌روز) ====================
+    // ==================== ۶. Ensemble ====================
     const ENSEMBLE_DEFAULTS = {
         threshold: 1.2, minAgree: 2,
-        wRsi: 0.60,
+        wRsi: 0,           // RSI حذف شد
         wSmc: 1.70,
         wOb: 1.40,
         wObas: 1.30,
         wSD: 1.15,
-        wLb: 1.10,
+        wLb: 0,            // London حذف شد
         wOrb: 1.20,
-        wPbr: 0.85,
+        wPbr: 0,           // Pin Bar حذف شد
+        wVwap: 0.9,        // 🆕
+        wSt: 1.2,          // 🆕
+        wBbsq: 1.0,        // 🆕
+        wDonch: 1.1,       // 🆕
+        wKc: 0.9,          // 🆕
         cooldownBars: 3, maxHoldBars: 30,
         atrPeriod: 14, atrMult: 2.0,
         htfEma: 20, htfRsiPeriod: 14
     };
     function runEnsemble(candles, params, ctx) {
         const p = { ...ENSEMBLE_DEFAULTS, ...(params || {}) };
+        // فقط استراتژی‌های باقیمانده
         const subStrategies = [
-            { id: 'rsi50_2', weight: p.wRsi, run: runRSIPullback, defaults: RSI_DEFAULTS },
             { id: 'smc_unicorn', weight: p.wSmc, run: runSMCUnicorn, defaults: SMC_DEFAULTS },
             { id: 'ob_sweep', weight: p.wOb, run: runOBSweep, defaults: OB_DEFAULTS },
             { id: 'ob_after_sweep', weight: p.wObas, run: runOBAfterSweep, defaults: OBAS_DEFAULTS },
             { id: 'supply_demand', weight: p.wSD, run: runSupplyDemand, defaults: SDZ_DEFAULTS },
-            { id: 'london_breakout', weight: p.wLb, run: runLondonBreakout, defaults: LB_DEFAULTS },
             { id: 'orb', weight: p.wOrb, run: runORB, defaults: ORB_DEFAULTS },
-            { id: 'pin_bar', weight: p.wPbr, run: runPinBarReversal, defaults: PBR_DEFAULTS }
+            { id: 'vwap_bounce', weight: p.wVwap, run: runVwapBounce, defaults: VWAP_DEFAULTS },
+            { id: 'supertrend', weight: p.wSt, run: runSupertrend, defaults: ST_DEFAULTS },
+            { id: 'bb_squeeze', weight: p.wBbsq, run: runBollingerSqueeze, defaults: BBSQ_DEFAULTS },
+            { id: 'donchian', weight: p.wDonch, run: runDonchianBreakout, defaults: DONCH_DEFAULTS },
+            { id: 'keltner_pb', weight: p.wKc, run: runKeltnerPullback, defaults: KCPB_DEFAULTS }
         ];
         const subCtx = { ...ctx, entryWindow: ctx && ctx.entryWindow };
         const results = {};
@@ -763,18 +591,18 @@
         }
         const n = candles.length;
         const atr = calculateATR(candles, p.atrPeriod);
-        const firstHa = results.rsi50_2.ha && results.rsi50_2.ha.length ? results.rsi50_2.ha : getDisplayCandles(candles, p.candleType || 'heikin');
+        const firstHa = results.smc_unicorn.ha && results.smc_unicorn.ha.length ? results.smc_unicorn.ha : getDisplayCandles(candles, p.candleType || 'heikin');
         const signals = [], trades = [];
         let position = null, entry = null, cooldown = 0, lastTrend = null;
         for (let i = 0; i < n; i++) {
             const c = candles[i];
             let buyWeight = 0, buyCount = 0, exitWeight = 0, exitCount = 0;
-            const voters = [];
             for (const sub of subStrategies) {
+                if (sub.weight <= 0) continue;
                 const subSigs = results[sub.id].signals;
                 if (!subSigs || !subSigs[i]) continue;
                 const s = subSigs[i];
-                if (s.signalType === 'BUY') { buyWeight += sub.weight; buyCount++; voters.push(`${sub.id}(${sub.weight.toFixed(2)})`); }
+                if (s.signalType === 'BUY') { buyWeight += sub.weight; buyCount++; }
                 else if (s.signalType === 'EXIT_LONG') { exitWeight += sub.weight; exitCount++; }
             }
             for (const sub of subStrategies) { if (results[sub.id].htfTrend) { lastTrend = results[sub.id].htfTrend; break; } }
@@ -807,32 +635,419 @@
         return { ha: firstHa, signals, trades, htfTrend: lastTrend };
     }
 
+    // ==================== ۷. VWAP Bounce ====================
+    const VWAP_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 20, cooldownBars: 3,
+        vwapTouchPct: 0.3,
+        requireVwapSlope: 1,
+        tp1R: 1.5, tp2R: 3.0,
+        minVolumeMult: 0.8
+    };
+    function runVwapBounce(candles, params, ctx) {
+        const p = { ...VWAP_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const atr = calculateATR(candles, p.atrPeriod);
+        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0, lastTrend = null;
+        const vwapCache = new Map();
+        function getDayKey(t) {
+            const d = getTehranParts(new Date(t * 1000));
+            return `${d.year}-${d.month}-${d.day}`;
+        }
+        function buildVwap(i) {
+            const c = candles[i];
+            const dayKey = getDayKey(c.time);
+            if (vwapCache.has(dayKey)) return vwapCache.get(dayKey);
+            let sumPV = 0, sumV = 0;
+            for (let k = i; k >= 0; k--) {
+                const cc = candles[k];
+                if (getDayKey(cc.time) !== dayKey) break;
+                const vol = cc.volume || 1;
+                const typical = (cc.high + cc.low + cc.close) / 3;
+                sumPV += typical * vol;
+                sumV += vol;
+            }
+            const vwap = sumV > 0 ? sumPV / sumV : c.close;
+            vwapCache.set(dayKey, vwap);
+            return vwap;
+        }
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const row = htf.forTime(c.time), trend = row ? row.trend : null;
+            if (trend) lastTrend = trend;
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < Math.max(p.atrPeriod + 3, 20) || atr[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const vwap = buildVwap(i);
+            const distPct = (c.close - vwap) / vwap * 100;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (trend === 'نزولی') reason = 'روند نزولی';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const nearVwap = Math.abs(distPct) <= p.vwapTouchPct;
+                    const bounce = h.bullish && c.close > vwap;
+                    if (nearVwap && bounce) {
+                        const entryPrice = c.close;
+                        const stopPrice = vwap - p.atrMult * atr[i];
+                        const risk = entryPrice - stopPrice;
+                        if (risk > 0) {
+                            position = 'LONG'; signalType = 'BUY';
+                            entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false, vwap };
+                            ind.stop = round(stopPrice);
+                            reason = `VWAP Bounce (VWAP=${Math.round(vwap)})`;
+                            trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                        }
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: lastTrend };
+    }
+
+    // ==================== ۸. Supertrend ====================
+    const ST_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        atrPeriod: 10, atrMult: 3.0,
+        maxHoldBars: 25, cooldownBars: 2,
+        tp1R: 1.5, tp2R: 3.0,
+        requireVolumeConfirm: 0
+    };
+    function runSupertrend(candles, params, ctx) {
+        const p = { ...ST_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const atr = calculateATR(candles, p.atrPeriod);
+        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0, lastTrend = null;
+        let stUpper = null, stLower = null, stDir = 1;
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const row = htf.forTime(c.time), trend = row ? row.trend : null;
+            if (trend) lastTrend = trend;
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null, supertrendDir: stDir };
+            if (i < p.atrPeriod + 3 || atr[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const hl2 = (c.high + c.low) / 2;
+            const upperBasic = hl2 + p.atrMult * atr[i];
+            const lowerBasic = hl2 - p.atrMult * atr[i];
+            if (stUpper === null) { stUpper = upperBasic; stLower = lowerBasic; stDir = 1; }
+            else {
+                stUpper = (upperBasic < stUpper || candles[i-1].close > stUpper) ? upperBasic : stUpper;
+                stLower = (lowerBasic > stLower || candles[i-1].close < stLower) ? lowerBasic : stLower;
+                if (stDir === 1 && c.close < stLower) stDir = -1;
+                else if (stDir === -1 && c.close > stUpper) stDir = 1;
+            }
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (stDir === -1) reason = 'Supertrend برگشت';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    if (stDir === 1 && candles[i-1].close <= stUpper && c.close > stUpper && h.bullish) {
+                        const entryPrice = c.close;
+                        const stopPrice = stLower;
+                        const risk = entryPrice - stopPrice;
+                        if (risk > 0) {
+                            position = 'LONG'; signalType = 'BUY';
+                            entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                            ind.stop = round(stopPrice);
+                            reason = 'Supertrend Flip (صعودی)';
+                            trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                        }
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: lastTrend };
+    }
+
+    // ==================== ۹. BB Squeeze ====================
+    const BBSQ_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        bbPeriod: 20, bbStd: 2.0,
+        kcPeriod: 20, kcMult: 1.5,
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 25, cooldownBars: 2,
+        tp1R: 1.5, tp2R: 3.0,
+        minSqueezeBars: 3
+    };
+    function runBollingerSqueeze(candles, params, ctx) {
+        const p = { ...BBSQ_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const closes = candles.map(c => c.close);
+        const atr = calculateATR(candles, p.atrPeriod);
+        const bb = calculateBollingerBands(closes, p.bbPeriod, p.bbStd);
+        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0, lastTrend = null;
+        const ema = calculateEMA(closes, p.kcPeriod);
+        const kcUpper = ema.map((e, i) => e !== null && atr[i] !== null ? e + p.kcMult * atr[i] : null);
+        const kcLower = ema.map((e, i) => e !== null && atr[i] !== null ? e - p.kcMult * atr[i] : null);
+        let squeezeCount = 0;
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const row = htf.forTime(c.time), trend = row ? row.trend : null;
+            if (trend) lastTrend = trend;
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null, squeeze: squeezeCount };
+            if (i < Math.max(p.bbPeriod, p.kcPeriod, p.atrPeriod) + 3 || bb.upper[i] === null || kcUpper[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const isSqueeze = bb.upper[i] < kcUpper[i] && bb.lower[i] > kcLower[i];
+            if (isSqueeze) squeezeCount++;
+            else squeezeCount = 0;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (trend === 'نزولی') reason = 'روند نزولی';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const wasSqueezed = squeezeCount >= p.minSqueezeBars;
+                    const breakout = c.close > bb.upper[i] && h.bullish;
+                    if (wasSqueezed && breakout) {
+                        const entryPrice = c.close;
+                        const stopPrice = bb.middle[i] - p.atrMult * atr[i];
+                        const risk = entryPrice - stopPrice;
+                        if (risk > 0) {
+                            position = 'LONG'; signalType = 'BUY';
+                            entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                            ind.stop = round(stopPrice);
+                            reason = `BB Squeeze Breakout (${p.minSqueezeBars}+ کندل فشرده)`;
+                            trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                        }
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: lastTrend };
+    }
+
+    // ==================== ۱۰. Donchian Breakout ====================
+    const DONCH_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        entryPeriod: 20, exitPeriod: 10,
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 25, cooldownBars: 2,
+        tp1R: 1.5, tp2R: 3.0,
+        minBreakoutPct: 0.3
+    };
+    function runDonchianBreakout(candles, params, ctx) {
+        const p = { ...DONCH_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const atr = calculateATR(candles, p.atrPeriod);
+        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0, lastTrend = null;
+        function highestHigh(idx, len) {
+            let hi = -Infinity;
+            for (let k = Math.max(0, idx - len + 1); k <= idx; k++) {
+                if (candles[k].high > hi) hi = candles[k].high;
+            }
+            return hi;
+        }
+        function lowestLow(idx, len) {
+            let lo = Infinity;
+            for (let k = Math.max(0, idx - len + 1); k <= idx; k++) {
+                if (candles[k].low < lo) lo = candles[k].low;
+            }
+            return lo;
+        }
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const row = htf.forTime(c.time), trend = row ? row.trend : null;
+            if (trend) lastTrend = trend;
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < Math.max(p.entryPeriod, p.exitPeriod, p.atrPeriod) + 3 || atr[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const upper = highestHigh(i - 1, p.entryPeriod);
+            const lower = lowestLow(i - 1, p.exitPeriod);
+            const breakoutPct = (c.close - upper) / upper * 100;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (c.close < lower) reason = 'Donchian exit';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    if (breakoutPct >= p.minBreakoutPct && h.bullish) {
+                        const entryPrice = c.close;
+                        const stopPrice = lower - p.atrMult * atr[i];
+                        const risk = entryPrice - stopPrice;
+                        if (risk > 0) {
+                            position = 'LONG'; signalType = 'BUY';
+                            entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                            ind.stop = round(stopPrice);
+                            reason = `Donchian Breakout (${p.entryPeriod} کندل)`;
+                            trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                        }
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: lastTrend };
+    }
+
+    // ==================== ۱۱. Keltner Pullback ====================
+    const KCPB_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        kcPeriod: 20, kcMult: 1.5,
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 20, cooldownBars: 2,
+        tp1R: 1.5, tp2R: 3.0,
+        pullbackTouchPct: 0.5
+    };
+    function runKeltnerPullback(candles, params, ctx) {
+        const p = { ...KCPB_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const closes = candles.map(c => c.close);
+        const atr = calculateATR(candles, p.atrPeriod);
+        const ema = calculateEMA(closes, p.kcPeriod);
+        const kcUpper = ema.map((e, i) => e !== null && atr[i] !== null ? e + p.kcMult * atr[i] : null);
+        const kcLower = ema.map((e, i) => e !== null && atr[i] !== null ? e - p.kcMult * atr[i] : null);
+        const htf = buildHtf(ctx, p), htfName = (ctx && ctx.htfTimeframe) || '1d';
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0, lastTrend = null;
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const row = htf.forTime(c.time), trend = row ? row.trend : null;
+            if (trend) lastTrend = trend;
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < Math.max(p.kcPeriod, p.atrPeriod) + 3 || kcLower[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const distToLower = (c.low - kcLower[i]) / kcLower[i] * 100;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (trend === 'نزولی') reason = 'روند نزولی';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (trend === 'صعودی' && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const touchedLower = distToLower <= p.pullbackTouchPct;
+                    const bounce = h.bullish && c.close > kcLower[i];
+                    if (touchedLower && bounce) {
+                        const entryPrice = c.close;
+                        const stopPrice = kcLower[i] - p.atrMult * atr[i];
+                        const risk = entryPrice - stopPrice;
+                        if (risk > 0) {
+                            position = 'LONG'; signalType = 'BUY';
+                            entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                            ind.stop = round(stopPrice);
+                            reason = 'Keltner Pullback';
+                            trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                        }
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: lastTrend };
+    }
+
     // ==================== رجیستری ====================
     const STRATEGIES = {
-        rsi50_2: { id: 'rsi50_2', name: 'RSI', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: RSI_DEFAULTS, indicators: { overlay: [], panel: ['rsiFast', 'rsiSlow'] }, run: runRSIPullback },
+        // 🟢 استراتژی‌های معتبر (WF PASS)
         smc_unicorn: { id: 'smc_unicorn', name: 'SMC Unicorn', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: SMC_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSMCUnicorn },
         ob_sweep: { id: 'ob_sweep', name: 'OB + Sweep', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: OB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runOBSweep },
         supply_demand: { id: 'supply_demand', name: 'Supply & Demand', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: SDZ_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSupplyDemand },
         ob_after_sweep: { id: 'ob_after_sweep', name: 'OB After Sweep', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: OBAS_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runOBAfterSweep },
-        london_breakout: { id: 'london_breakout', name: 'London Breakout', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: LB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runLondonBreakout },
         orb: { id: 'orb', name: 'Opening Range Breakout', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: ORB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runORB },
-        pin_bar: { id: 'pin_bar', name: 'Pin Bar Reversal', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: PBR_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runPinBarReversal },
-        ensemble: { id: 'ensemble', name: 'Ensemble (ترکیبی)', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: ENSEMBLE_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runEnsemble }
+        ensemble: { id: 'ensemble', name: 'Ensemble (ترکیبی)', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: ENSEMBLE_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runEnsemble },
+
+        // 🆕 استراتژی‌های جدید
+        vwap_bounce: { id: 'vwap_bounce', name: 'VWAP Bounce', defaultTimeframe: '15m', htfTimeframe: '1d', defaultParams: VWAP_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runVwapBounce },
+        supertrend: { id: 'supertrend', name: 'Supertrend', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: ST_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runSupertrend },
+        bb_squeeze: { id: 'bb_squeeze', name: 'BB Squeeze Breakout', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: BBSQ_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runBollingerSqueeze },
+        donchian: { id: 'donchian', name: 'Donchian Breakout', defaultTimeframe: '1h', htfTimeframe: '1d', defaultParams: DONCH_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runDonchianBreakout },
+        keltner_pb: { id: 'keltner_pb', name: 'Keltner Pullback', defaultTimeframe: '30m', htfTimeframe: '1d', defaultParams: KCPB_DEFAULTS, indicators: { overlay: ['stop'], panel: [] }, run: runKeltnerPullback }
+
+        // ⛔ حذف‌شده — WF gate fail:
+        // rsi50_2 (PF=0.17), pin_bar (PF=0.32), london_breakout (PF=0.44)
     };
 
     function getRequiredCandles(id, params) {
         const p = { ...(STRATEGIES[id] ? STRATEGIES[id].defaultParams : {}), ...(params || {}) };
-        if (id === 'rsi50_2') return Math.max(p.rsiSlowPeriod, p.atrPeriod) + p.lookback + 2;
         if (id === 'smc_unicorn') return Math.max(p.swingLength + 5, p.atrPeriod + 3, p.maxHoldBars);
         if (id === 'ob_sweep') return Math.max(p.swingLength + p.obLookback + 5, p.atrPeriod + 3, p.maxHoldBars);
         if (id === 'supply_demand') return Math.max(p.zoneLookback + p.baseBars + 5, p.atrPeriod + 3);
         if (id === 'ob_after_sweep') return Math.max(p.swingLength + p.obLookback + p.sweepWithinBars + 5, p.atrPeriod + 3);
-        if (id === 'london_breakout') return 50;
         if (id === 'orb') return 40;
-        if (id === 'pin_bar') return 20;
+        if (id === 'vwap_bounce') return 30;
+        if (id === 'supertrend') return Math.max(p.atrPeriod, p.htfEma) + 10;
+        if (id === 'bb_squeeze') return Math.max(p.bbPeriod, p.kcPeriod, p.atrPeriod) + 10;
+        if (id === 'donchian') return Math.max(p.entryPeriod, p.exitPeriod, p.atrPeriod) + 10;
+        if (id === 'keltner_pb') return Math.max(p.kcPeriod, p.atrPeriod) + 10;
         if (id === 'ensemble') {
-            // ✅ fix: max از زیراستراتژی‌ها (نه 120 ثابت)
-            const subIds = ['rsi50_2', 'smc_unicorn', 'ob_sweep', 'ob_after_sweep', 'supply_demand', 'london_breakout', 'orb', 'pin_bar'];
+            const subIds = ['smc_unicorn', 'ob_sweep', 'ob_after_sweep', 'supply_demand', 'orb', 'vwap_bounce', 'supertrend', 'bb_squeeze', 'donchian', 'keltner_pb'];
             return Math.max(...subIds.map(sid => getRequiredCandles(sid, p)));
         }
         return 10;
@@ -847,10 +1062,12 @@
         calculateRSI, calculateEMA, calculateATR,
         calculateMACD, calculateBollingerBands, calculateIchimoku,
         aggregateCandles, TIMEFRAME_MINUTES, getRequiredCandles, getRequiredHtfCandles,
-        runRSIPullback, runSMCUnicorn, runOBSweep, runSupplyDemand,
-        runOBAfterSweep, runLondonBreakout, runORB, runPinBarReversal, runEnsemble,
-        RSI_DEFAULTS, SMC_DEFAULTS, OB_DEFAULTS, SDZ_DEFAULTS,
-        OBAS_DEFAULTS, LB_DEFAULTS, ORB_DEFAULTS, PBR_DEFAULTS, ENSEMBLE_DEFAULTS,
+        runSMCUnicorn, runOBSweep, runSupplyDemand,
+        runOBAfterSweep, runORB, runEnsemble,
+        runVwapBounce, runSupertrend, runBollingerSqueeze, runDonchianBreakout, runKeltnerPullback,
+        SMC_DEFAULTS, OB_DEFAULTS, SDZ_DEFAULTS,
+        OBAS_DEFAULTS, ORB_DEFAULTS, ENSEMBLE_DEFAULTS,
+        VWAP_DEFAULTS, ST_DEFAULTS, BBSQ_DEFAULTS, DONCH_DEFAULTS, KCPB_DEFAULTS,
         STRATEGIES
     };
 });

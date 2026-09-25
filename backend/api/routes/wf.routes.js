@@ -51,6 +51,17 @@ function register(app, deps) {
                 minTrades: opts.minTrades || 5,
                 numTrials: opts.numTrials || 234
             });
+
+            // 🆕 ذخیره‌ی WF whitelist
+            if (!r.error && r.perStrategy) {
+                try {
+                    const saved = await wfService.saveWfStrategyWhitelist(req.params.jobId, r);
+                    r.wfWhitelistSaved = saved;
+                } catch (saveErr) {
+                    deps.logger && deps.logger.warn('save wf whitelist: ' + saveErr.message);
+                }
+            }
+
             res.json(r);
         } catch (e) { next(e); }
     });
