@@ -120,20 +120,26 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
         const fillDelaySec = tfMin * 60 + LATENCY_SEC;   // 🆕 + Latency
 
         if (s.signalType === 'BUY' && !open) {
-            // 🆕 اعمال slippage + spread روی قیمت خرید
             const slipFactor = 1 + STOCK_SLIPPAGE_PCT + STOCK_HALF_SPREAD_PCT;
             const fillPrice = c.close * slipFactor;
+            const ind = s.indicators || {};
 
             open = {
                 entryTime: s.time,
                 entryFillTime: s.time + fillDelaySec,
-                entryPrice: fillPrice,                    // 🆕 قیمت با slippage
-                entrySignalPrice: c.close,                // 🆕 قیمت لحظه سیگنال (برای گزارش)
+                entryPrice: fillPrice,
+                entrySignalPrice: c.close,
                 entryIdx: c.i,
                 reason: s.reason,
                 status: 'open',
-                signalInfo: s.indicators || {},
-                slippagePct: STOCK_SLIPPAGE_PCT * 100      // 🆕
+                signalInfo: ind,
+                slippagePct: STOCK_SLIPPAGE_PCT * 100,
+                // 🆕 Phase 4 — فیلدهای score (از signal indicators)
+                atr: ind.atr || null,
+                rsiFast: ind.rsiFast || null,
+                rsiSlow: ind.rsiSlow || null,
+                htfTrend: result.htfTrend || null,
+                signalReason: s.reason || null
             };
         } else if (s.signalType === 'EXIT_LONG' && open) {
             // 🆕 اعمال slippage روی فروش (کاهش قیمت فروش)

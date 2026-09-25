@@ -138,6 +138,7 @@ function scoreToSizeFactor(score) {
 // ------------------------------------------------------------
 // از داده‌ی تاریخی موجود، score تقریبی می‌سازد
 function computeHistoricalScore(trade, regimeAtEntry) {
+    // مثل live — دقیقاً همون computeSignalScore
     return computeSignalScore({
         confluenceEffective: trade.confluenceEffective || 1,
         htfTrend: trade.htfTrend || null,

@@ -1196,6 +1196,12 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         entryTime: t.entryTime, exitTime: t.exitTime,
         entryFillTime: entrySec, exitFillTime: exitSec,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
+        // 🆕 Phase 4 — propagate score fields
+        atr: t.atr || null,
+        rsiFast: t.rsiFast || null,
+        rsiSlow: t.rsiSlow || null,
+        htfTrend: t.htfTrend || null,
+        signalReason: t.signalReason || null,
         symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
 
         entrySource: entry.source, exitSource: exit.source,
@@ -1265,6 +1271,12 @@ function tryGetApproxTradeData(t, closes, times, p) {
     return {
         entryTime: t.entryTime, exitTime: t.exitTime,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
+        // 🆕 Phase 4 — propagate score fields
+        atr: t.atr || null,
+        rsiFast: t.rsiFast || null,
+        rsiSlow: t.rsiSlow || null,
+        htfTrend: t.htfTrend || null,
+        signalReason: t.signalReason || null,
         strike, hv, sigma: sigmaBase, sigmaExit, ivCrushFactor,
         dynamicSpreadPct,
         optionEntryRaw: entryTheo.price,

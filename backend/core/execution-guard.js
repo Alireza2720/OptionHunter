@@ -298,7 +298,7 @@ function canOpen(candidate, portfolio, limits, ctx) {
     let scoreReason = 'ok';
     if (limits.useSignalScore && candidate.signalScore !== undefined && candidate.signalScore !== null) {
         scoreFactor = scoreMod.scoreToSizeFactor(candidate.signalScore);
-        scoreReason = `score=${candidate.signalScore} → ${scoreFactor}×`;
+        scoreReason = `score=${candidate.signalScore.toFixed(2)} → ${scoreFactor}×`;
     }
 
     // 3) محاسبه‌ی cluster/sector exposure

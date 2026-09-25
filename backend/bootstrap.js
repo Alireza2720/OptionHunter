@@ -247,7 +247,8 @@ async function bootstrap() {
         settings: settingsModule,
         correlationService,
         analysisService,
-        signalFilterService   // 🆕
+        signalFilterService,
+        regimeService   // 🆕 Phase 6
     });
 
     // 11.8) correlation job

@@ -132,18 +132,24 @@ async function simulateFromJob(jobId, opts = {}) {
     }
 
     // 🆕 Compute signal score per trade (Phase 4)
+    let scoreStats = { computed: 0, failed: 0, avg: 0 };
     if (opts.useSignalScore !== false) {
-        let scored = 0;
+        let sumScore = 0;
         for (const t of filteredTrades) {
             try {
                 const sc = scoreMod.computeHistoricalScore(t, regimeMap[t.symbol]);
                 t.signalScore = sc.score;
-                scored++;
+                sumScore += sc.score;
+                scoreStats.computed++;
             } catch (e) {
-                t.signalScore = null;
+                t.signalScore = 0.5;   // fallback: neutrال
+                scoreStats.failed++;
             }
         }
-        deps.logger && deps.logger.info(`signal scores computed: ${scored}/${filteredTrades.length}`);
+        scoreStats.avg = filteredTrades.length ? Math.round(sumScore / filteredTrades.length * 1000) / 1000 : 0;
+        deps.logger && deps.logger.info(
+            `signal scores: ${scoreStats.computed} computed, ${scoreStats.failed} failed, avg=${scoreStats.avg}`
+        );
     }
 
     // Limits
@@ -191,6 +197,7 @@ async function simulateFromJob(jobId, opts = {}) {
         sectorMap,
         regimeMapSize: Object.keys(regimeMap).length,
         signalFilter: filterReport,
+        scoreStats,   // 🆕
         ...result,
         advanced: {
             cvar95: cvar,
