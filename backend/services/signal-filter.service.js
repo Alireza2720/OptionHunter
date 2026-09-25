@@ -86,24 +86,17 @@ async function getWhitelist() {
     const doc = await db.collection(COLLECTIONS.META).findOne({ _id: 'signal_whitelist' });
     if (!doc) return null;
 
-    let pairs = doc.pairs || [];
-    let strategies = doc.strategies || [];
+    // منبع اصلی: pair-level signal_whitelist
+    const pairs = doc.pairs || [];
+    const strategies = doc.strategies || [];
 
-    // 🆕 ترکیب با WF whitelist اگه موجود باشه
+    // WF whitelist فقط برای insight (نه فیلتر)
     const wfDoc = await db.collection(COLLECTIONS.META).findOne({ _id: 'wf_strategy_whitelist' });
     let wfApplied = false;
+    let wfStrategies = null;
     if (wfDoc && wfDoc.hasPassing && wfDoc.strategies && wfDoc.strategies.length > 0) {
-        const wfSet = new Set(wfDoc.strategies);
-        // فیلتر pairها بر اساس استراتژی‌های WF-passing
-        const filteredPairs = pairs.filter(p => {
-            const [sym, sid] = p.split('::');
-            return wfSet.has(sid);
-        });
-        if (filteredPairs.length > 0) {
-            pairs = filteredPairs;
-            strategies = wfDoc.strategies;
-            wfApplied = true;
-        }
+        wfApplied = true;
+        wfStrategies = wfDoc.strategies;
     }
 
     return {
@@ -114,7 +107,7 @@ async function getWhitelist() {
         computedAt: doc.computedAt,
         filterMode: doc.filterMode,
         wfApplied,
-        wfStrategies: wfApplied ? Array.from(strategies) : null
+        wfStrategies
     };
 }
 

@@ -394,10 +394,12 @@ async function runBacktestCompareJob(job) {
         await new Promise(r => setImmediate(r));
     }
 
+    await updateProgress(job._id, symbols.length, symbols.length, 'تکمیل');
+
     return {
         results: allResults,
         aggregate: aggregateCompare(allResults),
-        detailsCount: allResults.filter(r => r.hasDetails).length   // 🆕
+        detailsCount: allResults.filter(r => r.hasDetails).length
     };
 }
 
