@@ -132,23 +132,38 @@ async function simulateFromJob(jobId, opts = {}) {
     }
 
     // 🆕 Compute signal score per trade (Phase 4)
-    let scoreStats = { computed: 0, failed: 0, avg: 0 };
+    let scoreStats = { computed: 0, failed: 0, avg: 0, firstError: null, sampleErrors: [] };
     if (opts.useSignalScore !== false) {
         let sumScore = 0;
         for (const t of filteredTrades) {
             try {
                 const sc = scoreMod.computeHistoricalScore(t, regimeMap[t.symbol]);
-                t.signalScore = sc.score;
-                sumScore += sc.score;
-                scoreStats.computed++;
+                if (sc && typeof sc.score === 'number' && Number.isFinite(sc.score)) {
+                    t.signalScore = sc.score;
+                    sumScore += sc.score;
+                    scoreStats.computed++;
+                } else {
+                    t.signalScore = 0.5;
+                    scoreStats.failed++;
+                    if (scoreStats.sampleErrors.length < 3) {
+                        scoreStats.sampleErrors.push({
+                            symbol: t.symbol, strategyId: t.strategyId,
+                            error: sc ? sc.error : 'invalid result'
+                        });
+                    }
+                }
+                if (sc && sc.error && !scoreStats.firstError) {
+                    scoreStats.firstError = sc.error;
+                }
             } catch (e) {
-                t.signalScore = 0.5;   // fallback: neutrال
+                t.signalScore = 0.5;
                 scoreStats.failed++;
+                if (!scoreStats.firstError) scoreStats.firstError = e.message;
             }
         }
         scoreStats.avg = filteredTrades.length ? Math.round(sumScore / filteredTrades.length * 1000) / 1000 : 0;
         deps.logger && deps.logger.info(
-            `signal scores: ${scoreStats.computed} computed, ${scoreStats.failed} failed, avg=${scoreStats.avg}`
+            `signal scores: ${scoreStats.computed} computed, ${scoreStats.failed} failed, avg=${scoreStats.avg}, firstError=${scoreStats.firstError || 'none'}`
         );
     }
 
