@@ -242,22 +242,15 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         </div>
         <div class="menu-divider"></div>
         <div class="menu-label">تنظیمات</div>
-        <button class="menu-item" onclick="openSettings(); toggleMenu();">تنظیمات عمومی</button>
+        <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button>
         <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش فرض استراتژی ها</button>
         <button class="menu-item" onclick="promptToken(); toggleMenu();">وارد کردن توکن</button>
         <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button>
         <div class="menu-divider"></div>
         <div class="menu-label">ابزار</div>
-        <button class="menu-item" onclick="openBacktestCompare(); toggleMenu();" title="آزمون همه ترکیب‌های نماد × استراتژی روی بازه‌ی دلخواه">بک تست مقایسه‌ای</button>
-        <button class="menu-item" onclick="openAutoConfigure(); toggleMenu();" title="انتخاب بهترین استراتژی برای هر نماد بر اساس نتایج بک تست">تنظیم خودکار</button>
-        <button class="menu-item" onclick="openAnalysisPanel(); toggleMenu();" title="اثبات آماری edge — Bootstrap CI + t-test + rolling">تحلیل آماری کاندیدها</button>
-        <button class="menu-item" onclick="openPortfolioSim(); toggleMenu();" title="اجرای چند نماد همزمان با مدیریت سرمایه، Kelly، Correlation">شبیه‌سازی چند-نمادی</button>
-        <button class="menu-item" onclick="openWfPanel(); toggleMenu();" title="تقسیم بازه به پنجره‌های زمانی — چک پایداری edge">اعتبارسنجی زمانی</button>
-        <button class="menu-item" onclick="openRegimePanel(); toggleMenu();" title="تشخیص bull/bear/range هر نماد — soft filter روی سایز">وضعیت بازار</button>
         <button class="menu-item" onclick="openBacktestPanel('option'); toggleMenu();" title="بک تست کامل با آپشن + همه فازها" style="background:linear-gradient(135deg, rgba(61,125,216,.15), rgba(46,168,138,.15)); border:1px solid var(--accent); font-weight:600;">🎯 بک تست آپشن</button>
         <button class="menu-item" onclick="openBacktestPanel('stock'); toggleMenu();" title="بک تست کامل روی سهم پایه (بدون آپشن)" style="background:linear-gradient(135deg, rgba(46,168,138,.12), rgba(201,151,61,.12)); border:1px solid var(--good); font-weight:600;">📊 بک تست سهم پایه</button>
         <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();" title="آخرین کندل هر نماد — تشخیص نمادهای قدیمی">تازگی دیتا</button>
-        <button class="menu-item" onclick="openPipelinePanel(); toggleMenu();" title="اجرای همه فازها یکجا: بک‌تست → تحلیل → WF → رژیم → تنظیم → پورتفولیو" style="background:linear-gradient(135deg, rgba(61,125,216,.15), rgba(46,168,138,.15)); border:1px solid var(--accent);">🎯 Pipeline کامل (Auto-Pilot)</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -3105,6 +3098,32 @@ async function applyBacktestSelections(fromSuggestion) {
     } finally {
         hideLoader();
     }
+}
+// تنظیمات پیشرفته (بدون موارد بک‌تست)
+async function openAdvancedSettings() {
+    openModal('تنظیمات پیشرفته', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const [t, o] = await Promise.all([
+            apiFetch(`${BACKEND_URL}/api/trading-settings`, {}, 0),
+            apiFetch(`${BACKEND_URL}/api/options/settings`, {}, 0)
+        ]);
+        // فقط ضرایب و آستانه‌ها (نه capital، نه entry window، نه option filters)
+        const factorKeys = ['SIGNAL_FACTOR_1','SIGNAL_FACTOR_2','SIGNAL_FACTOR_3','SIGNAL_FACTOR_4PLUS','LEVEL_FACTOR_A_PLUS','LEVEL_FACTOR_A','LEVEL_FACTOR_B','LEVEL_FACTOR_C','LEVEL_FACTOR_D','IV_FACTOR_MIN','IV_FACTOR_MAX','IV_FACTOR_BASE'];
+        const confKeys = ['CONFLUENCE_TIME_WINDOW','MULTI_CONFIRMER_MIN','MULTI_CONFIRMER_TIME_WINDOW','MIN_TARGET_PCT'];
+        const field = (k, val) => `<div class="field"><label>${TRADING_LABELS[k]||k}</label><input type="number" step="any" id="adv_${k}" value="${val}"></div>`;
+        const factorFields = factorKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+        const confFields = confKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+
+        openModal('تنظیمات پیشرفته', `
+            <div class="hint">تنظیمات معاملات، سرمایه و آپشن در صفحه‌ی بک تست قرار دارند.</div>
+            <h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">ضرایب سیگنال</h4>
+            <div class="form-row">${factorFields}</div>
+            <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره ضرایب</button>
+            <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">هم‌گرایی</h4>
+            <div class="form-row">${confFields}</div>
+            <button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره هم‌گرایی</button>
+        `);
+    } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
 window.addEventListener('load', async () => {
