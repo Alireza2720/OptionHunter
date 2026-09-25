@@ -50,6 +50,7 @@ async function start() {
             strategies: deps.strategies,
             getUnderlyingNames: deps.getUnderlyingNames,
             pipelineService: deps.pipelineService,     // 🆕
+            backtestOrchestrator: deps.backtestOrchestrator, // 🆕
 
             // config
             adminToken: env.ADMIN_TOKEN,

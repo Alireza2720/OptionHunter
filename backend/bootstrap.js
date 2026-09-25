@@ -35,6 +35,7 @@ const regimeService = require('./services/regime.service');
 const dailyBackfillJob = require('./jobs/daily-backfill.job');
 const executionGuard = require('./core/execution-guard');
 const pipelineService = require('./services/pipeline.service');
+const backtestOrchestrator = require('./services/backtest-orchestrator.service');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -259,6 +260,17 @@ async function bootstrap() {
         notify: telegram.notify
     });
 
+    backtestOrchestrator.init({
+        getDB: mongo.getDB,
+        logger,
+        backtestService,
+        analysisService,
+        wfService,
+        regimeService,
+        portfolioService,
+        signalFilterService
+    });
+
     // refresh اولیه (async — non-blocking)
     regimeService.refreshAll().catch(e =>
         logger.warn('initial regime refresh: ' + e.message)
@@ -407,6 +419,7 @@ async function bootstrap() {
         // misc
         strategies: strategiesModule,
         pipelineService,      // 🆕
+        backtestOrchestrator, // 🆕
     };
 }
 
