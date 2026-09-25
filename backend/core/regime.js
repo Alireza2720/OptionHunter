@@ -44,11 +44,23 @@ function computeATR(candles, period) {
 }
 
 function detectMacroRegime(dailyCandles, opts = {}) {
-    const emaPeriod = opts.emaPeriod || 200;
     const slopeBars = opts.slopeBars || 10;
-    if (!dailyCandles || dailyCandles.length < emaPeriod + slopeBars) {
-        return { regime: REGIME.UNKNOWN, reason: `دیتا کم (${dailyCandles?.length || 0} < ${emaPeriod + slopeBars})` };
+
+    if (!dailyCandles || dailyCandles.length < 50) {
+        return { regime: REGIME.UNKNOWN, reason: `دیتا کم (${dailyCandles?.length || 0} < 50)` };
     }
+
+    // 🆕 EMA داینامیک بر اساس دیتای موجود
+    let emaPeriod;
+    if (dailyCandles.length >= 200) emaPeriod = 200;
+    else if (dailyCandles.length >= 100) emaPeriod = 100;
+    else if (dailyCandles.length >= 50) emaPeriod = 50;
+    else return { regime: REGIME.UNKNOWN, reason: `دیتای ناکافی (${dailyCandles.length})` };
+
+    if (dailyCandles.length < emaPeriod + slopeBars) {
+        return { regime: REGIME.UNKNOWN, reason: `نیاز به ${emaPeriod + slopeBars} کندل (${dailyCandles.length} موجود)` };
+    }
+
     const closes = dailyCandles.map(c => c.close);
     const ema = computeEMA(closes, emaPeriod);
     const lastIdx = closes.length - 1;
@@ -61,24 +73,38 @@ function detectMacroRegime(dailyCandles, opts = {}) {
     }
     const slopePct = ((curEma - prevEma) / prevEma) * 100;
 
+    let regime;
+    let reason;
     if (cur > curEma && slopePct > 0) {
-        return { regime: REGIME.BULL, reason: `close>EMA200, slope=+${slopePct.toFixed(2)}%`, close: cur, ema: Math.round(curEma), slopePct };
+        regime = REGIME.BULL;
+        reason = `close>EMA${emaPeriod}, slope=+${slopePct.toFixed(2)}%`;
+    } else if (cur < curEma && slopePct < 0) {
+        regime = REGIME.BEAR;
+        reason = `close<EMA${emaPeriod}, slope=${slopePct.toFixed(2)}%`;
+    } else {
+        regime = REGIME.RANGE;
+        reason = `مابین (close/EMA${emaPeriod}=${(cur / curEma).toFixed(3)})`;
     }
-    if (cur < curEma && slopePct < 0) {
-        return { regime: REGIME.BEAR, reason: `close<EMA200, slope=${slopePct.toFixed(2)}%`, close: cur, ema: Math.round(curEma), slopePct };
-    }
-    return { regime: REGIME.RANGE, reason: `مابین (close/EMA=${(cur / curEma).toFixed(3)})`, close: cur, ema: Math.round(curEma), slopePct };
+
+    return {
+        regime, reason,
+        close: cur,
+        ema: Math.round(curEma),
+        emaPeriod,
+        slopePct
+    };
 }
 
 function detectVolatilityState(dailyCandles, opts = {}) {
     const atrPeriod = opts.atrPeriod || 14;
-    const lookback = opts.lookback || 60;
+    const lookback = opts.lookback || 30;   // 🆕 از 60 به 30
+
     if (!dailyCandles || dailyCandles.length < atrPeriod + lookback) {
         return { state: VOL_STATE.UNKNOWN };
     }
     const atr = computeATR(dailyCandles, atrPeriod);
     const recent = atr.slice(-lookback).filter(x => x !== null);
-    if (recent.length < 20) return { state: VOL_STATE.UNKNOWN };
+    if (recent.length < 15) return { state: VOL_STATE.UNKNOWN };   // 🆕 از 20 به 15
 
     const sorted = [...recent].sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];

@@ -14,8 +14,8 @@ async function detectForSymbol(symbol) {
     const candles = await db.collection(COLLECTIONS.CANDLES_DAILY)
         .find({ symbol }).sort({ time: 1 }).toArray();
 
-    if (!candles || candles.length < 100) {
-        return { symbol, macro: 'unknown', vol: 'unknown', reason: 'دیتای روزانه کم' };
+    if (!candles || candles.length < 50) {
+        return { symbol, macro: 'unknown', vol: 'unknown', reason: `دیتای روزانه کم (${candles?.length || 0})` };
     }
 
     const normalized = candles.map(c => ({
