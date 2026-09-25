@@ -40,6 +40,7 @@ async function start() {
             configService: deps.configService,
             backtestService: deps.backtestService,
             signalService: deps.signalService,
+            analysisService: deps.analysisService,
             autoConfigJob: deps.autoConfigJob,
             strategies: deps.strategies,
             getUnderlyingNames: deps.getUnderlyingNames,

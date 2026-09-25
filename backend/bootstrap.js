@@ -26,6 +26,7 @@ const dataService = require('./services/data.service');
 const configService = require('./services/config.service');
 const backtestService = require('./services/backtest.service');
 const signalService = require('./services/signal.service');
+const analysisService = require('./services/analysis.service');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -184,6 +185,12 @@ async function bootstrap() {
         logger
     });
 
+    // 11.5) analysis service (Phase 1)
+    analysisService.init({
+        getDB: mongo.getDB,
+        logger
+    });
+
     // 12) jobs
     tickJob.init({
         getDB: mongo.getDB,
@@ -278,6 +285,7 @@ async function bootstrap() {
         configService,
         backtestService,
         signalService,
+        analysisService,
         // jobs
         tickJob,
         eodJob,

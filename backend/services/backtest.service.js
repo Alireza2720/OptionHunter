@@ -313,7 +313,7 @@ async function runBacktestCompareJob(job) {
                     timeframe: cfg.timeframe,
                     htfTimeframe: cfg.htfTimeframe,
                     candleType: cfg.candleType,
-                    stock: result.stockStats,
+                    stock: { ...result.stockStats, closed: result.stockStats.count },
                     option: {
                         ...result.stats,
                         realUsed: result.realUsed || 0,
@@ -724,7 +724,7 @@ function scoreStrategy(res, dataDays) {
     const s = res.stock || {};
     const o = res.option || {};
 
-    const trades = s.closed || 0;
+    const trades = s.count || s.closed || 0;
     if (trades < th.minTrades) return -Infinity;
 
     const optCount = o.count || 0;
