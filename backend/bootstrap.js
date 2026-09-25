@@ -331,6 +331,7 @@ async function bootstrap() {
         portfolioService,
         correlationService,
         correlationJob,
+        signalFilterService,
         // jobs
         tickJob,
         eodJob,
