@@ -96,18 +96,36 @@ async function runMaster(jobId, opts = {}) {
                 minPairTrades: opts.minPairTrades || 5,
                 minPairLB: opts.minPairLB || 1.0
             });
-            // بعد WF
+            // بعد WF aggregate
             wf = await deps.wfService.runAggregate(btJobId, {
                 numWindows: 4,
                 minTrades: opts.minTrades || 5,
                 numTrials: opts.numTrials || 234
             });
+
+            // 🆕 ذخیره WF whitelist برای مسیر زنده
+            let wfSaved = null;
+            if (!wf.error && wf.perStrategy) {
+                try {
+                    wfSaved = await deps.wfService.saveWfStrategyWhitelist(btJobId, wf);
+                    wf.wfWhitelistSaved = wfSaved;
+                } catch (saveErr) {
+                    deps.logger && deps.logger.warn('save wf whitelist: ' + saveErr.message);
+                }
+            }
+
+            // 🆕 آمار درست (passingPairs در runAggregate نیست — از perStrategy بگیر)
+            const perStrat = wf.perStrategy || {};
+            const passingStrats = Object.entries(perStrat)
+                .filter(([sid, r]) => !r.error && r.gate && r.gate.allPassed)
+                .map(([sid]) => sid);
+
             steps.push({
                 name: 'walk_forward',
                 ms: Date.now() - t3,
                 status: 'ok',
-                passing: wf.passingPairs,
-                strategies: wf.wfWhitelistSaved ? wf.wfWhitelistSaved.passingStrategies : []
+                passing: passingStrats.length,
+                strategies: passingStrats
             });
         } catch (e) {
             steps.push({ name: 'walk_forward', ms: Date.now() - t3, status: 'failed', error: e.message });
@@ -244,7 +262,12 @@ async function runMaster(jobId, opts = {}) {
             steps,
             // ملخص
             analysis: { total: analysis.totalAnalyzed, passing: analysis.passing },
-            wf: wf ? { passing: wf.passingPairs, strategies: wf.wfWhitelistSaved ? wf.wfWhitelistSaved.passingStrategies : [] } : null,
+            wf: wf ? {
+                passing: (wf.wfWhitelistSaved && wf.wfWhitelistSaved.passingStrategies)
+                    ? wf.wfWhitelistSaved.passingStrategies.length
+                    : 0,
+                strategies: (wf.wfWhitelistSaved && wf.wfWhitelistSaved.passingStrategies) || []
+            } : null,
             regimes: { total: regimes.length },
             applied: applied.length,
             portfolio: sim ? {
