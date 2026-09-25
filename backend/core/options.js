@@ -578,7 +578,20 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
 
     const baseSize = riskAmt / effectiveContractValue;
     const confluence = (signalStrength && signalStrength.confluence) || 1;
-    const signalFac = deps.settings.signalFactor(confluence);
+    const confluenceEffective = (signalStrength && signalStrength.signalScore && signalStrength.signalScore.score) ? null : null;
+    let signalFac = deps.settings.signalFactor(confluence);
+
+    // 🆕 اگه signalScore داشتیم، از scoreToSizeFactor استفاده کن
+    if (signalStrength && signalStrength.signalScore) {
+        const scoreMod = require('./signal-score');
+        const scoreFac = scoreMod.scoreToSizeFactor(signalStrength.signalScore.score);
+        if (scoreFac > 0) {
+            // میانگین بین signalFactor و scoreFactor
+            signalFac = (signalFac + scoreFac) / 2;
+        } else {
+            signalFac = 0;   // score پایین → صفر
+        }
+    }
     const level = pick.level || 'A+';
     const levelFac = deps.settings.levelFactor(level);
     const ivFac = deps.settings.ivFactor(pick.ivHv);
@@ -729,14 +742,14 @@ function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title 
 // ============================================================
 // Signal handler
 // ============================================================
-async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [] }) {
+async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [], signalScore = null }) {
     const s = await getSettings();
     const chain = await requireDep('getChain')();
     const sc = await buildScenario(config, price, liveS, indicators, s);
     const names = getNames(config.symbol);
     const res = selectCalls(chain, names, sc, s);
     const portfolio = await getPortfolioState();
-    const signalStrength = { confluence, confirmers };
+    const signalStrength = { confluence, confirmers, signalScore };
 
     for (const p of res.picks) {
         try {

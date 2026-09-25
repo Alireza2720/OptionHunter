@@ -143,6 +143,12 @@ async function bootstrap() {
         getTehranParts: dataService.getTehranParts
     });
 
+    // 9.5) regime service — قبل از signalsCore
+    regimeService.init({
+        getDB: mongo.getDB,
+        logger
+    });
+
     // 10) signals core (با guard مشترک)
     signalsCore.init({
         getDB: mongo.getDB,
@@ -157,7 +163,8 @@ async function bootstrap() {
         minTargetPct: () => settingsModule.minTargetPct(),
         executionGuard,
         signalFilterService,
-        correlationService
+        correlationService,
+        regimeService   // 🆕 Phase 6
     });
 
     // 11) services
@@ -214,12 +221,6 @@ async function bootstrap() {
         getDB: mongo.getDB,
         logger,
         signalFilterService
-    });
-
-    // 11.10) regime service (Phase 6)
-    regimeService.init({
-        getDB: mongo.getDB,
-        logger
     });
 
     // 11.11) regime job

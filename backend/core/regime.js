@@ -44,18 +44,19 @@ function computeATR(candles, period) {
 }
 
 function detectMacroRegime(dailyCandles, opts = {}) {
-    const slopeBars = opts.slopeBars || 10;
-
     if (!dailyCandles || dailyCandles.length < 50) {
         return { regime: REGIME.UNKNOWN, reason: `دیتا کم (${dailyCandles?.length || 0} < 50)` };
     }
 
-    // 🆕 EMA داینامیک بر اساس دیتای موجود
+    // 🆕 EMA داینامیک
     let emaPeriod;
     if (dailyCandles.length >= 200) emaPeriod = 200;
     else if (dailyCandles.length >= 100) emaPeriod = 100;
     else if (dailyCandles.length >= 50) emaPeriod = 50;
     else return { regime: REGIME.UNKNOWN, reason: `دیتای ناکافی (${dailyCandles.length})` };
+
+    // 🆕 slopeBars داینامیک — حداکثر 10، حداقل 3
+    const slopeBars = Math.min(opts.slopeBars || 10, Math.max(3, Math.floor(dailyCandles.length / 8)));
 
     if (dailyCandles.length < emaPeriod + slopeBars) {
         return { regime: REGIME.UNKNOWN, reason: `نیاز به ${emaPeriod + slopeBars} کندل (${dailyCandles.length} موجود)` };

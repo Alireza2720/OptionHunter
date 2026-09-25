@@ -27,10 +27,10 @@ let deps = {
     confluenceWindow: () => 0,
     multiConfirmerMin: () => 2,
     minTargetPct: () => 4.5,
-    // 🆕 اجرای مشترک
     executionGuard: null,
     signalFilterService: null,
-    correlationService: null
+    correlationService: null,
+    regimeService: null   // 🆕 Phase 6
 };
 
 function init(d) {
@@ -69,6 +69,35 @@ async function buildPortfolioState() {
 // ============================================================
 // 🆕 بررسی guard قبل از ارسال سیگنال BUY
 // ============================================================
+// ============================================================
+// 🆕 Phase 6 — Regime Guard
+// ============================================================
+async function checkRegimeGuard(config) {
+    if (!deps.regimeService) return { allowed: true, reason: 'regime service not wired' };
+
+    try {
+        const regime = await deps.regimeService.getForSymbol(config.symbol);
+        if (!regime || !regime.macro || regime.macro === 'unknown') {
+            // اگه رژیم محاسبه نشده، اجازه بده (fail-open)
+            return { allowed: true, reason: 'رژیم محاسبه نشده', regime: 'unknown' };
+        }
+
+        const regimeCore = require('./regime');
+        const result = regimeCore.isStrategyAllowed(config.strategyId, regime.macro, regime.vol);
+
+        return {
+            allowed: result.allowed,
+            regime: `${regime.macro}/${regime.vol}`,
+            macro: regime.macro,
+            vol: regime.vol,
+            reason: result.reason
+        };
+    } catch (e) {
+        deps.logger && deps.logger.warn('checkRegimeGuard: ' + e.message);
+        return { allowed: true, error: e.message };
+    }
+}
+
 async function checkSignalGuard(config, last, lastPrice, info) {
     if (!deps.executionGuard) return { allowed: true };   // backward compat
 
@@ -284,9 +313,12 @@ async function evaluateConfig(config, marketInfo) {
         : info && info.queue === 'sell' ? '\nصف فروش' : '';
     const windowTag = last.signalType === 'BUY' && !inWindow ? `\nخارج از بازه` : '';
 
-    // ---- Confluence ----
+    // ---- Confluence (correlation-aware) ----
     let confluence = 1;
+    let confluenceEffective = 1;
+    let confluenceBreakdown = null;
     const confirmersList = [];
+    const confirmersRaw = [];
     if (last.signalType === 'BUY') {
         try {
             const otherConfigs = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).find({
@@ -300,6 +332,9 @@ async function evaluateConfig(config, marketInfo) {
             const tw = deps.confluenceWindow();
             const nowSec = Math.floor(Date.now() / 1000);
 
+            // خود config اصلی
+            confirmersRaw.push({ strategyId: config.strategyId, role: config.role });
+
             for (const oc of otherConfigs) {
                 const ost = stateMap.get(oc._id.toString());
                 if (!ost || ost.position !== 'LONG') continue;
@@ -308,11 +343,18 @@ async function evaluateConfig(config, marketInfo) {
                     if (diff > tw) continue;
                 }
                 confluence++;
+                confirmersRaw.push({ strategyId: oc.strategyId, role: oc.role });
                 if (oc.role === 'confirmer') {
                     const cfDef = STRATEGIES[oc.strategyId];
                     confirmersList.push(cfDef ? cfDef.name : oc.strategyId);
                 }
             }
+
+            // 🆕 Diversity-weighted effective confluence
+            const signalScore = require('./signal-score');
+            const dw = signalScore.diversityWeightedConfluence(confirmersRaw);
+            confluenceEffective = dw.effective;
+            confluenceBreakdown = dw.byStrategy;
         } catch (_) {}
     }
 
@@ -324,6 +366,26 @@ async function evaluateConfig(config, marketInfo) {
         { configId },
         { $set: { lastNotifiedTime: last.time, lastNotifiedType: last.signalType } }
     );
+
+    // 🆕 Signal score
+    let signalScoreResult = null;
+    if (last.signalType === 'BUY') {
+        try {
+            const scoreMod = require('./signal-score');
+            const regimeMod = deps.regimeService ? require('./regime') : null;
+            const r = deps.regimeService ? await deps.regimeService.getForSymbol(config.symbol) : null;
+            signalScoreResult = scoreMod.computeSignalScore({
+                confluenceEffective,
+                htfTrend: result.htfTrend || null,
+                atr: last.indicators && last.indicators.atr,
+                price: lastPrice,
+                rsiFast: last.indicators && last.indicators.rsiFast,
+                ivHv: info && info.ivHv,
+                regimeMacro: r ? r.macro : 'unknown',
+                regimeVol: r ? r.vol : 'normal'
+            });
+        } catch (_) {}
+    }
 
     let shouldNotifyConfirmer = false;
     if (isConfirmer && last.signalType === 'BUY' && confirmersList.length >= deps.multiConfirmerMin()) {
@@ -361,11 +423,52 @@ async function evaluateConfig(config, marketInfo) {
         `دلیل: ${short(last.reason || '-', 200)}` +
         `${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
 
-    // 🆕 اگه BUY هست، guard رو چک کن
+    // 🆕 اگه BUY هست، guardهای مختلف رو چک کن
     if (last.signalType === 'BUY') {
+        // ۰. Signal score gate
+        if (signalScoreResult && signalScoreResult.score < 0.30) {
+            const reasonText = `⛔ سیگنال ${config.symbol} رد شد (Score پایین)\n${def.name}\nScore: ${signalScoreResult.score}`;
+            await deps.notify(reasonText);
+
+            await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
+                configId, symbol: config.symbol,
+                strategyId: config.strategyId, strategyName: def.name,
+                timeframe: config.timeframe,
+                signalType: last.signalType,
+                price: lastPrice, time: last.time,
+                reason: last.reason || null,
+                rejected: true,
+                rejectionReason: `Score ${signalScoreResult.score} < 0.30`,
+                signalScore: signalScoreResult,
+                createdAt: new Date()
+            });
+            return;
+        }
+        // ۱. Regime guard
+        const regimeResult = await checkRegimeGuard(config);
+        if (!regimeResult.allowed) {
+            const reasonText = `⛔ سیگنال ${config.symbol} رد شد (Regime)\n${def.name}\nرژیم: ${regimeResult.regime}\nدلیل: ${regimeResult.reason}`;
+            await deps.notify(reasonText);
+
+            await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
+                configId, symbol: config.symbol,
+                strategyId: config.strategyId, strategyName: def.name,
+                timeframe: config.timeframe,
+                signalType: last.signalType,
+                price: lastPrice, time: last.time,
+                reason: last.reason || null,
+                rejected: true,
+                rejectionReason: `Regime: ${regimeResult.reason}`,
+                regime: regimeResult.regime,
+                createdAt: new Date()
+            });
+            return;
+        }
+
+        // ۲. Execution guard (whitelist + sizing)
         const guardResult = await checkSignalGuard(config, last, lastPrice, info);
         if (!guardResult.allowed) {
-            const reasonText = `⛔ سیگنال ${config.symbol} رد شد\n${config.strategyId}\nدلیل: ${guardResult.reason}`;
+            const reasonText = `⛔ سیگنال ${config.symbol} رد شد\n${def.name}\nدلیل: ${guardResult.reason}`;
             await deps.notify(reasonText);
 
             await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
@@ -378,6 +481,7 @@ async function evaluateConfig(config, marketInfo) {
                 rejected: true,
                 rejectionReason: guardResult.reason,
                 violations: guardResult.violations || [],
+                regime: regimeResult.regime,
                 createdAt: new Date()
             });
             return;
@@ -397,6 +501,9 @@ async function evaluateConfig(config, marketInfo) {
         inWindow, queue: info ? info.queue : null,
         incomplete: isIncomplete,
         confluence,
+        confluenceEffective,
+        confluenceBreakdown,
+        signalScore: signalScoreResult,
         role: isConfirmer ? 'multi-confirmer' : 'leader',
         confirmers: confirmersList,
         createdAt: new Date()
@@ -428,7 +535,8 @@ async function evaluateConfig(config, marketInfo) {
                 liveS: info ? info.price : null,
                 tradeId: null,
                 confluence,
-                confirmers: confirmersList
+                confirmers: confirmersList,
+                signalScore: signalScoreResult   // 🆕 Phase 4
             });
         } catch (e) {
             await deps.notify(`انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`);
