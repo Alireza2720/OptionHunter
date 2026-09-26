@@ -128,7 +128,6 @@ function register(app, deps) {
             });
         } catch (e) { next(e); }
     });
-}
 
     // 🆕 لاگ تیک‌های زنده
     app.get('/api/algotik/ticker-log', async (req, res, next) => {
@@ -167,7 +166,6 @@ function register(app, deps) {
             const since = new Date(today.getTime() - days * 86400000);
 
             for (const m of monitored) {
-                // توزیع کندل‌ها بر اساس روز
                 const pipeline = [
                     { $match: { symbol: m.symbol, source: 'algotik_intraday',
                         time: { $gte: since, $lt: today } } },
@@ -180,7 +178,6 @@ function register(app, deps) {
                 const daily = await db.collection(COLLECTIONS.CANDLES_BASE)
                     .aggregate(pipeline).toArray();
 
-                // روزهایی که < 200 کندل دارن (روز معاملاتی باید ~210 کندل باشه)
                 const thin = daily.filter(d => d.count < 200);
                 if (thin.length) {
                     gaps.push({
@@ -199,5 +196,7 @@ function register(app, deps) {
             });
         } catch (e) { next(e); }
     });
+
+}   // ← 🆕 این آکولاد بسته‌ی register هست — حتماً باید اینجا باشه
 
 module.exports = { register };
