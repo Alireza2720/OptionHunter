@@ -55,6 +55,7 @@ function register(app, deps) {
     app.get('/api/algotik/coverage', async (req, res, next) => {
         try { res.json(await algotik.getCoverage()); } catch (e) { next(e); }
     });
+
     // ---- Audit ----
     app.get('/api/algotik/audit', async (req, res, next) => {
         try {
@@ -71,7 +72,7 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // 🆕 Data range
+    // ---- Data range ----
     app.get('/api/algotik/data-range', async (req, res, next) => {
         try { res.json(await algotik.getDataRange()); } catch (e) { next(e); }
     });
@@ -93,7 +94,8 @@ function register(app, deps) {
             res.json(await algotik.controlTicker(action || 'start', intervalSec || 10));
         } catch (e) { res.status(400).json({ error: e.message }); }
     });
-    // 🆕 Data freshness — چک می‌کنه هر نماد آخرین کندل روزانه کِیه
+
+    // ---- Data freshness ----
     app.get('/api/algotik/freshness', async (req, res, next) => {
         try {
             const { COLLECTIONS } = require('../../config/constants');
@@ -129,7 +131,7 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // 🆕 لاگ تیک‌های زنده
+    // ---- Ticker log ----
     app.get('/api/algotik/ticker-log', async (req, res, next) => {
         try {
             const limit = Math.min(+(req.query.limit || 10), 100);
@@ -151,7 +153,7 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // 🆕 چک و fix خودکار gap کندل‌های 1m
+    // ---- Fix gaps ----
     app.post('/api/algotik/fix-gaps', async (req, res, next) => {
         try {
             const days = +(req.query.days || 7);
@@ -196,8 +198,6 @@ function register(app, deps) {
             });
         } catch (e) { next(e); }
     });
-
-}   // ← 🆕 این آکولاد بسته‌ی register هست — حتماً باید اینجا باشه
-
+}
 
 module.exports = { register };
