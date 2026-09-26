@@ -48,15 +48,25 @@ jobs:
             echo "=== npm install ==="
             npm install --no-audit --no-fund --prefer-offline
 
-            echo "=== PM2 restart ==="
+            echo "=== PM2 flush + restart ==="
+            pm2 flush OptionHunter 2>/dev/null || true
             pm2 startOrRestart ecosystem.config.js --update-env
             pm2 save
 
-            echo "=== Health check ==="
-            sleep 8
-            if ! curl -fsS http://127.0.0.1:3000/ping > /dev/null; then
-              echo "❌ SERVER NOT RESPONDING"
-              pm2 logs OptionHunter --lines 80 --nostream || true
-              exit 1
-            fi
-            echo "✅ Deploy OK"
+            echo "=== Health check (polling تا ۳۰ ثانیه) ==="
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              sleep 3
+              if curl -fsS http://127.0.0.1:3000/ping > /dev/null 2>&1; then
+                echo "✅ Deploy OK بعد از $((i * 3)) ثانیه"
+                pm2 status
+                exit 0
+              fi
+              echo "  تلاش $i/10..."
+            done
+
+            echo "❌ SERVER NOT RESPONDING بعد از ۳۰ ثانیه"
+            echo "── PM2 status ──"
+            pm2 status || true
+            echo "── PM2 logs ──"
+            pm2 logs OptionHunter --lines 80 --nostream || true
+            exit 1
