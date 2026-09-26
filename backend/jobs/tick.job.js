@@ -64,14 +64,43 @@ async function runTick() {
     await deps.signalService.tick();
 }
 
+let _lastTickerCheck = 0;
+
+async function ensureCollectorTickerRunning() {
+    // حداکثر هر ۵ دقیقه چک کن (نه هر ۱۰ ثانیه)
+    const now = Date.now();
+    if (now - _lastTickerCheck < 5 * 60 * 1000) return;
+
+    try {
+        const s = await deps.algotik.getStatus();
+        const t = (s && s.ticker) || {};
+        if (t.running) {
+            _lastTickerCheck = now;
+            return;
+        }
+        deps.logger && deps.logger.info('auto-starting collector ticker');
+        await deps.algotik.controlTicker('start', 10);
+        _lastTickerCheck = now;
+    } catch (e) {
+        deps.logger && deps.logger.warn('auto-start collector ticker: ' + e.message);
+    }
+}
+
 function start() {
     if (task) return;
+
+    // 🆕 در استارتاپ، ticker collector رو روشن کن (حتی اگه بازار بسته باشه — فقط می‌خوابه)
+    deps.algotik.controlTicker('start', 10).catch(e =>
+        deps.logger && deps.logger.warn('startup ticker: ' + e.message)
+    );
 
     // هر ۱۰ ثانیه
     task = cron.schedule('*/10 * * * * *', async () => {
         try {
             const t = deps.dataService.getTehranParts();
             if (!isMarketOpen(t)) return;
+            // 🆕 اطمینان از روشن بودن ticker جمع‌آورنده
+            await ensureCollectorTickerRunning();
             await runTick();
         } catch (e) {
             deps.logger && deps.logger.error('tick job: ' + e.message);

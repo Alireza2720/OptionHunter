@@ -133,7 +133,9 @@ async function buildMarketInfo(monitored) {
         await deps.dataService.upsertDailyCandle(m.symbol, dayTime, s);
     }
 
-    return { marketInfo, activeCount: raw.filter(s => +s.tno > 0).length };
+    // 🆕 algotik-tse: TradeCount (نه tno)
+    const activeCount = raw.filter(s => +((s.TradeCount ?? s.tno) || 0) > 0).length;
+    return { marketInfo, activeCount };
 }
 
 // ============================================================
@@ -166,6 +168,14 @@ async function tick() {
 
         // تشخیص تعطیلی: فقط در ساعت بازار
         if (isWithinMarketWindow) {
+            // 🆕 اگر قبلاً holiday ثبت شده ولی بازار فعلاً فعاله، پاکش کن
+            const holiday = getHoliday();
+            const todayStr = todayDateStr(tehran);
+            if (holiday === todayStr && activeCount >= 20) {
+                await clearHoliday();
+                deps.logger && deps.logger.info('بازار فعال شد — holiday پاک شد');
+            }
+
             if (activeCount < 20) {
                 if (++inactiveTicks >= 12) {
                     await markHoliday(tehran);
@@ -199,8 +209,22 @@ async function tick() {
         }
 
         await recordTickSuccess();
-        deps.logger && deps.logger.info(`${tehran.hour}:${String(tehran.minute).padStart(2, '0')} | ${monitored.length} نماد | ${n} استراتژی | فعال: ${activeCount}`);
-    } catch (e) {
+
+        // 🆕 محاسبه volume delta برای لاگ
+        let volDelta = 0;
+        for (const [sym, q] of lastQuotes) {
+            const s = lastSnap.get(sym);
+            if (s) volDelta += s.tvol || 0;
+        }
+
+        // 🆕 لاگ مخصوص tick log (با فرمت regex قابل پارس)
+        deps.logger && deps.logger.info(
+            `tick | ${monitored.length} symbols | ticks=${(health.consecutiveFailures === 0 ? 1 : 0)} | volDelta=${volDelta}`
+        );
+        deps.logger && deps.logger.info(
+            `${tehran.hour}:${String(tehran.minute).padStart(2, '0')} | ${monitored.length} نماد | ${n} استراتژی | فعال: ${activeCount}`
+        );
+        } catch (e) {
         await recordTickFailure(e.message);
     } finally {
         tickRunning = false;

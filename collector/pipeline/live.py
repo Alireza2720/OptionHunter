@@ -122,7 +122,9 @@ def stop_ticker():
     _running = False
 
 def get_stats():
-    return dict(_stats)
+    d = dict(_stats)
+    d['running'] = _running
+    return d
 
 def is_running():
     return _running

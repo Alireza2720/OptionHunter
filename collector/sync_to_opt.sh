@@ -11,4 +11,13 @@ sudo cp "$SRC/requirements.txt" "$DST/requirements.txt"
 sudo cp -f "$SRC/wipe_data.py" "$DST/wipe_data.py" 2>/dev/null || true
 sudo cp -f "$SRC/wipe_keep_recent.py" "$DST/wipe_keep_recent.py" 2>/dev/null || true
 sudo cp -rf "$SRC/pipeline/"* "$DST/pipeline/"
-echo "✅ synced"
+echo "🔄 restarting collector service..."
+sudo systemctl restart collector
+sleep 3
+if systemctl is-active --quiet collector; then
+    echo "✅ collector restarted and active"
+else
+    echo "❌ collector failed to start — check: sudo journalctl -u collector -n 30"
+    exit 1
+fi
+echo "✅ synced + restarted"

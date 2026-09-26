@@ -59,12 +59,25 @@ async function eodEvaluation() {
 async function dailySummary() {
     const holiday = deps.signalService.getHoliday();
     const today = deps.signalService.todayDateStr();
-    if (holiday === today) return;
+    const isHoliday = (holiday === today);
 
     try {
         const db = deps.getDB();
         const stats = await db.collection(COLLECTIONS.META)
             .findOne({ _id: `daystats_${today}` }) || {};
+
+        const ticksOk = stats.ticksOk || 0;
+        const ticksFail = stats.ticksFail || 0;
+        const totalTicks = ticksOk + ticksFail;
+
+        // 🆕 تعداد رکوردهای stock_ticks امروز
+        let stockTickCount = 0;
+        try {
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            stockTickCount = await db.collection('stock_ticks')
+                .countDocuments({ time: { $gte: todayStart } });
+        } catch (_) {}
 
         let optLine = '';
         let portLine = '';
@@ -85,9 +98,14 @@ async function dailySummary() {
             portLine = `\nسرمایه: ${Math.round(capital).toLocaleString()} | درگیری: ${Math.round(totalExposure).toLocaleString()} (${capital > 0 ? (totalExposure / capital * 100).toFixed(1) : 0}%)`;
         } catch (_) {}
 
-        const text = `خلاصه روز ${today}\n` +
-            `تیک: موفق ${stats.ticksOk || 0} | ناموفق ${stats.ticksFail || 0}\n` +
-            `سیگنال: ${stats.signals || 0} | لغو: ${stats.cancels || 0}` +
+        // 🆕 خلاصه تیک سالم
+        const text = `📊 خلاصه روز ${today}${isHoliday ? ' (تعطیل رسمی)' : ''}\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `✅ تیک موفق: ${ticksOk}\n` +
+            `❌ تیک ناموفق: ${ticksFail}\n` +
+            `📈 نرخ موفقیت: ${totalTicks > 0 ? ((ticksOk / totalTicks) * 100).toFixed(1) : 0}%\n` +
+            `📉 رکورد tick ذخیره‌شده: ${stockTickCount.toLocaleString()}\n` +
+            `🔔 سیگنال: ${stats.signals || 0} | لغو: ${stats.cancels || 0}` +
             optLine + portLine;
 
         await deps.notify(text);

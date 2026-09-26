@@ -130,4 +130,74 @@ function register(app, deps) {
     });
 }
 
+    // 🆕 لاگ تیک‌های زنده
+    app.get('/api/algotik/ticker-log', async (req, res, next) => {
+        try {
+            const limit = Math.min(+(req.query.limit || 10), 100);
+            const { COLLECTIONS } = require('../../config/constants');
+            const db = getDB();
+            const docs = await db.collection(COLLECTIONS.LOGS)
+                .find({ msg: { $regex: '^tick \\|' } })
+                .sort({ at: -1 }).limit(limit).toArray();
+            const logs = docs.map(d => {
+                const m = String(d.msg || '').match(/tick \| (\d+) symbols \| ticks=(\d+) \| volDelta=(\d+)/);
+                return {
+                    at: d.at,
+                    symbols: m ? +m[1] : 0,
+                    ticksOk: m ? +m[2] : 0,
+                    volumeDelta: m ? +m[3] : 0
+                };
+            });
+            res.json({ logs });
+        } catch (e) { next(e); }
+    });
+
+    // 🆕 چک و fix خودکار gap کندل‌های 1m
+    app.post('/api/algotik/fix-gaps', async (req, res, next) => {
+        try {
+            const days = +(req.query.days || 7);
+            const { COLLECTIONS } = require('../../config/constants');
+            const db = getDB();
+
+            const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                .find({ enabled: true }).toArray();
+
+            const gaps = [];
+            const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+            const since = new Date(today.getTime() - days * 86400000);
+
+            for (const m of monitored) {
+                // توزیع کندل‌ها بر اساس روز
+                const pipeline = [
+                    { $match: { symbol: m.symbol, source: 'algotik_intraday',
+                        time: { $gte: since, $lt: today } } },
+                    { $group: {
+                        _id: { $dateToString: { format: '%Y-%m-%d', date: '$time', timezone: 'Asia/Tehran' } },
+                        count: { $sum: 1 }
+                    }},
+                    { $sort: { _id: 1 } }
+                ];
+                const daily = await db.collection(COLLECTIONS.CANDLES_BASE)
+                    .aggregate(pipeline).toArray();
+
+                // روزهایی که < 200 کندل دارن (روز معاملاتی باید ~210 کندل باشه)
+                const thin = daily.filter(d => d.count < 200);
+                if (thin.length) {
+                    gaps.push({
+                        symbol: m.symbol,
+                        thinDays: thin.map(d => ({ date: d._id, count: d.count })),
+                        missingCount: thin.length
+                    });
+                }
+            }
+
+            res.json({
+                checked: monitored.length,
+                withGaps: gaps.length,
+                days,
+                gaps: gaps.slice(0, 50)
+            });
+        } catch (e) { next(e); }
+    });
+
 module.exports = { register };

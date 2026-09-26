@@ -21,16 +21,35 @@ function register(app, deps) {
     app.get('/', async (req, res) => {
         let pendingOutbox = 0;
         try { pendingOutbox = await deps.telegram.pendingCount(); } catch (_) {}
-        const t = signalService.todayDateStr ? signalService.todayDateStr() : new Date().toISOString().slice(0, 10);
+
+        const t = signalService.todayDateStr
+            ? signalService.todayDateStr()
+            : new Date().toISOString().slice(0, 10);
         const health = signalService.getHealth();
+
+        // 🆕 محاسبه واقعی market open
+        const nowUtc = new Date();
+        const tehran = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
+        const wd = tehran.getUTCDay();
+        const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+        const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+        const marketOpenNow = isTradingDay && mins >= 9 * 60 && mins <= 12 * 60 + 35;
+
+        // 🆕 چک اتصال collector
+        let collectorOnline = false;
+        try { collectorOnline = await deps.algotik.isOnline(); } catch (_) {}
+
+        const env = require('../../config/env').get();
 
         res.json({
             status: 'ok',
             version: deps.version || 'v10.0',
             startedAt: deps.startedAt,
             adminRequired: !!adminToken,
-            telegramConfigured: true,
-            marketOpenNow: false, // placeholder
+            telegramConfigured: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
+            collectorOnline,                              // 🆕
+            apiKeysConfigured: collectorOnline,           // 🆕 backward-compat
+            marketOpenNow,                                // 🆕
             holidayToday: signalService.getHoliday() === t,
             health: { ...health },
             pendingOutbox

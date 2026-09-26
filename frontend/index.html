@@ -246,6 +246,15 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         </div>
         <div class="menu-divider"></div>
         <div class="menu-label">تنظیمات</div>
+        <div class="menu-status-row" style="margin-bottom:6px;">
+            <span>تیک زنده</span>
+            <span id="menuTickerStatus" style="font-size:11px;">...</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+            <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">▶ شروع تیک</button>
+            <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">■ توقف</button>
+        </div>
+        <div id="tickLiveLog2" style="max-height:120px; overflow-y:auto; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:8px; font-family:monospace; font-size:10px; direction:ltr; text-align:left; display:none; margin-bottom:10px;"></div>
         <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button>
         <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش فرض استراتژی ها</button>
         <button class="menu-item" onclick="promptToken(); toggleMenu();">وارد کردن توکن</button>
@@ -261,6 +270,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <div class="menu-label">وضعیت سرور</div>
         <div class="menu-status-grid">
             <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div>
+            <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div>
             <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div>
             <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div>
         </div>
@@ -336,17 +346,11 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
                     <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div>
                     <div id="algotikBackfillJobArea" style="margin-top:10px;"></div>
                 </div>
-                <div class="pipeline-block">
-                    <h3>تیک زنده</h3>
-                    <div class="form-row" style="align-items:end;">
-                        <div class="field" style="min-width:100px;"><label>فاصله (ثانیه)</label><input type="number" id="tickerInterval" value="10" min="1" max="300"></div>
-                        <button class="btn success" onclick="algotikTickerStart()">شروع</button>
-                        <button class="btn danger" onclick="algotikTickerStop()">توقف</button>
-                        <div id="tickerStatus" style="font-size:12px; color:var(--text-dim); align-self:center;"></div>
-                    </div>
-                    <div class="hint" style="margin:0;">فقط در ساعات بازار (شنبه-چهارشنبه 9:00-12:35)</div>
+                <div class="pipeline-block" id="tickerInMenuSource" style="display:none;">
+                    <input type="number" id="tickerInterval" value="10" min="1" max="300">
+                    <div id="tickerStatus"></div>
+                    <div id="tickLiveLog"></div>
                 </div>
-            </div>
 
             <div id="ptab-symbols" style="margin-top:14px;">
                 <div id="algotikStats" class="sys-grid" style="margin-bottom:12px;"></div>
@@ -364,21 +368,8 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
                 <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div>
             </div>
 
-            <div id="ptab-coverage" style="margin-top:14px;">
-                <div style="display:flex; gap:8px; margin-bottom:10px;">
-                    <button class="btn small outline" onclick="loadDataPipeline()">رفرش</button>
-                    <label style="display:flex; align-items:center; gap:6px; font-size:12px;"><input type="checkbox" id="dpAutoRefresh" checked> رفرش هر 30 ثانیه</label>
-                    <button class="btn small outline" onclick="algotikRefresh()">رفرش وضعیت</button>
-                    <button class="btn small outline" onclick="openJobsPanel()">Jobs</button>
-                    <button class="btn small outline" onclick="algotikShowLogs()">لاگ</button>
-                </div>
-                <div id="dpSummary" class="stats-grid"></div>
-                <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
-                    <table class="data-table">
-                        <thead><tr><th>نماد</th><th>1m</th><th>روزانه</th><th>15m</th><th>30m</th><th>1h</th><th>آپشن</th><th>IV</th><th>ticks</th></tr></thead>
-                        <tbody id="dpTableBody"><tr class="empty-row"><td colspan="9">در حال بارگذاری...</td></tr></tbody>
-                    </table>
-                </div>
+            <div id="ptab-coverage" style="margin-top:14px; display:none;">
+                <!-- جدول پوشش حذف شد — اعداد روی کارت هر نماد نشون داده می‌شه -->
             </div>
         </div>
     </div>
@@ -628,11 +619,47 @@ let warnedTelegram = false, warnedToken = false;
 async function checkBackendStatus() {
     try {
         const d = await apiFetch(`${BACKEND_URL}/`, {}, 0);
-        const bs = document.getElementById('backendStatus'); bs.textContent = d.apiKeysConfigured ? 'متصل' : 'قطع'; bs.style.color = d.apiKeysConfigured ? 'var(--good)' : 'var(--bad)';
-        const ms = document.getElementById('marketStatus'); ms.textContent = d.holidayToday ? 'تعطیل' : d.marketOpenNow ? 'باز' : 'بسته'; ms.style.color = d.marketOpenNow ? 'var(--good)' : 'var(--text-dim)';
-        const hs = document.getElementById('healthStatus'); if (d.health && d.health.consecutiveFailures >= 5) { hs.textContent = 'خراب'; hs.style.color = 'var(--bad)'; } else if (d.pendingOutbox > 0) { hs.textContent = `${d.pendingOutbox} صف`; hs.style.color = 'var(--warn)'; } else { hs.textContent = 'سالم'; hs.style.color = 'var(--good)'; }
-        if (!d.telegramConfigured && !warnedTelegram) { warnedTelegram = true; showAlert('پیام رسان تنظیم نشده.', 'warn', 12000); }
-    } catch (e) { const bs = document.getElementById('backendStatus'); bs.textContent = 'قطع'; bs.style.color = 'var(--bad)'; }
+
+        // 🆕 سرور متصل = backend پاسخ داد
+        const bs = document.getElementById('backendStatus');
+        bs.textContent = d.status === 'ok' ? 'متصل' : 'قطع';
+        bs.style.color = d.status === 'ok' ? 'var(--good)' : 'var(--bad)';
+
+        // 🆕 Collector
+        const cs = document.getElementById('collectorStatus');
+        if (cs) {
+            cs.textContent = d.collectorOnline ? 'آنلاین' : 'آفلاین';
+            cs.style.color = d.collectorOnline ? 'var(--good)' : 'var(--bad)';
+        }
+
+        // 🆕 بازار
+        const ms = document.getElementById('marketStatus');
+        if (d.holidayToday) {
+            ms.textContent = 'تعطیل'; ms.style.color = 'var(--warn)';
+        } else if (d.marketOpenNow) {
+            ms.textContent = 'باز'; ms.style.color = 'var(--good)';
+        } else {
+            ms.textContent = 'بسته'; ms.style.color = 'var(--text-dim)';
+        }
+
+        // 🆕 سلامت
+        const hs = document.getElementById('healthStatus');
+        if (d.health && d.health.consecutiveFailures >= 5) {
+            hs.textContent = 'خراب'; hs.style.color = 'var(--bad)';
+        } else if (d.pendingOutbox > 0) {
+            hs.textContent = `${d.pendingOutbox} صف`; hs.style.color = 'var(--warn)';
+        } else {
+            hs.textContent = 'سالم'; hs.style.color = 'var(--good)';
+        }
+
+        if (!d.telegramConfigured && !warnedTelegram) {
+            warnedTelegram = true;
+            showAlert('پیام رسان تنظیم نشده.', 'warn', 12000);
+        }
+    } catch (e) {
+        const bs = document.getElementById('backendStatus');
+        bs.textContent = 'قطع'; bs.style.color = 'var(--bad)';
+    }
 }
 
 async function loadSystemStats() {
@@ -781,15 +808,74 @@ async function refreshRegime() {
     }
 }
 async function refreshQuotesOnly() { try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); if (monitoredSymbols.length) renderMonitoredSymbols(); } catch (e) {} }
-function renderMonitoredSymbols() { const g = document.getElementById('symbolGrid'); if (!g) return; const cnt = document.getElementById('symbolCountLabel'); if (cnt) cnt.textContent = monitoredSymbols.length; if (!monitoredSymbols.length) { g.innerHTML = '<div class="empty-note">نمادی اضافه نشده است</div>'; return; } g.innerHTML = monitoredSymbols.map(s => { const initial = (s.symbol || '?').trim().charAt(0); const q = window._symbolQuotes && window._symbolQuotes[s.symbol]; const collectOn = s.collectEnabled !== false;         
-const priceHtml = q && q.price ? `<span>قیمت: <b>${q.price.toLocaleString()}</b></span>` + (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') + (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '') : '<span style="opacity:.5;">در حال دریافت...</span>';
+function renderMonitoredSymbols() {
+    const g = document.getElementById('symbolGrid');
+    if (!g) return;
+    const cnt = document.getElementById('symbolCountLabel');
+    if (cnt) cnt.textContent = monitoredSymbols.length;
+    if (!monitoredSymbols.length) {
+        g.innerHTML = '<div class="empty-note">نمادی اضافه نشده است</div>';
+        return;
+    }
+
+    // 🆕 از _coverageData اگه موجود باشه استفاده کن
+    const covMap = {};
+    for (const c of (window._coverageData || [])) covMap[c.symbol] = c;
+
+    g.innerHTML = monitoredSymbols.map(s => {
+        const initial = (s.symbol || '?').trim().charAt(0);
+        const q = window._symbolQuotes && window._symbolQuotes[s.symbol];
+        const collectOn = s.collectEnabled !== false;
+
+        const priceHtml = q && q.price
+            ? `<span>قیمت: <b>${q.price.toLocaleString()}</b></span>` +
+              (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') +
+              (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '')
+            : '<span style="opacity:.5;">در حال دریافت...</span>';
+
         const r = (window._regimeMap && window._regimeMap[s.symbol]) || null;
-        const regimeHtml = r ? `<span class="badge ${r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none'}">${r.macro === 'bull' ? 'صعودی' : r.macro === 'bear' ? 'نزولی' : 'رنج'}</span>` + (r.vol === 'high' ? '<span class="badge warn">نوسان بالا</span>' : r.vol === 'low' ? '<span class="badge none">نوسان کم</span>' : '') : ''; return `<div class="symbol-item ${collectOn ? '' : 'collect-off'}"><input type="checkbox" class="sym-collect" ${collectOn ? 'checked' : ''} onchange="toggleMonitoredCollect('${s._id}', this.checked)"><div class="sym-avatar">${esc(initial)}</div><div class="sym-body"><div class="sym-name">${esc(s.symbol)}</div><div class="sym-meta"><span>1m: <b>${s.candleCount}</b></span><span>daily: <b>${s.dailyCount}</b></span>${regimeHtml}${priceHtml}</div></div><div class="sym-actions"><button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button><button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">حذف</button></div></div>`; }).join(''); }
+        const regimeHtml = r
+            ? `<span class="badge ${r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none'}">${r.macro === 'bull' ? 'صعودی' : r.macro === 'bear' ? 'نزولی' : 'رنج'}</span>` +
+              (r.vol === 'high' ? '<span class="badge warn">نوسان بالا</span>' : r.vol === 'low' ? '<span class="badge none">نوسان کم</span>' : '')
+            : '';
+
+        // 🆕 کندل‌ها از coverage (دقیق‌تر از monitored count)
+        const cov = covMap[s.symbol] || {};
+        const c1m = (cov.stock_base && cov.stock_base.count) || s.candleCount || 0;
+        const cDaily = (cov.stock_daily && cov.stock_daily.count) || s.dailyCount || 0;
+        const cOpt = (cov.options && cov.options.count) || 0;
+        const cTicks = (cov.stock_ticks && cov.stock_ticks.count) || 0;
+
+        return `<div class="symbol-item ${collectOn ? '' : 'collect-off'}">
+            <input type="checkbox" class="sym-collect" ${collectOn ? 'checked' : ''} onchange="toggleMonitoredCollect('${s._id}', this.checked)">
+            <div class="sym-avatar">${esc(initial)}</div>
+            <div class="sym-body">
+                <div class="sym-name">${esc(s.symbol)}</div>
+                <div class="sym-meta">
+                    <span>1m: <b>${c1m.toLocaleString()}</b></span>
+                    <span>روزانه: <b>${cDaily.toLocaleString()}</b></span>
+                    <span>آپشن: <b>${cOpt.toLocaleString()}</b></span>
+                    <span>ticks: <b>${cTicks.toLocaleString()}</b></span>
+                    ${regimeHtml}${priceHtml}
+                </div>
+            </div>
+            <div class="sym-actions">
+                <button class="sym-btn" onclick="viewChain('${esc(s.symbol)}')">زنجیره</button>
+                <button class="sym-btn x" onclick="deleteMonitoredSymbol('${s._id}','${esc(s.symbol)}')">حذف</button>
+            </div>
+        </div>`;
+    }).join('');
+}
 async function toggleMonitoredCollect(id, enabled) { try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collectEnabled: enabled }) }); const sym = monitoredSymbols.find(x => x._id === id); if (sym) sym.collectEnabled = enabled; renderMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function bulkCollectToggle(enabled) { const ids = monitoredSymbols.map(s => s._id); if (!ids.length) return showAlert('نمادی وجود ندارد', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/bulk-collect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, collectEnabled: enabled }) }); showAlert('به‌روز شد.', 'success', 3000); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteMonitoredSymbol(id, sym) { if (!confirm(`نماد «${sym}» حذف شود؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
 async function algotikRefresh() {
+    // 🆕 توابع قدیمی → بری به loadDataPipeline
+    return loadDataPipeline();
+}
+
+async function algotikRefreshLegacy() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/algotik/status`, {}, 0);
         const t = r.ticker || {}; const rf = r.risk_free || 0;
@@ -862,15 +948,133 @@ function renderCollectorJobProgress(j) {
     return html + '</div>';
 }
 
-async function algotikTickerStart() { const sec = parseInt(document.getElementById('tickerInterval').value) || 10; try { await apiFetch(`${BACKEND_URL}/api/algotik/ticker`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start', intervalSec: sec }) }, 0); showAlert(`تیک شروع شد (${sec}s)`, 'success', 5000); updateTickerStatus(); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function algotikTickerStop() { try { await apiFetch(`${BACKEND_URL}/api/algotik/ticker`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stop' }) }, 0); showAlert('تیک متوقف شد.', 'info', 4000); updateTickerStatus(); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function updateTickerStatus() { try { const s = await apiFetch(`${BACKEND_URL}/api/algotik/status`, {}, 0); const t = s.ticker || {}; const el = document.getElementById('tickerStatus'); if (!el) return; el.textContent = `ticks: ${t.ticks || 0}` + (t.last_tick_at ? ` | آخرین: ${new Date(t.last_tick_at).toLocaleTimeString('fa-IR', {hour:'2-digit',minute:'2-digit',second:'2-digit'})}` : ''); } catch (e) {} }
+function isMarketOpenNow() {
+    const nowUtc = new Date();
+    const tehran = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
+    const wd = tehran.getUTCDay();   // 0=Sun..6=Sat
+    const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+    // Sat=6, Sun=0, Mon=1, Tue=2, Wed=3
+    const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+    const inSession = mins >= 9 * 60 && mins <= 12 * 60 + 35;
+    return isTradingDay && inSession;
+}
+
+async function algotikTickerStart() {
+    const sec = parseInt(document.getElementById('tickerInterval').value) || 10;
+
+    if (!isMarketOpenNow()) {
+        if (!confirm('⚠️ بازار الان بسته است.\n\nتیک فقط در ساعات بازار (شنبه-چهارشنبه 09:00 تا 12:35) داده جمع می‌کند. الان روشن شود تا فردا صبح خودکار شروع کند؟')) {
+            return;
+        }
+    }
+
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/ticker`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'start', intervalSec: sec })
+        }, 0);
+
+        if (r && r.ok === false) {
+            showAlert('تیک از قبل فعال است', 'warn', 4000);
+        } else {
+            showAlert(`✅ تیک شروع شد (${sec}s)`, 'success', 4000);
+        }
+        updateTickerStatus();
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+
+async function algotikTickerStop() {
+    try {
+        await apiFetch(`${BACKEND_URL}/api/algotik/ticker`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'stop' })
+        }, 0);
+        showAlert('تیک متوقف شد.', 'info', 4000);
+        updateTickerStatus();
+    } catch (e) { showAlert('خطا: ' + e.message); }
+}
+
+// چک بازار
+function isMarketOpenNow() {
+    const nowUtc = new Date();
+    const tehran = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
+    const wd = tehran.getUTCDay();
+    const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+    const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+    const inSession = mins >= 9 * 60 && mins <= 12 * 60 + 35;
+    return isTradingDay && inSession;
+}
+
+// 🆕 تابع اصلی — کل تابع قدیمی رو با این عوض کن
+async function updateTickerStatus() {
+    try {
+        const s = await apiFetch(`${BACKEND_URL}/api/algotik/status`, {}, 0);
+        const t = s.ticker || {};
+        const el = document.getElementById('tickerStatus');
+        const menuEl = document.getElementById('menuTickerStatus');
+        const logEl = document.getElementById('tickLiveLog2');
+        const oldLogEl = document.getElementById('tickLiveLog');
+
+        const running = !!t.running;
+        const ticks = t.ticks || 0;
+        const marketOpen = isMarketOpenNow();
+        const last = t.last_tick_at
+            ? new Date(t.last_tick_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : '-';
+
+        let color, status;
+        if (running && marketOpen) {
+            color = 'var(--good)';
+            status = `🟢 فعال — بازار باز | ticks: ${ticks} | آخرین: ${last}`;
+        } else if (running && !marketOpen) {
+            color = 'var(--warn)';
+            status = `🟡 فعال — منتظر بازار | ticks: ${ticks}`;
+        } else {
+            color = 'var(--text-dim)';
+            status = `⚪ غیرفعال | ticks: ${ticks}`;
+        }
+
+        if (el) { el.style.color = color; el.textContent = status; }
+
+        // منو
+        if (menuEl) {
+            menuEl.textContent = running
+                ? (marketOpen ? '🟢 فعال' : '🟡 منتظر')
+                : '⚪ غیرفعال';
+            menuEl.style.color = running ? (marketOpen ? 'var(--good)' : 'var(--warn)') : 'var(--text-dim)';
+        }
+
+        // نمایش لاگ در منو
+        if (logEl && running) {
+            logEl.style.display = 'block';
+            try {
+                const log = await apiFetch(`${BACKEND_URL}/api/algotik/ticker-log?limit=10`, {}, 0);
+                const rows = (log.logs || []).map(l => {
+                    const tt = new Date(l.at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    return `[${tt}] ${l.symbols} sym | ticks=${l.ticksOk} | volΔ=${l.volumeDelta}`;
+                }).join('\n');
+                logEl.textContent = rows || '— در انتظار اولین تیک —';
+            } catch (_) {}
+        } else if (logEl) {
+            logEl.style.display = 'none';
+        }
+
+        // برای backward compat
+        if (oldLogEl && running) {
+            oldLogEl.style.display = 'block';
+        }
+    } catch (e) { /* silent */ }
+}
 async function algotikShowLogs() { openModal('لاگ Collector', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>'); try { const r = await apiFetch(`${BACKEND_URL}/api/logs?limit=100`, {}, 0); const logs = r.logs || []; const rows = logs.length ? logs.map(l => { const cls = (l.level === 'error' || (l.msg||'').includes('err')) ? 'err' : ((l.msg||'').includes('ok') || (l.msg||'').includes('OK')) ? 'ok' : 'info'; const time = new Date(l.at).toLocaleString('fa-IR', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'}); return `<div class="algotik-log-row ${cls}">${time} - ${esc(l.msg || '')}</div>`; }).join('') : '<div class="empty-note">لاگی نیست</div>'; openModal(`لاگ (${logs.length})`, `<div class="algotik-log" style="max-height:400px; overflow-y:auto; background:var(--bg-input); border-radius:8px; padding:10px; font-family:monospace; font-size:11px; direction:ltr; text-align:left;">${rows}</div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 
 async function loadDataPipeline() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 0);
         const syms = r.symbols || [];
+        window._coverageData = syms;
+
         let totalBase = 0, totalDaily = 0, totalOpt = 0, totalIV = 0, totalTicks = 0;
         for (const s of syms) {
             totalBase += (s.stock_base && s.stock_base.count) || 0;
@@ -879,12 +1083,70 @@ async function loadDataPipeline() {
             totalIV += (s.options && s.options.with_iv) || 0;
             totalTicks += (s.stock_ticks && s.stock_ticks.count) || 0;
         }
-        document.getElementById('dpSummary').innerHTML = `<div class="stat"><small>نمادها</small><b>${syms.length}</b></div><div class="stat"><small>1m</small><b>${totalBase.toLocaleString()}</b></div><div class="stat"><small>روزانه</small><b>${totalDaily.toLocaleString()}</b></div><div class="stat"><small>آپشن</small><b>${totalOpt.toLocaleString()}</b></div><div class="stat"><small>with IV</small><b>${totalIV.toLocaleString()}</b></div><div class="stat"><small>ticks</small><b>${totalTicks.toLocaleString()}</b></div>`;
-        const rows = syms.map(s => { const base = (s.stock_base && s.stock_base.count) || 0; const daily = (s.stock_daily && s.stock_daily.count) || 0; const opt = (s.options && s.options.count) || 0; const iv = (s.options && s.options.with_iv) || 0; const ticks = (s.stock_ticks && s.stock_ticks.count) || 0; const tf = s.candles_tf || {}; return `<tr><td><b>${esc(s.symbol)}</b></td><td>${base.toLocaleString()}</td><td>${daily.toLocaleString()}</td><td>${(tf['15m']||0).toLocaleString()}</td><td>${(tf['30m']||0).toLocaleString()}</td><td>${(tf['1h']||0).toLocaleString()}</td><td>${opt.toLocaleString()}</td><td>${iv.toLocaleString()}</td><td>${ticks.toLocaleString()}</td></tr>`; }).join('');
-        document.getElementById('dpTableBody').innerHTML = rows || '<tr class="empty-row"><td colspan="9">نمادی پایش نشده</td></tr>';
-    } catch (e) { document.getElementById('dpSummary').innerHTML = `<div class="stat"><small>خطا</small><b>${esc(e.message)}</b></div>`; document.getElementById('dpTableBody').innerHTML = '<tr class="empty-row"><td colspan="9">خطا در دریافت</td></tr>'; }
+
+        // 🆕 یک پنل compact واحد (به‌جای 2 تا)
+        const el = document.getElementById('algotikStats');
+        if (el) {
+            // داده‌های collector status
+            let cs = {};
+            try { cs = await apiFetch(`${BACKEND_URL}/api/algotik/status`, {}, 0); } catch (_) {}
+            const t = cs.ticker || {};
+            const rf = cs.risk_free || 0;
+
+            el.innerHTML = `
+                <div class="sys-stat" style="padding:8px 10px;">
+                    <div class="label">Collector</div>
+                    <div class="value" style="font-size:12px;color:var(--good);">آنلاین</div>
+                    <div class="sub">پورت 5000</div>
+                </div>
+                <div class="sys-stat" style="padding:8px 10px;">
+                    <div class="label">نمادها</div>
+                    <div class="value">${syms.length}</div>
+                    <div class="sub">${cs.symbols_enabled || 0} فعال</div>
+                </div>
+                <div class="sys-stat" style="padding:8px 10px;">
+                    <div class="label">1m</div>
+                    <div class="value">${(totalBase/1000).toFixed(0)}K</div>
+                    <div class="sub">${totalDaily.toLocaleString()} روزانه</div>
+                </div>
+                <div class="sys-stat" style="padding:8px 10px;">
+                    <div class="label">آپشن</div>
+                    <div class="value">${(totalOpt/1000).toFixed(1)}K</div>
+                    <div class="sub">${totalIV.toLocaleString()} with IV</div>
+                </div>
+                <div class="sys-stat" style="padding:8px 10px;">
+                    <div class="label">ticks</div>
+                    <div class="value">${totalTicks.toLocaleString()}</div>
+                    <div class="sub">${(cs.option_snapshots||0).toLocaleString()} snapshot</div>
+                </div>
+                <div class="sys-stat" style="padding:8px 10px;">
+                    <div class="label">Risk-Free</div>
+                    <div class="value">${(rf*100).toFixed(1)}%</div>
+                    <div class="sub">از اخزا</div>
+                </div>
+                <div class="sys-stat" style="padding:8px 10px;${t.running ? 'border-color:var(--good);' : ''}">
+                    <div class="label">تیک زنده</div>
+                    <div class="value" style="font-size:12px;color:${t.running ? 'var(--good)' : 'var(--text-dim)'};">
+                        ${t.running ? '🟢 فعال' : '⚪ غیرفعال'}
+                    </div>
+                    <div class="sub">${t.ticks || 0} ticks</div>
+                </div>
+            `;
+        }
+    } catch (e) {
+        const el = document.getElementById('algotikStats');
+        if (el) el.innerHTML = `<div class="sys-stat"><div class="label">خطا</div><div class="value" style="font-size:12px;color:var(--bad);">${esc(e.message)}</div></div>`;
+    }
 }
-function startDataPipelinePolling() { if (dpTimer) clearInterval(dpTimer); dpTimer = setInterval(() => { const tab = document.getElementById('ptab-coverage'); if (tab && tab.style.display !== 'none') loadDataPipeline().catch(() => {}); }, 30000); }
+function startDataPipelinePolling() {
+    if (dpTimer) clearInterval(dpTimer);
+    // 🆕 همیشه poll کن (نه فقط وقتی tab بازه) — چون اعداد روی کارت هر نماد نشون داده می‌شن
+    dpTimer = setInterval(() => {
+        loadDataPipeline().catch(() => {});
+    }, 30000);
+    // اولین بار
+    setTimeout(() => loadDataPipeline().catch(() => {}), 1000);
+}
 
 async function loadTimeframes() { const tfs = await apiFetch(`${BACKEND_URL}/api/timeframes`, {}, 0); document.getElementById('timeframeSelect').innerHTML = tfs.map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); document.getElementById('htfSelect').innerHTML = tfs.filter(t => TF_MIN[t] >= 15).map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); }
 async function loadStrategies() { strategiesInfo = await apiFetch(`${BACKEND_URL}/api/strategies`, {}, 0); const sel = document.getElementById('strategySelect'); sel.innerHTML = strategiesInfo.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join(''); onStrategyChange(); sel.addEventListener('change', onStrategyChange); }
@@ -1666,7 +1928,36 @@ function linkCharts(a, b) { let lock = false; const sync = (src, dst) => src.tim
 async function viewChart(id) {
     if (!window.TradingStrategies) return showAlert('کتابخانه بارگذاری نشده.');
     selectedConfigId = id;
-    try { const d = await apiFetch(`${BACKEND_URL}/api/chart-data/${id}`, {}, 0); const cfg = d.config; switchStrategyTab('chart', document.querySelectorAll('#cardStrategy .subtab')[2]); document.getElementById('chartSymbolInput').value = cfg.symbol; document.getElementById('chartTfSelect').value = cfg.timeframe; document.getElementById('chartCandleType').value = cfg.candleType || 'simple'; await loadChart(); } catch (e) { showAlert('خطا: ' + e.message); }
+
+    // 🆕 کارت استراتژی رو باز کن (اگه بسته‌ست)
+    const card = document.getElementById('cardStrategy');
+    if (card && !card.classList.contains('open')) card.classList.add('open');
+
+    try {
+        const d = await apiFetch(`${BACKEND_URL}/api/chart-data/${id}`, {}, 0);
+        const cfg = d.config;
+
+        // 🆕 تب نمودار (index 1 در subtabs جدید)
+        const tabs = document.querySelectorAll('#cardStrategy .subtab');
+        const chartTab = tabs[1];
+        if (chartTab) {
+            switchStrategyTab('chart', chartTab);
+        }
+
+        document.getElementById('chartSymbolInput').value = cfg.symbol;
+        document.getElementById('chartTfSelect').value = cfg.timeframe;
+        document.getElementById('chartCandleType').value = cfg.candleType || 'simple';
+
+        // 🆕 اسکرول به سمت نمودار
+        setTimeout(() => {
+            const chartWrapper = document.getElementById('priceChartWrapper');
+            if (chartWrapper) chartWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 200);
+
+        await loadChart();
+    } catch (e) {
+        showAlert('خطا: ' + e.message);
+    }
 }
 
 async function openSettings() {
@@ -3185,6 +3476,7 @@ window.addEventListener('load', async () => {
     setInterval(loadOptionPositions, 60000);
     setInterval(loadLiveDashboard, 30000);
     setInterval(loadRegimeMap, 300000);
+    setInterval(updateTickerStatus, 8000);   // 🆕 هر ۸ ثانیه وضعیت تیک
     startDataPipelinePolling();
 });
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });
