@@ -107,16 +107,24 @@ def ensure_indexes():
                   [('symbol', ASCENDING), ('time', ASCENDING)],
                   unique=True)
     _ensure_index(db[COL_CANDLES_BASE], [('source', ASCENDING)])
-
+    # 🆕 برای coverage_report — سریع‌ترین راه
+    _ensure_index(db[COL_CANDLES_BASE],
+                  [('symbol', ASCENDING), ('source', ASCENDING)])
+    
     # ---- candles_daily ----
     _ensure_index(db[COL_CANDLES_DAILY],
                   [('symbol', ASCENDING), ('time', ASCENDING)],
                   unique=True)
+    # 🆕 برای coverage_report
+    _ensure_index(db[COL_CANDLES_DAILY], [('symbol', ASCENDING)])
+
 
     # ---- candles_tf ----
     _ensure_index(db[COL_CANDLES_TF],
                   [('symbol', ASCENDING), ('tf', ASCENDING), ('time', ASCENDING)],
                   unique=True)
+    # 🆕 برای coverage_report
+    _ensure_index(db[COL_CANDLES_TF], [('symbol', ASCENDING), ('tf', ASCENDING)])
 
     # ---- option_history ----
     _ensure_index(db[COL_OPTION_HISTORY],
@@ -124,6 +132,8 @@ def ensure_indexes():
     _ensure_index(db[COL_OPTION_HISTORY],
                   [('underlying', ASCENDING), ('time', ASCENDING)])
     _ensure_index(db[COL_OPTION_HISTORY], [('time', ASCENDING)])
+    # 🆕 برای coverage_report
+    _ensure_index(db[COL_OPTION_HISTORY], [('underlying', ASCENDING)])
 
     # ---- option_snapshots ----
     _ensure_index(db[COL_OPTION_SNAPSHOTS],
