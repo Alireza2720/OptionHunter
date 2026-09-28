@@ -542,8 +542,44 @@ function clearCache(prefix) {
     if (!prefix) { _cache.clear(); return; }
     for (const k of _cache.keys()) if (k.startsWith(prefix)) _cache.delete(k);
 }
+// ============================================================
+// 🆕 Candle cache — جلوگیری از DB hit های تکراری
+// ============================================================
+const _candleCache = new Map();
+const CANDLE_TTL_MS = 5 * 60 * 1000;   // ۵ دقیقه
+
+function _cacheKey(symbol, tf) { return `${symbol}::${tf}`; }
+
+function invalidateCandleCache(symbol, tf) {
+    if (symbol && tf) _candleCache.delete(_cacheKey(symbol, tf));
+    else if (symbol) {
+        for (const k of _candleCache.keys()) if (k.startsWith(symbol + '::')) _candleCache.delete(k);
+    } else _candleCache.clear();
+}
+
+// wrap getCandles
+const _origGetCandles = getCandles;
+getCandles = async function cachedGetCandles(symbol, tf) {
+    const key = _cacheKey(symbol, tf);
+    const e = _candleCache.get(key);
+    if (e && Date.now() - e.at < CANDLE_TTL_MS) return e.val;
+    const v = await _origGetCandles(symbol, tf);
+    _candleCache.set(key, { at: Date.now(), val: v });
+    return v;
+};
+
+const _origGetBaseCandles = getBaseCandles;
+getBaseCandles = async function cachedGetBaseCandles(symbol) {
+    const key = _cacheKey(symbol, '_base');
+    const e = _candleCache.get(key);
+    if (e && Date.now() - e.at < CANDLE_TTL_MS) return e.val;
+    const v = await _origGetBaseCandles(symbol);
+    _candleCache.set(key, { at: Date.now(), val: v });
+    return v;
+};
 
 module.exports = {
+    invalidateCandleCache,
     init,
     cached,
     clearCache,

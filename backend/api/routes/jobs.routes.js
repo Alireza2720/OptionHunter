@@ -131,11 +131,29 @@ function register(app, deps) {
         try {
             const job = await backtestService.getJob(req.params.id);
             if (!job) return res.status(404).json({ error: 'Job یافت نشد' });
+
+            // 🆕 چک projection — اگه job بزرگه، خلاصه بفرست
+            const isBig = (job.type === 'backtest-compare' || job.type === 'pipeline')
+                && job.result
+                && (job.result.results || []).length > 100
+                && req.query.full !== '1';
+
+            let result = job.result;
+            if (isBig) {
+                result = {
+                    ...job.result,
+                    results: (job.result.results || []).slice(0, 200),
+                    _truncated: true,
+                    _totalResults: (job.result.results || []).length,
+                    _hint: 'برای دیدن کل نتیجه، پارامتر ?full=1 اضافه کن'
+                };
+            }
+
             res.json({
                 _id: job._id, type: job.type, status: job.status,
                 cancelRequested: job.cancelRequested,
                 progress: job.progress,
-                result: job.result,
+                result,
                 error: job.error,
                 resourceStats: job.resourceStats,
                 createdAt: job.createdAt,

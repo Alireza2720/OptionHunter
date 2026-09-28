@@ -5,6 +5,7 @@
 // - تزریق dependency ها به core/signals
 // - حلقه tick (خواندن live data، ارزیابی، notify)
 // - مدیریت health و holiday
+// - 🆕 cache invalidation بعد از هر tick
 // ============================================================
 
 const {
@@ -23,7 +24,7 @@ let deps = {
     settings: null,
     notify: null,
     logger: null,
-    symbols: null  // infra/algotik-symbols (یا هر منبع دیگه)
+    symbols: null
 };
 
 function init(d) { deps = { ...deps, ...d }; }
@@ -43,6 +44,10 @@ const lastSnap = new Map();
 const lastQuotes = new Map();
 let inactiveTicks = 0;
 let holidayDate = null;
+
+// 🆕 track symbols updated this tick → for cache invalidation
+const _updatedThisTick = new Set();
+function _markUpdated(sym) { if (sym) _updatedThisTick.add(sym); }
 
 // ============================================================
 // Day stats
@@ -92,7 +97,7 @@ async function buildMarketInfo(monitored) {
 
     const rawMap = new Map();
     for (const s of raw) {
-        const sym = s.Symbol || s.symbol;   // 🆕 algotik-tse: Symbol
+        const sym = s.Symbol || s.symbol;   // algotik-tse: Symbol
         if (sym) rawMap.set(sym, s);
     }
 
@@ -104,7 +109,7 @@ async function buildMarketInfo(monitored) {
         const s = rawMap.get(m.symbol);
         if (!s) continue;
 
-        // 🆕 algotik-tse: Last, Close, MaxAllowed, MinAllowed, TradeCount, Volume
+        // algotik-tse: Last, Close, MaxAllowed, MinAllowed, TradeCount, Volume
         const price = +s.Last || +s.Close || +s.pl || 0;
         if (!price) continue;
 
@@ -114,13 +119,11 @@ async function buildMarketInfo(monitored) {
         const atLower = tmin > 0 && price <= tmin;
         const queue = atUpper ? 'buy' : atLower ? 'sell' : null;
 
-        // 🆕 کلیدهای درست
         const tno = +(s.TradeCount || s.tno || 0);
         const tvol = +(s.Volume || s.tvol || 0);
 
         const prev = lastSnap.get(m.symbol);
         const traded = !prev || tno !== prev.tno;
-        // 🆕 اگه prev نبود، volDelta = tvol (شروع روز جدید)
         const volDelta = prev && tvol >= prev.tvol ? tvol - prev.tvol : tvol;
         lastSnap.set(m.symbol, { tno, tvol });
 
@@ -131,11 +134,10 @@ async function buildMarketInfo(monitored) {
 
         await deps.dataService.upsertLiveCandle(m.symbol, bucket1, price, volDelta);
         await deps.dataService.upsertDailyCandle(m.symbol, dayTime, s);
+        _markUpdated(m.symbol);   // 🆕 علامت‌گذاری برای invalidate
     }
 
-    // 🆕 algotik-tse: TradeCount (نه tno)
-    const activeCount = raw.filter(s => +((s.TradeCount ?? s.tno) || 0) > 0).length;
-    return { marketInfo, activeCount };
+    return { marketInfo, activeCount: raw.filter(s => +s.tno > 0).length };
 }
 
 // ============================================================
@@ -166,16 +168,19 @@ async function tick() {
 
         const { marketInfo, activeCount } = result;
 
+        // 🆕 Invalidate candle cache BEFORE evaluateAll
+        // (candles just got written; must read fresh)
+        if (_updatedThisTick.size && deps.dataService.invalidateCandleCache) {
+            try {
+                for (const sym of _updatedThisTick) {
+                    deps.dataService.invalidateCandleCache(sym);
+                }
+            } catch (_) {}
+        }
+        _updatedThisTick.clear();
+
         // تشخیص تعطیلی: فقط در ساعت بازار
         if (isWithinMarketWindow) {
-            // 🆕 اگر قبلاً holiday ثبت شده ولی بازار فعلاً فعاله، پاکش کن
-            const holiday = getHoliday();
-            const todayStr = todayDateStr(tehran);
-            if (holiday === todayStr && activeCount >= 20) {
-                await clearHoliday();
-                deps.logger && deps.logger.info('بازار فعال شد — holiday پاک شد');
-            }
-
             if (activeCount < 20) {
                 if (++inactiveTicks >= 12) {
                     await markHoliday(tehran);
@@ -208,26 +213,27 @@ async function tick() {
             deps.logger && deps.logger.warn('آپشن: ' + e.message);
         }
 
-        await recordTickSuccess();
-
-        // 🆕 محاسبه volume delta برای لاگ
+        // 🆕 لاگ مخصوص tick log (با فرمت regex قابل پارس)
         let volDelta = 0;
         for (const [sym, q] of lastQuotes) {
             const s = lastSnap.get(sym);
             if (s) volDelta += s.tvol || 0;
         }
 
-        // 🆕 لاگ مخصوص tick log — فرمت regex قابل پارس
-        const dayStats = await deps.getDB().collection(COLLECTIONS.META)
-            .findOne({ _id: `daystats_${todayDateStr(tehran)}` }) || {};
+        try {
+            const dayStats = await deps.getDB().collection(COLLECTIONS.META)
+                .findOne({ _id: `daystats_${todayDateStr(tehran)}` }) || {};
+            deps.logger && deps.logger.info(
+                `tick | ${monitored.length} symbols | ticks=${dayStats.ticksOk || 0} | volDelta=${volDelta}`
+            );
+        } catch (_) {}
 
-        deps.logger && deps.logger.info(
-            `tick | ${monitored.length} symbols | ticks=${dayStats.ticksOk || 0} | volDelta=${volDelta}`
-        );
         deps.logger && deps.logger.info(
             `${tehran.hour}:${String(tehran.minute).padStart(2, '0')} | ${monitored.length} نماد | ${n} استراتژی | فعال: ${activeCount}`
         );
-        } catch (e) {
+
+        await recordTickSuccess();
+    } catch (e) {
         await recordTickFailure(e.message);
     } finally {
         tickRunning = false;

@@ -35,6 +35,7 @@ const regimeService = require('./services/regime.service');
 const dailyBackfillJob = require('./jobs/daily-backfill.job');
 const gapDetectorJob = require('./jobs/gap-detector.job');
 const monthlyReportJob = require('./jobs/monthly-report.job');
+const retentionJob = require('./jobs/retention.job');
 const journalService = require('./services/journal.service');
 const journalUpdaterJob = require('./jobs/journal-updater.job');
 const executionGuard = require('./core/execution-guard');
@@ -264,6 +265,11 @@ async function bootstrap() {
         notify: telegram.notify
     });
 
+    retentionJob.init({
+        getDB: mongo.getDB,
+        logger
+    });
+
     // 11.13) pipeline service
     pipelineService.init({
         getDB: mongo.getDB,
@@ -438,6 +444,7 @@ async function bootstrap() {
         dailyBackfillJob,
         gapDetectorJob,
         monthlyReportJob,
+        retentionJob,
         journalService,
         journalUpdaterJob,
         // misc

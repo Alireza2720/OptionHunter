@@ -3933,11 +3933,15 @@ window.addEventListener('load', async () => {
     document.getElementById('bootOverlay').style.display = 'none';
     jdpInit();
 
-    // ─── ۱) بارگذاری موازی سبک (نه ترتیبی) ───
+    // ─── ۱) بارگذاری موازی — ضروری‌ها اول ───
     await Promise.allSettled([
         checkBackendStatus(),
         loadTimeframes(),
         loadStrategies(),
+    ]);
+
+    // ─── ۱.۵) بقیه غیر-blocking ───
+    Promise.allSettled([
         loadMonitoredSymbols(),
         loadConfigs(),
         loadSignalHistory(),
@@ -3953,24 +3957,44 @@ window.addEventListener('load', async () => {
     updateTickerStatus();
     startSystemPolling();
 
-    // ─── ۳) Polling با فاصله بیشتر + document.hidden check ───
-    const safeInterval = (fn, ms) => setInterval(() => {
-        if (document.hidden) return;
-        try { fn(); } catch (_) {}
-    }, ms);
-
-    safeInterval(checkBackendStatus, 120000);
-    safeInterval(loadConfigs, 120000);
-    safeInterval(loadMonitoredSymbols, 180000);
-    safeInterval(refreshQuotesOnly, 60000);
-    safeInterval(loadSignalHistory, 120000);
-    safeInterval(loadOptionPositions, 120000);
-    safeInterval(loadLiveDashboard, 90000);
-    safeInterval(loadRegimeMap, 600000);
-    safeInterval(updateTickerStatus, 15000);
+    // ─── ۳) 🆕 یک scheduler مرکزی جای ۹ interval ───
+    startUnifiedPolling();
 
     startDataPipelinePolling();
 });
+
+// ============================================================
+// 🆕 Unified Polling Scheduler — ۱ تایمر جای ۹ تا
+// ============================================================
+let _unifiedTimer = null;
+const _pollTasks = [
+    { fn: checkBackendStatus,       every: 120000, last: 0 },
+    { fn: loadConfigs,              every: 120000, last: 0 },
+    { fn: loadMonitoredSymbols,     every: 180000, last: 0 },
+    { fn: refreshQuotesOnly,        every: 60000,  last: 0 },
+    { fn: loadSignalHistory,        every: 120000, last: 0 },
+    { fn: loadOptionPositions,      every: 120000, last: 0 },
+    { fn: loadLiveDashboard,        every: 90000,  last: 0 },
+    { fn: loadRegimeMap,            every: 600000, last: 0 },
+    { fn: updateTickerStatus,       every: 15000,  last: 0 },
+];
+
+function startUnifiedPolling() {
+    if (_unifiedTimer) clearInterval(_unifiedTimer);
+    // tick هر ۵ ثانیه — فقط taskهایی که موعدشون رسیده اجرا می‌شن
+    _unifiedTimer = setInterval(() => {
+        if (document.hidden) return;
+        const now = Date.now();
+        for (const t of _pollTasks) {
+            if (now - t.last < t.every) continue;
+            t.last = now;
+            try {
+                const r = t.fn();
+                if (r && r.catch) r.catch(() => {});
+            } catch (_) {}
+        }
+    }, 5000);
+}
 
 // 🆕 گزارش ماهانه
 async function openMonthlyReport() {

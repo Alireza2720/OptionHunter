@@ -515,7 +515,7 @@ async function evaluateConfig(config, marketInfo) {
 }
 
 // ============================================================
-// Bulk evaluation
+// Bulk evaluation — با skip هوشمند (بدون از دست دادن سیگنال)
 // ============================================================
 async function evaluateAll(marketInfo) {
     const db = deps.getDB();
@@ -525,16 +525,50 @@ async function evaluateAll(marketInfo) {
     const confirmers = configs.filter(c => c.role === 'confirmer');
     const leaders = configs.filter(c => c.role !== 'confirmer');
 
-    for (const c of confirmers) {
-        try { await evaluateConfig(c, marketInfo); }
-        catch (e) { deps.notify && deps.notify(`eval confirmer ${c.symbol}: ${e.message}`).catch(() => {}); }
-    }
-    for (const c of leaders) {
-        try { await evaluateConfig(c, marketInfo); }
-        catch (e) { deps.notify && deps.notify(`eval leader ${c.symbol}: ${e.message}`).catch(() => {}); }
+    // 🆕 بارگذاری state همه configها یک‌بار
+    const stateColl = db.collection(COLLECTIONS.SIGNALS_STATE);
+    const stateMap = new Map();
+    try {
+        const configIds = configs.map(c => c._id.toString());
+        const states = await stateColl.find({ configId: { $in: configIds } }).toArray();
+        for (const s of states) stateMap.set(s.configId, s);
+    } catch (_) {}
+
+    let skipped = 0, evaluated = 0;
+
+    const evaluateOne = async (c, roleLabel) => {
+        const cid = c._id.toString();
+        const st = stateMap.get(cid);
+
+        // 🆕 Skip اگه هیچ تغییر مفیدی نداره
+        // نکته‌ی مهم: exit یا تغییر position همیشه چک می‌شه، فقط "warmup state" skip می‌شه
+        if (st && st.position !== 'LONG' && st.updatedAt && !st.insufficientData) {
+            const sinceUpdate = Date.now() - new Date(st.updatedAt).getTime();
+            const info = marketInfo && marketInfo.get(c.symbol);
+            const currentPrice = info ? info.price : null;
+            // فقط اگه 30s نگذشته و قیمت همون قبلیه و کندل جدیدی نیومده
+            if (sinceUpdate < 30000 && currentPrice && st.livePrice === currentPrice) {
+                skipped++;
+                return;
+            }
+        }
+
+        try {
+            await evaluateConfig(c, marketInfo);
+            evaluated++;
+        } catch (e) {
+            deps.notify && deps.notify(`eval ${roleLabel} ${c.symbol}: ${e.message}`).catch(() => {});
+        }
+    };
+
+    for (const c of confirmers) await evaluateOne(c, 'confirmer');
+    for (const c of leaders) await evaluateOne(c, 'leader');
+
+    if (skipped > 0 && deps.logger) {
+        deps.logger.info(`signal eval: ${evaluated} evaluated, ${skipped} skipped (no change)`);
     }
 
-    return configs.length;
+    return { total: configs.length, evaluated, skipped };
 }
 
 module.exports = { init, evaluateConfig, evaluateAll };

@@ -96,6 +96,7 @@ async function start() {
         if (deps.dailyBackfillJob) deps.dailyBackfillJob.start();
         if (deps.gapDetectorJob) deps.gapDetectorJob.start();
         if (deps.monthlyReportJob) deps.monthlyReportJob.start();
+        if (deps.retentionJob) deps.retentionJob.start();
         if (deps.journalUpdaterJob) deps.journalUpdaterJob.start();
         if (deps.driftJob) deps.driftJob.start();
         deps.monthlyReportJob = deps.monthlyReportJob || null;   // برای route

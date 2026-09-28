@@ -94,10 +94,20 @@ function register(app, deps) {
     });
 
     // ---- Chart data for config ----
+    // 🆕 Cache for chart-data (کلید: configId + lastCandleTime)
+    const _chartCache = new Map();
+    const CHART_TTL = 3 * 60 * 1000;
+
     app.get('/api/chart-data/:configId', async (req, res, next) => {
         try {
             const cfg = await configService.getById(req.params.configId);
             if (!cfg) return res.status(404).json({ error: 'تنظیم یافت نشد' });
+
+            // چک cache
+            const cached = _chartCache.get(req.params.configId);
+            if (cached && Date.now() - cached.at < CHART_TTL) {
+                return res.json(cached.val);
+            }
 
             const htfTf = cfg.htfTimeframe || '1d';
             const candles = await deps.dataService.getCandlesFull(cfg.symbol, cfg.timeframe);
@@ -149,7 +159,7 @@ function register(app, deps) {
                 deps.logger && deps.logger.warn('chart signals: ' + sigErr.message);
             }
 
-            res.json({
+            const payload = {
                 config: cfg,
                 candles,
                 signals,
@@ -159,7 +169,14 @@ function register(app, deps) {
                 htfCandles: htf,
                 htfTimeframe: htfTf,
                 entryWindow: deps.settings.entryWindow()
-            });
+            };
+            _chartCache.set(req.params.configId, { at: Date.now(), val: payload });
+            // پاکسازی cache قدیمی
+            if (_chartCache.size > 50) {
+                const cutoff = Date.now() - CHART_TTL * 3;
+                for (const [k, v] of _chartCache) if (v.at < cutoff) _chartCache.delete(k);
+            }
+            res.json(payload);
         } catch (e) { next(e); }
     });
 
