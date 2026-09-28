@@ -34,6 +34,7 @@ const wfService = require('./services/wf.service');
 const regimeService = require('./services/regime.service');
 const dailyBackfillJob = require('./jobs/daily-backfill.job');
 const gapDetectorJob = require('./jobs/gap-detector.job');
+const monthlyReportJob = require('./jobs/monthly-report.job');
 const executionGuard = require('./core/execution-guard');
 const pipelineService = require('./services/pipeline.service');
 const backtestOrchestrator = require('./services/backtest-orchestrator.service');
@@ -255,6 +256,12 @@ async function bootstrap() {
         notify: telegram.notify
     });
 
+    monthlyReportJob.init({
+        getDB: mongo.getDB,
+        logger,
+        notify: telegram.notify
+    });
+
     // 11.13) pipeline service
     pipelineService.init({
         getDB: mongo.getDB,
@@ -425,6 +432,7 @@ async function bootstrap() {
         driftJob,
         dailyBackfillJob,
         gapDetectorJob,
+        monthlyReportJob,
         // misc
         strategies: strategiesModule,
         pipelineService,      // 🆕

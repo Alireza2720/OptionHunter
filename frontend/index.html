@@ -267,6 +267,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="openBacktestPanel('option'); toggleMenu();" title="بک تست کامل با آپشن + همه فازها" style="background:linear-gradient(135deg, rgba(61,125,216,.15), rgba(46,168,138,.15)); border:1px solid var(--accent); font-weight:600;">🎯 بک تست آپشن</button>
         <button class="menu-item" onclick="openBacktestPanel('stock'); toggleMenu();" title="بک تست کامل روی سهم پایه (بدون آپشن)" style="background:linear-gradient(135deg, rgba(46,168,138,.12), rgba(201,151,61,.12)); border:1px solid var(--good); font-weight:600;">📊 بک تست سهم پایه</button>
         <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();" title="آخرین کندل هر نماد — تشخیص نمادهای قدیمی">تازگی دیتا</button>
+        <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();" title="گزارش کامل استراتژی‌ها و نمادها">📊 گزارش ماهانه</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -3928,6 +3929,144 @@ window.addEventListener('load', async () => {
 
     startDataPipelinePolling();
 });
+
+// 🆕 گزارش ماهانه
+async function openMonthlyReport() {
+    openModal('📊 گزارش ماهانه', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/reports/monthly/latest`, {}, 0);
+        if (r.empty) {
+            return openModal('📊 گزارش ماهانه', `
+                <div class="empty-note">هنوز گزارشی تولید نشده</div>
+                <button class="btn success" onclick="generateMonthlyReport()" style="width:100%;margin-top:10px;">🚀 تولید همین الان</button>
+            `);
+        }
+        renderMonthlyReport(r);
+    } catch (e) {
+        openModal('📊 گزارش ماهانه', `<div class="empty-note">خطا: ${esc(e.message)}</div>`);
+    }
+}
+
+async function generateMonthlyReport() {
+    showLoader('در حال تولید گزارش...');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/reports/monthly/generate`, { method: 'POST' }, 0);
+        hideLoader();
+        if (r.report && !r.report.error) renderMonthlyReport(r.report);
+        else showAlert('خطا در تولید', 'error');
+    } catch (e) {
+        hideLoader();
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
+
+function renderMonthlyReport(r) {
+    const o = r.overall || {};
+    const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;
+
+    let html = `
+        <div class="hint">تاریخ تولید: ${new Date(r.generatedAt).toLocaleString('fa-IR')} · ماه: <b>${esc(r.monthLabel || '')}</b></div>
+
+        <div style="display:flex;gap:8px;margin:12px 0;">
+            <button class="btn tiny outline" onclick="generateMonthlyReport()">🔄 تولید مجدد</button>
+        </div>
+
+        <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">🎯 کلیات سیستم</h4>
+        <div class="stats-grid">
+            ${statBox('نماد پایش', o.symbolsMonitored || 0)}
+            ${statBox('استراتژی فعال', `${o.enabledConfigs || 0}/${o.totalConfigs || 0}`)}
+            ${statBox('راهبر/تأیید', `${o.leaders || 0}/${o.confirmers || 0}`)}
+            ${statBox('استراتژی‌های در دسترس', o.strategies || 0)}
+        </div>
+    `;
+
+    if (o.btPf) {
+        html += `
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📈 برآورد بک‌تست</h4>
+            <div class="stats-grid">
+                ${statBox('کل معاملات', (o.btTotalTrades || 0).toLocaleString())}
+                ${statBox('PF', fmtPF(o.btPf), o.btPf >= 2 ? 'highlight-good' : '')}
+                ${statBox('بازده', o.btReturn != null ? pct(o.btReturn) : '—')}
+                ${statBox('Sharpe', o.btSharpe != null ? o.btSharpe.toFixed(2) : '—')}
+                ${statBox('MaxDD', o.btMaxDD != null ? o.btMaxDD.toFixed(1) + '%' : '—', o.btMaxDD > 20 ? 'highlight-bad' : 'highlight-good')}
+            </div>
+        `;
+    }
+
+    // استراتژی‌ها
+    if (r.stratStats && r.stratStats.length) {
+        html += `<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">🎯 استراتژی‌ها (${r.stratStats.length})</h4>`;
+        html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
+        for (const s of r.stratStats) {
+            const color = s.status === '🟢' ? 'var(--good)' : s.status === '🟡' ? 'var(--warn)' : s.status === '🔴' ? 'var(--bad)' : 'var(--text-dim)';
+            html += `
+                <div style="padding:10px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; border-right:3px solid ${color};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <b style="font-size:13px;">${s.status} ${esc(s.name)}</b>
+                        <span style="font-size:11px;color:var(--text-dim);">${s.pairs} pair</span>
+                    </div>
+                    <div style="display:flex;gap:12px;font-size:11.5px;color:var(--text-dim);flex-wrap:wrap;">
+                        <span>راهبر: <b style="color:var(--text);">${s.leaderCount}</b></span>
+                        <span>تأیید: <b style="color:var(--text);">${s.confirmerCount}</b></span>
+                        <span>PF: <b style="color:${color};">${s.avgPF}</b></span>
+                        <span>WR: <b style="color:var(--text);">${s.winRate}%</b></span>
+                        <span>N: <b style="color:var(--text);">${s.totalTrades}</b></span>
+                    </div>
+                    ${s.best && s.best.pf > 0 ? `<div style="font-size:11px;color:var(--text-dim);margin-top:4px;">🥇 ${esc(s.best.symbol)} (PF=${fmtPF(s.best.pf)}, N=${s.best.n})</div>` : ''}
+                    ${s.worst && s.worst.pf < 1 && s.worst.pf > 0 ? `<div style="font-size:11px;color:var(--warn);">⚠️ ${esc(s.worst.symbol)} (PF=${fmtPF(s.worst.pf)})</div>` : ''}
+                </div>
+            `;
+        }
+        html += `</div>`;
+    }
+
+    // نمادها
+    if (r.symStats && r.symStats.length) {
+        html += `<h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">📊 نمادها (${r.symStats.length})</h4>`;
+        html += `<div class="table-responsive" style="max-height:400px;overflow-y:auto;">
+            <table class="data-table">
+                <thead><tr><th>نماد</th><th>وضعیت</th><th>بهترین استراتژی</th><th>PF</th><th>N</th></tr></thead>
+                <tbody>
+                    ${r.symStats.map(s => {
+                        const color = s.status === '🟢' ? 'var(--good)' : s.status === '🟡' ? 'var(--warn)' : s.status === '🔴' ? 'var(--bad)' : 'var(--text-dim)';
+                        return `<tr>
+                            <td><b>${esc(s.symbol)}</b></td>
+                            <td style="color:${color};">${s.status}</td>
+                            <td>${esc(s.best.name)}</td>
+                            <td><b>${fmtPF(s.best.pf)}</b></td>
+                            <td>${s.best.n}</td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>`;
+    }
+
+    // هشدارها
+    if (r.warnings && r.warnings.length) {
+        html += `<h4 style="font-size:13px;color:var(--warn);margin:16px 0 6px;">🚨 هشدارها (${r.warnings.length})</h4>`;
+        html += `<div style="display:flex;flex-direction:column;gap:4px;">
+            ${r.warnings.map(w => `<div style="padding:6px 10px; background:rgba(201,151,61,.1); border-right:2px solid var(--warn); border-radius:4px; font-size:12px;">${w}</div>`).join('')}
+        </div>`;
+    }
+
+    // توصیه‌ها
+    html += `<h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">💡 توصیه‌ها</h4>`;
+    html += `<div class="hint" style="padding:10px;background:var(--bg-input);border-radius:6px;line-height:2;">`;
+
+    const weak = (r.symStats || []).filter(s => s.best.pf < 0.7);
+    if (weak.length) html += `• <b>${weak.length} نماد</b> با PF<0.7 — استراتژی فعلی کار نمی‌کنه<br>`;
+
+    const lowN = (r.symStats || []).filter(s => s.best.n < 5);
+    if (lowN.length) html += `• <b>${lowN.length} نماد</b> با N<5 — برای تصمیم معنادار کافی نیست<br>`;
+
+    const avgN = (r.symStats || []).length ? (r.symStats.reduce((a, s) => a + s.best.n, 0) / r.symStats.length).toFixed(1) : 0;
+    html += `• میانگین N هر pair: <b>${avgN}</b> — برای اعتبار حداقل 30 توصیه می‌شه<br>`;
+
+    html += `</div>`;
+
+    openModal('📊 گزارش ماهانه', html);
+}
 
 // 🆕 هر وقت منو باز شد، وضعیت رو آپدیت کن
 const _origToggleMenu = window.toggleMenu;

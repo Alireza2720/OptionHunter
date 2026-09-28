@@ -50,6 +50,7 @@ async function start() {
             strategies: deps.strategies,
             getUnderlyingNames: deps.getUnderlyingNames,
             pipelineService: deps.pipelineService,     // 🆕
+            monthlyReportJob: deps.monthlyReportJob,   // 🆕
             backtestOrchestrator: deps.backtestOrchestrator, // 🆕
 
             // config
@@ -93,7 +94,9 @@ async function start() {
         if (deps.driftJob) deps.driftJob.start();
         if (deps.dailyBackfillJob) deps.dailyBackfillJob.start();
         if (deps.gapDetectorJob) deps.gapDetectorJob.start();
-        if (deps.driftJob) deps.driftJob.start();     // 🆕
+        if (deps.monthlyReportJob) deps.monthlyReportJob.start();
+        if (deps.driftJob) deps.driftJob.start();
+        deps.monthlyReportJob = deps.monthlyReportJob || null;   // برای route
 
         // 6) startup notification
         await deps.telegram.notify(`سرور ری استارت شد (${SERVER_VERSION})`).catch(() => {});

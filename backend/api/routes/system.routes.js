@@ -335,6 +335,27 @@ function register(app, deps) {
         const { TIMEFRAME_MINUTES } = require('../../config/constants');
         res.json(Object.keys(TIMEFRAME_MINUTES).filter(t => t !== '4h'));
     });
+
+    // 🆕 گزارش ماهانه
+    app.get('/api/reports/monthly/latest', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const doc = await db.collection(COLLECTIONS.META)
+                .findOne({ _id: 'monthly_report_latest' });
+            if (!doc) return res.json({ empty: true });
+            delete doc._id;
+            res.json(doc);
+        } catch (e) { next(e); }
+    });
+
+    app.post('/api/reports/monthly/generate', async (req, res, next) => {
+        try {
+            const { monthlyReportJob } = deps;
+            if (!monthlyReportJob) return res.status(500).json({ error: 'not wired' });
+            const r = await monthlyReportJob.run();
+            res.json({ ok: !r.error, report: r });
+        } catch (e) { next(e); }
+    });
 }
 
 module.exports = { register };
