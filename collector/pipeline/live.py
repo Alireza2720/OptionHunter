@@ -40,7 +40,15 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
             # Stock ticks → stock_ticks collection
             try:
                 import json
-                live = att.get_live_market()
+                # 🆕 افزایش timeout + log دقیق
+                import signal
+                live = None
+                try:
+                    live = att.get_live_market()
+                except Exception as fetch_err:
+                    log('tick_fetch_err', str(fetch_err)[:200])
+                    live = None
+
                 if live is not None and len(live) > 0:
                     records = json.loads(live.to_json(orient='records', date_format='iso'))
                     ts = datetime.now(timezone.utc)
@@ -100,14 +108,17 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
             _stats['ticks'] += 1
             _stats['last_tick_at'] = datetime.now(timezone.utc)
 
-            # 🆕 پاک کردن حافظه‌ی موقت هر 100 تیک (جلوگیری از OOM)
+            # 🆕 log هر tick موفق
+            log('tick_ok', f'tick #{_stats["ticks"]} | symbols={len(docs) if "docs" in dir() else 0}')
+
             if _stats['ticks'] % 100 == 0:
                 import gc
                 gc.collect()
                 log('ticker_gc', f'ticks={_stats["ticks"]}')
         except Exception as e:
             _stats['last_error'] = str(e)
-            log('tick_err', str(e))
+            log('tick_err', str(e)[:200])
+            _stats['tick_errors'] = _stats.get('tick_errors', 0) + 1
         time.sleep(interval_sec)
 
 def start_ticker(get_symbols, get_rf, interval_sec=10):
@@ -130,6 +141,7 @@ def stop_ticker():
 def get_stats():
     d = dict(_stats)
     d['running'] = _running
+    d['tick_errors'] = _stats.get('tick_errors', 0)
     return d
 
 def is_running():

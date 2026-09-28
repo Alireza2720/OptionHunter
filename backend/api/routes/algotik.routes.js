@@ -51,17 +51,36 @@ function register(app, deps) {
         catch (e) { res.status(400).json({ error: e.message }); }
     });
 
-    // ---- Coverage (cached 60s) ----
+    // ---- Coverage (heavy — cache 5 min) ----
+    let _covCache = null;
+    let _covAt = 0;
+    let _covInFlight = null;
+
     app.get('/api/algotik/coverage', async (req, res, next) => {
         try {
-            const { dataService } = deps;
+            const TTL = 5 * 60 * 1000;   // 5 دقیقه
             const fresh = req.query.fresh === '1';
-            const fn = () => algotik.getCoverage();
-            const r = (fresh || !dataService)
-                ? await fn()
-                : await dataService.cached('coverage', 60000, fn);
+
+            if (!fresh && _covCache && (Date.now() - _covAt) < TTL) {
+                return res.json(_covCache);
+            }
+
+            // جلوگیری از درخواست‌های همزمان
+            if (_covInFlight) {
+                const r = await _covInFlight;
+                return res.json(r);
+            }
+
+            _covInFlight = algotik.getCoverage();
+            const r = await _covInFlight;
+            _covCache = r;
+            _covAt = Date.now();
+            _covInFlight = null;
             res.json(r);
-        } catch (e) { next(e); }
+        } catch (e) {
+            _covInFlight = null;
+            next(e);
+        }
     });
 
     // ---- Audit ----
