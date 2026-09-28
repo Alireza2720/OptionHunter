@@ -382,12 +382,9 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
     </div>
 
     <div class="card collapsible open" id="cardStrategy">
-        <h2 onclick="toggleCard('cardStrategy')"><span class="h2-title">استراتژی و نمودار</span><span class="chev">▼</span></h2>
+<h2 onclick="toggleCard('cardStrategy')"><span class="h2-title">استراتژی‌ها</span><span class="chev">▼</span></h2>
         <div class="card-body">
-            <div class="subtabs">
-                <button class="subtab active" onclick="switchStrategyTab('configs', this)">استراتژی‌ها <span class="count-pill" id="configsCountLabel">0</span></button>
-                <button class="subtab" onclick="switchStrategyTab('chart', this)">نمودار</button>
-            </div>
+            <div class="hint" style="margin-bottom:10px;">استراتژی‌های فعال <span class="count-pill" id="configsCountLabel">0</span></div>
 
             <div id="stab-configs">
                 <div class="adv-accordion" id="createStratAccordion" style="margin-bottom:12px;">
@@ -423,50 +420,6 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
                     </table>
                 </div>
             </div>
-
-            <div id="stab-create" style="display:none;">
-                <!-- خالی — با تب configs ادغام شد -->
-            </div>
-
-            <div id="stab-chart" style="display:none;">
-                <div class="form-row">
-                    <div class="field" style="flex:1; min-width:180px; position:relative;">
-                        <label>نماد</label>
-                        <input type="text" id="chartSymbolInput" placeholder="مثلا خودرو" autocomplete="off">
-                        <div class="autocomplete-list" id="chartSymbolAutocomplete"></div>
-                    </div>
-                    <div class="field"><label>تایم فریم</label><select id="chartTfSelect"><option value="1m">1 دقیقه</option><option value="3m">3 دقیقه</option><option value="5m">5 دقیقه</option><option value="15m">15 دقیقه</option><option value="30m">30 دقیقه</option><option value="1h">1 ساعت</option><option value="1d" selected>روزانه</option><option value="1w">هفتگی</option><option value="1M">ماهانه</option></select></div>
-                    <div class="field"><label>نوع کندل</label><select id="chartCandleType"><option value="simple">ساده</option><option value="heikin">هیکن آشی</option></select></div>
-                    <button class="btn" onclick="loadChart()">نمایش</button>
-                    <button class="btn small outline" onclick="resetZoom()">فیت</button>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin-bottom:10px;">
-                    <button class="btn small outline" onclick="toggleIndicatorPanel()">اندیکاتورها <span class="ind-count" id="indCount">2</span></button>
-                    <button class="btn small outline" onclick="resetIndicators()">پاک کردن</button>
-                </div>
-                <div class="ind-panel" id="indicatorPanel" style="display:none;">
-                    <div class="ind-row"><label><input type="checkbox" id="ind_ma" onchange="onIndChange()" checked> MA</label><button class="btn tiny outline" onclick="toggleIndSettings('ma')">تنظیم</button></div>
-                    <div class="ind-settings" id="ind_set_ma" style="display:none;"><label>دوره: <input type="number" id="ma_period" value="20" min="2" onchange="loadChart()"></label></div>
-                    <div class="ind-row"><label><input type="checkbox" id="ind_ema" onchange="onIndChange()"> EMA</label><button class="btn tiny outline" onclick="toggleIndSettings('ema')">تنظیم</button></div>
-                    <div class="ind-settings" id="ind_set_ema" style="display:none;"><label>دوره: <input type="number" id="ema_period" value="50" min="2" onchange="loadChart()"></label></div>
-                    <div class="ind-row"><label><input type="checkbox" id="ind_bb" onchange="onIndChange()"> Bollinger Bands</label><button class="btn tiny outline" onclick="toggleIndSettings('bb')">تنظیم</button></div>
-                    <div class="ind-settings" id="ind_set_bb" style="display:none;"><label>دوره: <input type="number" id="bb_period" value="20" min="2" onchange="loadChart()"></label><label>انحراف: <input type="number" id="bb_std" value="2" step="0.5" min="0.5" onchange="loadChart()"></label></div>
-                    <div class="ind-row"><label><input type="checkbox" id="ind_ichimoku" onchange="onIndChange()"> Ichimoku</label><button class="btn tiny outline" onclick="toggleIndSettings('ichimoku')">تنظیم</button></div>
-                    <div class="ind-settings" id="ind_set_ichimoku" style="display:none;"><label>Tenkan: <input type="number" id="ichi_tenkan" value="9" min="2" onchange="loadChart()"></label><label>Kijun: <input type="number" id="ichi_kijun" value="26" min="2" onchange="loadChart()"></label><label>SenkouB: <input type="number" id="ichi_senkoub" value="52" min="2" onchange="loadChart()"></label></div>
-                    <div class="ind-row"><label><input type="checkbox" id="ind_vol" onchange="onIndChange()" checked> حجم</label></div>
-                    <div class="ind-row"><label><input type="checkbox" id="ind_rsi" onchange="onIndChange()"> RSI</label><button class="btn tiny outline" onclick="toggleIndSettings('rsi')">تنظیم</button></div>
-                    <div class="ind-settings" id="ind_set_rsi" style="display:none;"><label>دوره: <input type="number" id="rsi_period" value="14" min="2" onchange="loadChart()"></label></div>
-                    <div class="ind-row"><label><input type="checkbox" id="ind_macd" onchange="onIndChange()"> MACD</label><button class="btn tiny outline" onclick="toggleIndSettings('macd')">تنظیم</button></div>
-                    <div class="ind-settings" id="ind_set_macd" style="display:none;"><label>Fast: <input type="number" id="macd_fast" value="12" min="2" onchange="loadChart()"></label><label>Slow: <input type="number" id="macd_slow" value="26" min="2" onchange="loadChart()"></label><label>Signal: <input type="number" id="macd_signal" value="9" min="2" onchange="loadChart()"></label></div>
-                </div>
-                <div class="msg-warn" id="chartMsg" style="display:none;"></div>
-                <div class="legend" id="chartLegend" style="display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-dim); margin-bottom:8px;"></div>
-                <div id="chartSourceInfo" class="hint" style="display:none; margin-bottom:8px;"></div>
-                <div id="priceChartWrapper"><div class="chart-placeholder">نمادی انتخاب کنید و «نمایش» را بزنید.</div></div>
-                <div id="panelChartWrapper" style="display:none; margin-top:18px;"><div class="chart-title" id="panelTitle"></div><div id="panelChart" style="height:180px;"></div></div>
-            </div>
-        </div>
-    </div>
 
     <div class="card collapsible" id="cardPositions">
         <h2 onclick="toggleCard('cardPositions')"><span class="h2-title">موقعیت‌های آپشن</span><span class="chev">▼</span></h2>
@@ -1914,85 +1867,220 @@ function renderWfResults(d) {
 }
 
 function chartOpts(el, h) { const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-card').trim(); const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim(); const grid = getComputedStyle(document.documentElement).getPropertyValue('--border').trim(); return { layout:{ background:{ color:bg }, textColor:txt, fontFamily:'Vazirmatn' }, grid:{ vertLines:{ color:grid }, horzLines:{ color:grid } }, timeScale:{ timeVisible:true, tickMarkFormatter:fmtT }, localization:{ timeFormatter:fmtT }, width: el.clientWidth || 600, height: el.clientHeight || h }; }
-function destroyCharts() { try { priceChart && priceChart.remove(); } catch (e) {} try { panelChart && panelChart.remove(); } catch (e) {} priceChart = panelChart = candleSeries = null; }
-function resetZoom() { priceChart && priceChart.timeScale().fitContent(); }
 let chartSearchTimeout = null;
 document.getElementById('chartSymbolInput').addEventListener('input', e => { const q = e.target.value.trim(); clearTimeout(chartSearchTimeout); const list = document.getElementById('chartSymbolAutocomplete'); if (!q) { list.style.display = 'none'; return; } chartSearchTimeout = setTimeout(async () => { try { const r = await apiFetch(`${BACKEND_URL}/api/chart/search?q=${encodeURIComponent(q)}`, {}, 0); if (!r.results || !r.results.length) { list.style.display = 'none'; return; } list.innerHTML = r.results.map(x => `<div onclick="selectChartSymbol('${esc(x.symbol)}')">${esc(x.symbol)} <small>${esc(x.name || '')}</small></div>`).join(''); list.style.display = 'block'; } catch (e) { list.style.display = 'none'; } }, 300); });
-function selectChartSymbol(s) { document.getElementById('chartSymbolInput').value = s; document.getElementById('chartSymbolAutocomplete').style.display = 'none'; loadChart(); }
-function toggleIndicatorPanel() { const p = document.getElementById('indicatorPanel'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
-function toggleIndSettings(key) { const el = document.getElementById('ind_set_' + key); if (!el) return; el.style.display = el.style.display === 'none' ? 'flex' : 'none'; }
-function onIndChange() { updateIndCount(); loadChart(); }
-function updateIndCount() { const ids = ['ind_ma','ind_ema','ind_bb','ind_ichimoku','ind_vol','ind_rsi','ind_macd']; const n = ids.filter(id => { const el = document.getElementById(id); return el && el.checked; }).length; const el = document.getElementById('indCount'); if (el) el.textContent = n; }
-function resetIndicators() { const ids = ['ind_ma','ind_ema','ind_bb','ind_ichimoku','ind_vol','ind_rsi','ind_macd']; ids.forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; }); updateIndCount(); loadChart(); }
-async function loadChart() {
-    const symbol = document.getElementById('chartSymbolInput').value.trim(); const tf = document.getElementById('chartTfSelect').value; const candleType = document.getElementById('chartCandleType').value;
-    if (!symbol) return showAlert('نماد را وارد کن.', 'warn');
-    document.getElementById('chartMsg').style.display = 'block'; document.getElementById('chartMsg').textContent = 'در حال دریافت...';
-    try {
-        const r = await apiFetch(`${BACKEND_URL}/api/chart/${encodeURIComponent(symbol)}/${tf}`, {}, 0);
-        if (!r.candles || r.candles.length < 2) { document.getElementById('chartMsg').textContent = `داده نیست (${r.candles ? r.candles.length : 0})`; document.getElementById('priceChartWrapper').innerHTML = '<div class="chart-placeholder">داده ای نیست.</div>'; return; }
-        document.getElementById('chartMsg').style.display = 'none';
-        renderStandaloneChart(r.candles, candleType);
-    } catch (e) { document.getElementById('chartMsg').textContent = 'خطا: ' + e.message; }
-}
-function renderStandaloneChart(candles, candleType) {
-    destroyCharts();
-    const pc = document.getElementById('priceChartWrapper');
-    pc.innerHTML = '<div id="priceChart" style="height:400px;"></div>' + '<div id="volumeChart" style="height:100px; margin-top:6px; display:none;"></div>' + '<div id="rsiChart" style="height:120px; margin-top:6px; display:none;"></div>' + '<div id="macdChart" style="height:140px; margin-top:6px; display:none;"></div>';
-    const mainEl = document.getElementById('priceChart');
-    priceChart = LightweightCharts.createChart(mainEl, chartOpts(mainEl, 400));
-    candleSeries = priceChart.addCandlestickSeries({ upColor:'#2ea88a', downColor:'#d9534f', borderVisible:false, wickUpColor:'#2ea88a', wickDownColor:'#d9534f', priceLineVisible:false, lastValueVisible:false });
-    let display = candles.slice();
-    if (candleType === 'heikin') { display = []; for (let i = 0; i < candles.length; i++) { const c = candles[i]; const haClose = (c.open + c.high + c.low + c.close) / 4; const haOpen = i === 0 ? (c.open + c.close) / 2 : (display[i-1].open + display[i-1].close) / 2; display.push({ time: c.time, open: haOpen, high: Math.max(c.high, haOpen, haClose), low: Math.min(c.low, haOpen, haClose), close: haClose }); } }
-    candleSeries.setData(display);
-    const closes = candles.map(c => c.close);
-    const legendItems = [`<span>کندل: ${candles.length}</span>`];
-    if (document.getElementById('ind_ma').checked) { const p = +document.getElementById('ma_period').value || 20; const ma = []; for (let i = p - 1; i < closes.length; i++) { const avg = closes.slice(i - p + 1, i + 1).reduce((a,b)=>a+b,0) / p; ma.push({ time: candles[i].time, value: avg }); } priceChart.addLineSeries({ color:'#3d7dd8', lineWidth:2, priceLineVisible:false, lastValueVisible:false }).setData(ma); legendItems.push('<span style="color:#3d7dd8">MA(' + p + ')</span>'); }
-    if (document.getElementById('ind_ema').checked) { const p = +document.getElementById('ema_period').value || 50; const ema = TradingStrategies.calculateEMA(closes, p); const data = []; for (let i = 0; i < ema.length; i++) if (ema[i] !== null) data.push({ time: candles[i].time, value: ema[i] }); priceChart.addLineSeries({ color:'#c9973d', lineWidth:2, priceLineVisible:false, lastValueVisible:false }).setData(data); legendItems.push('<span style="color:#c9973d">EMA(' + p + ')</span>'); }
-    if (document.getElementById('ind_bb').checked) { const p = +document.getElementById('bb_period').value || 20; const std = +document.getElementById('bb_std').value || 2; const bb = TradingStrategies.calculateBollingerBands(closes, p, std); const up = [], mid = [], low = []; for (let i = 0; i < bb.upper.length; i++) { if (bb.upper[i] !== null) { up.push({ time: candles[i].time, value: bb.upper[i] }); mid.push({ time: candles[i].time, value: bb.middle[i] }); low.push({ time: candles[i].time, value: bb.lower[i] }); } } priceChart.addLineSeries({ color:'#7d8590', lineWidth:1, priceLineVisible:false, lastValueVisible:false, lineStyle:2 }).setData(up); priceChart.addLineSeries({ color:'#7d8590', lineWidth:1, priceLineVisible:false, lastValueVisible:false }).setData(mid); priceChart.addLineSeries({ color:'#7d8590', lineWidth:1, priceLineVisible:false, lastValueVisible:false, lineStyle:2 }).setData(low); legendItems.push('<span>BB</span>'); }
-    if (document.getElementById('ind_ichimoku').checked) { const tk = +document.getElementById('ichi_tenkan').value || 9; const kj = +document.getElementById('ichi_kijun').value || 26; const sb = +document.getElementById('ichi_senkoub').value || 52; const ich = TradingStrategies.calculateIchimoku(candles, tk, kj, sb); const mk = (arr, color, w, style) => { const d = []; for (let i = 0; i < arr.length; i++) if (arr[i] !== null) d.push({ time: candles[i].time, value: arr[i] }); priceChart.addLineSeries({ color, lineWidth:w, priceLineVisible:false, lastValueVisible:false, lineStyle:style||0 }).setData(d); }; mk(ich.tenkan, '#d9534f', 2); mk(ich.kijun, '#2ea88a', 2); mk(ich.senkouA, '#2ea88a', 1, 2); mk(ich.senkouB, '#d9534f', 1, 2); mk(ich.chikou, '#7d8590', 1, 2); legendItems.push('<span>Ichimoku</span>'); }
-    let hasPanel = false;
-    if (document.getElementById('ind_vol').checked) { hasPanel = true; const vcEl = document.getElementById('volumeChart'); vcEl.style.display = 'block'; panelChart = LightweightCharts.createChart(vcEl, chartOpts(vcEl, 100)); const volSeries = panelChart.addHistogramSeries({ priceFormat:{ type:'volume' }, priceLineVisible:false, lastValueVisible:false }); volSeries.setData(candles.map(c => ({ time: c.time, value: c.volume || 0, color: c.close >= c.open ? 'rgba(46,168,138,.6)' : 'rgba(217,83,79,.6)' }))); }
-    if (document.getElementById('ind_rsi').checked) { hasPanel = true; const rsiEl = document.getElementById('rsiChart'); rsiEl.style.display = 'block'; const rp = +document.getElementById('rsi_period').value || 14; const rsiChart = LightweightCharts.createChart(rsiEl, chartOpts(rsiEl, 120)); const rsiSeries = rsiChart.addLineSeries({ color:'#c9973d', lineWidth:2, priceLineVisible:false, lastValueVisible:true }); const rsiVals = TradingStrategies.calculateRSI(closes, rp); const data = []; for (let i = 0; i < rsiVals.length; i++) if (rsiVals[i] !== null) data.push({ time: candles[i].time, value: rsiVals[i] }); rsiSeries.setData(data); if (panelChart) linkCharts(priceChart, rsiChart); else panelChart = rsiChart; legendItems.push(`<span>RSI(${rp})</span>`); }
-    if (document.getElementById('ind_macd').checked) { hasPanel = true; const mEl = document.getElementById('macdChart'); mEl.style.display = 'block'; const fast = +document.getElementById('macd_fast').value || 12; const slow = +document.getElementById('macd_slow').value || 26; const sigP = +document.getElementById('macd_signal').value || 9; const macdChart = LightweightCharts.createChart(mEl, chartOpts(mEl, 140)); const mData = TradingStrategies.calculateMACD(closes, fast, slow, sigP); const macdSeries = macdChart.addLineSeries({ color:'#3d7dd8', lineWidth:2, priceLineVisible:false, lastValueVisible:false }); const sigSeries = macdChart.addLineSeries({ color:'#c9973d', lineWidth:2, priceLineVisible:false, lastValueVisible:false }); const histSeries = macdChart.addHistogramSeries({ priceLineVisible:false, lastValueVisible:false }); const md = [], sd = [], hd = []; for (let i = 0; i < mData.macd.length; i++) { if (mData.macd[i] !== null) md.push({ time: candles[i].time, value: mData.macd[i] }); if (mData.signal[i] !== null) sd.push({ time: candles[i].time, value: mData.signal[i] }); if (mData.hist[i] !== null) hd.push({ time: candles[i].time, value: mData.hist[i], color: mData.hist[i] >= 0 ? 'rgba(46,168,138,.6)' : 'rgba(217,83,79,.6)' }); } macdSeries.setData(md); sigSeries.setData(sd); histSeries.setData(hd); if (panelChart) linkCharts(priceChart, macdChart); else panelChart = macdChart; legendItems.push('<span>MACD</span>'); }
-    if (!hasPanel) document.getElementById('panelChartWrapper').style.display = 'none';
-    document.getElementById('chartLegend').innerHTML = legendItems.join('');
-    requestAnimationFrame(() => { priceChart.applyOptions({ width: mainEl.clientWidth }); if (panelChart) panelChart.applyOptions({ width: mainEl.clientWidth }); priceChart.timeScale().fitContent(); });
-}
-function linkCharts(a, b) { let lock = false; const sync = (src, dst) => src.timeScale().subscribeVisibleLogicalRangeChange(r => { if (lock || !r) return; lock = true; try { dst.timeScale().setVisibleLogicalRange(r); } catch (e) {} lock = false; }); sync(a, b); sync(b, a); }
+// ============================================================
+// Signal-Review Chart (مودال)
+// ============================================================
+let _srChart = null;
+let _srVolumeChart = null;
+
 async function viewChart(id) {
     if (!window.TradingStrategies) return showAlert('کتابخانه بارگذاری نشده.');
-    selectedConfigId = id;
-
-    // 🆕 کارت استراتژی رو باز کن (اگه بسته‌ست)
-    const card = document.getElementById('cardStrategy');
-    if (card && !card.classList.contains('open')) card.classList.add('open');
+    showLoader('در حال محاسبه سیگنال‌ها...', 'اجرای استراتژی روی کندل‌های تاریخی');
 
     try {
         const d = await apiFetch(`${BACKEND_URL}/api/chart-data/${id}`, {}, 0);
-        const cfg = d.config;
+        hideLoader();
 
-        // 🆕 تب نمودار (index 1 در subtabs جدید)
-        const tabs = document.querySelectorAll('#cardStrategy .subtab');
-        const chartTab = tabs[1];
-        if (chartTab) {
-            switchStrategyTab('chart', chartTab);
+        const cfg = d.config;
+        const candles = d.candles || [];
+        const signals = d.signals || [];
+        const trades = d.trades || [];
+
+        if (candles.length < 2) {
+            return showAlert('دیتای کافی برای نمایش نیست', 'warn');
         }
 
-        document.getElementById('chartSymbolInput').value = cfg.symbol;
-        document.getElementById('chartTfSelect').value = cfg.timeframe;
-        document.getElementById('chartCandleType').value = cfg.candleType || 'simple';
+        const tfLabel = TF_LABELS[cfg.timeframe] || cfg.timeframe;
+        const stratName = (strategiesInfo.find(s => s.id === cfg.strategyId) || {}).name || cfg.strategyId;
 
-        // 🆕 اسکرول به سمت نمودار
-        setTimeout(() => {
-            const chartWrapper = document.getElementById('priceChartWrapper');
-            if (chartWrapper) chartWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 200);
+        // جدول معاملات
+        const tradesRows = trades.length ? trades.map((t, i) => {
+            const pnl = t.pnlPct;
+            const pnlCls = pnl == null ? '' : (pnl >= 0 ? 'pos' : 'neg');
+            const pnlTxt = pnl == null ? '—' : (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '%';
+            return `<tr>
+                <td>${i + 1}</td>
+                <td>${t.entryTime ? fmtT(t.entryTime) : '-'}</td>
+                <td>${fmtN(t.entryPrice)}</td>
+                <td>${t.exitTime ? fmtT(t.exitTime) : '-'}</td>
+                <td>${t.exitPrice ? fmtN(t.exitPrice) : '-'}</td>
+                <td class="${pnlCls}">${pnlTxt}</td>
+                <td style="font-size:11px;">${esc(t.exitReason || '-')}</td>
+            </tr>`;
+        }).join('') : '<tr class="empty-row"><td colspan="7">معامله‌ای نیست</td></tr>';
 
-        await loadChart();
+        const buyCount = signals.filter(s => s.type === 'BUY').length;
+        const exitCount = signals.filter(s => s.type === 'EXIT_LONG').length;
+
+        openModal(`📈 ${esc(cfg.symbol)} — ${esc(stratName)}`, `
+            <div class="hint" style="margin-bottom:10px;">
+                تایم‌فریم: <b>${tfLabel}</b> →
+                کندل: <b>${cfg.candleType === 'heikin' ? 'هیکن آشی' : 'ساده'}</b> ·
+                سیگنال: <b>${signals.length}</b>
+                (🟢 ${buyCount} BUY / 🔴 ${exitCount} EXIT) ·
+                معاملات بسته: <b>${trades.length}</b>
+            </div>
+
+            <div id="signalChartWrap" style="height:400px; background:var(--bg-input); border-radius:8px; overflow:hidden;"></div>
+            <div id="signalVolumeWrap" style="height:90px; background:var(--bg-input); border-radius:8px; margin-top:6px; overflow:hidden;"></div>
+            <div id="signalLegend" style="display:flex;gap:14px;font-size:11.5px;color:var(--text-dim);margin:8px 0;"></div>
+
+            <div style="display:flex;gap:8px;margin:10px 0;">
+                <button class="btn tiny outline" onclick="srFit()">فیت</button>
+                <button class="btn tiny outline" onclick="srResetZoom()">ریست</button>
+                <span class="hint" style="align-self:center;margin:0;">چارت فقط برای تأیید بصری — همه‌ی اندیکاتورهای پیچیده حذف شدن.</span>
+            </div>
+
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">معاملات (${trades.length})</h4>
+            <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
+                <table class="data-table">
+                    <thead><tr><th>#</th><th>ورود</th><th>قیمت ورود</th><th>خروج</th><th>قیمت خروج</th><th>بازده</th><th>دلیل</th></tr></thead>
+                    <tbody>${tradesRows}</tbody>
+                </table>
+            </div>
+        `);
+
+        // render بعد از باز شدن modal
+        setTimeout(() => _renderSignalChart(candles, signals, cfg), 120);
     } catch (e) {
-        showAlert('خطا: ' + e.message);
+        hideLoader();
+        showAlert('خطا: ' + e.message, 'error');
     }
+}
+
+function _renderSignalChart(candles, signals, cfg) {
+    const wrap = document.getElementById('signalChartWrap');
+    const volWrap = document.getElementById('signalVolumeWrap');
+    const legendEl = document.getElementById('signalLegend');
+    if (!wrap || typeof LightweightCharts === 'undefined') return;
+
+    // پاک کردن قبلی
+    wrap.innerHTML = '';
+    volWrap.innerHTML = '';
+    if (_srChart) { try { _srChart.remove(); } catch (_) {} _srChart = null; }
+    if (_srVolumeChart) { try { _srVolumeChart.remove(); } catch (_) {} _srVolumeChart = null; }
+
+    // کندل‌ها
+    let display = candles.map(c => ({
+        time: c.time, open: c.open, high: c.high, low: c.low, close: c.close
+    }));
+
+    if (cfg.candleType === 'heikin') {
+        const ha = [];
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i];
+            const haClose = (c.open + c.high + c.low + c.close) / 4;
+            const haOpen = i === 0 ? (c.open + c.close) / 2 : (ha[i - 1].open + ha[i - 1].close) / 2;
+            ha.push({
+                time: c.time, open: haOpen,
+                high: Math.max(c.high, haOpen, haClose),
+                low: Math.min(c.low, haOpen, haClose),
+                close: haClose
+            });
+        }
+        display = ha;
+    }
+
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-input').trim();
+    const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim();
+    const grid = getComputedStyle(document.documentElement).getPropertyValue('--border').trim();
+
+    _srChart = LightweightCharts.createChart(wrap, chartOpts);
+    const candleSeries = _srChart.addCandlestickSeries({
+        upColor: '#2ea88a', downColor: '#d9534f',
+        borderVisible: false, wickUpColor: '#2ea88a', wickDownColor: '#d9534f',
+        priceLineVisible: false, lastValueVisible: false
+    });
+    candleSeries.setData(display);
+
+    // MA20 (فقط یه خط)
+    const closes = candles.map(c => c.close);
+    const maPeriod = 20;
+    const maData = [];
+    for (let i = maPeriod - 1; i < closes.length; i++) {
+        const avg = closes.slice(i - maPeriod + 1, i + 1).reduce((a, b) => a + b, 0) / maPeriod;
+        maData.push({ time: candles[i].time, value: avg });
+    }
+    if (maData.length) {
+        const maSeries = _srChart.addLineSeries({
+            color: '#3d7dd8', lineWidth: 2,
+            priceLineVisible: false, lastValueVisible: false
+        });
+        maSeries.setData(maData);
+    }
+
+    // Signal markers
+    const markers = [];
+    for (const s of signals) {
+        if (s.type === 'BUY') {
+            markers.push({
+                time: s.time, position: 'belowBar',
+                color: '#2ea88a', shape: 'arrowUp', text: 'BUY'
+            });
+        } else if (s.type === 'EXIT_LONG') {
+            markers.push({
+                time: s.time, position: 'aboveBar',
+                color: '#d9534f', shape: 'arrowDown', text: 'EXIT'
+            });
+        }
+    }
+    markers.sort((a, b) => a.time - b.time);
+    if (markers.length) candleSeries.setMarkers(markers);
+
+    _srChart.timeScale().fitContent();
+
+    // Volume panel
+    _srVolumeChart = LightweightCharts.createChart(volWrap, {
+        width: volWrap.clientWidth || 800,
+        height: 90,
+        layout: { background: { color: bg }, textColor: txt, fontFamily: 'Vazirmatn' },
+        grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+        timeScale: { timeVisible: true, secondsVisible: false, borderVisible: false, visible: false },
+        rightPriceScale: { borderVisible: false },
+        localization: { timeFormatter: fmtT }
+    });
+    const volSeries = _srVolumeChart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceLineVisible: false, lastValueVisible: false
+    });
+    volSeries.setData(candles.map(c => ({
+        time: c.time,
+        value: c.volume || 0,
+        color: c.close >= c.open ? 'rgba(46,168,138,.55)' : 'rgba(217,83,79,.55)'
+    })));
+    _srVolumeChart.timeScale().fitContent();
+
+    // Sync
+    let lock = false;
+    const sync = (src, dst) => src.timeScale().subscribeVisibleLogicalRangeChange(r => {
+        if (lock || !r) return;
+        lock = true;
+        try { dst.timeScale().setVisibleLogicalRange(r); } catch (_) {}
+        lock = false;
+    });
+    sync(_srChart, _srVolumeChart);
+    sync(_srVolumeChart, _srChart);
+
+    // Legend
+    if (legendEl) {
+        legendEl.innerHTML = `
+            <span>🟢 ${signals.filter(s => s.type === 'BUY').length} BUY</span>
+            <span>🔴 ${signals.filter(s => s.type === 'EXIT_LONG').length} EXIT</span>
+            <span style="color:#3d7dd8;">━ MA20</span>
+            <span>کندل‌ها: ${candles.length}</span>
+        `;
+    }
+}
+
+function srFit() {
+    if (_srChart) _srChart.timeScale().fitContent();
+    if (_srVolumeChart) _srVolumeChart.timeScale().fitContent();
+}
+
+function srResetZoom() {
+    srFit();
 }
 
 async function openSettings() {
@@ -3541,7 +3629,6 @@ window.addEventListener('load', async () => {
         loadDataPipeline()
     ]);
 
-    updateIndCount();
     updateTickerStatus();
     startSystemPolling();
 

@@ -106,9 +106,55 @@ function register(app, deps) {
                 htfTf
             );
 
+            // 🆕 اجرای استراتژی برای گرفتن سیگنال‌ها
+            let signals = [];
+            let trades = [];
+            let htfTrend = null;
+            try {
+                const STRATEGIES = deps.strategies.STRATEGIES;
+                const def = STRATEGIES[cfg.strategyId];
+                if (def) {
+                    const closedCandles = deps.dataService.closedOnly(candles, cfg.timeframe);
+                    const ew = deps.settings.entryWindow();
+                    const result = def.run(
+                        closedCandles,
+                        { ...cfg.params, candleType: cfg.candleType },
+                        { htfCandles: htf, htfTimeframe: htfTf, entryWindow: ew }
+                    );
+                    const rawSignals = (result.signals || []).filter(s =>
+                        s.signalType === 'BUY' || s.signalType === 'EXIT_LONG'
+                    );
+                    const candlesMap = new Map(candles.map(c => [c.time, c]));
+                    signals = rawSignals.map(s => ({
+                        time: s.time,
+                        type: s.signalType,
+                        reason: s.reason || null,
+                        price: (candlesMap.get(s.time) || {}).close || null,
+                        stop: (s.indicators && s.indicators.stop) || null,
+                        atr: (s.indicators && s.indicators.atr) || null
+                    }));
+                    trades = (result.trades || []).map(t => ({
+                        entryTime: t.entryDate,
+                        entryPrice: t.entryPrice,
+                        exitTime: t.exitDate || null,
+                        exitPrice: t.exitPrice || null,
+                        pnlPct: t.pnlPct != null ? t.pnlPct : null,
+                        exitReason: t.exitReason || null,
+                        stop: t.stop || null,
+                        risk: t.risk || null
+                    }));
+                    htfTrend = result.htfTrend || null;
+                }
+            } catch (sigErr) {
+                deps.logger && deps.logger.warn('chart signals: ' + sigErr.message);
+            }
+
             res.json({
                 config: cfg,
                 candles,
+                signals,
+                trades,
+                htfTrend,
                 closedCount: deps.dataService.closedOnly(candles, cfg.timeframe).length,
                 htfCandles: htf,
                 htfTimeframe: htfTf,
