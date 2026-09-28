@@ -52,35 +52,33 @@ async function checkAndFix() {
         const fromJ = toJalaliSlash(from30);
         const toJ = toJalaliSlash(today);
 
-        let fixed = 0;
-        const fixedSymbols = [];
-        for (const symbol of bad) {
-            try {
-                deps.logger && deps.logger.info(`gap-detector: backfill ${symbol} (${fromJ} → ${toJ})`);
-                await deps.algotik.startFullBackfill({
-                    symbols: [symbol],
-                    dateFrom: fromJ, dateTo: toJ,
-                    includeStockIntraday: true,
-                    includeStockDaily: true,
-                    includeOptionHistory: true,
-                    includeOptionSnapshot: false,
-                    includeOptionMigration: false,
-                    includeAggregate: true
-                });
-                fixed++;
-                fixedSymbols.push(symbol);
-            } catch (e) {
-                deps.logger && deps.logger.warn(`gap-detector ${symbol}: ${e.message}`);
+        // 🆕 یک backfill واحد برای همه‌ی نمادها (نه N بار موازی)
+        try {
+            deps.logger && deps.logger.info(
+                `gap-detector: backfill واحد برای ${bad.length} نماد (${fromJ} → ${toJ})`
+            );
+            await deps.algotik.startFullBackfill({
+                symbols: bad,
+                dateFrom: fromJ, dateTo: toJ,
+                includeStockIntraday: true,
+                includeStockDaily: true,
+                includeOptionHistory: true,
+                includeOptionSnapshot: false,
+                includeOptionMigration: false,
+                includeAggregate: true
+            });
+
+            if (deps.notify) {
+                await deps.notify(
+                    `🔧 Gap Detector\nbackfill واحد برای ${bad.length} نماد شروع شد:\n${bad.slice(0, 20).join('، ')}${bad.length > 20 ? ' و...' : ''}`
+                ).catch(() => {});
             }
-        }
 
-        if (fixed && deps.notify) {
-            await deps.notify(
-                `🔧 Gap Detector\n${fixed} نماد backfill شد:\n${fixedSymbols.join('، ')}`
-            ).catch(() => {});
+            return { checked: monitored.length, fixed: bad.length, bad, fixedSymbols: bad };
+        } catch (e) {
+            deps.logger && deps.logger.error('gap-detector startFullBackfill: ' + e.message);
+            return { checked: monitored.length, fixed: 0, bad, error: e.message };
         }
-
-        return { checked: monitored.length, fixed, bad, fixedSymbols };
     } catch (e) {
         deps.logger && deps.logger.error('gap-detector: ' + e.message);
         return { error: e.message };

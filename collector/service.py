@@ -75,6 +75,9 @@ def get_current_rf(force=False):
     return _rf_cache['rate']
 
 
+# 🆕 قفل سراسری — فقط یک full-backfill در هر لحظه
+_backfill_lock = threading.Lock()
+
 # ---------- FastAPI ----------
 app = FastAPI(title='OptionHunter Collector')
 
@@ -198,12 +201,32 @@ class FullBackfillIn(BaseModel):
     includeAggregate: bool = True
 
 def _run_full_backfill(job_id: str, payload: dict):
+    # 🆕 اگه job دیگه‌ای در حال اجراست، صبر کن
+    if _backfill_lock.locked():
+        try:
+            job_mod.update_job(
+                job_id,
+                status='QUEUED',
+                last_message='در انتظار اتمام backfill قبلی...'
+            )
+        except Exception:
+            pass
+
+    with _backfill_lock:
+        _run_full_backfill_locked(job_id, payload)
+
+
+def _run_full_backfill_locked(job_id: str, payload: dict):
     try:
+        # اگه بین انتظار کنسل شده
+        if job_mod.is_cancelled(job_id):
+            job_mod.finish_job(job_id, 'CANCELLED')
+            return
+
         job_mod.update_job(job_id, status='RUNNING', started_at=datetime.now(timezone.utc))
         symbols = payload.get('symbols') or sym_mod.get_enabled_names()
         date_from = payload['dateFrom']
         date_to = payload['dateTo']
-        # 🆕 بدون clamp — کاربر از هر تاریخی می‌تونه backfill کنه
 
         stats = {
             'stock_intraday': {'symbols_done': 0, 'candles': 0, 'errors': 0},
@@ -214,12 +237,38 @@ def _run_full_backfill(job_id: str, payload: dict):
             'aggregate': {'symbols_done': 0, 'candles': 0},
         }
 
+        # 🆕 ثبت همه‌ی فازها در ابتدا (برای نمایش در UI)
+        all_phases = [
+            ('stock_intraday', 'کندل 1m'),
+            ('stock_daily', 'روزانه سهام'),
+            ('option_history', 'آپشن + IV'),
+            ('option_snapshot', 'snapshot'),
+            ('option_migration', 'migration'),
+            ('aggregate', 'aggregation'),
+        ]
+        for ph_name, _ph_label in all_phases:
+            if payload.get('include' + ''.join(w.capitalize() for w in ph_name.split('_'))):
+                pass  # نشانه‌گذاری می‌کنیم که این فاز فعاله
+            job_mod.set_phase(job_id, ph_name, {
+                'current': 0,
+                'total': len(symbols),
+                'status': 'PENDING',
+                'stats': stats.get(ph_name, {}),
+            })
+
         # Phase 1: stock intraday
         if payload.get('includeStockIntraday'):
             for i, sym in enumerate(symbols, 1):
                 if job_mod.is_cancelled(job_id):
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
+                # 🆕 قبل از fetch — نشون بده که در حال کار روی این نمادیم
+                job_mod.set_phase(job_id, 'stock_intraday', {
+                    'current': i - 1, 'total': len(symbols),
+                    'current_symbol': sym,
+                    'status': 'RUNNING',
+                    'stats': stats['stock_intraday'],
+                })
                 try:
                     records, err = stk_mod.fetch_intraday_1m(sym, date_from, date_to)
                     if err:
@@ -235,6 +284,7 @@ def _run_full_backfill(job_id: str, payload: dict):
                 job_mod.set_phase(job_id, 'stock_intraday', {
                     'current': i, 'total': len(symbols),
                     'current_symbol': sym,
+                    'status': 'RUNNING',
                     'stats': stats['stock_intraday'],
                 })
 

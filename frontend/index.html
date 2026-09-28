@@ -1298,29 +1298,84 @@ async function autoFixAllGaps(btn) {
     if (!bad.length) return showAlert('همه نمادها سالم هستن', 'success');
 
     const names = bad.map(s => s.symbol);
-    if (!confirm(`پر کردن شکاف ${names.length} نماد؟\n\n${names.slice(0, 10).join('، ')}${names.length > 10 ? ' و...' : ''}`)) return;
+    if (!confirm(`پر کردن شکاف ${names.length} نماد؟\n\n${names.slice(0, 10).join('، ')}${names.length > 10 ? ' و...' : ''}\n\n⚠️ این کار به‌صورت یک job واحد اجرا می‌شود.`)) return;
 
     const origText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = `⏳ 0/${names.length}`;
+    btn.textContent = `⏳ در حال شروع...`;
 
-    let done = 0, failed = 0;
-    for (const s of names) {
-        try {
-            await apiFetch(`${BACKEND_URL}/api/algotik/fix-gaps/${encodeURIComponent(s.symbol)}`, { method: 'POST' }, 0);
-            done++;
-        } catch (e) {
-            failed++;
-            console.warn(`fix-gaps ${s.symbol}:`, e.message);
+    try {
+        // 🆕 یک full-backfill واحد برای همه‌ی نمادها (نه N backfill موازی)
+        const fromJ = jdpMonthsAgo(3);
+        const toJ = jdpTodayJalali();
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/full-backfill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                symbols: names,
+                dateFrom: fromJ,
+                dateTo: toJ,
+                includeStockIntraday: true,
+                includeStockDaily: true,
+                includeOptionHistory: true,
+                includeOptionSnapshot: false,   // سنگین — برای gap fix لازم نیست
+                includeAggregate: true,
+                includeOptionMigration: true
+            })
+        }, 0);
+
+        btn.textContent = origText;
+        btn.disabled = false;
+        showAlert(`✅ Backfill برای ${names.length} نماد شروع شد (jobId: ${(r.jobId || '').slice(0,8)}…)`, 'success', 8000);
+
+        // 🆕 نمایش پیشرفت در پنل کیفیت
+        const area = document.getElementById('autoFixJobArea');
+        if (!area) {
+            const banner = document.getElementById('autoFixBanner');
+            if (banner) {
+                const div = document.createElement('div');
+                div.id = 'autoFixJobArea';
+                div.style.marginTop = '10px';
+                banner.appendChild(div);
+            }
         }
-        btn.textContent = `⏳ ${done}/${names.length}`;
-        await new Promise(r => setTimeout(r, 500));
+        if (r.jobId) {
+            trackCollectorJob(r.jobId, document.getElementById('autoFixJobArea'));
+        }
+        await checkQualityBanner();
+    } catch (e) {
+        btn.textContent = origText;
+        btn.disabled = false;
+        showAlert('خطا: ' + e.message, 'error', 8000);
     }
+}
 
-    btn.textContent = origText;
-    btn.disabled = false;
-    showAlert(`✅ ${done} backfill شروع شد${failed ? ` | ${failed} خطا` : ''}`, 'success', 8000);
-    await checkQualityBanner();
+// 🆕 Track collector job (general purpose)
+function trackCollectorJob(jobId, areaEl) {
+    if (!areaEl) return;
+    let pollCount = 0;
+    const MAX_POLL = 600;  // 30 دقیقه با 3s interval
+    const timer = setInterval(async () => {
+        pollCount++;
+        if (pollCount > MAX_POLL) {
+            clearInterval(timer);
+            return;
+        }
+        try {
+            const j = await apiFetch(`${BACKEND_URL}/api/algotik/jobs/${jobId}`, {}, 0);
+            areaEl.innerHTML = renderCollectorJobProgress(j);
+            if (['DONE','FAILED','CANCELLED'].includes(j.status)) {
+                clearInterval(timer);
+                if (j.status === 'DONE') {
+                    showAlert('✅ Backfill کامل شد', 'success', 6000);
+                    await loadDataPipeline();
+                    await checkQualityBanner();
+                } else if (j.status === 'FAILED') {
+                    showAlert('❌ Backfill با خطا مواجه شد', 'error', 8000);
+                }
+            }
+        } catch (_) {}
+    }, 3000);
 }
 function startDataPipelinePolling() {
     if (dpTimer) clearInterval(dpTimer);
