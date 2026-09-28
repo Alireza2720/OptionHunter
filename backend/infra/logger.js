@@ -44,7 +44,16 @@ function push(level, msg) {
     mem.push(entry);
     if (mem.length > RING_SIZE) mem.shift();
 
-    if (dbAccessor && level !== 'info') {
+    // 🆕 هر event مهم (tick, option, trade) به DB می‌ره
+    const str = String(msg);
+    const persist = level !== 'info'
+        || str.startsWith('tick |')
+        || str.startsWith('tick_ok')
+        || str.startsWith('option_ok')
+        || str.startsWith('tick_err')
+        || str.startsWith('option_loop');
+
+    if (dbAccessor && persist) {
         try {
             dbAccessor().collection(COLLECTIONS.LOGS).insertOne(entry).catch(() => {});
         } catch (_) { /* db هنوز وصل نیست */ }

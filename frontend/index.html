@@ -2043,7 +2043,8 @@ async function refreshJobsPanel() {
         const r = await apiFetch(`${BACKEND_URL}/api/jobs?limit=50&all=1`, {}, 0);
         const allJobs = r.jobs || [];
         const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED'].includes(j.status));
-        const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).filter(j => !j.finishedAt || Date.now() - new Date(j.finishedAt).getTime() < 24 * 3600 * 1000);
+        // 🆕 بدون فیلتر زمان — همه‌ی تاریخچه نمایش داده بشه
+        const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status));
         const doneCount = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).length;
 
         const renderJob = (j, isDone) => {

@@ -217,9 +217,12 @@ async function tick() {
             if (s) volDelta += s.tvol || 0;
         }
 
-        // 🆕 لاگ مخصوص tick log (با فرمت regex قابل پارس)
+        // 🆕 لاگ مخصوص tick log — فرمت regex قابل پارس
+        const dayStats = await deps.getDB().collection(COLLECTIONS.META)
+            .findOne({ _id: `daystats_${todayDateStr(tehran)}` }) || {};
+
         deps.logger && deps.logger.info(
-            `tick | ${monitored.length} symbols | ticks=${(health.consecutiveFailures === 0 ? 1 : 0)} | volDelta=${volDelta}`
+            `tick | ${monitored.length} symbols | ticks=${dayStats.ticksOk || 0} | volDelta=${volDelta}`
         );
         deps.logger && deps.logger.info(
             `${tehran.hour}:${String(tehran.minute).padStart(2, '0')} | ${monitored.length} نماد | ${n} استراتژی | فعال: ${activeCount}`
