@@ -216,7 +216,8 @@ function register(app, deps) {
                 const cIv = (c.options && c.options.with_iv) || 0;
                 const cTicks = ticksMap[m.symbol] || 0;
 
-                const stockOk = c1m >= 50000 && cDaily >= 60;
+                // 🆕 آستانه واقع‌گرایانه‌تر
+                const stockOk = c1m >= 30000 && cDaily >= 40;
                 const optOk = cOpt >= 100 && cIv >= 50;
                 const liveOk = cTicks >= 500;
 
@@ -300,7 +301,8 @@ function register(app, deps) {
                 if ([6, 0, 1, 2, 3].includes(wd)) {
                     const s = cur.toISOString().slice(0, 10);
                     const cnt = daysMap.get(s) || 0;
-                    if (cnt < 200) gaps.push({ date: s, count: cnt });
+                // 🆕 فقط gap واقعی: خیلی کم یا صفر (نه روزهای ناقص طبیعی)
+                if (cnt < 50) gaps.push({ date: s, count: cnt });
                 }
                 cur = new Date(cur.getTime() + 86400000);
             }
