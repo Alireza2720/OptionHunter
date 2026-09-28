@@ -169,6 +169,35 @@ async function loadSymbolsCache() {
         symbolsCache = [];
         symbolsCacheMap = new Map();
     }
+
+    // 🆕 auto-sync: هر نمادی که در strategy_configs هست ولی در monitored_symbols نیست رو اضافه کن
+    try {
+        const db = mongo.getDB();
+        const configSyms = await db.collection(COLLECTIONS.STRATEGY_CONFIGS)
+            .distinct('symbol');
+        const monitoredSyms = new Set(
+            (await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                .find({}, { projection: { symbol: 1 } }).toArray())
+                .map(x => x.symbol)
+        );
+        const missing = configSyms.filter(s => s && !monitoredSyms.has(s));
+        if (missing.length) {
+            const docs = missing.map(s => ({
+                symbol: s,
+                name: s,
+                enabled: true,
+                collectEnabled: true,
+                addedAt: new Date(),
+                autoSynced: true,
+            }));
+            await db.collection(COLLECTIONS.MONITORED_SYMBOLS).insertMany(docs, { ordered: false });
+            logger.info(`auto-sync: added ${missing.length} symbols from configs → monitored: ${missing.join(', ')}`);
+        } else {
+            logger.info(`auto-sync: monitored_symbols already in sync (${monitoredSyms.size} symbols)`);
+        }
+    } catch (e) {
+        logger.warn('auto-sync symbols: ' + e.message);
+    }
 }
 
 function getUnderlyingNames(symbol) {

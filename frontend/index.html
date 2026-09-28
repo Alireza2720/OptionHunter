@@ -437,6 +437,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
                     <button class="btn" onclick="addMonitoredSymbol()">افزودن</button>
                     <button class="btn outline small" onclick="bulkCollectToggle(true)">فعال همه</button>
                     <button class="btn outline small" onclick="bulkCollectToggle(false)">غیرفعال همه</button>
+                    <button class="btn outline small" onclick="syncSymbolsFromConfigs(this)" title="هر نمادی که در استراتژی‌ها هست رو به لیست پایش اضافه کن">🔄 Sync از استراتژی‌ها</button>
                 </div>
                 <div class="hint">تیک هر نماد = دریافت خودکار دیتا در backfill و ticker</div>
                 <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div>
@@ -936,6 +937,24 @@ function renderMonitoredSymbols() {
     }).join('');
 }
 async function toggleMonitoredCollect(id, enabled) { try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collectEnabled: enabled }) }); const sym = monitoredSymbols.find(x => x._id === id); if (sym) sym.collectEnabled = enabled; renderMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function syncSymbolsFromConfigs(btn) {
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ ...'; }
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/monitored-symbols/sync-from-configs`, { method: 'POST' }, 0);
+        if (r.added === 0) {
+            showAlert(`همه‌ی ${r.configSymbols} نماد قبلاً در لیست پایش هستند.`, 'info', 4000);
+        } else {
+            showAlert(`✅ ${r.added} نماد اضافه شد:\n${(r.addedSymbols || []).slice(0, 10).join('، ')}${r.added > 10 ? ' و...' : ''}`, 'success', 6000);
+        }
+        await loadMonitoredSymbols();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+}
+
 async function bulkCollectToggle(enabled) { const ids = monitoredSymbols.map(s => s._id); if (!ids.length) return showAlert('نمادی وجود ندارد', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/bulk-collect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, collectEnabled: enabled }) }); showAlert('به‌روز شد.', 'success', 3000); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteMonitoredSymbol(id, sym) { if (!confirm(`نماد «${sym}» حذف شود؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 

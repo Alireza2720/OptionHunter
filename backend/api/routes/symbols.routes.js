@@ -113,6 +113,45 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // 🆕 Sync from strategy_configs → monitored_symbols
+    app.post('/api/monitored-symbols/sync-from-configs', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const configSyms = await db.collection(COLLECTIONS.STRATEGY_CONFIGS)
+                .distinct('symbol');
+            const monitoredSyms = new Set(
+                (await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                    .find({}, { projection: { symbol: 1 } }).toArray())
+                    .map(x => x.symbol)
+            );
+            const missing = configSyms.filter(s => s && !monitoredSyms.has(s));
+
+            let added = 0;
+            if (missing.length) {
+                const docs = missing.map(s => ({
+                    symbol: s,
+                    name: s,
+                    enabled: true,
+                    collectEnabled: true,
+                    addedAt: new Date(),
+                    autoSynced: true,
+                }));
+                const r = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                    .insertMany(docs, { ordered: false });
+                added = r.insertedCount;
+            }
+
+            res.json({
+                ok: true,
+                configSymbols: configSyms.length,
+                monitoredBefore: monitoredSyms.size,
+                monitoredAfter: monitoredSyms.size + added,
+                added,
+                addedSymbols: missing,
+            });
+        } catch (e) { next(e); }
+    });
+
     // ---- Bulk collect toggle ----
     app.post('/api/monitored-symbols/bulk-collect', async (req, res, next) => {
         try {
