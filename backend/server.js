@@ -92,6 +92,7 @@ async function start() {
         if (deps.regimeJob) deps.regimeJob.start();
         if (deps.driftJob) deps.driftJob.start();
         if (deps.dailyBackfillJob) deps.dailyBackfillJob.start();
+        if (deps.gapDetectorJob) deps.gapDetectorJob.start();
         if (deps.driftJob) deps.driftJob.start();     // 🆕
 
         // 6) startup notification

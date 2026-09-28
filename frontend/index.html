@@ -359,6 +359,54 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
                     <div id="tickLiveLog"></div>
                 </div>
 
+                <!-- 🆕 راهنمای مفاهیم -->
+                <div class="adv-accordion" id="dataGuideAccordion" style="margin-top:12px;">
+                    <div class="adv-header" onclick="document.getElementById('dataGuideAccordion').classList.toggle('open')">
+                        <span>📖 راهنمای مفاهیم دیتا</span>
+                        <span class="chev">▼</span>
+                    </div>
+                    <div class="adv-body">
+                        <div class="guide-block">
+                            <div class="g-name">کندل 1m</div>
+                            <div class="g-desc">کندل یک‌دقیقه‌ای سهام. پایه‌ی aggregation به 15m/30m/1h و منبع اصلی چارت و backtest.</div>
+                        </div>
+                        <div class="guide-block">
+                            <div class="g-name">کندل روزانه</div>
+                            <div class="g-desc">یک کندل در هر روز معاملاتی. برای تشخیص روند بلندمدت (HTF Trend) استفاده می‌شه.</div>
+                        </div>
+                        <div class="guide-block">
+                            <div class="g-name">آپشن (Option History)</div>
+                            <div class="g-desc">داده IV/Greeks تاریخی هر قرارداد کال. برای backtest واقعی آپشن ضروریه.</div>
+                        </div>
+                        <div class="guide-block">
+                            <div class="g-name">Ticks</div>
+                            <div class="g-desc">نوسان زنده‌ی سهام (هر ۱۰ ثانیه در بازار). برای سیگنال‌های لحظه‌ای.</div>
+                        </div>
+                        <div class="guide-block">
+                            <div class="g-name">Snapshot</div>
+                            <div class="g-desc">عکس لحظه‌ای از chain آپشن (هر ۵ دقیقه در بازار). برای مانیتورینگ زنده.</div>
+                        </div>
+                        <div class="guide-block">
+                            <div class="g-name">Backfill</div>
+                            <div class="g-desc">پر کردن داده‌ی تاریخی. از Algotic داده می‌گیره و در DB ذخیره می‌کنه.</div>
+                        </div>
+
+                        <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">کیفیت دیتا</h4>
+                        <div class="guide-block">
+                            <div class="g-desc">
+                                ✅ <b>آماده بک‌تست آپشن</b> — کندل کافی + آپشن با IV<br>
+                                ⚠️ <b>داده متوسط</b> — آپشن ناقص یا کندل کم<br>
+                                ❌ <b>داده ناکافی</b> — برای تحلیل معنادار کافی نیست
+                            </div>
+                        </div>
+
+                        <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">تعمیر خودکار</h4>
+                        <div class="guide-block">
+                            <div class="g-desc">هر شب ساعت 13:30، سیستم نمادهای ناقص رو پیدا می‌کنه و خودکار backfill می‌زنه. گزارش در پیام‌رسان میاد.</div>
+                        </div>
+                    </div>
+                </div>
+
             <div id="ptab-symbols" style="margin-top:14px;">
                 <div id="algotikStats" class="sys-grid" style="margin-bottom:12px;"></div>
                 <div class="form-row">
@@ -826,6 +874,16 @@ function renderMonitoredSymbols() {
                     <span>روزانه: <b>${cDaily.toLocaleString()}</b></span>
                     <span>آپشن: <b>${cOpt.toLocaleString()}</b></span>
                     <span>ticks: <b>${cTicks.toLocaleString()}</b></span>
+                    ${(() => {
+                        const stockOk = c1m >= 50000 && cDaily >= 60;
+                        const optOk = cOpt >= 100;
+                        let icon, cls, reason;
+                        if (stockOk && optOk) { icon = '✅'; cls = 'long'; reason = 'آماده بک‌تست'; }
+                        else if (stockOk && cOpt > 0) { icon = '⚠️'; cls = 'warn'; reason = 'آپشن ناقص'; }
+                        else if (stockOk) { icon = '⚠️'; cls = 'warn'; reason = 'بدون آپشن'; }
+                        else { icon = '❌'; cls = 'short'; reason = 'داده ناکافی'; }
+                        return `<span class="badge ${cls}" style="cursor:pointer;" onclick="openQualityDetail('${esc(s.symbol)}')" title="${reason}">${icon} ${reason}</span>`;
+                    })()}
                     ${regimeHtml}${priceHtml}
                 </div>
             </div>
@@ -3569,6 +3627,92 @@ async function openAdvancedSettings() {
             <button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره هم‌گرایی</button>
         `);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
+}
+
+// 🆕 جزئیات کیفیت دیتا + fix gaps
+async function openQualityDetail(symbol) {
+    openModal(`کیفیت دیتا — ${symbol}`, '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/quality`, {}, 0);
+        const it = (r.symbols || []).find(x => x.symbol === symbol);
+        if (!it) {
+            return openModal(`کیفیت — ${symbol}`, '<div class="empty-note">یافت نشد</div>');
+        }
+
+        const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;
+
+        const qualityBadge = it.quality === 'good'
+            ? '<span class="badge long">✅ آماده</span>'
+            : it.quality === 'warn'
+            ? '<span class="badge warn">⚠️ متوسط</span>'
+            : '<span class="badge short">❌ ناقص</span>';
+
+        const html = `
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
+                ${qualityBadge}
+                <span class="hint" style="margin:0;">${esc(it.reason)}</span>
+            </div>
+
+            <div class="stats-grid">
+                ${statBox('کندل 1m', it.candle_1m.toLocaleString(), it.candle_1m >= 50000 ? 'highlight-good' : '')}
+                ${statBox('کندل روزانه', it.candle_daily.toLocaleString(), it.candle_daily >= 60 ? 'highlight-good' : '')}
+                ${statBox('آپشن', it.option_history.toLocaleString(), it.option_history >= 100 ? 'highlight-good' : '')}
+                ${statBox('با IV', it.option_with_iv.toLocaleString())}
+                ${statBox('Ticks هفته اخیر', it.stock_ticks_7d.toLocaleString())}
+            </div>
+
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">وضعیت استفاده</h4>
+            <div class="menu-status-grid">
+                <div class="menu-status-row"><span>آماده بک‌تست آپشن</span><b style="color:${it.backtestReady ? 'var(--good)' : 'var(--bad)'};">${it.backtestReady ? '✓' : '✗'}</b></div>
+                <div class="menu-status-row"><span>آماده سیگنال زنده</span><b style="color:${it.liveReady ? 'var(--good)' : 'var(--text-dim)'};">${it.liveReady ? '✓' : '✗'}</b></div>
+            </div>
+
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">تعمیر</h4>
+            <div class="hint">چک شکاف‌های 30 روز اخیر و پر کردن خودکار</div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn outline" onclick="checkGaps('${esc(symbol)}')">🔍 بررسی شکاف</button>
+                <button class="btn success" onclick="fixGapsNow('${esc(symbol)}')">🔧 پر کردن خودکار</button>
+            </div>
+            <div id="qualityFixArea" style="margin-top:10px;"></div>
+        `;
+        openModal(`کیفیت — ${symbol}`, html);
+    } catch (e) {
+        openModal(`کیفیت — ${symbol}`, `<div class="empty-note">خطا: ${esc(e.message)}</div>`);
+    }
+}
+
+async function checkGaps(symbol) {
+    const area = document.getElementById('qualityFixArea');
+    if (area) area.innerHTML = '<div class="hint">در حال بررسی...</div>';
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/fix-gaps/${encodeURIComponent(symbol)}?days=30&dry=1`, { method: 'POST' }, 0);
+        if (area) {
+            if (!r.gapsFound) {
+                area.innerHTML = '<div class="hint" style="color:var(--good);">✅ شکافی یافت نشد</div>';
+            } else {
+                area.innerHTML = `<div class="hint">${r.gapsFound} شکاف در بازه ${r.range.from} → ${r.range.to}</div>`;
+            }
+        }
+    } catch (e) {
+        if (area) area.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
+    }
+}
+
+async function fixGapsNow(symbol) {
+    if (!confirm(`پر کردن شکاف‌های ${symbol} از 30 روز اخیر؟`)) return;
+    const area = document.getElementById('qualityFixArea');
+    if (area) area.innerHTML = '<div class="hint">در حال شروع backfill...</div>';
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/fix-gaps/${encodeURIComponent(symbol)}`, { method: 'POST' }, 0);
+        if (r.gapsFound === 0) {
+            if (area) area.innerHTML = '<div class="hint" style="color:var(--good);">✅ شکافی نیست</div>';
+            return;
+        }
+        if (area) area.innerHTML = `<div class="hint">🔧 Backfill شروع شد (jobId: ${r.jobId.slice(0,8)}...)</div>`;
+        showAlert(`Backfill برای ${symbol} شروع شد`, 'success', 5000);
+    } catch (e) {
+        if (area) area.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
+    }
 }
 
 // 🆕 تاریخچه تیک زنده

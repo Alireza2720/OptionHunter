@@ -180,6 +180,151 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // ---- Data Quality ----
+    let _qualityCache = null, _qualityAt = 0;
+    app.get('/api/algotik/quality', async (req, res, next) => {
+        try {
+            const fresh = req.query.fresh === '1';
+            if (!fresh && _qualityCache && (Date.now() - _qualityAt) < 60000) {
+                return res.json(_qualityCache);
+            }
+
+            const db = getDB();
+            const { COLLECTIONS } = require('../../config/constants');
+            const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                .find({ enabled: true }).toArray();
+
+            const cov = await algotik.getCoverage();
+            const covMap = {};
+            for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
+
+            const since7 = new Date(Date.now() - 7 * 86400000);
+            const ticksAgg = await db.collection('stock_ticks').aggregate([
+                { $match: { time: { $gte: since7 } } },
+                { $group: { _id: '$symbol', count: { $sum: 1 } } }
+            ]).toArray();
+            const ticksMap = {};
+            for (const t of ticksAgg) ticksMap[t._id] = t.count;
+
+            const symbols = [];
+            let good = 0, warn = 0, bad = 0;
+            for (const m of monitored) {
+                const c = covMap[m.symbol] || {};
+                const c1m = (c.stock_base && c.stock_base.count) || 0;
+                const cDaily = (c.stock_daily && c.stock_daily.count) || 0;
+                const cOpt = (c.options && c.options.count) || 0;
+                const cIv = (c.options && c.options.with_iv) || 0;
+                const cTicks = ticksMap[m.symbol] || 0;
+
+                const stockOk = c1m >= 50000 && cDaily >= 60;
+                const optOk = cOpt >= 100 && cIv >= 50;
+                const liveOk = cTicks >= 500;
+
+                let quality, reason;
+                if (stockOk && optOk) {
+                    quality = 'good'; reason = 'آماده بک‌تست آپشن'; good++;
+                } else if (stockOk && cOpt > 0 && cOpt < 100) {
+                    quality = 'warn'; reason = `آپشن ناقص (${cOpt}/100)`; warn++;
+                } else if (stockOk && cOpt === 0) {
+                    quality = 'warn'; reason = 'بدون آپشن — فقط بک تست سهم'; warn++;
+                } else if (c1m < 10000) {
+                    quality = 'bad'; reason = 'کندل ناکافی'; bad++;
+                } else {
+                    quality = 'warn'; reason = 'داده متوسط'; warn++;
+                }
+
+                symbols.push({
+                    symbol: m.symbol, quality, reason,
+                    backtestReady: stockOk && optOk,
+                    liveReady: liveOk,
+                    candle_1m: c1m, candle_daily: cDaily,
+                    option_history: cOpt, option_with_iv: cIv,
+                    stock_ticks_7d: cTicks
+                });
+            }
+
+            const result = {
+                symbols,
+                summary: { total: symbols.length, good, warn, bad },
+                computedAt: new Date().toISOString()
+            };
+            _qualityCache = result;
+            _qualityAt = Date.now();
+            res.json(result);
+        } catch (e) { next(e); }
+    });
+
+    // ---- Fix gaps for single symbol ----
+    app.post('/api/algotik/fix-gaps/:symbol', async (req, res, next) => {
+        try {
+            const symbol = req.params.symbol;
+            const days = +(req.query.days || 30);
+            const db = getDB();
+            const { COLLECTIONS } = require('../../config/constants');
+
+            const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+            const since = new Date(today.getTime() - days * 86400000);
+
+            const daily = await db.collection(COLLECTIONS.CANDLES_BASE).aggregate([
+                { $match: { symbol, source: 'algotik_intraday',
+                    time: { $gte: since, $lt: today } } },
+                { $group: {
+                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$time', timezone: 'Asia/Tehran' } },
+                    count: { $sum: 1 }
+                }}
+            ]).toArray();
+
+            const daysMap = new Map(daily.map(d => [d._id, d.count]));
+            const gaps = [];
+
+            let cur = new Date(since);
+            while (cur < today) {
+                const wd = cur.getUTCDay();
+                if ([6, 0, 1, 2, 3].includes(wd)) {
+                    const s = cur.toISOString().slice(0, 10);
+                    const cnt = daysMap.get(s) || 0;
+                    if (cnt < 200) gaps.push({ date: s, count: cnt });
+                }
+                cur = new Date(cur.getTime() + 86400000);
+            }
+
+            if (!gaps.length) {
+                return res.json({ ok: true, message: 'شکافی یافت نشد', gapsFound: 0 });
+            }
+
+            const toJalali = (iso) => {
+                const d = new Date(iso + 'T00:00:00Z');
+                const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
+                    timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit'
+                });
+                const p = {};
+                fmt.formatToParts(d).forEach(x => p[x.type] = x.value);
+                return `${p.year}/${p.month}/${p.day}`;
+            };
+
+            const r = await algotik.startFullBackfill({
+                symbols: [symbol],
+                dateFrom: toJalali(gaps[0].date),
+                dateTo: toJalali(gaps[gaps.length - 1].date),
+                includeStockIntraday: true,
+                includeStockDaily: true,
+                includeOptionHistory: true,
+                includeOptionSnapshot: false,
+                includeOptionMigration: false,
+                includeAggregate: true
+            });
+
+            res.json({
+                ok: true,
+                jobId: r.jobId,
+                symbol,
+                gapsFound: gaps.length,
+                range: { from: gaps[0].date, to: gaps[gaps.length - 1].date },
+                sample: gaps.slice(0, 5)
+            });
+        } catch (e) { next(e); }
+    });
+
     // ---- Fix gaps ----
     app.post('/api/algotik/fix-gaps', async (req, res, next) => {
         try {
