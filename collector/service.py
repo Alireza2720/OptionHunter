@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """AlgoTik Collector — Unified Data Pipeline"""
-import os, sys, threading
+import os, sys, threading, signal, time
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
@@ -22,18 +22,13 @@ from pipeline import stocks as stk_mod
 from pipeline import options as opt_mod
 from pipeline import aggregate as agg_mod
 from pipeline import jobs as job_mod
-
-# 🆕 حذف شد: دیگر floor نداریم
-# چون backtest روی تاریخ مورد نظر قفل شده، backfill از هر تاریخی امن است
 from pipeline import report as rpt_mod
 from pipeline import live as live_mod
-from pipeline.db import (
-    ensure_indexes, cleanup_legacy_indexes, get_db, log,   # ← cleanup اضافه شد
-    COL_RISK_FREE, COL_MONITORED,
-    COL_CANDLES_BASE, COL_CANDLES_DAILY,
-    COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
-    COL_LOG,
-)
+
+# ---------- Global locks & shutdown ----------
+_backfill_lock = threading.Lock()
+_shutdown_event = threading.Event()
+
 
 # ---------- Risk-free ----------
 _rf_cache = {'rate': 0.42, 'date': None}
@@ -75,11 +70,42 @@ def get_current_rf(force=False):
     return _rf_cache['rate']
 
 
-# 🆕 قفل سراسری — فقط یک full-backfill در هر لحظه
-_backfill_lock = threading.Lock()
-
 # ---------- FastAPI ----------
 app = FastAPI(title='OptionHunter Collector')
+
+
+# ---------- Graceful shutdown ----------
+def _install_signal_handlers():
+    def _handler(signum, frame):
+        print(f'🛑 Received signal {signum} — shutting down gracefully...')
+        _shutdown_event.set()
+
+        # ticker رو متوقف کن
+        try:
+            live_mod.stop_ticker()
+        except Exception:
+            pass
+
+        # 60 ثانیه مهلت برای backfill فعلی
+        acquired = False
+        for _ in range(60):
+            if _backfill_lock.acquire(blocking=False):
+                _backfill_lock.release()
+                acquired = True
+                break
+            time.sleep(1)
+
+        if not acquired:
+            print('⚠️ Backfill thread did not stop in 60s — forcing exit')
+        else:
+            print('✅ Backfill stopped cleanly')
+
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _handler)
+    signal.signal(signal.SIGINT, _handler)
+    print('✅ signal handlers installed')
+
 
 @app.on_event('startup')
 def _startup():
@@ -93,6 +119,8 @@ def _startup():
     except Exception as e:
         print(f'⚠️ RF init failed: {e}')
 
+    _install_signal_handlers()
+
 
 # ---------- Health ----------
 @app.get('/health')
@@ -102,6 +130,8 @@ def health():
         'mongo': 'connected',
         'time': datetime.now(timezone.utc).isoformat(),
         'ticker': live_mod.is_running(),
+        'backfill_running': _backfill_lock.locked(),
+        'shutdown': _shutdown_event.is_set(),
     }
 
 @app.get('/status')
@@ -116,7 +146,10 @@ def status():
         'option_snapshots': db[COL_OPTION_SNAPSHOTS].count_documents({}),
         'risk_free': get_current_rf(),
         'ticker': live_mod.get_stats(),
+        'backfill_running': _backfill_lock.locked(),
     }
+
+
 # ---------- Live Market (برای tick.job.js) ----------
 @app.get('/live-market')
 def live_market():
@@ -162,6 +195,7 @@ def get_logs(limit: int = 100):
         d['_id'] = str(d['_id'])
     return {'logs': docs}
 
+
 # ---------- Symbols ----------
 class SymbolIn(BaseModel):
     symbol: str
@@ -197,11 +231,16 @@ class FullBackfillIn(BaseModel):
     includeStockDaily: bool = True
     includeOptionHistory: bool = True
     includeOptionSnapshot: bool = True
-    includeOptionMigration: bool = True  # 🆕
+    includeOptionMigration: bool = True
     includeAggregate: bool = True
 
+
 def _run_full_backfill(job_id: str, payload: dict):
-    # 🆕 اگه job دیگه‌ای در حال اجراست، صبر کن
+    """
+    Wrapper: فقط یک backfill در هر لحظه اجرا می‌شه.
+    اگه backfill دیگه‌ای در حال اجراست، این job در صف می‌مونه.
+    """
+    # اگه job دیگه‌ای در حال اجراست، پیام بذار و صبر کن
     if _backfill_lock.locked():
         try:
             job_mod.update_job(
@@ -217,58 +256,65 @@ def _run_full_backfill(job_id: str, payload: dict):
 
 
 def _run_full_backfill_locked(job_id: str, payload: dict):
+    """Actual backfill logic — با قفل سراسری اجرا می‌شه."""
     try:
-        # اگه بین انتظار کنسل شده
-        if job_mod.is_cancelled(job_id):
+        # اگه قبل از گرفتن قفل کنسل شده یا داریم shutdown می‌کنیم
+        if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
             job_mod.finish_job(job_id, 'CANCELLED')
             return
 
-        job_mod.update_job(job_id, status='RUNNING', started_at=datetime.now(timezone.utc))
+        job_mod.update_job(
+            job_id,
+            status='RUNNING',
+            started_at=datetime.now(timezone.utc)
+        )
         symbols = payload.get('symbols') or sym_mod.get_enabled_names()
         date_from = payload['dateFrom']
         date_to = payload['dateTo']
 
         stats = {
-            'stock_intraday': {'symbols_done': 0, 'candles': 0, 'errors': 0},
-            'stock_daily': {'symbols_done': 0, 'candles': 0, 'errors': 0},
-            'option_history': {'symbols_done': 0, 'contracts': 0, 'with_iv': 0, 'errors': 0},
-            'option_snapshot': {'symbols_done': 0, 'ticks': 0},
+            'stock_intraday':   {'symbols_done': 0, 'candles': 0, 'errors': 0},
+            'stock_daily':      {'symbols_done': 0, 'candles': 0, 'errors': 0},
+            'option_history':   {'symbols_done': 0, 'contracts': 0, 'with_iv': 0, 'errors': 0},
+            'option_snapshot':  {'symbols_done': 0, 'ticks': 0},
             'option_migration': {'total_processed': 0, 'written': 0, 'skipped': 0, 'errors': 0},
-            'aggregate': {'symbols_done': 0, 'candles': 0},
+            'aggregate':        {'symbols_done': 0, 'candles': 0},
         }
 
-        # 🆕 ثبت همه‌ی فازها در ابتدا (برای نمایش در UI)
-        all_phases = [
-            ('stock_intraday', 'کندل 1m'),
-            ('stock_daily', 'روزانه سهام'),
-            ('option_history', 'آپشن + IV'),
-            ('option_snapshot', 'snapshot'),
-            ('option_migration', 'migration'),
-            ('aggregate', 'aggregation'),
+        # 🆕 ثبت همه‌ی فازها از ابتدا → UI از لحظه‌ی اول همه رو می‌بینه
+        _PHASE_FLAGS = [
+            ('stock_intraday',   'includeStockIntraday'),
+            ('stock_daily',      'includeStockDaily'),
+            ('option_history',   'includeOptionHistory'),
+            ('option_snapshot',  'includeOptionSnapshot'),
+            ('option_migration', 'includeOptionMigration'),
+            ('aggregate',        'includeAggregate'),
         ]
-        for ph_name, _ph_label in all_phases:
-            if payload.get('include' + ''.join(w.capitalize() for w in ph_name.split('_'))):
-                pass  # نشانه‌گذاری می‌کنیم که این فاز فعاله
+        for ph_name, flag in _PHASE_FLAGS:
+            enabled = bool(payload.get(flag))
             job_mod.set_phase(job_id, ph_name, {
                 'current': 0,
-                'total': len(symbols),
-                'status': 'PENDING',
+                'total': len(symbols) if enabled else 0,
+                'status': 'PENDING' if enabled else 'SKIPPED',
                 'stats': stats.get(ph_name, {}),
             })
 
-        # Phase 1: stock intraday
+        # ============================================================
+        # Phase 1: stock intraday (1m)
+        # ============================================================
         if payload.get('includeStockIntraday'):
             for i, sym in enumerate(symbols, 1):
-                if job_mod.is_cancelled(job_id):
+                if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
-                # 🆕 قبل از fetch — نشون بده که در حال کار روی این نمادیم
+
+                # قبل از fetch → RUNNING
                 job_mod.set_phase(job_id, 'stock_intraday', {
                     'current': i - 1, 'total': len(symbols),
-                    'current_symbol': sym,
-                    'status': 'RUNNING',
+                    'current_symbol': sym, 'status': 'RUNNING',
                     'stats': stats['stock_intraday'],
                 })
+
                 try:
                     records, err = stk_mod.fetch_intraday_1m(sym, date_from, date_to)
                     if err:
@@ -280,20 +326,34 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
                 except Exception as e:
                     stats['stock_intraday']['errors'] += 1
                     job_mod.append_error(job_id, f'{sym}: {e}')
+
                 stats['stock_intraday']['symbols_done'] = i
                 job_mod.set_phase(job_id, 'stock_intraday', {
                     'current': i, 'total': len(symbols),
-                    'current_symbol': sym,
-                    'status': 'RUNNING',
+                    'current_symbol': sym, 'status': 'RUNNING',
                     'stats': stats['stock_intraday'],
                 })
 
+            job_mod.set_phase(job_id, 'stock_intraday', {
+                'current': len(symbols), 'total': len(symbols),
+                'status': 'DONE', 'stats': stats['stock_intraday'],
+            })
+
+        # ============================================================
         # Phase 2: stock daily
+        # ============================================================
         if payload.get('includeStockDaily'):
             for i, sym in enumerate(symbols, 1):
-                if job_mod.is_cancelled(job_id):
+                if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
+
+                job_mod.set_phase(job_id, 'stock_daily', {
+                    'current': i - 1, 'total': len(symbols),
+                    'current_symbol': sym, 'status': 'RUNNING',
+                    'stats': stats['stock_daily'],
+                })
+
                 try:
                     records, err = stk_mod.fetch_daily(sym, date_from, date_to)
                     if err:
@@ -305,66 +365,115 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
                 except Exception as e:
                     stats['stock_daily']['errors'] += 1
                     job_mod.append_error(job_id, f'{sym} daily: {e}')
+
                 stats['stock_daily']['symbols_done'] = i
                 job_mod.set_phase(job_id, 'stock_daily', {
                     'current': i, 'total': len(symbols),
-                    'current_symbol': sym,
+                    'current_symbol': sym, 'status': 'RUNNING',
                     'stats': stats['stock_daily'],
                 })
 
-        # Phase 3: option history
+            job_mod.set_phase(job_id, 'stock_daily', {
+                'current': len(symbols), 'total': len(symbols),
+                'status': 'DONE', 'stats': stats['stock_daily'],
+            })
+
+        # ============================================================
+        # Phase 3: option history (IV/Greeks)
+        # ============================================================
         if payload.get('includeOptionHistory'):
             rf = get_current_rf()
             for i, sym in enumerate(symbols, 1):
-                if job_mod.is_cancelled(job_id):
+                if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
+
+                job_mod.set_phase(job_id, 'option_history', {
+                    'current': i - 1, 'total': len(symbols),
+                    'current_symbol': sym, 'status': 'RUNNING',
+                    'stats': stats['option_history'],
+                })
+
                 try:
                     df, err = opt_mod.fetch_market(sym)
                     if err or df is None or len(df) == 0:
                         stats['option_history']['errors'] += 1
                         job_mod.append_warning(job_id, f'{sym}: option market empty')
-                        continue
-                    import json
-                    raw = json.loads(df.to_json(orient='records', date_format='iso'))
-                    docs = opt_mod.analyze_records(raw, rf)
-                    if docs:
-                        written = opt_mod.write_history(docs)
-                        stats['option_history']['contracts'] += written
-                        stats['option_history']['with_iv'] += sum(1 for d in docs if d.get('ivApi'))
+                    else:
+                        import json
+                        raw = json.loads(df.to_json(orient='records', date_format='iso'))
+                        docs = opt_mod.analyze_records(raw, rf)
+                        if docs:
+                            written = opt_mod.write_history(docs)
+                            stats['option_history']['contracts'] += written
+                            stats['option_history']['with_iv'] += sum(1 for d in docs if d.get('ivApi'))
                 except Exception as e:
                     stats['option_history']['errors'] += 1
                     job_mod.append_error(job_id, f'{sym} options: {e}')
+
                 stats['option_history']['symbols_done'] = i
                 job_mod.set_phase(job_id, 'option_history', {
                     'current': i, 'total': len(symbols),
-                    'current_symbol': sym,
+                    'current_symbol': sym, 'status': 'RUNNING',
                     'stats': stats['option_history'],
                 })
 
+            job_mod.set_phase(job_id, 'option_history', {
+                'current': len(symbols), 'total': len(symbols),
+                'status': 'DONE', 'stats': stats['option_history'],
+            })
+
+        # ============================================================
         # Phase 4: option snapshot ticks
+        # ============================================================
         if payload.get('includeOptionSnapshot'):
             for i, sym in enumerate(symbols, 1):
+                if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
+                    job_mod.finish_job(job_id, 'CANCELLED')
+                    return
+
+                job_mod.set_phase(job_id, 'option_snapshot', {
+                    'current': i - 1, 'total': len(symbols),
+                    'current_symbol': sym, 'status': 'RUNNING',
+                    'stats': stats['option_snapshot'],
+                })
+
                 try:
                     import json
                     df, err = opt_mod.fetch_market(sym)
-                    if df is None or len(df) == 0:
-                        continue
-                    raw = json.loads(df.to_json(orient='records', date_format='iso'))
-                    n = opt_mod.write_snapshot_ticks(sym, raw)
-                    stats['option_snapshot']['ticks'] += n
+                    if df is not None and len(df) > 0:
+                        raw = json.loads(df.to_json(orient='records', date_format='iso'))
+                        n = opt_mod.write_snapshot_ticks(sym, raw)
+                        stats['option_snapshot']['ticks'] += n
                 except Exception as e:
                     job_mod.append_error(job_id, f'{sym} snapshot: {e}')
+
                 stats['option_snapshot']['symbols_done'] = i
                 job_mod.set_phase(job_id, 'option_snapshot', {
                     'current': i, 'total': len(symbols),
-                    'current_symbol': sym,
+                    'current_symbol': sym, 'status': 'RUNNING',
                     'stats': stats['option_snapshot'],
                 })
-        # 🆕 Phase 4.5: options migration
+
+            job_mod.set_phase(job_id, 'option_snapshot', {
+                'current': len(symbols), 'total': len(symbols),
+                'status': 'DONE', 'stats': stats['option_snapshot'],
+            })
+
+        # ============================================================
+        # Phase 4.5: options migration (daily → history)
+        # ============================================================
         if payload.get('includeOptionMigration'):
+            if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
+                job_mod.finish_job(job_id, 'CANCELLED')
+                return
+
+            job_mod.set_phase(job_id, 'option_migration', {
+                'current': 0, 'total': len(symbols),
+                'status': 'RUNNING', 'stats': stats['option_migration'],
+            })
+
             try:
-                # ⚠️ opt_mod در بالای فایل import شده — دوباره اینجا import نکن!
                 result = opt_mod.migrate_from_daily_algotik(
                     underlyings=symbols,
                     dry_run=False,
@@ -372,29 +481,58 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
                 stats['option_migration'] = result
                 job_mod.set_phase(job_id, 'option_migration', {
                     'current': len(symbols), 'total': len(symbols),
-                    'stats': result,
+                    'status': 'DONE', 'stats': result,
                 })
             except Exception as e:
+                stats['option_migration']['errors'] += 1
                 job_mod.append_error(job_id, f'option migration: {e}')
-        # Phase 5: aggregate
+                job_mod.set_phase(job_id, 'option_migration', {
+                    'current': 0, 'total': len(symbols),
+                    'status': 'FAILED', 'stats': stats['option_migration'],
+                })
+
+        # ============================================================
+        # Phase 5: aggregate (TF candles)
+        # ============================================================
         if payload.get('includeAggregate'):
             for i, sym in enumerate(symbols, 1):
+                if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
+                    job_mod.finish_job(job_id, 'CANCELLED')
+                    return
+
+                job_mod.set_phase(job_id, 'aggregate', {
+                    'current': i - 1, 'total': len(symbols),
+                    'current_symbol': sym, 'status': 'RUNNING',
+                    'stats': stats['aggregate'],
+                })
+
                 try:
                     r = agg_mod.rebuild_symbol(sym)
                     stats['aggregate']['candles'] += r.get('written', 0)
                 except Exception as e:
                     job_mod.append_error(job_id, f'{sym} aggregate: {e}')
+
                 stats['aggregate']['symbols_done'] = i
                 job_mod.set_phase(job_id, 'aggregate', {
                     'current': i, 'total': len(symbols),
-                    'current_symbol': sym,
+                    'current_symbol': sym, 'status': 'RUNNING',
                     'stats': stats['aggregate'],
                 })
 
+            job_mod.set_phase(job_id, 'aggregate', {
+                'current': len(symbols), 'total': len(symbols),
+                'status': 'DONE', 'stats': stats['aggregate'],
+            })
+
+        # ============================================================
+        # Done
+        # ============================================================
         job_mod.finish_job(job_id, 'DONE', {'stats': stats})
+
     except Exception as e:
         import traceback
-        job_mod.append_error(job_id, str(e))
+        tb = traceback.format_exc()
+        job_mod.append_error(job_id, f'{e}\n{tb}')
         job_mod.finish_job(job_id, 'FAILED', {'error': str(e)})
 
 
@@ -408,16 +546,21 @@ def start_full_backfill(p: FullBackfillIn):
         daemon=True,
     )
     t.start()
-    return {'jobId': job['_id'], 'status': 'QUEUED'}
+    return {
+        'jobId': job['_id'],
+        'status': 'QUEUED',
+        'queued_behind_lock': _backfill_lock.locked(),
+    }
+
 
 @app.get('/jobs/{job_id}')
 def get_job(job_id: str):
     j = job_mod.get_job(job_id)
     if not j:
         raise HTTPException(404, 'job not found')
-    # ObjectId-to-str
     j['_id'] = str(j['_id'])
     return j
+
 
 @app.get('/jobs')
 def list_jobs(limit: int = 30):
@@ -425,6 +568,7 @@ def list_jobs(limit: int = 30):
     for j in js:
         j['_id'] = str(j['_id'])
     return js
+
 
 @app.post('/jobs/{job_id}/cancel')
 def cancel_job(job_id: str):
@@ -437,6 +581,7 @@ def cancel_job(job_id: str):
 def coverage():
     return {'symbols': rpt_mod.coverage_report()}
 
+
 # ---------- Options Migration ----------
 class MigrateOptionsIn(BaseModel):
     underlyings: Optional[List[str]] = None
@@ -445,21 +590,19 @@ class MigrateOptionsIn(BaseModel):
 @app.post('/migrate-options')
 def migrate_options(p: MigrateOptionsIn):
     """Migrate option_daily_algotik → option_history with IV/Greeks."""
+    if _backfill_lock.locked():
+        raise HTTPException(409, 'backfill در حال اجراست — صبر کن')
     result = opt_mod.migrate_from_daily_algotik(
         underlyings=p.underlyings,
         dry_run=p.dryRun,
     )
     log('options_migration', f'migrated {result["written"]} docs', result)
     return result
+
+
 # ---------- Audit ----------
 @app.get('/audit')
 def audit_all_endpoint(days: str = 'auto'):
-    """Full data completeness audit.
-
-    Query params:
-      days: 'auto' (default) → dynamic range from earliest option data
-            integer          → fixed N-day lookback
-    """
     from pipeline import audit as audit_mod
     if days in ('auto', '', 'dynamic'):
         return audit_mod.audit_all(days=None)
@@ -469,7 +612,7 @@ def audit_all_endpoint(days: str = 'auto'):
 @app.get('/audit/{symbol}')
 def audit_one_endpoint(symbol: str, days: str = 'auto'):
     from pipeline import audit as audit_mod
-    from datetime import datetime, timezone, timedelta
+    from datetime import timedelta
 
     to_d = datetime.now(timezone.utc)
     if days in ('auto', '', 'dynamic'):
@@ -479,6 +622,7 @@ def audit_one_endpoint(symbol: str, days: str = 'auto'):
         from_d = to_d - timedelta(days=int(days))
 
     return audit_mod.audit_symbol(symbol, from_d, to_d)
+
 
 # ---------- Data Range ----------
 @app.get('/data-range')
@@ -490,7 +634,6 @@ def data_range():
         return {'from': None, 'to': None, 'days': 0}
 
     db = get_db()
-    # latest from option data
     latest = db['option_daily_algotik'].find_one(
         {}, sort=[('date', -1)], projection={'date': 1}
     )
@@ -503,7 +646,7 @@ def data_range():
             pass
     if not to_dt:
         to_dt = datetime.now(timezone.utc)
-        
+
     return {
         'from': from_dt.strftime('%Y-%m-%d'),
         'to': to_dt.strftime('%Y-%m-%d'),
@@ -537,6 +680,7 @@ def symbol_data_range(symbol: str):
         'days': (to_dt - start).days,
     }
 
+
 # ---------- Risk-free ----------
 @app.get('/risk-free')
 def risk_free():
@@ -546,12 +690,15 @@ def risk_free():
 # ---------- Ticker ----------
 class TickerIn(BaseModel):
     intervalSec: int = 10
-    action: str = 'start'  # start | stop
+    action: str = 'start'
+
 
 @app.post('/ticker')
 def control_ticker(p: TickerIn):
     if p.action == 'start':
-        ok = live_mod.start_ticker(sym_mod.get_enabled_names, get_current_rf, p.intervalSec)
+        ok = live_mod.start_ticker(
+            sym_mod.get_enabled_names, get_current_rf, p.intervalSec
+        )
         return {'ok': ok, 'interval': p.intervalSec}
     else:
         live_mod.stop_ticker()
@@ -561,18 +708,25 @@ def control_ticker(p: TickerIn):
 # ---------- Wipe ----------
 @app.post('/admin/wipe')
 def wipe(confirm: str):
+    # 🆕 جلوگیری از wipe وسط backfill
+    if _backfill_lock.locked():
+        raise HTTPException(409, 'backfill در حال اجراست — صبر کن')
+
     if confirm != 'I_KNOW_WHAT_IM_DOING':
         raise HTTPException(400, 'confirm string invalid')
+
     db = get_db()
     from pipeline.db import (
         COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF,
         COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
     )
     counts = {}
-    for col in [COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF,
-                COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
-                'backtest_trade_cache', 'backtest_jobs', 'backtest_result_cache',
-                'signals_state', 'signal_history']:
+    for col in [
+        COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF,
+        COL_OPTION_HISTORY, COL_OPTION_SNAPSHOTS,
+        'backtest_trade_cache', 'backtest_jobs', 'backtest_result_cache',
+        'signals_state', 'signal_history',
+    ]:
         r = db[col].delete_many({})
         counts[col] = r.deleted_count
     log('admin_wipe', 'data wiped', counts)
