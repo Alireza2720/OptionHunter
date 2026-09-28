@@ -55,7 +55,8 @@ async function getLiveMarket(symbol) {
     const path = symbol
         ? `/live-market/${encodeURIComponent(symbol)}`
         : '/live-market';
-    const r = await apiCall('GET', path, null, 15000);
+    // 🆕 timeout از 15s به 45s (collector ممکنه busy باشه)
+    const r = await apiCall('GET', path, null, 45000);
     return r.data || [];
 }
 

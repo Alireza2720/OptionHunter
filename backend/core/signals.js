@@ -99,63 +99,50 @@ async function checkRegimeGuard(config) {
 }
 
 async function checkSignalGuard(config, last, lastPrice, info) {
-    if (!deps.executionGuard) return { allowed: true };   // backward compat
-
     try {
-        // 1) portfolio state
-        const portfolio = await buildPortfolioState();
+        // 🆕 چک ساده — فقط whitelist و duplicate
+        // سایز واقعی در options.onBuySignal با ask واقعی محاسبه می‌شه
 
-        // 2) limits از settings
-        const s = deps.settings.get();
+        const db = deps.getDB();
+        const configId = config._id.toString();
+
+        // 1) whitelist (اگه فعال باشه)
         const whitelist = deps.signalFilterService
             ? await deps.signalFilterService.getWhitelist()
             : null;
 
-        const limits = {
-            ...deps.executionGuard.DEFAULT_LIMITS,
-            capital: deps.settings.capital(),
-            riskPct: s.RISK_PER_TRADE_PCT || 1.5,
-            maxSymPct: s.MAX_SYMBOL_EXPOSURE_PCT || 20,
-            maxTotalPct: s.MAX_TOTAL_EXPOSURE_PCT || 50,
-            useSignalFilter: !!whitelist,
-            signalWhitelist: whitelist ? whitelist.pairs : null
+        if (whitelist && whitelist.pairs instanceof Set) {
+            const key = `${config.symbol}::${config.strategyId}`;
+            if (!whitelist.pairs.has(key)) {
+                return {
+                    allowed: false,
+                    reason: `pair ${key} در whitelist نیست`,
+                    violations: [{ rule: 'signalWhitelist', message: `pair در whitelist نیست` }]
+                };
+            }
+        }
+
+        // 2) duplicate — آیا پوزیشن باز روی همین نماد داریم؟
+        const openPos = await db.collection(COLLECTIONS.OPTION_POSITIONS)
+            .findOne({ underlying: config.symbol, status: 'open' });
+        if (openPos) {
+            return {
+                allowed: false,
+                reason: `پوزیشن باز روی ${config.symbol} وجود دارد`,
+                violations: [{ rule: 'duplicate', message: 'پوزیشن باز' }]
+            };
+        }
+
+        // ✅ اجازه بده — سایز در options layer محاسبه می‌شه
+        return {
+            allowed: true,
+            reason: 'whitelist + duplicate ok',
+            size: 1,
+            sizing: { size: 1, limitReason: 'deferred to options layer' }
         };
-
-        // 3) ctx
-        const corrDoc = deps.correlationService
-            ? await deps.correlationService.getCached()
-            : null;
-        const corrMatrix = corrDoc ? corrDoc.matrix : null;
-
-        const monitored = await deps.getDB()
-            .collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
-        const sectorMap = getSectorMap(monitored.map(m => m.symbol));
-
-        // 4) همه‌ی configهای enabled → stats
-        const allConfigs = await deps.getDB()
-            .collection(COLLECTIONS.STRATEGY_CONFIGS).find({ enabled: true }).toArray();
-        const allTrades = [];   // TODO: from backtest details اگه داشتیم — فعلاً خالی
-        const stats = deps.executionGuard.computeGlobalStats(allTrades);
-
-        const ctx = deps.executionGuard.buildContext(limits, [], {
-            corrMatrix, sectorMap, stats
-        });
-
-        // 5) candidate
-        const candidate = {
-            symbol: config.symbol,
-            strategyId: config.strategyId,
-            optionEntry: lastPrice,   // تخمین — actual entry در options.onBuySignal
-            size: 1000,
-            entryTime: Math.floor(Date.now() / 1000)
-        };
-
-        // 6) decision
-        const decision = deps.executionGuard.canOpen(candidate, portfolio, limits, ctx);
-        return decision;
     } catch (e) {
         deps.logger && deps.logger.warn('checkSignalGuard: ' + e.message);
-        return { allowed: true, error: e.message };   // در خطا، اجازه بده (fail-open)
+        return { allowed: true, error: e.message };   // fail-open
     }
 }
 

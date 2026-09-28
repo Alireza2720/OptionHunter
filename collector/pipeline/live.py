@@ -99,6 +99,12 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
 
             _stats['ticks'] += 1
             _stats['last_tick_at'] = datetime.now(timezone.utc)
+
+            # 🆕 پاک کردن حافظه‌ی موقت هر 100 تیک (جلوگیری از OOM)
+            if _stats['ticks'] % 100 == 0:
+                import gc
+                gc.collect()
+                log('ticker_gc', f'ticks={_stats["ticks"]}')
         except Exception as e:
             _stats['last_error'] = str(e)
             log('tick_err', str(e))

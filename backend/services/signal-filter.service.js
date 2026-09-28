@@ -86,6 +86,18 @@ async function getWhitelist() {
     const doc = await db.collection(COLLECTIONS.META).findOne({ _id: 'signal_whitelist' });
     if (!doc) return null;
 
+    // 🆕 اگه whitelist بیشتر از 7 روز پیش ساخته شده، نادیده بگیر
+    // (چون pipeline دوباره اجرا نشده و ممکنه config جدید بیاد)
+    const ageDays = doc.computedAt
+        ? (Date.now() - new Date(doc.computedAt).getTime()) / 86400000
+        : 999;
+    if (ageDays > 7) {
+        deps.logger && deps.logger.info(
+            `whitelist age ${ageDays.toFixed(1)}d > 7d — ignoring (allow all)`
+        );
+        return null;
+    }
+
     // منبع اصلی: pair-level signal_whitelist
     const pairs = doc.pairs || [];
     const strategies = doc.strategies || [];

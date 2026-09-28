@@ -29,9 +29,22 @@ async function eodEvaluation() {
     const today = deps.signalService.todayDateStr();
     if (holiday === today) return;
 
+    // 🆕 اگه بازار واقعاً بسته‌ست، فقط persist کن — سیگنال نفرست
+    const nowUtc = new Date();
+    const tehran = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
+    const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+
+    // بازار ساعت 12:30 بسته می‌شه. این job 12:32 اجرا می‌شه.
+    // پس هرگز سیگنال نفرست — فقط state آپدیت کن.
+    const sendSignals = false;   // 🆕 hard-coded off
+
     try {
-        // 1. ارزیابی نهایی استراتژی‌ها
-        await deps.signalService.tick();
+        // 1. اگه خواستیم سیگنال، این کار رو بکن (فعلاً off)
+        if (sendSignals) {
+            await deps.signalService.tick();
+        } else {
+            deps.logger && deps.logger.info('EOD: skip signal evaluation (market closed)');
+        }
 
         // 2. persist TF candles برای فردا
         const configs = await deps.configService.listEnabled();
