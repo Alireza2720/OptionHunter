@@ -987,9 +987,15 @@ function stripBidi(s) {
     return String(s || '').replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]/g, '');
 }
 
+// 🆕 حذف همه‌ی کاراکترهای نامرئی (Bidi/RLM/LRM/ZWJ/ZWNJ/...)
+function stripBidi(s) {
+    // Cf category: format chars
+    return String(s || '').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u061C]/g, '');
+}
 function jdpNormalize(str) {
     return stripBidi(String(str || '')).trim().replace(/\//g, '-');
 }
+
 
 function gregToJalali(gregStr) {
     const d = new Date(gregStr + 'T00:00:00Z');

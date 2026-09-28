@@ -31,18 +31,20 @@ _shutdown_event = threading.Event()
 
 
 # ---------- Date sanitization ----------
-_BIDI_RE = re.compile(r'[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]')
+import unicodedata
 
 def _clean_date(s: str) -> str:
     """
     پاک‌سازی ورودی تاریخ:
-    - حذف کاراکترهای نامرئی Bidi (RLM, LRM, ...)
+    - حذف همه‌ی کاراکترهای نامرئی (Cf category = Bidi/RLM/LRM/ZWJ/ZWNJ/...)
+    - نگه‌داشتن فقط ارقام و جداکننده‌ها
     - یکسان‌سازی جداکننده‌ها (dash → slash)
-    - حذف اسلش‌های تکراری
     """
     if s is None:
         return s
-    s = _BIDI_RE.sub('', str(s))
+    s = str(s)
+    # حذف همه‌ی کاراکترهای Cf (Format/Invisible) — شامل RLM, LRM, ZWJ, ZWNJ, BOM, ...
+    s = ''.join(c for c in s if unicodedata.category(c) != 'Cf')
     s = s.strip()
     s = s.replace('-', '/')
     s = re.sub(r'/+', '/', s)
@@ -288,10 +290,17 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
             started_at=datetime.now(timezone.utc)
         )
         symbols = payload.get('symbols') or sym_mod.get_enabled_names()
+
+        # 🆕 دیباگ دقیق: بایت‌های واقعی ورودی
+        raw_from = payload.get('dateFrom')
+        raw_to = payload.get('dateTo')
+        print(f'📅 RAW dateFrom: {repr(raw_from)} | codepoints: {[hex(ord(c)) for c in str(raw_from or "")]}')
+        print(f'📅 RAW dateTo:   {repr(raw_to)} | codepoints: {[hex(ord(c)) for c in str(raw_to or "")]}')
+
         # 🆕 پاک‌سازی ورودی تاریخ (bidi + جداکننده)
-        date_from = _clean_date(payload.get('dateFrom'))
-        date_to   = _clean_date(payload.get('dateTo'))
-        print(f'📅 backfill date range: {date_from} → {date_to}')   # لاگ برای دیباگ
+        date_from = _clean_date(raw_from)
+        date_to   = _clean_date(raw_to)
+        print(f'📅 CLEAN date_from: {repr(date_from)} | date_to: {repr(date_to)}')
 
         stats = {
             'stock_intraday':   {'symbols_done': 0, 'candles': 0, 'errors': 0},
