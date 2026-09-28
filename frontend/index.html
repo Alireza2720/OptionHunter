@@ -1866,9 +1866,6 @@ function renderWfResults(d) {
     rEl.innerHTML = head + winTable + deflatedBox + stratTable + wfSavedBox;
 }
 
-function chartOpts(el, h) { const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-card').trim(); const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim(); const grid = getComputedStyle(document.documentElement).getPropertyValue('--border').trim(); return { layout:{ background:{ color:bg }, textColor:txt, fontFamily:'Vazirmatn' }, grid:{ vertLines:{ color:grid }, horzLines:{ color:grid } }, timeScale:{ timeVisible:true, tickMarkFormatter:fmtT }, localization:{ timeFormatter:fmtT }, width: el.clientWidth || 600, height: el.clientHeight || h }; }
-let chartSearchTimeout = null;
-document.getElementById('chartSymbolInput').addEventListener('input', e => { const q = e.target.value.trim(); clearTimeout(chartSearchTimeout); const list = document.getElementById('chartSymbolAutocomplete'); if (!q) { list.style.display = 'none'; return; } chartSearchTimeout = setTimeout(async () => { try { const r = await apiFetch(`${BACKEND_URL}/api/chart/search?q=${encodeURIComponent(q)}`, {}, 0); if (!r.results || !r.results.length) { list.style.display = 'none'; return; } list.innerHTML = r.results.map(x => `<div onclick="selectChartSymbol('${esc(x.symbol)}')">${esc(x.symbol)} <small>${esc(x.name || '')}</small></div>`).join(''); list.style.display = 'block'; } catch (e) { list.style.display = 'none'; } }, 300); });
 // ============================================================
 // Signal-Review Chart (مودال)
 // ============================================================
@@ -1987,7 +1984,15 @@ function _renderSignalChart(candles, signals, cfg) {
     const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim();
     const grid = getComputedStyle(document.documentElement).getPropertyValue('--border').trim();
 
-    _srChart = LightweightCharts.createChart(wrap, chartOpts);
+    _srChart = LightweightCharts.createChart(wrap, {
+        width: wrap.clientWidth || 800,
+        height: 400,
+        layout: { background: { color: bg }, textColor: txt, fontFamily: 'Vazirmatn' },
+        grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+        timeScale: { timeVisible: true, secondsVisible: false, borderVisible: false },
+        rightPriceScale: { borderVisible: false },
+        localization: { timeFormatter: fmtT }
+    });
     const candleSeries = _srChart.addCandlestickSeries({
         upColor: '#2ea88a', downColor: '#d9534f',
         borderVisible: false, wickUpColor: '#2ea88a', wickDownColor: '#d9534f',
