@@ -706,7 +706,10 @@ function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title 
     }
 
     res.picks.forEach((p, i) => {
-        t += `\n${i + 1}) ${p.symbol} | اعمال ${f0(p.strike)} | ${p.expiry} (${p.daysLeft} روز)\n`;
+        const sizeLabel = (p.positionInfo && p.positionInfo.size > 0)
+            ? `🟢 ${p.positionInfo.size} قرارداد`
+            : `⚠️ حجم صفر`;
+        t += `\n${i + 1}) ${p.symbol} | اعمال ${f0(p.strike)} | ${p.expiry} (${p.daysLeft} روز) | ${sizeLabel}\n`;
         t += `   خرید: ${f0(p.ask)} | فروش: ${f0(p.bid)} | اسپرد ${p.spreadPct.toFixed(1)}%\n`;
         t += `   حجم سرخط خرید: ${(p.askVol || 0).toLocaleString()} سهم\n`;
         t += `   دلتا ${p.delta.toFixed(2)} | گاما ${p.gamma ? p.gamma.toFixed(4) : '-'} | تتا/روز ${f0(p.thetaDay)} | وگا ${p.vega ? p.vega.toFixed(2) : '-'}\n`;
@@ -718,7 +721,7 @@ function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title 
         if (p.positionInfo) {
             const pi = p.positionInfo;
             if (pi.size > 0) {
-                t += `   حجم پیشنهادی: ${pi.size} قرارداد\n`;
+                t += `   📦 حجم پیشنهادی: ${pi.size} قرارداد (value ~${f0(pi.size * (p.size || 1000))} سهم)\n`;
                 const plan = suggestOrderPlan(p, pi.size);
                 if (plan.note) {
                     t += `   ${plan.note}\n`;

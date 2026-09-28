@@ -51,6 +51,7 @@ async function start() {
             getUnderlyingNames: deps.getUnderlyingNames,
             pipelineService: deps.pipelineService,     // 🆕
             monthlyReportJob: deps.monthlyReportJob,   // 🆕
+            journalService: deps.journalService,
             backtestOrchestrator: deps.backtestOrchestrator, // 🆕
 
             // config
@@ -95,6 +96,7 @@ async function start() {
         if (deps.dailyBackfillJob) deps.dailyBackfillJob.start();
         if (deps.gapDetectorJob) deps.gapDetectorJob.start();
         if (deps.monthlyReportJob) deps.monthlyReportJob.start();
+        if (deps.journalUpdaterJob) deps.journalUpdaterJob.start();
         if (deps.driftJob) deps.driftJob.start();
         deps.monthlyReportJob = deps.monthlyReportJob || null;   // برای route
 

@@ -268,6 +268,8 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="openBacktestPanel('stock'); toggleMenu();" title="بک تست کامل روی سهم پایه (بدون آپشن)" style="background:linear-gradient(135deg, rgba(46,168,138,.12), rgba(201,151,61,.12)); border:1px solid var(--good); font-weight:600;">📊 بک تست سهم پایه</button>
         <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();" title="آخرین کندل هر نماد — تشخیص نمادهای قدیمی">تازگی دیتا</button>
         <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();" title="گزارش کامل استراتژی‌ها و نمادها">📊 گزارش ماهانه</button>
+        <button class="menu-item" onclick="openJournal(); toggleMenu();" title="دفتر معاملات — هر معامله با جزئیات کامل">📓 ژورنال معاملات</button>
+        <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();" title="تحلیل خوشه‌ها و ماتریس همبستگی">🔗 تحلیل پرتفولیو</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -4066,6 +4068,260 @@ function renderMonthlyReport(r) {
     html += `</div>`;
 
     openModal('📊 گزارش ماهانه', html);
+}
+
+// ============================================================
+// Journal
+// ============================================================
+let _journalCache = null;
+
+async function openJournal() {
+    openModal('📓 ژورنال معاملات', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/journal?limit=300`, {}, 0);
+        _journalCache = r;
+        renderJournal(r);
+    } catch (e) {
+        openModal('📓 ژورنال معاملات', `<div class="empty-note">خطا: ${esc(e.message)}</div>`);
+    }
+}
+
+async function syncJournal() {
+    showLoader('در حال همگام‌سازی...');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/journal/sync`, { method: 'POST' }, 0);
+        hideLoader();
+        showAlert(`✅ ${r.created} معامله جدید، ${r.updated} به‌روزرسانی`, 'success', 4000);
+        await openJournal();
+    } catch (e) {
+        hideLoader();
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
+
+function renderJournal(r) {
+    const s = r.stats || {};
+    const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;
+
+    const rows = (r.trades || []).map(t => {
+        const e = t.entry || {};
+        const x = t.exit || {};
+        const isClosed = t.status === 'closed';
+        const pnl = x.pnlPct;
+        const pnlCls = pnl == null ? '' : (pnl >= 0 ? 'pos' : 'neg');
+        const pnlTxt = pnl == null ? '—' : (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '%';
+        return `<tr style="cursor:pointer;" onclick="openJournalDetail('${t._id}')">
+            <td>${e.time ? new Date(e.time).toLocaleString('fa-IR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-'}</td>
+            <td><b>${esc(t.symbol)}</b></td>
+            <td>${esc(t.strategyId || '-')}</td>
+            <td>${esc(t.contract ? t.contract.symbol : '-')}</td>
+            <td>${e.positionSize || 0}</td>
+            <td>${fmtN(e.optionAsk)}</td>
+            <td>${isClosed ? fmtN(x.optionBid) : '<span class="badge warn">باز</span>'}</td>
+            <td class="${pnlCls}">${pnlTxt}</td>
+            <td style="font-size:11px;">${esc(x.reason || '-')}</td>
+        </tr>`;
+    }).join('');
+
+    openModal('📓 ژورنال معاملات', `
+        <div class="stats-grid" style="margin-bottom:12px;">
+            ${statBox('کل', s.total || 0)}
+            ${statBox('باز', s.open || 0)}
+            ${statBox('بسته', s.closed || 0)}
+            ${statBox('وین ریت', (s.winRate || 0) + '%', s.winRate >= 50 ? 'highlight-good' : '')}
+            ${statBox('میانگین', pct(s.avgPnl || 0))}
+            ${statBox('PF', s.pf != null ? (s.pf === 999 ? '∞' : s.pf.toFixed(2)) : '-', s.pf >= 2 ? 'highlight-good' : '')}
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <button class="btn tiny outline" onclick="syncJournal()">🔄 همگام‌سازی</button>
+            <button class="btn tiny outline" onclick="openJournal()">🔃 رفرش</button>
+        </div>
+
+        <div class="hint">برای دیدن جزئیات کامل هر معامله، روی ردیف کلیک کن.</div>
+
+        <div class="table-responsive" style="max-height:500px;overflow-y:auto;">
+            <table class="data-table">
+                <thead><tr><th>ورود</th><th>نماد</th><th>استراتژی</th><th>قرارداد</th><th>حجم</th><th>Ask</th><th>Bid</th><th>بازده</th><th>دلیل</th></tr></thead>
+                <tbody>${rows || '<tr class="empty-row"><td colspan="9">معامله‌ای ثبت نشده</td></tr>'}</tbody>
+            </table>
+        </div>
+    `);
+}
+
+async function openJournalDetail(id) {
+    openModal('📓 جزئیات معامله', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>', true);
+    try {
+        const t = await apiFetch(`${BACKEND_URL}/api/journal/${id}`, {}, 0);
+        const e = t.entry || {};
+        const x = t.exit || {};
+        const setup = t.setup || {};
+        const cx = t.contextAfter || {};
+        const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;
+
+        let html = `
+            <div class="hint"><b>${esc(t.symbol)}</b> · ${esc(t.strategyId || '')} · ${esc(t.role || '')}</div>
+
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">قرارداد</h4>
+            <div class="stats-grid">
+                ${statBox('نماد', esc(t.contract.symbol))}
+                ${statBox('اعمال', fmtN(t.contract.strike))}
+                ${statBox('سررسید', t.contract.expiry || '-')}
+                ${statBox('حجم', e.positionSize || 0)}
+            </div>
+
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">ورود</h4>
+            <div class="stats-grid">
+                ${statBox('زمان', e.time ? new Date(e.time).toLocaleString('fa-IR') : '-')}
+                ${statBox('Ask', fmtN(e.optionAsk))}
+                ${statBox('سهم پایه', fmtN(e.underlyingPrice))}
+                ${statBox('IV', e.iv ? (e.iv * 100).toFixed(1) + '%' : '-')}
+                ${statBox('Δ', e.delta ? e.delta.toFixed(2) : '-')}
+                ${statBox('سطح', e.level || '-')}
+            </div>
+
+            ${setup.entryReason ? `
+            <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">چرا این سیگنال</h4>
+            <div class="hint" style="padding:8px 12px;background:var(--bg-input);border-radius:6px;">${esc(setup.entryReason)}</div>
+            <div class="hint" style="margin-top:6px;">
+                HTF: <b>${esc(setup.htfTrend || '-')}</b> ·
+                Confluence: <b>${setup.confluence || 1}</b>
+                ${setup.signalScore ? ' · Score: <b>' + setup.signalScore.score + '</b>' : ''}
+                ${setup.confirmers && setup.confirmers.length ? ' · تأیید: <b>' + setup.confirmers.join('، ') + '</b>' : ''}
+            </div>` : ''}
+        `;
+
+        if (t.status === 'closed') {
+            const pnl = x.pnlPct;
+            const pnlCls = pnl >= 0 ? 'highlight-good' : 'highlight-bad';
+            html += `
+                <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">خروج</h4>
+                <div class="stats-grid">
+                    ${statBox('زمان', x.time ? new Date(x.time).toLocaleString('fa-IR') : '-')}
+                    ${statBox('Bid', fmtN(x.optionBid))}
+                    ${statBox('سهم پایه', fmtN(x.underlyingPrice))}
+                    ${statBox('بازده', pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '%' : '-', pnlCls)}
+                </div>
+                <div class="hint" style="padding:8px 12px;background:var(--bg-input);border-radius:6px;margin-top:6px;">
+                    <b>دلیل خروج:</b> ${esc(x.reason || '-')}
+                </div>
+                ${x.stagedExits && x.stagedExits.length ? `<div class="hint">پله‌های فروش: ${x.stagedExits.join('، ')}</div>` : ''}
+            `;
+        }
+
+        if (cx.underlyingChangePct != null) {
+            html += `
+                <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">بعد از خروج (${cx.daysObserved} روز)</h4>
+                <div class="stats-grid">
+                    ${statBox('سهم پایه', (cx.underlyingChangePct >= 0 ? '+' : '') + cx.underlyingChangePct + '%', cx.underlyingChangePct >= 0 ? 'highlight-good' : 'highlight-bad')}
+                    ${statBox('IV بعدی', cx.ivAfter ? (cx.ivAfter * 100).toFixed(1) + '%' : '-')}
+                    ${statBox('رژیم فعلی', cx.regimeNow || '-')}
+                </div>
+            `;
+        }
+
+        html += `<div style="margin-top:14px;"><button class="btn outline" onclick="closeModal()">بازگشت</button></div>`;
+        openModal(`📓 ${t.symbol} — ${t.strategyId || ''}`, html, true);
+    } catch (e) {
+        openModal('📓 جزئیات', `<div class="empty-note">خطا: ${esc(e.message)}</div>`, true);
+    }
+}
+
+// ============================================================
+// Portfolio Analysis
+// ============================================================
+async function openPortfolioAnalysis() {
+    openModal('🔗 تحلیل پرتفولیو', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/portfolio/analysis`, {}, 0);
+        if (r.error === 'correlation_not_computed') {
+            return openModal('🔗 تحلیل پرتفولیو', `
+                <div class="empty-note">ماتریس همبستگی محاسبه نشده.</div>
+                <button class="btn success" onclick="refreshCorrelationAndShow()" style="width:100%;margin-top:10px;">🚀 محاسبه همین الان</button>
+            `);
+        }
+        renderPortfolioAnalysis(r);
+    } catch (e) {
+        openModal('🔗 تحلیل پرتفولیو', `<div class="empty-note">خطا: ${esc(e.message)}</div>`);
+    }
+}
+
+async function refreshCorrelationAndShow() {
+    showLoader('در حال محاسبه ماتریس همبستگی...', 'حدود ۱۰ ثانیه');
+    try {
+        await apiFetch(`${BACKEND_URL}/api/portfolio/correlation/refresh?days=30`, { method: 'POST' }, 0);
+        hideLoader();
+        await openPortfolioAnalysis();
+    } catch (e) {
+        hideLoader();
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
+
+function renderPortfolioAnalysis(r) {
+    const clusters = r.clusters || [];
+    const sectors = r.sectorDistribution || {};
+    const matrix = r.matrix || {};
+    const symbols = Object.keys(matrix).sort();
+
+    // خوشه‌ها
+    const clusterHtml = clusters.length ? clusters.map((c, i) => `
+        <div style="padding:8px 12px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; margin-bottom:6px;">
+            <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">خوشه ${i + 1} (${c.length} نماد)</div>
+            <div>${c.map(s => `<span class="badge none" style="margin:2px;">${esc(s)}</span>`).join('')}</div>
+        </div>
+    `).join('') : '<div class="empty-note">خوشه‌ای شناسایی نشد (همبستگی < 0.7)</div>';
+
+    // صنعت
+    const sectorEntries = Object.entries(sectors).sort((a, b) => b[1] - a[1]);
+    const sectorHtml = sectorEntries.map(([sec, cnt]) => `
+        <div class="menu-status-row" style="margin-bottom:4px;">
+            <span>${esc(sec)}</span>
+            <b>${cnt}</b>
+        </div>
+    `).join('');
+
+    // ماتریس (خلاصه — top 15 symbols)
+    const top = symbols.slice(0, 15);
+    const matrixRows = top.map(s1 => {
+        const cells = top.map(s2 => {
+            const c = (matrix[s1] && matrix[s1][s2]) || 0;
+            let cls = '';
+            let bg = 'transparent';
+            if (s1 === s2) bg = 'rgba(125,133,144,.15)';
+            else if (Math.abs(c) >= 0.7) bg = c > 0 ? 'rgba(217,83,79,.2)' : 'rgba(61,125,216,.2)';
+            else if (Math.abs(c) >= 0.5) bg = 'rgba(201,151,61,.15)';
+            return `<td style="background:${bg}; font-size:10px; padding:4px 6px;">${s1 === s2 ? '·' : c.toFixed(2)}</td>`;
+        }).join('');
+        return `<tr><td style="font-size:11px; padding:4px 8px;"><b>${esc(s1)}</b></td>${cells}</tr>`;
+    }).join('');
+
+    const headerRow = `<tr><th></th>${top.map(s => `<th style="font-size:10px; padding:4px 6px;">${esc(s.slice(0, 6))}</th>`).join('')}</tr>`;
+
+    openModal('🔗 تحلیل پرتفولیو', `
+        <div class="hint">ماتریس همبستگی ۳۰ روزه · ${r.symbolsCount} نماد · محاسبه: ${r.computedAt ? new Date(r.computedAt).toLocaleString('fa-IR') : '-'}</div>
+
+        <div style="display:flex;gap:8px;margin:12px 0;">
+            <button class="btn tiny outline" onclick="refreshCorrelationAndShow()">🔄 محاسبه مجدد</button>
+        </div>
+
+        <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">🔗 خوشه‌های همبسته (corr > 0.7)</h4>
+        ${clusterHtml}
+
+        <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">🏭 توزیع صنعت</h4>
+        <div class="menu-status-grid" style="font-size:12px;">${sectorHtml}</div>
+
+        <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📊 ماتریس همبستگی (۱۵ نماد اول)</h4>
+        <div class="hint" style="margin-bottom:6px;">
+            🔴 قرمز = مثبت بالا · 🔵 آبی = منفی بالا · 🟡 زرد = متوسط
+        </div>
+        <div class="table-responsive" style="max-height:500px; overflow:auto;">
+            <table class="data-table" style="min-width:auto;">
+                <thead>${headerRow}</thead>
+                <tbody>${matrixRows}</tbody>
+            </table>
+        </div>
+    `);
 }
 
 // 🆕 هر وقت منو باز شد، وضعیت رو آپدیت کن

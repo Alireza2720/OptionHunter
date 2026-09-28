@@ -97,6 +97,42 @@ function register(app, deps) {
             res.json(r);
         } catch (e) { next(e); }
     });
+
+    // 🆕 تحلیل پرتفولیو — ماتریس + خوشه + صنعت
+    app.get('/api/portfolio/analysis', async (req, res, next) => {
+        try {
+            const cached = await correlationService.getCached();
+            if (!cached) {
+                return res.json({ error: 'correlation_not_computed', hint: 'POST /api/portfolio/correlation/refresh' });
+            }
+            const { getSectorMap } = require('../../core/sectors');
+            const { findClusters } = require('../../core/correlation');
+            const symbols = cached.symbols || [];
+            const sectorMap = getSectorMap(symbols);
+
+            // بازسازی خوشه‌ها با threshold 0.7
+            const clusters = cached.clusters && cached.clusters.length
+                ? cached.clusters
+                : findClusters(cached.matrix, 0.7);
+
+            // توزیع صنعت
+            const sectorDist = {};
+            for (const s of symbols) {
+                const sec = sectorMap[s] || 'سایر';
+                sectorDist[sec] = (sectorDist[sec] || 0) + 1;
+            }
+
+            res.json({
+                symbolsCount: symbols.length,
+                matrix: cached.matrix,
+                clusters,
+                sectorMap,
+                sectorDistribution: sectorDist,
+                computedAt: cached.computedAt,
+                days: cached.days
+            });
+        } catch (e) { next(e); }
+    });
 }
 
 module.exports = { register };
