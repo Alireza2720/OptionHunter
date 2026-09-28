@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """AlgoTik Collector — Unified Data Pipeline"""
-import os, sys, threading, signal, time
+import os, sys, threading, signal, time, re
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
@@ -28,6 +28,25 @@ from pipeline import live as live_mod
 # ---------- Global locks & shutdown ----------
 _backfill_lock = threading.Lock()
 _shutdown_event = threading.Event()
+
+
+# ---------- Date sanitization ----------
+_BIDI_RE = re.compile(r'[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]')
+
+def _clean_date(s: str) -> str:
+    """
+    پاک‌سازی ورودی تاریخ:
+    - حذف کاراکترهای نامرئی Bidi (RLM, LRM, ...)
+    - یکسان‌سازی جداکننده‌ها (dash → slash)
+    - حذف اسلش‌های تکراری
+    """
+    if s is None:
+        return s
+    s = _BIDI_RE.sub('', str(s))
+    s = s.strip()
+    s = s.replace('-', '/')
+    s = re.sub(r'/+', '/', s)
+    return s
 
 
 # ---------- Risk-free ----------
@@ -269,8 +288,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
             started_at=datetime.now(timezone.utc)
         )
         symbols = payload.get('symbols') or sym_mod.get_enabled_names()
-        date_from = payload['dateFrom']
-        date_to = payload['dateTo']
+        # 🆕 پاک‌سازی ورودی تاریخ (bidi + جداکننده)
+        date_from = _clean_date(payload.get('dateFrom'))
+        date_to   = _clean_date(payload.get('dateTo'))
+        print(f'📅 backfill date range: {date_from} → {date_to}')   # لاگ برای دیباگ
 
         stats = {
             'stock_intraday':   {'symbols_done': 0, 'candles': 0, 'errors': 0},
