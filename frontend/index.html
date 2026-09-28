@@ -248,11 +248,14 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <div class="menu-label">تنظیمات</div>
         <div class="menu-status-row" style="margin-bottom:6px;">
             <span>تیک زنده</span>
-            <span id="menuTickerStatus" style="font-size:11px;">...</span>
+            <span id="menuTickerStatus" style="font-size:11px;">⚪ در حال بررسی...</span>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:10px;">
             <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">▶ شروع تیک</button>
             <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">■ توقف</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+            <button class="btn tiny outline" onclick="openTickerHistory()" style="flex:1;">📜 تاریخچه تیک</button>
         </div>
         <div id="tickLiveLog2" style="max-height:120px; overflow-y:auto; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; padding:8px; font-family:monospace; font-size:10px; direction:ltr; text-align:left; display:none; margin-bottom:10px;"></div>
         <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button>
@@ -276,12 +279,16 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         </div>
         <div class="menu-divider"></div>
         <div style="display:flex; gap:6px; margin-bottom:8px;">
-            <button class="btn tiny outline" onclick="loadSystemStats()">رفرش سیستم</button>
-            <button class="btn tiny outline" onclick="loadActiveJobs()">رفرش فعالیت</button>
+            <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button>
+            <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button>
         </div>
         <div id="menuSysStats" style="font-size:12px;"></div>
         <div class="menu-divider"></div>
-        <div class="menu-label">فعالیت های در حال اجرا</div>
+        <div class="menu-label">فعالیت‌ها</div>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+            <button class="btn tiny outline" onclick="refreshMenuStatus()">رفرش</button>
+            <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">📋 تاریخچه کامل</button>
+        </div>
         <div id="menuActiveJobs" style="font-size:12px;"></div>
         <div class="menu-divider"></div>
         <div class="menu-label">پروسه ها</div>
@@ -315,7 +322,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
 
     <!-- Live Dashboard -->
     <div class="card" id="cardLiveDashboard">
-        <h2>داشبورد زنده <button class="btn tiny outline" onclick="loadLiveDashboard()">رفرش</button></h2>
+        <h2>داشبورد زنده <button class="btn tiny outline" onclick="loadLiveDashboard(this)">رفرش</button></h2>
         <div id="dashboardContent"><div class="empty-note">در حال بارگذاری...</div></div>
     </div>
 
@@ -662,7 +669,8 @@ async function checkBackendStatus() {
     }
 }
 
-async function loadSystemStats() {
+async function loadSystemStats(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
     try {
         const d = await apiFetch(`${BACKEND_URL}/api/system/stats`, {}, 0);
         const el = document.getElementById('menuSysStats');
@@ -676,10 +684,16 @@ async function loadSystemStats() {
         if (pe && d.processes) {
             pe.innerHTML = d.processes.map(p => `<div class="menu-status-row" style="margin-bottom:4px;"><span>${esc(p.name)}</span><b style="color:${p.status === 'online' || p.status === 'running' ? 'var(--good)' : 'var(--text-dim)'};">${p.memoryMB != null ? p.memoryMB + 'MB' : (p.cpu != null ? p.cpu.toFixed(1) + '%' : '-')}</b></div>`).join('');
         }
-    } catch (e) { const el = document.getElementById('menuSysStats'); if (el) el.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`; }
+    } catch (e) {
+        const el = document.getElementById('menuSysStats');
+        if (el) el.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'رفرش سیستم'; }
+    }
 }
 
-async function loadActiveJobs() {
+async function loadActiveJobs(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
     try {
         const d = await apiFetch(`${BACKEND_URL}/api/system/jobs`, {}, 0);
         const allJobs = [ ...(d.backend || []).map(j => ({ ...j, source: 'backend' })), ...(d.collector || []).map(j => ({ ...j, source: 'collector' })) ];
@@ -689,6 +703,9 @@ async function loadActiveJobs() {
             else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
         }
     } catch (e) {}
+    finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'رفرش فعالیت'; }
+    }
 }
 
 async function refreshMenuStatus() {
@@ -870,9 +887,18 @@ async function toggleMonitoredCollect(id, enabled) { try { await apiFetch(`${BAC
 async function bulkCollectToggle(enabled) { const ids = monitoredSymbols.map(s => s._id); if (!ids.length) return showAlert('نمادی وجود ندارد', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/bulk-collect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, collectEnabled: enabled }) }); showAlert('به‌روز شد.', 'success', 3000); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteMonitoredSymbol(id, sym) { if (!confirm(`نماد «${sym}» حذف شود؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
-async function algotikRefresh() {
-    // 🆕 توابع قدیمی → بری به loadDataPipeline
-    return loadDataPipeline();
+async function algotikRefresh(btn) {
+    const orig = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ ...'; }
+    try {
+        await loadDataPipeline();
+        if (btn) { btn.textContent = '✅'; setTimeout(() => { if (btn) btn.textContent = orig; }, 1000); }
+    } catch (e) {
+        if (btn) btn.textContent = '❌';
+        showAlert('خطا: ' + e.message, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 async function algotikRefreshLegacy() {
@@ -1071,7 +1097,7 @@ async function algotikShowLogs() { openModal('لاگ Collector', '<div style="te
 
 async function loadDataPipeline() {
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 0);
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 1);
         const syms = r.symbols || [];
         window._coverageData = syms;
 
@@ -1140,12 +1166,13 @@ async function loadDataPipeline() {
 }
 function startDataPipelinePolling() {
     if (dpTimer) clearInterval(dpTimer);
-    // 🆕 همیشه poll کن (نه فقط وقتی tab بازه) — چون اعداد روی کارت هر نماد نشون داده می‌شن
+    // 🆕 فقط هر ۹۰ ثانیه و از cache سرور
     dpTimer = setInterval(() => {
+        // اگه تب مخفی مرورگره، poll نکن
+        if (document.hidden) return;
         loadDataPipeline().catch(() => {});
-    }, 30000);
-    // اولین بار
-    setTimeout(() => loadDataPipeline().catch(() => {}), 1000);
+    }, 90000);
+    setTimeout(() => loadDataPipeline().catch(() => {}), 500);
 }
 
 async function loadTimeframes() { const tfs = await apiFetch(`${BACKEND_URL}/api/timeframes`, {}, 0); document.getElementById('timeframeSelect').innerHTML = tfs.map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); document.getElementById('htfSelect').innerHTML = tfs.filter(t => TF_MIN[t] >= 15).map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); }
@@ -1292,9 +1319,10 @@ async function clearSignalHistory() { if (!confirm('کل تاریخچه پاک �
 // ============================================================
 // Live Dashboard
 // ============================================================
-async function loadLiveDashboard() {
+async function loadLiveDashboard(btn) {
     const el = document.getElementById('dashboardContent');
     if (!el) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
     try {
         const d = await apiFetch(`${BACKEND_URL}/api/dashboard/live`, {}, 0);
 
@@ -1379,6 +1407,8 @@ async function loadLiveDashboard() {
         `;
     } catch (e) {
         el.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'رفرش'; }
     }
 }
 
@@ -3442,6 +3472,38 @@ async function openAdvancedSettings() {
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 
+// 🆕 تاریخچه تیک زنده
+async function openTickerHistory() {
+    openModal('تاریخچه تیک زنده', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/ticker-log?limit=100`, {}, 0);
+        const logs = r.logs || [];
+        if (!logs.length) {
+            return openModal('تاریخچه تیک زنده', '<div class="empty-note">هیچ تیکی ثبت نشده</div>');
+        }
+        const rows = logs.map(l => {
+            const t = new Date(l.at).toLocaleString('fa-IR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            return `<tr>
+                <td style="font-size:11px;">${t}</td>
+                <td>${l.symbols}</td>
+                <td>${l.ticksOk}</td>
+                <td>${l.volumeDelta.toLocaleString()}</td>
+            </tr>`;
+        }).join('');
+        openModal(`تاریخچه تیک (${logs.length})`, `
+            <div class="hint">آخرین ${logs.length} تیک ثبت‌شده در لاگ سیستم.</div>
+            <div class="table-responsive" style="max-height:450px; overflow-y:auto;">
+                <table class="data-table">
+                    <thead><tr><th>زمان</th><th>نمادها</th><th>ticks</th><th>volΔ</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `);
+    } catch (e) {
+        openModal('تاریخچه تیک', `<div class="empty-note">خطا: ${esc(e.message)}</div>`);
+    }
+}
+
 window.addEventListener('load', async () => {
     if (!await waitForBackend()) {
         document.getElementById('bootMessage').textContent = 'اتصال به سرور برقرار نشد.';
@@ -3476,9 +3538,21 @@ window.addEventListener('load', async () => {
     setInterval(loadOptionPositions, 60000);
     setInterval(loadLiveDashboard, 30000);
     setInterval(loadRegimeMap, 300000);
-    setInterval(updateTickerStatus, 8000);   // 🆕 هر ۸ ثانیه وضعیت تیک
+    setInterval(() => { if (!document.hidden) updateTickerStatus(); }, 8000);
+    // 🆕 تیکر status فوری
+    setTimeout(updateTickerStatus, 500);
     startDataPipelinePolling();
 });
+
+// 🆕 هر وقت منو باز شد، وضعیت رو آپدیت کن
+const _origToggleMenu = window.toggleMenu;
+window.toggleMenu = function() {
+    _origToggleMenu.apply(this, arguments);
+    const panel = document.getElementById('menuPanel');
+    if (panel && panel.classList.contains('open')) {
+        setTimeout(updateTickerStatus, 100);
+    }
+};
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });
 </script>
 </body>

@@ -51,9 +51,17 @@ function register(app, deps) {
         catch (e) { res.status(400).json({ error: e.message }); }
     });
 
-    // ---- Coverage ----
+    // ---- Coverage (cached 60s) ----
     app.get('/api/algotik/coverage', async (req, res, next) => {
-        try { res.json(await algotik.getCoverage()); } catch (e) { next(e); }
+        try {
+            const { dataService } = deps;
+            const fresh = req.query.fresh === '1';
+            const fn = () => algotik.getCoverage();
+            const r = (fresh || !dataService)
+                ? await fn()
+                : await dataService.cached('coverage', 60000, fn);
+            res.json(r);
+        } catch (e) { next(e); }
     });
 
     // ---- Audit ----

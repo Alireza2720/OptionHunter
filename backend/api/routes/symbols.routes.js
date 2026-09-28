@@ -48,23 +48,29 @@ function register(app, deps) {
     app.get('/api/monitored-symbols', async (req, res, next) => {
         try {
             const db = getDB();
-            const [symbols, counts, dcounts] = await Promise.all([
-                db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).sort({ addedAt: 1 }).toArray(),
-                db.collection(COLLECTIONS.CANDLES_BASE).aggregate([
-                    { $group: { _id: '$symbol', c: { $sum: 1 } } }
-                ]).toArray(),
-                db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
-                    { $group: { _id: '$symbol', c: { $sum: 1 } } }
-                ]).toArray()
-            ]);
-            const cm = new Map(counts.map(c => [c._id, c.c]));
-            const dm = new Map(dcounts.map(c => [c._id, c.c]));
+            const { dataService } = deps;
 
-            res.json(symbols.map(s => ({
-                ...s,
-                candleCount: cm.get(s.symbol) || 0,
-                dailyCount: dm.get(s.symbol) || 0
-            })));
+            const symbols = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                .find({}).sort({ addedAt: 1 }).toArray();
+
+            // 🆕 شمارش‌ها از coverage cache گرفته می‌شن (نه aggregation جدید)
+            let covMap = {};
+            if (dataService) {
+                try {
+                    const cov = await dataService.cached('coverage', 60000,
+                        () => deps.algotik.getCoverage());
+                    for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
+                } catch (_) {}
+            }
+
+            res.json(symbols.map(s => {
+                const c = covMap[s.symbol] || {};
+                return {
+                    ...s,
+                    candleCount: (c.stock_base && c.stock_base.count) || 0,
+                    dailyCount: (c.stock_daily && c.stock_daily.count) || 0
+                };
+            }));
         } catch (e) { next(e); }
     });
 

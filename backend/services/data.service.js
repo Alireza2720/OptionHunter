@@ -526,8 +526,27 @@ async function getDataCoverage(symbols, strategies, getRequiredCandles) {
     return result;
 }
 
+// ============================================================
+// 🆕 In-memory cache for heavy queries
+// ============================================================
+const _cache = new Map();
+function cached(key, ttlMs, fn) {
+    const e = _cache.get(key);
+    if (e && Date.now() - e.at < ttlMs) return Promise.resolve(e.val);
+    return Promise.resolve(fn()).then(v => {
+        _cache.set(key, { at: Date.now(), val: v });
+        return v;
+    });
+}
+function clearCache(prefix) {
+    if (!prefix) { _cache.clear(); return; }
+    for (const k of _cache.keys()) if (k.startsWith(prefix)) _cache.delete(k);
+}
+
 module.exports = {
     init,
+    cached,
+    clearCache,
     // time
     getTehranParts, tehranPartsToUTCDate, dayStartUTC, getBucketTime,
     minuteOfDay, isCandleClosed, closedOnly,
