@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Live ticker — background thread.
-🆕 v2: stock tick (fast) و option snapshot (slow) جدا شدند.
+"""Live ticker — دو thread جدا:
+   ۱) stock tick (سریع، هر ۱۰ ثانیه)
+   ۲) option snapshot (کند، هر ۵ دقیقه)
 """
 import threading, time, gc
 from datetime import datetime, timezone, timedelta
 import algotik_tse as att
-from pymongo import InsertOne
 from . import stocks, options
 from .db import log, get_db
 
-_thread = None
+_stock_thread = None
+_opt_thread = None
 _running = False
+
 _stats = {
     'ticks': 0,
     'last_tick_at': None,
@@ -21,19 +23,16 @@ _stats = {
     'last_stock_rows': 0,
     'last_option_rows': 0,
 }
-_last_snap = {}   # symbol -> {tvol, tno, at}
 
-# 🆕 هر چند وقت یک بار option snapshot بگیریم
-OPTION_INTERVAL_SEC = 300   # 5 دقیقه
-STOCK_FETCH_TIMEOUT = 20    # ثانیه
-OPTION_FETCH_TIMEOUT = 30
+_last_snap = {}
+
+OPTION_INTERVAL_SEC = 300   # ۵ دقیقه
 
 
 def _is_market_open():
-    """Tehran weekday (Sat-Wed) + 9:00-12:35."""
     now = datetime.now(timezone.utc)
     local = now + timedelta(hours=3, minutes=30)
-    wd = local.weekday()  # Mon=0, Sun=6
+    wd = local.weekday()
     if wd not in (5, 6, 0, 1, 2):
         return False
     mins = local.hour * 60 + local.minute
@@ -41,7 +40,6 @@ def _is_market_open():
 
 
 def _fetch_stocks(symbols):
-    """فقط stock — سریع."""
     try:
         live = att.get_live_market()
     except Exception as e:
@@ -104,7 +102,6 @@ def _fetch_stocks(symbols):
 
 
 def _fetch_options(symbols):
-    """option snapshot — کند. هر ۵ دقیقه یک بار."""
     total = 0
     for sym in symbols:
         if not _running:
@@ -121,10 +118,9 @@ def _fetch_options(symbols):
     return total
 
 
-def _tick_loop(get_symbols, get_rf, interval_sec):
-    global _running
-    _running = True
-    log('ticker_start', f'interval={interval_sec}s opt={OPTION_INTERVAL_SEC}s')
+def _stock_loop(get_symbols, get_rf, interval_sec):
+    """thread ۱ — stock tick سریع"""
+    log('stock_loop_start', f'interval={interval_sec}s')
 
     while _running:
         if not _is_market_open():
@@ -133,8 +129,6 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
 
         try:
             symbols = get_symbols()
-
-            # ── ۱) Stock tick (سریع، هر interval) ──
             t0 = time.time()
             rows = _fetch_stocks(symbols)
             stock_ms = int((time.time() - t0) * 1000)
@@ -147,21 +141,6 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
                 f'tick #{_stats["ticks"]} | symbols={len(symbols)} '
                 f'rows={rows} | {stock_ms}ms')
 
-            # ── ۲) Option snapshot (کند، هر ۵ دقیقه) ──
-            now_ts = time.time()
-            last_opt = _stats.get('_last_option_ts', 0)
-            if now_ts - last_opt >= OPTION_INTERVAL_SEC:
-                t1 = time.time()
-                opt_rows = _fetch_options(symbols)
-                opt_s = int(time.time() - t1)
-                _stats['option_cycles'] = _stats.get('option_cycles', 0) + 1
-                _stats['last_option_at'] = datetime.now(timezone.utc)
-                _stats['last_option_rows'] = opt_rows
-                _stats['_last_option_ts'] = now_ts
-                log('option_ok',
-                    f'cycle #{_stats["option_cycles"]} rows={opt_rows} | {opt_s}s')
-
-            # ── ۳) GC هر 50 تیک ──
             if _stats['ticks'] % 50 == 0:
                 gc.collect()
 
@@ -173,17 +152,61 @@ def _tick_loop(get_symbols, get_rf, interval_sec):
         time.sleep(interval_sec)
 
 
+def _option_loop(get_symbols):
+    """thread ۲ — option snapshot جداگانه (کند)"""
+    log('option_loop_start', f'every {OPTION_INTERVAL_SEC}s')
+
+    # صبر ۳۰ ثانیه اول تا stock loop گرم بشه
+    for _ in range(30):
+        if not _running: return
+        time.sleep(1)
+
+    while _running:
+        try:
+            if not _is_market_open():
+                time.sleep(30)
+                continue
+
+            symbols = get_symbols()
+            t0 = time.time()
+            rows = _fetch_options(symbols)
+            elapsed = int(time.time() - t0)
+
+            _stats['option_cycles'] += 1
+            _stats['last_option_at'] = datetime.now(timezone.utc)
+            _stats['last_option_rows'] = rows
+
+            log('option_ok',
+                f'cycle #{_stats["option_cycles"]} rows={rows} | {elapsed}s')
+        except Exception as e:
+            log('option_loop_err', str(e)[:200])
+
+        # انتظار ۵ دقیقه با چک running
+        for _ in range(OPTION_INTERVAL_SEC):
+            if not _running: return
+            time.sleep(1)
+
+
 def start_ticker(get_symbols, get_rf, interval_sec=10):
-    global _thread, _running
+    global _stock_thread, _opt_thread, _running
     if _running:
         return False
     _running = True
-    _thread = threading.Thread(
-        target=_tick_loop,
+
+    _stock_thread = threading.Thread(
+        target=_stock_loop,
         args=(get_symbols, get_rf, interval_sec),
         daemon=True,
     )
-    _thread.start()
+    _stock_thread.start()
+
+    _opt_thread = threading.Thread(
+        target=_option_loop,
+        args=(get_symbols,),
+        daemon=True,
+    )
+    _opt_thread.start()
+
     return True
 
 
@@ -194,7 +217,6 @@ def stop_ticker():
 
 def get_stats():
     d = dict(_stats)
-    d.pop('_last_option_ts', None)
     d['running'] = _running
     return d
 
