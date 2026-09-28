@@ -24,6 +24,7 @@ function init(d) { deps = { ...deps, ...d }; }
 
 async function simulateFromJob(jobId, opts = {}) {
     const db = deps.getDB();
+    const mode = opts.mode || 'option';   // 🆕
     const minTrades = opts.minTrades || 5;
 
     const details = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
@@ -34,12 +35,36 @@ async function simulateFromJob(jobId, opts = {}) {
     for (const d of details) {
         if (!d.trades || d.trades.length < minTrades) continue;
         for (const t of d.trades) {
-            allTrades.push({
-                ...t,
-                symbol: d.symbol,
-                strategyId: d.strategyId,
-                strategyName: d.strategyName
-            });
+            let normalized;
+            if (mode === 'stock') {
+                // 🆕 از قیمت سهم استفاده کن
+                const entryPx = t.stockEntry || t.entryPrice;
+                const exitPx = t.stockExit || t.exitPrice;
+                const pnlPct = (entryPx && exitPx && entryPx > 0)
+                    ? (exitPx / entryPx - 1) * 100
+                    : (t.pnlPct || 0);
+                normalized = {
+                    ...t,
+                    symbol: d.symbol,
+                    strategyId: d.strategyId,
+                    strategyName: d.strategyName,
+                    // Override برای sim
+                    optionEntry: entryPx,
+                    optionExit: exitPx,
+                    size: 1,           // ۱ سهم در هر واحد
+                    pnlPct,
+                    _mode: 'stock'
+                };
+            } else {
+                normalized = {
+                    ...t,
+                    symbol: d.symbol,
+                    strategyId: d.strategyId,
+                    strategyName: d.strategyName,
+                    _mode: 'option'
+                };
+            }
+            allTrades.push(normalized);
         }
     }
 
@@ -226,6 +251,7 @@ async function simulateFromJob(jobId, opts = {}) {
 
     return {
         jobId,
+        mode,   // 🆕
         at: new Date(),
         limits,
         corrMatrixMeta: corrMatrix

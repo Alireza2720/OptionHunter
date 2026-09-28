@@ -896,10 +896,19 @@ async function managePositions(chain) {
             await requireDep('notify')(`${p.symbol} | سود ${pnlPct.toFixed(0)}% - فروش 33% موقعیت (پله 2)`);
         }
 
+        // 🆕 محاسبه‌ی option-aware exit conditions
+        const heldDays = p.entryTime ? (Date.now() - new Date(p.entryTime).getTime()) / 86400000 : 0;
+        const ivDrop = (p.entryIv && iv) ? (iv - p.entryIv) / p.entryIv : 0;
+        const thetaPerDayPct = (p.entryTheta && p.entryAsk && p.entryAsk > 0)
+            ? Math.abs(p.entryTheta) / p.entryAsk * 100 : 0;
+
         if (!longIds.has(p.configId)) reason = 'سیگنال خروج یا لغو روی سهم پایه';
         else if (c.daysLeft <= s.closeDaysBefore) reason = `${c.daysLeft} روز تا سررسید`;
         else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}%)`;
         else if (pnlPct >= s.take2Pct && taken2) reason = `حد سود کامل (${pnlPct.toFixed(0)}%)`;
+        // 🆕
+        else if (ivDrop < -0.30) reason = `IV سقوط شدید (${(ivDrop*100).toFixed(0)}%)`;
+        else if (thetaPerDayPct > 2.5 && heldDays >= 2 && pnlPct < 10) reason = `تتا سنگین (${thetaPerDayPct.toFixed(1)}%/روز)`;
 
         const warns = [];
         if (sellQueueSet.has(p.underlying)) warns.push(`نماد پایه در صف فروش است - برای بستن آپشن باید منتظر باز شدن صف بمانی`);
@@ -1097,9 +1106,41 @@ async function tryGetRealTradeData(symbol, t, p) {
 // ============================================================
 // 🆕 نسخه سریع tryGetRealTradeData — Phase 2 Realism
 // ============================================================
-const OPT_SLIPPAGE_PCT = 0.003;      // base (legacy)
-const OPT_IMPACT_PCT = 0.001;        // base (legacy)
-const OPT_LATENCY_SEC = 1;           // legacy
+const OPT_SLIPPAGE_PCT = 0.003;
+const OPT_IMPACT_PCT = 0.001;
+const OPT_LATENCY_SEC = 1;
+
+// 🆕 طبقه‌بندی خروجی آپشن
+function classifyOptionExit(entryRow, exitRow, heldDays) {
+    const thetaPerDayPct = (entryRow && entryRow.thetaApi && entryRow.ask && entryRow.ask > 0)
+        ? Math.abs(entryRow.thetaApi) / entryRow.ask * 100 : null;
+    const ivChangePct = (entryRow && exitRow && entryRow.ivApi && exitRow.ivApi && entryRow.ivApi > 0)
+        ? (exitRow.ivApi - entryRow.ivApi) / entryRow.ivApi * 100 : null;
+    const deltaChangePct = (entryRow && exitRow && entryRow.deltaApi && exitRow.deltaApi && entryRow.deltaApi > 0)
+        ? (exitRow.deltaApi - entryRow.deltaApi) / entryRow.deltaApi * 100 : null;
+
+    let tag = 'normal';
+    let note = null;
+
+    if (ivChangePct != null && ivChangePct < -30) {
+        tag = 'iv_crush';
+        note = `IV افت ${Math.abs(ivChangePct).toFixed(0)}%`;
+    } else if (thetaPerDayPct != null && thetaPerDayPct > 2.5 && (heldDays || 0) >= 2) {
+        tag = 'theta_decay';
+        note = `تتا ${thetaPerDayPct.toFixed(1)}%/روز`;
+    } else if (deltaChangePct != null && deltaChangePct < -40) {
+        tag = 'delta_loss';
+        note = `Δ افت ${Math.abs(deltaChangePct).toFixed(0)}%`;
+    }
+
+    return {
+        tag, note,
+        thetaPerDayPct: thetaPerDayPct != null ? Math.round(thetaPerDayPct * 100) / 100 : null,
+        ivChangePct: ivChangePct != null ? Math.round(ivChangePct * 10) / 10 : null,
+        deltaChangePct: deltaChangePct != null ? Math.round(deltaChangePct * 10) / 10 : null,
+        heldDays: heldDays != null ? Math.round(heldDays * 100) / 100 : null
+    };
+}
 
 function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const FEE_BUY = getFeeBuy();
@@ -1224,6 +1265,12 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
         pnlPct: (exitProceeds / entryCost - 1) * 100,
         exitReason: t.exitReason,
+        // 🆕 option-exit classification
+        optionExit: classifyOptionExit(best, exitRow, (exitSec - entrySec) / 86400),
+        entryIvAtEntry: best.ivApi || null,
+        entryDeltaAtEntry: best.deltaApi || null,
+        entryThetaAtEntry: best.thetaApi || null,
+        entryHvAtEntry: best.hvApi || null,
         source: 'real'
     };
 }
@@ -1271,10 +1318,30 @@ function tryGetApproxTradeData(t, closes, times, p) {
     let pnlPct = (exitProceeds / entryCost - 1) * 100;
     if (pnlPct > p.maxReturnPct) pnlPct = p.maxReturnPct;
 
+    // 🆕 option-exit classification (approx)
+    const heldDaysApprox = (t.exitTime - t.entryTime) / 86400;
+    const thetaPerDayPctApprox = entryTheo.price > 0
+        ? Math.abs(entryTheo.thetaDay) / entryTheo.price * 100 : null;
+    const ivChangePctApprox = sigmaBase > 0
+        ? (sigmaExit - sigmaBase) / sigmaBase * 100 : null;
+    const deltaChangePctApprox = entryTheo.delta > 0
+        ? (exitTheo.delta - entryTheo.delta) / entryTheo.delta * 100 : null;
+
+    let approxTag = 'normal', approxNote = null;
+    if (ivChangePctApprox != null && ivChangePctApprox < -30) {
+        approxTag = 'iv_crush';
+        approxNote = `IV افت ${Math.abs(ivChangePctApprox).toFixed(0)}%`;
+    } else if (thetaPerDayPctApprox != null && thetaPerDayPctApprox > 2.5 && heldDaysApprox >= 2) {
+        approxTag = 'theta_decay';
+        approxNote = `تتا ${thetaPerDayPctApprox.toFixed(1)}%/روز`;
+    } else if (deltaChangePctApprox != null && deltaChangePctApprox < -40) {
+        approxTag = 'delta_loss';
+        approxNote = `Δ افت ${Math.abs(deltaChangePctApprox).toFixed(0)}%`;
+    }
+
     return {
         entryTime: t.entryTime, exitTime: t.exitTime,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
-        // 🆕 Phase 4 — propagate score fields
         atr: t.atr || null,
         rsiFast: t.rsiFast || null,
         rsiSlow: t.rsiSlow || null,
@@ -1294,6 +1361,19 @@ function tryGetApproxTradeData(t, closes, times, p) {
         iv: sigmaBase, ivHv: sigmaBase / hv,
         pnlPct,
         exitReason: t.exitReason,
+        // 🆕 option-exit classification
+        optionExit: {
+            tag: approxTag,
+            note: approxNote,
+            thetaPerDayPct: thetaPerDayPctApprox != null ? Math.round(thetaPerDayPctApprox * 100) / 100 : null,
+            ivChangePct: ivChangePctApprox != null ? Math.round(ivChangePctApprox * 10) / 10 : null,
+            deltaChangePct: deltaChangePctApprox != null ? Math.round(deltaChangePctApprox * 10) / 10 : null,
+            heldDays: Math.round(heldDaysApprox * 100) / 100
+        },
+        entryIvAtEntry: sigmaBase,
+        entryDeltaAtEntry: entryTheo.delta,
+        entryThetaAtEntry: entryTheo.thetaDay,
+        entryHvAtEntry: hv,
         source: 'approximate'
     };
 }

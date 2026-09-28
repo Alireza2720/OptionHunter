@@ -234,10 +234,11 @@ async function computeFullResult(job, jobId) {
 
     // ---- Portfolio ----
     if (panels.portfolio && panels.portfolio.enabled) {
-        deps.logger && deps.logger.info(`[bt-compute] ${jobId} portfolio...`);
+        deps.logger && deps.logger.info(`[bt-compute] ${jobId} portfolio (${mode})...`);
         try {
             const p = panels.portfolio;
             result.portfolio = await deps.portfolioService.simulateFromJob(jobId, {
+                mode,   // 🆕
                 capital: p.capital || 100000000,
                 riskPct: p.riskPct || 1.5,
                 maxSymPct: p.maxSymPct || 20,

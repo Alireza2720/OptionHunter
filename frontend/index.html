@@ -289,7 +289,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <div class="menu-divider"></div>
         <div class="menu-label">فعالیت‌ها</div>
         <div style="display:flex; gap:6px; margin-bottom:8px;">
-            <button class="btn tiny outline" onclick="refreshMenuStatus()">رفرش</button>
+            <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button>
             <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">📋 تاریخچه کامل</button>
         </div>
         <div id="menuActiveJobs" style="font-size:12px;"></div>
@@ -727,10 +727,15 @@ async function loadActiveJobs(btn) {
     }
 }
 
-async function refreshMenuStatus() {
-    await checkBackendStatus();
-    await loadSystemStats();
-    await loadActiveJobs();
+async function refreshMenuStatus(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+        await checkBackendStatus();
+        await loadSystemStats();
+        await loadActiveJobs();
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'رفرش'; }
+    }
 }
 
 function startSystemPolling() {
@@ -2309,7 +2314,10 @@ function renderJobProgress(job) { const chunks = (job.progress && job.progress.c
 
 let _jobsPanelTimer = null;
 let _jobsPanelUserActive = false;
+let _jobsPanelActiveTab = 'active';   // 🆕
+
 async function openJobsPanel() {
+    _jobsPanelActiveTab = 'active';   // 🆕 ریست هنگام باز شدن
     openModal('Jobs', '<div style="text-align:center;padding:30px;">...</div>');
     await refreshJobsPanel();
     if (_jobsPanelTimer) clearInterval(_jobsPanelTimer);
@@ -2360,13 +2368,14 @@ async function refreshJobsPanel() {
         const activeRows = activeJobs.length ? activeJobs.map(j => renderJob(j, false)).join('') : '<div class="empty-note">فعال نیست</div>';
         const doneRows = doneJobs.length ? doneJobs.map(j => renderJob(j, true)).join('') : '<div class="empty-note">تاریخچه خالی</div>';
 
+        const isActive = _jobsPanelActiveTab === 'active';
         const newHtml = `<div class="jobs-panel-container">
             <div class="tabs" style="margin-bottom:14px;">
-                <button class="tab active" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button>
-                <button class="tab" onclick="switchJobsTab('done', this)">تاریخچه (${doneJobs.length}/${doneCount})</button>
+                <button class="tab ${isActive ? 'active' : ''}" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button>
+                <button class="tab ${!isActive ? 'active' : ''}" onclick="switchJobsTab('done', this)">تاریخچه (${doneJobs.length}/${doneCount})</button>
             </div>
-            <div id="jobsTab-active">${activeRows}</div>
-            <div id="jobsTab-done" style="display:none;">${doneRows}</div>
+            <div id="jobsTab-active" style="display:${isActive ? 'block' : 'none'};">${activeRows}</div>
+            <div id="jobsTab-done" style="display:${isActive ? 'none' : 'block'};">${doneRows}</div>
         </div>`;
 
         const container = document.querySelector('.jobs-panel-container');
@@ -2377,7 +2386,13 @@ async function refreshJobsPanel() {
         }
     } catch (e) { openModal('Jobs', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
-function switchJobsTab(w, btn) { document.querySelectorAll('#modalBody .tabs .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); document.getElementById('jobsTab-active').style.display = w === 'active' ? 'block' : 'none'; document.getElementById('jobsTab-done').style.display = w === 'done' ? 'block' : 'none'; }
+function switchJobsTab(w, btn) {
+    _jobsPanelActiveTab = w;   // 🆕
+    document.querySelectorAll('#modalBody .tabs .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('jobsTab-active').style.display = w === 'active' ? 'block' : 'none';
+    document.getElementById('jobsTab-done').style.display = w === 'done' ? 'block' : 'none';
+}
 async function cancelActiveJob(id) { if (!confirm('لغو شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteJob(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, { method: 'DELETE' }); refreshJobsPanel(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
@@ -2401,6 +2416,26 @@ async function viewJobDetail(id) {
     try {
         const job = await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, {}, 0);
         hideLoader();
+
+        // 🆕 backtest-compare → همون نمای کامل
+        if (job.type === 'backtest-compare' && job.result && (job.result.results || job.result.details)) {
+            window._lastBtCompareJobId = id;
+            window._lastBtCompareResult = job.result;
+            const dateStr = job.createdAt ? new Date(job.createdAt).toLocaleString('fa-IR') : '';
+            openModal(`نتیجه بک تست — ${dateStr}`, `
+                <div class="hint" style="margin-bottom:10px;">
+                    وضعیت: <b>${job.status}</b> ·
+                    شروع: ${job.startedAt ? new Date(job.startedAt).toLocaleString('fa-IR') : '-'} ·
+                    پایان: ${job.finishedAt ? new Date(job.finishedAt).toLocaleString('fa-IR') : '-'}
+                </div>
+                <div id="btResults"><div id="btCompareResultArea"></div></div>
+            `);
+            setTimeout(() => {
+                try { renderBtCompareResult(job.result); } catch (err) { console.error(err); }
+            }, 80);
+            return;
+        }
+
         renderJobDetailModal(job);
     } catch (e) {
         hideLoader();
@@ -2691,7 +2726,12 @@ function renderBtCompareResult(r) {
 
     area.innerHTML = symbolsPanel + `<div class="hint">${all.length} ترکیب - <span style="color:var(--good);">${agg.validCount || 0} موفق</span> · <span style="color:var(--warn);">${agg.insufficientCount || 0} ناکافی</span> · <span style="color:var(--bad);">${agg.errorCount || 0} خطا</span></div><div class="tabs" style="margin-top:14px;"><button class="tab active" onclick="switchBtResultTab('bySymbol', this)">نماد</button><button class="tab" onclick="switchBtResultTab('byStrategy', this)">استراتژی</button><button class="tab" onclick="switchBtResultTab('details', this)">جزئیات</button></div><div id="btRes-bySymbol"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th><th>منبع</th></tr></thead><tbody>${(agg.bySymbol || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.symbol)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td><td><small>${b.option.realUsed}R/${b.option.approxUsed}A</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="8">-</td></tr>'}</tbody></table></div></div><div id="btRes-byStrategy" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>استراتژی</th><th>#</th><th>وین</th><th>سهم</th><th>آپشن</th><th>PF</th></tr></thead><tbody>${(agg.byStrategy || []).map((b,i) => `<tr><td>${i+1}</td><td><b>${esc(b.strategyName)}</b></td><td>${b.stock.trades}</td><td>${b.stock.winRate.toFixed(1)}%</td><td>${pct(b.stock.totalPnl)}</td><td>${b.option.trades}</td><td><b>${fmtPF(b.option.profitFactor)}</b></td></tr>`).join('') || '<tr class="empty-row"><td colspan="7">-</td></tr>'}</tbody></table></div></div><div id="btRes-details" style="display:none;"><div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>سهم</th><th>وین</th><th>میانگین</th><th>آپشن</th><th>وین</th><th>میانگین</th><th>کل</th><th>PF</th><th>منبع</th></tr></thead><tbody>${detailRows}</tbody></table></div></div>`;
 }
-function switchBtResultTab(w, btn) { ['bySymbol','byStrategy','details'].forEach(k => { const el = document.getElementById(`btRes-${k}`); if (el) el.style.display = k === w ? 'block' : 'none'; }); document.querySelectorAll('#btResults > .tabs > .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
+function switchBtResultTab(w, btn) {
+    ['bySymbol','byStrategy','details'].forEach(k => { const el = document.getElementById(`btRes-${k}`); if (el) el.style.display = k === w ? 'block' : 'none'; });
+    // 🆕 سلکتور درست
+    document.querySelectorAll('#btCompareResultArea .tabs .tab, #btResults .tabs .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+}
 
 async function openCompareDetail(symbol, strategyId) {
     const jobId = window._lastBtCompareJobId;

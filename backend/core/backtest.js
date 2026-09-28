@@ -761,6 +761,41 @@ async function runBacktest(cfg, from, to, opts = {}) {
         { realEnabled: !!opts.useRealOption }
     );
 
+    // 🆕 option-aware tagging روی هر trade
+    try {
+        const db = deps.getDB();
+        const optMap = new Map();
+        const allOptRows = await db.collection('option_history')
+            .find({ underlying: cfg.symbol })
+            .project({ symbol: 1, time: 1, ivApi: 1, deltaApi: 1, thetaApi: 1, daysLeft: 1, hvApi: 1 })
+            .toArray();
+        for (const r of allOptRows) {
+            const key = `${r.symbol}::${Math.floor(new Date(r.time).getTime() / 60000)}`;
+            optMap.set(key, r);
+        }
+        for (const t of (optionResult.trades || [])) {
+            if (!t.entryFillTime || !t.symbol) continue;
+            const key = `${t.symbol}::${Math.floor(t.entryFillTime / 60)}`;
+            let row = optMap.get(key);
+            // تلاش با ±۲ دقیقه
+            if (!row) {
+                for (let d = -2; d <= 2 && !row; d++) {
+                    row = optMap.get(`${t.symbol}::${Math.floor(t.entryFillTime / 60) + d}`);
+                }
+            }
+            if (row) {
+                t.entryIvAtEntry = row.ivApi || null;
+                t.entryDeltaAtEntry = row.deltaApi || null;
+                t.entryThetaAtEntry = row.thetaApi || null;
+                t.entryDaysLeftAtEntry = row.daysLeft || null;
+                t.entryHvAtEntry = row.hvApi || null;
+                t.entryIvHvAtEntry = (row.ivApi && row.hvApi) ? row.ivApi / row.hvApi : null;
+            }
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('option-aware tagging: ' + e.message);
+    }
+
     // آمار پایه
     const stockStats = computeStats(tradeRes.trades);
     const optionStats = computeStats(optionResult.trades || []);
