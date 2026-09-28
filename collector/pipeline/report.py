@@ -1,10 +1,25 @@
 # -*- coding: utf-8 -*-
-"""Coverage / gaps report — نسخه بهینه با aggregation."""
+"""Coverage / gaps report — نسخه بهینه با aggregation + cache."""
+import time
 from .db import get_db, COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF, COL_OPTION_HISTORY, COL_MONITORED
+
+# 🆕 cache داخلی
+_cov_cache = {'result': None, 'at': 0, 'symbols_key': None}
+_COV_TTL = 180   # 3 دقیقه
 
 
 def coverage_report(symbols=None):
     db = get_db()
+    if not symbols:
+        symbols = [s['symbol'] for s in db[COL_MONITORED].find({})]
+
+    # 🆕 cache key = symbols hash
+    key = tuple(sorted(symbols))
+    now = time.time()
+    if (_cov_cache['result'] is not None
+            and _cov_cache['symbols_key'] == key
+            and (now - _cov_cache['at']) < _COV_TTL):
+        return _cov_cache['result']
     if not symbols:
         symbols = [s['symbol'] for s in db[COL_MONITORED].find({})]
 
@@ -86,4 +101,7 @@ def coverage_report(symbols=None):
                 'to': o.get('to'),
             },
         })
+    _cov_cache['result'] = out
+    _cov_cache['at'] = now
+    _cov_cache['symbols_key'] = key
     return out
