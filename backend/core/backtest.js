@@ -37,6 +37,7 @@ function makeCacheKey(parts) {
 function buildSignature(cfg, mode) {
     return {
         symbol: cfg.symbol || null,
+        pairSymbol: cfg.pairSymbol || null,   // 🆕
         configId: cfg._id ? String(cfg._id) : null,
         strategyId: cfg.strategyId,
         timeframe: cfg.timeframe,
@@ -82,13 +83,56 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
         onProgress({ phase: 'candles-loaded', candleCount: candles.length, htfCount: htf.length });
     }
 
+    // 🆕 pair candles برای pairs_spread
+    let pairCandles = null, pairSymbol = null;
+    if (cfg.strategyId === 'pairs_spread' || cfg.pairSymbol) {
+        pairSymbol = cfg.pairSymbol;
+        if (pairSymbol) {
+            try {
+                pairCandles = deps.dataService.closedOnly(
+                    await deps.dataService.getCandlesFull(pairSymbol, cfg.timeframe),
+                    cfg.timeframe
+                );
+                if (dateFrom) pairCandles = pairCandles.filter(c => c.time >= dateFrom - WARMUP_SEC);
+                if (dateTo) pairCandles = pairCandles.filter(c => c.time <= dateTo);
+            } catch (e) {
+                deps.logger && deps.logger.warn('pair candles: ' + e.message);
+            }
+        }
+    }
+
+    // 🆕 sector peer candles برای sector_momentum
+    let sectorPeerCandles = null;
+    if (cfg.strategyId === 'sector_momentum') {
+        try {
+            const { getSectorPeers } = require('./sectors');
+            const peers = getSectorPeers(cfg.symbol);
+            sectorPeerCandles = {};
+            for (const psym of peers) {
+                const pc = deps.dataService.closedOnly(
+                    await deps.dataService.getCandlesFull(psym, cfg.timeframe),
+                    cfg.timeframe
+                );
+                let filtered = pc;
+                if (dateFrom) filtered = filtered.filter(c => c.time >= dateFrom - WARMUP_SEC);
+                if (dateTo) filtered = filtered.filter(c => c.time <= dateTo);
+                sectorPeerCandles[psym] = filtered;
+            }
+        } catch (e) {
+            deps.logger && deps.logger.warn('sector peers: ' + e.message);
+        }
+    }
+
     const result = def.run(
         candles,
         { ...cfg.params, candleType: cfg.candleType },
         {
             htfCandles: htf,
             htfTimeframe: htfTf,
-            entryWindow: deps.entryWindow()
+            entryWindow: deps.entryWindow(),
+            pairCandles,        // 🆕
+            pairSymbol,          // 🆕
+            sectorPeerCandles    // 🆕
         }
     );
 

@@ -43,14 +43,29 @@ async function runMaster(jobId, opts = {}) {
         const t1 = Date.now();
 
         const symbols = opts.symbols || [];
-        const strategies = opts.strategies || [];
+        let strategies = opts.strategies || [];
 
         if (!symbols.length || !strategies.length) {
             throw new Error('symbols و strategies الزامی');
         }
 
+        // 🆕 فیلتر استراتژی‌هایی که context خاص می‌خوان (pairSymbol)
+        const strategiesFiltered = strategies.filter(s => {
+            if (s.id === 'pairs_spread' && !s.pairSymbol) {
+                deps.logger && deps.logger.warn(
+                    `pipeline: pairs_spread بدون pairSymbol — رد شد`
+                );
+                return false;
+            }
+            return true;
+        });
+
+        if (!strategiesFiltered.length) {
+            throw new Error('هیچ استراتژی معتبری برای اجرا نیست');
+        }
+
         const btJob = await deps.backtestService.createJob('backtest-compare', {
-            symbols, strategies,
+            symbols, strategies: strategiesFiltered,
             useRealOption: opts.useRealOption !== false,
             dateFrom: opts.dateFrom,
             dateTo: opts.dateTo

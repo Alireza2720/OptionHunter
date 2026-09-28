@@ -49,7 +49,12 @@ function register(app, deps) {
     app.post('/api/strategy-configs/bulk-update', async (req, res, next) => {
         try {
             const { ids, ...patch } = req.body || {};
-            const r = await configService.bulkUpdate(ids, patch);
+            // 🆕 اجازه‌ی آپدیت pairSymbol در bulk
+            const cleanPatch = {};
+            if (typeof patch.enabled === 'boolean') cleanPatch.enabled = patch.enabled;
+            if (patch.role === 'leader' || patch.role === 'confirmer') cleanPatch.role = patch.role;
+            if (patch.pairSymbol !== undefined) cleanPatch.pairSymbol = patch.pairSymbol ? String(patch.pairSymbol) : null;
+            const r = await configService.bulkUpdate(ids, Object.keys(cleanPatch).length ? cleanPatch : patch);
             res.json(r);
         } catch (e) {
             if (e.status) return res.status(e.status).json({ error: e.message });

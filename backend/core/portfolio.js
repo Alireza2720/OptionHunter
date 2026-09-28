@@ -62,13 +62,14 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
         // ساخت candidate
         const candidate = {
             symbol: t.symbol,
+            pairSymbol: t.pairSymbol || null,   // 🆕
             strategyId: t.strategyId,
             strategyName: t.strategyName,
             optionEntry: t.optionEntry,
             size: t.size,
             entryTime: entryTs,
             pnlPct: t.pnlPct,
-            signalScore: t.signalScore   // 🆕 Phase 4
+            signalScore: t.signalScore
         };
 
         // تصمیم
@@ -94,7 +95,7 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
         const posReturnPct = toNum(t.pnlPct) || 0;
         const pnlAbs = entryValue * (posReturnPct / 100);
 
-        guard.addPosition(portfolio, t.symbol, entryValue, exitTs);
+        guard.addPosition(portfolio, t.symbol, entryValue, exitTs, t.pairSymbol);
         if (portfolio.totalExposure > peakExposure) peakExposure = portfolio.totalExposure;
 
         // Equity

@@ -44,6 +44,34 @@ const short = (s, n = 60) => String(s || '').slice(0, n);
 
 const { getSectorMap } = require('./sectors');
 
+// 🆕 cache رتبه‌ی صنایع (5 دقیقه)
+let _sectorRankCache = { at: 0, data: null };
+const SECTOR_RANK_TTL = 5 * 60 * 1000;
+
+async function getSectorRanking() {
+    const now = Date.now();
+    if (_sectorRankCache.data && (now - _sectorRankCache.at) < SECTOR_RANK_TTL) {
+        return _sectorRankCache.data;
+    }
+    try {
+        const doc = await deps.getDB().collection(COLLECTIONS.META)
+            .findOne({ _id: 'sector_ranking' });
+        _sectorRankCache.data = doc;
+        _sectorRankCache.at = now;
+        return doc;
+    } catch (_) {
+        return null;
+    }
+}
+
+function getSectorRankFor(sectorRanking, symbol) {
+    if (!sectorRanking || !sectorRanking.symbols || !sectorRanking.ranked) return null;
+    const symInfo = sectorRanking.symbols[symbol];
+    if (!symInfo || !symInfo.sector) return null;
+    const entry = sectorRanking.ranked.find(r => r.sector === symInfo.sector);
+    return entry ? entry.rank : null;
+}
+
 // ============================================================
 // 🆕 ساخت state پرتفولیو از option_positions باز
 // ============================================================
@@ -206,12 +234,53 @@ async function evaluateConfig(config, marketInfo) {
     }
 
     const ew = deps.entryWindow();
+
+    // 🆕 pair candles برای pairs_spread
+    let pairCandles = null, pairSymbol = null;
+    if (config.strategyId === 'pairs_spread' || config.pairSymbol) {
+        pairSymbol = config.pairSymbol;
+        if (pairSymbol) {
+            try {
+                pairCandles = deps.dataService.closedOnly(
+                    await deps.dataService.getCandles(pairSymbol, config.timeframe),
+                    config.timeframe
+                );
+            } catch (e) {
+                deps.logger && deps.logger.warn('pair candles (live): ' + e.message);
+            }
+        }
+    }
+
+    // 🆕 sector peer candles برای sector_momentum
+    let sectorPeerCandles = null;
+    if (config.strategyId === 'sector_momentum') {
+        try {
+            const { getSectorPeers } = require('./sectors');
+            const peers = getSectorPeers(config.symbol);
+            sectorPeerCandles = {};
+            for (const psym of peers) {
+                const pc = deps.dataService.closedOnly(
+                    await deps.dataService.getCandles(psym, config.timeframe),
+                    config.timeframe
+                );
+                sectorPeerCandles[psym] = pc;
+            }
+        } catch (e) {
+            deps.logger && deps.logger.warn('sector peers (live): ' + e.message);
+        }
+    }
+
     let result;
     try {
         result = def.run(
             candles,
             { ...config.params, candleType: config.candleType },
-            { htfCandles, htfTimeframe: htfTf, entryWindow: ew }
+            {
+                htfCandles, htfTimeframe: htfTf, entryWindow: ew,
+                pairCandles,          // 🆕
+                pairSymbol,           // 🆕
+                sectorPeerCandles     // 🆕
+            }
         );
     } catch (e) {
         deps.notify && deps.notify(`خطا در اجرای استراتژی ${config.symbol}: ${e.message}`).catch(() => {});
@@ -359,8 +428,11 @@ async function evaluateConfig(config, marketInfo) {
     if (last.signalType === 'BUY') {
         try {
             const scoreMod = require('./signal-score');
-            const regimeMod = deps.regimeService ? require('./regime') : null;
             const r = deps.regimeService ? await deps.regimeService.getForSymbol(config.symbol) : null;
+            // 🆕 رتبه‌ی صنعت
+            const sectorRanking = await getSectorRanking();
+            const sectorRank = getSectorRankFor(sectorRanking, config.symbol);
+
             signalScoreResult = scoreMod.computeSignalScore({
                 confluenceEffective,
                 htfTrend: result.htfTrend || null,
@@ -369,7 +441,8 @@ async function evaluateConfig(config, marketInfo) {
                 rsiFast: last.indicators && last.indicators.rsiFast,
                 ivHv: info && info.ivHv,
                 regimeMacro: r ? r.macro : 'unknown',
-                regimeVol: r ? r.vol : 'normal'
+                regimeVol: r ? r.vol : 'normal',
+                sectorRank   // 🆕
             });
         } catch (_) {}
     }
@@ -420,6 +493,7 @@ async function evaluateConfig(config, marketInfo) {
 
             await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
                 configId, symbol: config.symbol,
+                pairSymbol: config.pairSymbol || null,   // 🆕
                 strategyId: config.strategyId, strategyName: def.name,
                 timeframe: config.timeframe,
                 signalType: last.signalType,
@@ -441,6 +515,7 @@ async function evaluateConfig(config, marketInfo) {
 
             await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
                 configId, symbol: config.symbol,
+                pairSymbol: config.pairSymbol || null,   // 🆕
                 strategyId: config.strategyId, strategyName: def.name,
                 timeframe: config.timeframe,
                 signalType: last.signalType,
@@ -460,6 +535,7 @@ async function evaluateConfig(config, marketInfo) {
 
     await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
         configId, symbol: config.symbol,
+        pairSymbol: config.pairSymbol || null,   // 🆕
         strategyId: config.strategyId, strategyName: def.name,
         timeframe: config.timeframe,
         signalType: last.signalType,

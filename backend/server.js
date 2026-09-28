@@ -93,6 +93,7 @@ async function start() {
         if (deps.correlationJob) deps.correlationJob.start();
         if (deps.regimeJob) deps.regimeJob.start();
         if (deps.driftJob) deps.driftJob.start();
+        if (deps.sectorRankJob) deps.sectorRankJob.start();   // 🆕
         if (deps.dailyBackfillJob) deps.dailyBackfillJob.start();
         if (deps.gapDetectorJob) deps.gapDetectorJob.start();
         if (deps.monthlyReportJob) deps.monthlyReportJob.start();

@@ -270,6 +270,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();" title="گزارش کامل استراتژی‌ها و نمادها">📊 گزارش ماهانه</button>
         <button class="menu-item" onclick="openJournal(); toggleMenu();" title="دفتر معاملات — هر معامله با جزئیات کامل">📓 ژورنال معاملات</button>
         <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();" title="تحلیل خوشه‌ها و ماتریس همبستگی">🔗 تحلیل پرتفولیو</button>
+        <button class="menu-item" onclick="openRegimePanel(); toggleMenu();" title="رژیم بازار هر نماد + نگاشت استراتژی">🌡 رژیم بازار</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -459,7 +460,11 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
                     </div>
                     <div class="adv-body">
                         <div class="form-row">
-                            <div class="field"><label>نماد</label><select id="configSymbolSelect"><option value="">-- ابتدا نماد اضافه کنید --</option></select></div>
+                            <div class="field"><label>نماد</label><select id="configSymbolSelect" onchange="onMainSymbolChange()"><option value="">-- ابتدا نماد اضافه کنید --</option></select></div>
+                            <div class="field" id="pairSymbolField" style="display:none;">
+                                <label>نماد جفت (Pair)</label>
+                                <select id="pairSymbolSelect"><option value="">-- انتخاب کنید --</option></select>
+                            </div>
                             <div class="field"><label>استراتژی</label><select id="strategySelect"></select></div>
                             <div class="field"><label>تایم فریم ورود</label><select id="timeframeSelect"></select></div>
                             <div class="field"><label>تایم فریم بالا</label><select id="htfSelect"></select></div>
@@ -538,7 +543,17 @@ const PARAM_LABELS = {
     sweepWithinBars:'پنجره Sweep', entryPeriod:'دوره ورود Donchian', exitPeriod:'دوره خروج Donchian',
     bbPeriod:'دوره BB', bbStd:'انحراف BB', kcPeriod:'دوره Keltner', kcMult:'ضریب Keltner',
     minSqueezeBars:'حداقل کندل فشرده', pullbackTouchPct:'آستانه لمس', vwapTouchPct:'آستانه VWAP', requireVwapSlope:'شيب VWAP',
-    minVolumeMult:'حداقل حجم'
+    minVolumeMult:'حداقل حجم',
+    // 🆕 استراتژی‌های جدید
+    rsiPeriod:'دوره RSI', rsiThreshold:'آستانه اشباع RSI', rsiRecover:'آستانه بازگشت RSI', rsiMax:'سقف RSI',
+    bbPeriod:'دوره BB', bbStd:'انحراف معیار BB', nearBBPct:'آستانه نزدیکی BB',
+    fastPeriod:'دوره سریع MACD', slowPeriod:'دوره کند MACD', signalPeriod:'دوره سیگنال MACD', emaFilter:'فیلتر EMA',
+    emaFast:'EMA سریع', emaMid:'EMA میانی', emaSlow:'EMA کند', exitBufferPct:'بافر خروج',
+    tenkanPeriod:'Tenkan', kijunPeriod:'Kijun', senkouBPeriod:'Senkou B', requireChikou:'تأیید Chikou',
+    momentumLookback:'بازه مومنتوم', sectorLookback:'بازه صنعت', minPeerCount:'حداقل هم‌صنعت',
+    minGapPct:'حداقل شکاف %', rangeWindowMin:'پنجره رنج (دقیقه)', maxRangePct:'حداکثر رنج %',
+    atrLookback:'بازه ATR', atrMult:'ضریب ATR',
+    zThreshold:'آستانه Z-Score', zLookback:'بازه Z', zExit:'Z خروج'
 };
 const OPT_LABELS = { minDays:'حداقل روز', maxDays:'حداکثر روز', maxSpreadPct:'حداکثر اسپرد', minOI:'حداقل OI', minTrades:'حداقل معامله', minPremium:'حداقل پرمیوم', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'R:R', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر', take1Pct:'هشدار نیمه', take2Pct:'حد سود کامل', closeDaysBefore:'بستن X روز قبل' };
 const TRADING_LABELS = { ENTRY_START: 'شروع بازه ورود', ENTRY_END: 'پایان بازه ورود', OPTION_FEE_BUY: 'کارمزد خرید', OPTION_FEE_SELL: 'کارمزد فروش', RISK_FREE_RATE: 'نرخ بدون ریسک', TOTAL_CAPITAL: 'سرمایه کل', RISK_PER_TRADE_PCT: 'ریسک هر معامله', MAX_SYMBOL_EXPOSURE_PCT: 'درگیری هر نماد', MAX_TOTAL_EXPOSURE_PCT: 'درگیری کل', MIN_CASH_RESERVE_PCT: 'نقد ذخیره', MAX_POSITION_SIZE: 'حداکثر قرارداد', SIGNAL_FACTOR_1: 'ضریب سیگنال 1', SIGNAL_FACTOR_2: 'ضریب سیگنال 2', SIGNAL_FACTOR_3: 'ضریب سیگنال 3', SIGNAL_FACTOR_4PLUS: 'ضریب سیگنال 4+', LEVEL_FACTOR_A_PLUS: 'ضریب A+', LEVEL_FACTOR_A: 'ضریب A', LEVEL_FACTOR_B: 'ضریب B', LEVEL_FACTOR_C: 'ضریب C', LEVEL_FACTOR_D: 'ضریب D', IV_FACTOR_MIN: 'حداقل ضریب IV', IV_FACTOR_MAX: 'حداکثر ضریب IV', IV_FACTOR_BASE: 'پایه ضریب IV', CONFLUENCE_TIME_WINDOW: 'پنجره Confluence', MULTI_CONFIRMER_MIN: 'حداقل تاییدکننده', MULTI_CONFIRMER_TIME_WINDOW: 'پنجره چند تایید', MIN_TARGET_PCT: 'حداقل هدف سهم' };
@@ -1060,17 +1075,6 @@ async function algotikTickerStop() {
     } catch (e) { showAlert('خطا: ' + e.message); }
 }
 
-// چک بازار
-function isMarketOpenNow() {
-    const nowUtc = new Date();
-    const tehran = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
-    const wd = tehran.getUTCDay();
-    const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
-    const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
-    const inSession = mins >= 9 * 60 && mins <= 12 * 60 + 35;
-    return isTradingDay && inSession;
-}
-
 // 🆕 تابع اصلی — کل تابع قدیمی رو با این عوض کن
 async function updateTickerStatus() {
     try {
@@ -1330,16 +1334,86 @@ function startDataPipelinePolling() {
 
 async function loadTimeframes() { const tfs = await apiFetch(`${BACKEND_URL}/api/timeframes`, {}, 0); document.getElementById('timeframeSelect').innerHTML = tfs.map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); document.getElementById('htfSelect').innerHTML = tfs.filter(t => TF_MIN[t] >= 15).map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); }
 async function loadStrategies() { strategiesInfo = await apiFetch(`${BACKEND_URL}/api/strategies`, {}, 0); const sel = document.getElementById('strategySelect'); sel.innerHTML = strategiesInfo.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join(''); onStrategyChange(); sel.addEventListener('change', onStrategyChange); }
-function onStrategyChange() { const s = strategiesInfo.find(x => x.id === document.getElementById('strategySelect').value); if (!s) return; const c = document.getElementById('paramsContainer'); const fields = Object.entries(s.defaultParams).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" id="param_${k}" value="${v}"></div>`).join(''); c.innerHTML = `<div class="adv-accordion" id="advAccordion"><div class="adv-header" onclick="document.getElementById('advAccordion').classList.toggle('open')"><span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length})</span><span class="chev">▼</span></div><div class="adv-body"><div class="form-row">${fields}</div></div></div>`; document.getElementById('timeframeSelect').value = s.defaultTimeframe; document.getElementById('htfSelect').value = s.htfTimeframe || '1d'; }
+function onStrategyChange() {
+    const sid = document.getElementById('strategySelect').value;
+    const s = strategiesInfo.find(x => x.id === sid);
+    if (!s) return;
+    const c = document.getElementById('paramsContainer');
+    const fields = Object.entries(s.defaultParams).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" id="param_${k}" value="${v}"></div>`).join('');
+    c.innerHTML = `<div class="adv-accordion" id="advAccordion"><div class="adv-header" onclick="document.getElementById('advAccordion').classList.toggle('open')"><span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length})</span><span class="chev">▼</span></div><div class="adv-body"><div class="form-row">${fields}</div></div></div>`;
+    document.getElementById('timeframeSelect').value = s.defaultTimeframe;
+    document.getElementById('htfSelect').value = s.htfTimeframe || '1d';
+    // 🆕 نمایش فیلد pairSymbol فقط برای pairs_spread
+    const pairField = document.getElementById('pairSymbolField');
+    if (pairField) {
+        if (sid === 'pairs_spread') {
+            pairField.style.display = 'flex';
+            renderPairSymbolOptions();
+        } else {
+            pairField.style.display = 'none';
+            const pairSel = document.getElementById('pairSymbolSelect');
+            if (pairSel) pairSel.value = '';
+        }
+    }
+}
+
+// 🆕 پر کردن pairSymbol options (بدون نماد اصلی)
+function renderPairSymbolOptions() {
+    const mainSym = document.getElementById('configSymbolSelect').value;
+    const sel = document.getElementById('pairSymbolSelect');
+    if (!sel) return;
+    const currentVal = sel.value;
+    sel.innerHTML = '<option value="">-- انتخاب کنید --</option>' +
+        monitoredSymbols
+            .filter(s => s.symbol !== mainSym)
+            .map(s => `<option value="${esc(s.symbol)}">${esc(s.symbol)}</option>`)
+            .join('');
+    if (currentVal && currentVal !== mainSym) sel.value = currentVal;
+}
+
+// 🆕 وقتی نماد اصلی عوض شد، options pair رو رفرش کن
+function onMainSymbolChange() {
+    const pairField = document.getElementById('pairSymbolField');
+    if (pairField && pairField.style.display !== 'none') {
+        renderPairSymbolOptions();
+    }
+}
 function renderConfigSymbolOptions() { const el = document.getElementById('configSymbolSelect'); if (!el) return; el.innerHTML = monitoredSymbols.length ? monitoredSymbols.map(s => `<option value="${esc(s.symbol)}">${esc(s.symbol)}</option>`).join('') : '<option value="">-- ابتدا نماد اضافه کنید --</option>'; }
 async function addStrategyConfig() {
-    const symbol = document.getElementById('configSymbolSelect').value; if (!symbol) return showAlert('ابتدا نماد اضافه کنید.', 'warn');
-    const strategyId = document.getElementById('strategySelect').value, s = strategiesInfo.find(x => x.id === strategyId);
-    const timeframe = document.getElementById('timeframeSelect').value, htfTimeframe = document.getElementById('htfSelect').value;
+    const symbol = document.getElementById('configSymbolSelect').value;
+    if (!symbol) return showAlert('ابتدا نماد اضافه کنید.', 'warn');
+    const strategyId = document.getElementById('strategySelect').value;
+    const s = strategiesInfo.find(x => x.id === strategyId);
+    const timeframe = document.getElementById('timeframeSelect').value;
+    const htfTimeframe = document.getElementById('htfSelect').value;
     if (TF_MIN[htfTimeframe] <= TF_MIN[timeframe]) return showAlert('تایم فریم بالا باید بزرگتر باشد.', 'warn');
+
+    // 🆕 pairSymbol فقط برای pairs_spread
+    let pairSymbol = null;
+    if (strategyId === 'pairs_spread') {
+        pairSymbol = document.getElementById('pairSymbolSelect').value;
+        if (!pairSymbol) return showAlert('برای Pairs Spread، نماد جفت را انتخاب کنید.', 'warn');
+        if (pairSymbol === symbol) return showAlert('نماد جفت نباید با نماد اصلی یکسان باشد.', 'warn');
+    }
+
     const params = {}; Object.keys(s.defaultParams).forEach(k => { const el = document.getElementById(`param_${k}`); if (el) params[k] = parseFloat(el.value); });
     const role = document.getElementById('roleSelect').value;
-    try { await apiFetch(`${BACKEND_URL}/api/strategy-configs`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol, strategyId, timeframe, htfTimeframe, candleType: document.getElementById('candleTypeSelect').value, params, enabled:true, role }) }); showAlert(`استراتژی برای «${symbol}» ایجاد شد.`, 'success', 4000); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); }
+    try {
+        await apiFetch(`${BACKEND_URL}/api/strategy-configs`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+                symbol, pairSymbol, strategyId, timeframe, htfTimeframe,
+                candleType: document.getElementById('candleTypeSelect').value,
+                params, enabled:true, role
+            })
+        });
+        showAlert(`استراتژی برای «${symbol}» ایجاد شد.`, 'success', 4000);
+        // 🆕 reset pair field
+        const pairField = document.getElementById('pairSymbolField');
+        if (pairField) pairField.style.display = 'none';
+        await loadConfigs();
+    } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function loadConfigs() { try { const [c, st] = await Promise.all([apiFetch(`${BACKEND_URL}/api/strategy-configs`, {}, 0), apiFetch(`${BACKEND_URL}/api/status`, {}, 0)]); configs = c; statusMap = {}; st.forEach(x => statusMap[x.configId] = x); renderConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 function renderConfigs() {
@@ -1354,20 +1428,22 @@ function renderConfigs() {
         items.forEach((it, idx) => {
             const id = it._id; const st = statusMap[id]; const s = strategiesInfo.find(x => x.id === it.strategyId);
             const isInsufficient = !!(st && st.insufficientData); const name = s ? s.name : it.strategyId;
+            // 🆕 نمایش pairSymbol
+            const pairTag = it.pairSymbol ? ` <span class="badge warn" title="نماد جفت: ${esc(it.pairSymbol)}">↔ ${esc(it.pairSymbol)}</span>` : '';
             const tf = `${TF_LABELS[it.timeframe]||it.timeframe} به ${TF_LABELS[it.htfTimeframe||'1d']}`;
             const candle = it.candleType === 'simple' ? 'ساده' : 'HA';
             const trend = st && st.htfTrend ? trendBadge(st.htfTrend) : '<span class="badge none">-</span>';
             let posBadge = '<span class="badge none">بدون</span>';
             if (st && !isInsufficient && st.position === 'LONG') posBadge = '<span class="badge long">در کال</span>';
             const active = `<input type="checkbox" ${it.enabled?'checked':''} onchange="toggleConfigEnabled('${id}', this.checked)">`;
-            const actions = `<div class="action-btns"><button class="btn tiny outline" onclick="viewChart('${id}')">نمودار</button><button class="btn tiny outline" onclick="runOptionBacktest('${id}')">بک تست</button><button class="btn tiny outline" onclick="recommendOption('${id}')">آپشن</button><button class="btn tiny danger" onclick="deleteConfig('${id}')">حذف</button></div>`;
+            const actions = `<div class="action-btns"><button class="btn tiny outline" onclick="viewChart('${id}')">نمودار</button><button class="btn tiny outline" onclick="runOptionBacktest('${id}')">بک تست</button><button class="btn tiny outline" onclick="recommendOption('${id}')">آپشن</button><button class="btn tiny outline" onclick="editConfig('${id}')">✎ ویرایش</button><button class="btn tiny danger" onclick="deleteConfig('${id}')">حذف</button></div>`;
             const insufChip = isInsufficient ? ` <span class="badge warn" style="cursor:pointer;" onclick="showInsufficientReason('${id}')">ناکافی</span>` : '';
             const roleBadge = it.role === 'confirmer' ? '<span class="role-badge confirmer">تایید</span>' : '<span class="role-badge leader">لیدر</span>';
             const autoBadge = it.autoConfigured ? ' <span class="badge long">Auto</span>' : '';
             const checkbox = `<input type="checkbox" class="config-checkbox" ${selectedConfigs.has(id)?'checked':''} onchange="toggleSelectConfig('${id}', this.checked)">`;
             const symbolCell = idx === 0 ? `<td rowspan="${items.length}" style="font-weight:600; background:var(--bg-input); vertical-align:middle;"><b>${esc(symbol)}</b></td>` : '';
             const rowClass = (idx === 0 ? 'symbol-start ' : '') + (isInsufficient ? 'insufficient-row' : '');
-            html += `<tr class="${rowClass}"><td>${checkbox}</td>${symbolCell}<td>${esc(name)}${autoBadge}${insufChip}</td><td>${roleBadge}</td><td>${tf}</td><td>${candle}</td><td>${trend}</td><td>${posBadge}</td><td>${active}</td><td>${actions}</td></tr>`;
+            html += `<tr class="${rowClass}"><td>${checkbox}</td>${symbolCell}<td>${esc(name)}${pairTag}${autoBadge}${insufChip}</td><td>${roleBadge}</td><td>${tf}</td><td>${candle}</td><td>${trend}</td><td>${posBadge}</td><td>${active}</td><td>${actions}</td></tr>`;
         });
     }
     tb.innerHTML = html; updateBulkToolbar();
@@ -1383,6 +1459,111 @@ async function bulkDelete() { if (!selectedConfigs.size) return; if (!confirm(`�
 function showInsufficientReason(id) { const it = configs.find(c => c._id === id); if (!it) return; const st = statusMap[id]; if (!st) return showAlert('وضعیت نشده.'); const s = strategiesInfo.find(x => x.id === it.strategyId); const tfLabel = TF_LABELS[it.timeframe] || it.timeframe; const htfLabel = TF_LABELS[it.htfTimeframe || '1d'] || '1d'; const cc = Number(st.candleCount) || 0, rq = Number(st.requiredCandles) || 0; const hc = Number(st.htfCandleCount) || 0, hr = Number(st.requiredHtfCandles) || 0; const cOk = cc >= rq, hOk = hc >= hr; openModal(`داده ناکافی - ${it.symbol}`, `<div class="hint">${esc(s?s.name:it.strategyId)} - ${tfLabel} → ${htfLabel}</div><div class="stats-grid"><div class="stat"><small>${tfLabel}</small><b>${cc} / ${rq}</b></div><div class="stat"><small>${htfLabel}</small><b>${hc} / ${hr}</b></div></div><div class="hint">${!hOk ? 'دیتای بیشتر از Pipeline دریافت کن.' : ''} ${!cOk ? 'صبر کن.' : ''}</div>`); }
 async function toggleConfigEnabled(id, en) { try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: en }) }); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function deleteConfig(id) { if (!confirm('حذف شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'DELETE' }); if (selectedConfigId === id) selectedConfigId = null; await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
+
+// 🆕 ویرایش config موجود
+function editConfig(id) {
+    const it = configs.find(c => c._id === id);
+    if (!it) return showAlert('config یافت نشد', 'warn');
+    const s = strategiesInfo.find(x => x.id === it.strategyId);
+    if (!s) return showAlert('استراتژی ناشناخته', 'warn');
+
+    const currentParams = it.params || s.defaultParams || {};
+    const paramFields = Object.entries(currentParams).map(([k, v]) =>
+        `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" id="edit_param_${k}" value="${v}"></div>`
+    ).join('');
+
+    let pairField = '';
+    if (it.strategyId === 'pairs_spread') {
+        const opts = monitoredSymbols
+            .filter(x => x.symbol !== it.symbol)
+            .map(x => `<option value="${esc(x.symbol)}" ${x.symbol === it.pairSymbol ? 'selected' : ''}>${esc(x.symbol)}</option>`)
+            .join('');
+        pairField = `<div class="form-row"><div class="field" style="min-width:220px;">
+            <label>نماد جفت (Pair)</label>
+            <select id="edit_pairSymbol"><option value="">-- انتخاب --</option>${opts}</select>
+        </div></div>`;
+    }
+
+    openModal(`✎ ویرایش — ${esc(it.symbol)} / ${esc(s.name)}`, `
+        <div class="hint">
+            نماد: <b>${esc(it.symbol)}</b> ·
+            استراتژی: <b>${esc(s.name)}</b> ·
+            تایم: <b>${TF_LABELS[it.timeframe]||it.timeframe} → ${TF_LABELS[it.htfTimeframe||'1d']||'1d'}</b>
+        </div>
+        ${pairField}
+        <div class="form-row" style="margin-top:8px;">
+            <div class="field"><label>نقش</label>
+                <select id="edit_role">
+                    <option value="leader" ${it.role === 'leader' ? 'selected' : ''}>لیدر</option>
+                    <option value="confirmer" ${it.role === 'confirmer' ? 'selected' : ''}>تاییدکننده</option>
+                </select>
+            </div>
+            <div class="field"><label>وضعیت</label>
+                <select id="edit_enabled">
+                    <option value="1" ${it.enabled ? 'selected' : ''}>فعال</option>
+                    <option value="0" ${!it.enabled ? 'selected' : ''}>غیرفعال</option>
+                </select>
+            </div>
+        </div>
+        <div class="adv-accordion open" id="editParamsAcc" style="margin-top:8px;">
+            <div class="adv-header" onclick="document.getElementById('editParamsAcc').classList.toggle('open')">
+                <span>پارامترها (${Object.keys(currentParams).length})</span>
+                <span class="chev">▼</span>
+            </div>
+            <div class="adv-body">
+                <div class="form-row">${paramFields}</div>
+            </div>
+        </div>
+        <div style="margin-top:14px; display:flex; gap:8px;">
+            <button class="btn" onclick="saveEditConfig('${id}')">💾 ذخیره</button>
+            <button class="btn outline" onclick="closeModal()">انصراف</button>
+        </div>
+    `);
+}
+
+async function saveEditConfig(id) {
+    const it = configs.find(c => c._id === id);
+    if (!it) return;
+    const s = strategiesInfo.find(x => x.id === it.strategyId);
+    const currentParams = it.params || s.defaultParams || {};
+
+    const params = {};
+    Object.keys(currentParams).forEach(k => {
+        const el = document.getElementById(`edit_param_${k}`);
+        if (el) {
+            const v = parseFloat(el.value);
+            if (Number.isFinite(v)) params[k] = v;
+        }
+    });
+
+    const body = {
+        params,
+        role: document.getElementById('edit_role').value,
+        enabled: document.getElementById('edit_enabled').value === '1'
+    };
+
+    if (it.strategyId === 'pairs_spread') {
+        const pairEl = document.getElementById('edit_pairSymbol');
+        if (pairEl) {
+            body.pairSymbol = pairEl.value || null;
+            if (!body.pairSymbol) return showAlert('نماد جفت الزامی است', 'warn');
+            if (body.pairSymbol === it.symbol) return showAlert('نماد جفت نباید با نماد اصلی یکسان باشد', 'warn');
+        }
+    }
+
+    try {
+        await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        showAlert('✅ ذخیره شد', 'success', 3000);
+        closeModal();
+        await loadConfigs();
+    } catch (e) {
+        showAlert('خطا: ' + e.message);
+    }
+}
 
 async function fetchFullDataRange() {
     try {
@@ -1466,7 +1647,11 @@ function renderSignalHistory() { const tb = document.getElementById('signalHisto
         ? `<span class="badge ${x.signalScore.level === 'high' ? 'long' : x.signalScore.level === 'mid' ? 'warn' : 'none'}">Score: ${x.signalScore.score}</span>`
         : '';
     const badges = `${x.confluence>1?`<span class="badge long">${x.confluence}x</span>`:''}${scoreTag}${x.queue==='buy'?'<span class="badge warn">صف خرید</span>':''}${confTag}`;
-    return `<tr><td>${fmtT(x.time)}</td><td>${esc(x.symbol)}</td><td>${esc(x.strategyName||x.strategyId)} - ${TF_LABELS[x.timeframe]||''}</td><td>${roleTag}</td><td>${SIGNAL_LABELS[x.signalType]||x.signalType}</td><td>${x.price?x.price.toLocaleString():'-'}</td><td>${trendBadge(x.htfTrend)}</td><td style="font-size:11px;">${esc(x.reason||'-')}</td><td>${badges}</td></tr>`; }).join(''); if (list.length > signalHistoryLimit) tb.innerHTML += `<tr><td colspan="9" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش بیشتر (${list.length - signalHistoryLimit})</button></td></tr>`; }
+    const pairTag = x.pairSymbol ? ` <span class="badge warn" style="font-size:9px;">↔${esc(x.pairSymbol)}</span>` : '';
+    return `<tr><td>${fmtT(x.time)}</td><td>${esc(x.symbol)}${pairTag}</td><td>${esc(x.strategyName||x.strategyId)} - ${TF_LABELS[x.timeframe]||''}</td><td>${roleTag}</td><td>${SIGNAL_LABELS[x.signalType]||x.signalType}</td><td>${x.price?x.price.toLocaleString():'-'}</td><td>${trendBadge(x.htfTrend)}</td><td style="font-size:11px;">${esc(x.reason||'-')}</td><td>${badges}</td></tr>`;
+}).join('');
+    if (list.length > signalHistoryLimit) tb.innerHTML += `<tr><td colspan="9" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش بیشتر (${list.length - signalHistoryLimit})</button></td></tr>`;
+}
 async function clearSignalHistory() { if (!confirm('کل تاریخچه پاک شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/signal-history`, { method:'DELETE' }); await loadSignalHistory(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
 // ============================================================
@@ -2883,22 +3068,41 @@ function guideFull() {
             <li><b>فاز ۵ - Walk-Forward</b>: تقسیم بازه به پنجره‌های زمانی. اگر edge در همه پنجره‌ها پایدار باشد، edge واقعی است. اگر فقط در بعضی، overfit است.</li>
         </ul>
 
-        <h4 class="guide-h">استراتژی های فعال (11)</h4>
-        ${sb('SMC Unicorn', 'شکار نقدینگی: Sweep + Breaker + FVG', '1h', 'حرکات بزرگ - قوی‌ترین')}
+        <h4 class="guide-h">استراتژی‌های فعال (15)</h4>
+        <div class="menu-label" style="margin-top:8px;">Price Action / SMC</div>
+        ${sb('SMC Unicorn', 'شکار نقدینگی: Sweep + Breaker + FVG', '1h', 'حرکات بزرگ')}
         ${sb('OB + Sweep', 'Sweep + MSS + Order Block', '1h', 'برگشت از کف')}
         ${sb('Supply & Demand', 'بازگشت به ناحیه تقاضا', '30m', 'همه رژیم‌ها')}
         ${sb('OB After Sweep', 'Sweep که به OB ختم می‌شود', '1h', 'حرکات بزرگ')}
         ${sb('Opening Range Breakout', 'شکست بازه 30 دقیقه اول', '15m', 'ابتدای بازار')}
-        ${sb('Ensemble', 'رای وزنی از 10 زیراستراتژی', '30m', 'همه رژیم‌ها')}
-        ${sb('VWAP Bounce', 'بازگشت به VWAP روزانه', '15m', 'روندهای روزانه')}
-        ${sb('Supertrend', 'خط سوپر (ATR-based)', '30m', 'روندهای قوی')}
+
+        <div class="menu-label" style="margin-top:8px;">اندیکاتور محور</div>
+        ${sb('RSI Pullback', 'RSI cross از اشباع + بالای EMA50', '30m', 'روند صعودی')}
+        ${sb('MACD Trend', 'MACD cross صعودی + بالای EMA50', '30m', 'روند صعودی/نزولی')}
+        ${sb('Ichimoku Cloud', 'شکست ابر + TK + Chikou', '1h', 'روند قوی')}
+        ${sb('EMA Stack', 'EMA20>50>100 + پولبک به EMA20', '30m', 'روند صعودی')}
+
+        <div class="menu-label" style="margin-top:8px;">Mean Reversion</div>
+        ${sb('RSI Oversold Bounce', 'RSI<30 + نزدیک BB پایین + کندل صعودی', '30m', 'برگشت از کف')}
+        ${sb('Gap Fill', 'شکاف منفی >1.5% + پر شدن', '15m', 'ابتدای بازار')}
+
+        <div class="menu-label" style="margin-top:8px;">Volatility / Structure</div>
+        ${sb('ATR Expansion', 'ATR>1.5x median + شکست سقف', '30m', 'انفجار نوسان')}
         ${sb('BB Squeeze Breakout', 'شکست پس از فشردگی BB/KC', '30m', 'انفجار قیمت')}
         ${sb('Donchian Breakout', 'شکست کانال 20 کندلی', '1h', 'شکست ساختار')}
-        ${sb('Keltner Pullback', 'پولبک به کانال Keltner', '30m', 'روند + پولبک')}
 
-        <h4 class="guide-h">استراتژی های حذف شده</h4>
+        <div class="menu-label" style="margin-top:8px;">چند-نمادی / صنعت</div>
+        ${sb('Pairs Spread', 'z-score نسبت دو نماد هم‌صنعت', '30m', 'بازار رنج')}
+        ${sb('Sector Momentum', 'خود نماد قوی‌تر از میانگین صنعت', '1h', 'صنعت داغ')}
+
+        <div class="menu-label" style="margin-top:8px;">ترکیبی</div>
+        ${sb('Ensemble', 'رای وزنی از 12 زیراستراتژی (SMC + اندیکاتور + Mean Rev)', '30m', 'همه رژیم‌ها')}
+
+        <h4 class="guide-h">استراتژی‌های حذف‌شده</h4>
         <div class="guide-block">
-            <div class="g-desc">RSI Pullback، Pin Bar Reversal، London Breakout - به دلیل ناکارآمدی در بک تست (PF < 0.5)</div>
+            <div class="g-desc">
+                <b>Keltner Pullback</b> (PF 0.11)، <b>Supertrend</b> (PF فقط در 2/26 نماد)، <b>VWAP Bounce</b> (بازده -72%)، <b>Pin Bar Reversal</b> — به دلیل ناکارآمدی در بک‌تست TSE حذف شدند.
+            </div>
         </div>
 
         <h4 class="guide-h">مدیریت سرمایه (Mode 2)</h4>
@@ -3017,167 +3221,15 @@ async function openFreshnessPanel() {
 }
 
 // ============================================================
-// Pipeline (Auto-Pilot) — همه فازها یکجا
-// ============================================================
-async function openPipelinePanel() {
-    try {
-        const strats = strategiesInfo.map(s =>
-            `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">
-                <input type="checkbox" class="pl-strat" value="${esc(s.id)}" ${s.id==='ensemble'?'':'checked'}> ${esc(s.name)}
-            </label>`
-        ).join('');
-
-        const syms = monitoredSymbols.length
-            ? monitoredSymbols.map(s =>
-                `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">
-                    <input type="checkbox" class="pl-sym" value="${esc(s.symbol)}"> ${esc(s.symbol)}
-                </label>`).join('')
-            : '<div class="empty-note">نمادی نیست</div>';
-
-        const today = new Date().toISOString().slice(0, 10);
-        const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-
-        openModal('🎯 Pipeline کامل (Auto-Pilot)', `
-            <div class="hint">اجرای زنجیره‌ای همه فازها: بک‌تست مقایسه‌ای → تحلیل آماری → Walk-Forward → رژیم → تنظیم خودکار → شبیه‌سازی پورتفولیو.</div>
-
-            <div style="margin:12px 0;">
-                <div class="menu-label">نمادها</div>
-                <div style="margin:4px 0;">
-                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-sym').forEach(c=>c.checked=true)">همه</button>
-                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-sym').forEach(c=>c.checked=false)">هیچ</button>
-                </div>
-                <div>${syms}</div>
-            </div>
-
-            <div style="margin:12px 0;">
-                <div class="menu-label">استراتژی‌ها</div>
-                <div style="margin:4px 0;">
-                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-strat').forEach(c=>c.checked=true)">همه</button>
-                    <button class="btn tiny outline" onclick="document.querySelectorAll('.pl-strat').forEach(c=>c.checked=false)">هیچ</button>
-                </div>
-                <div>${strats}</div>
-            </div>
-
-            <div class="form-row">
-                <div class="field"><label>سرمایه</label><input type="number" id="plCapital" value="100000000"></div>
-                <div class="field"><label>ریسک %</label><input type="number" id="plRisk" value="2" step="0.1"></div>
-                <div class="field"><label>حداقل PF</label><input type="number" id="plMinPF" value="2.0" step="0.1"></div>
-                <div class="field"><label>حداقل معامله</label><input type="number" id="plMinTrades" value="5"></div>
-                <div class="field"><label>حداکثر تأییدکننده</label><input type="number" id="plMaxConf" value="2" min="1" max="3"></div>
-            </div>
-            <div class="date-range-row">
-                <label>از: <input type="date" id="plFrom" value="${from}"></label>
-                <label>تا: <input type="date" id="plTo" value="${today}"></label>
-            </div>
-
-            <button class="btn success" id="plRunBtn" onclick="runPipeline()" style="width:100%;margin-top:10px;">🚀 اجرای Pipeline کامل</button>
-            <div id="plResult" style="margin-top:16px;"></div>
-        `);
-    } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
-}
-
-async function runPipeline() {
-    const symbols = Array.from(document.querySelectorAll('.pl-sym:checked')).map(c => c.value);
-    const strategies = Array.from(document.querySelectorAll('.pl-strat:checked')).map(c => ({ id: c.value }));
-    if (!symbols.length) return showAlert('حداقل یک نماد', 'warn');
-    if (!strategies.length) return showAlert('حداقل یک استراتژی', 'warn');
-
-    const from = Math.floor(new Date(document.getElementById('plFrom').value + 'T00:00:00Z').getTime() / 1000);
-    const to   = Math.floor(new Date(document.getElementById('plTo').value   + 'T23:59:59Z').getTime() / 1000);
-
-    const body = {
-        symbols, strategies,
-        capital: +document.getElementById('plCapital').value,
-        riskPct: +document.getElementById('plRisk').value,
-        minPF: +document.getElementById('plMinPF').value,
-        minTrades: +document.getElementById('plMinTrades').value,
-        maxConfirmers: +document.getElementById('plMaxConf').value,
-        dateFrom: from, dateTo: to
-    };
-
-    const btn = document.getElementById('plRunBtn');
-    const rEl = document.getElementById('plResult');
-    btn.disabled = true; btn.textContent = '...';
-
-    try {
-        const r = await apiFetch(`${BACKEND_URL}/api/pipeline/run`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        }, 0);
-
-        rEl.innerHTML = `<div class="hint">Job: ${r.jobId}</div>`;
-        trackJob(r.jobId, (job) => {
-            const pctv = job.progress ? Math.round((job.progress.current / Math.max(1, job.progress.total)) * 100) : 0;
-            rEl.innerHTML = `
-                <div class="job-card">
-                    <div class="job-header">
-                        <span class="job-type">Pipeline</span>
-                        <span class="job-status ${job.status}">${job.status}</span>
-                    </div>
-                    <div class="job-msg">${esc((job.progress && job.progress.message) || '')}</div>
-                    <div class="progress-bar"><div class="progress-fill" style="width:${pctv}%"></div></div>
-                </div>
-                ${job.status === 'DONE' ? renderPipelineResult(job.result) : ''}
-                ${job.status === 'FAILED' ? `<div class="empty-note">خطا: ${esc(job.error || '')}</div>` : ''}
-            `;
-            if (['DONE','FAILED','CANCELLED'].includes(job.status)) {
-                btn.disabled = false; btn.textContent = '🚀 اجرای Pipeline کامل';
-            }
-        });
-    } catch (e) {
-        rEl.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
-        btn.disabled = false; btn.textContent = '🚀 اجرای Pipeline کامل';
-    }
-}
-
-function renderPipelineResult(r) {
-    if (!r) return '';
-    const steps = (r.steps || []).map(s => `
-        <tr>
-            <td>${esc(s.name)}</td>
-            <td>${s.status === 'ok' ? '<span class="badge long">OK</span>' : '<span class="badge short">FAIL</span>'}</td>
-            <td>${(s.ms/1000).toFixed(1)}s</td>
-            <td style="font-size:10px;">${esc(s.error || '')}</td>
-        </tr>`).join('');
-
-    return `
-        <div class="stats-grid" style="margin-top:10px;">
-            <div class="stat"><small>کل زمان</small><b>${((r.totalMs||0)/1000).toFixed(0)}s</b></div>
-            <div class="stat"><small>تحلیل PASS</small><b>${(r.analysis && r.analysis.passing) || 0}</b></div>
-            <div class="stat"><small>WF برنده</small><b>${(r.wf && r.wf.strategies || []).length}</b></div>
-            <div class="stat"><small>نمادهای تنظیم</small><b>${r.applied || 0}</b></div>
-        </div>
-        <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">مراحل اجرا</h4>
-        <div class="table-responsive">
-            <table class="data-table">
-                <thead><tr><th>مرحله</th><th>وضعیت</th><th>زمان</th><th>خطا</th></tr></thead>
-                <tbody>${steps}</tbody>
-            </table>
-        </div>
-        ${r.portfolio ? `
-        <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">پورتفولیو نهایی</h4>
-        <div class="stats-grid">
-            <div class="stat"><small>معاملات</small><b>${r.portfolio.accepted || 0}/${r.portfolio.totalTrades || 0}</b></div>
-            <div class="stat"><small>بازده</small><b>${pct(r.portfolio.returnPct)}</b></div>
-            <div class="stat"><small>MaxDD</small><b>${(r.portfolio.maxDD||0).toFixed(1)}%</b></div>
-            <div class="stat"><small>PF</small><b>${r.portfolio.pf ?? '-'}</b></div>
-        </div>` : ''}
-    `;
-}
-
-// ============================================================
 // Backtest Orchestrator — یکپارچه
 // ============================================================
 let _btMode = 'option';
 let _btJobId = null;
 let _btPollTimer = null;
 let _btLastResult = null;
-const _btSelection = new Map();   // symbol → Set(strategyId)
 
 function openBacktestPanel(mode) {
     _btMode = mode || 'option';
-    _btSelection.clear();
     _btLastResult = null;
     const title = mode === 'stock' ? '📊 بک تست سهم پایه' : '🎯 بک تست آپشن';
 
@@ -4224,8 +4276,11 @@ async function openJournalDetail(id) {
         const cx = t.contextAfter || {};
         const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;
 
+        const pairTag = t.pairSymbol || (t.setup && t.setup.pairSymbol)
+            ? ` <span class="badge warn" style="font-size:10px;">↔ ${esc(t.pairSymbol || t.setup.pairSymbol)}</span>`
+            : '';
         let html = `
-            <div class="hint"><b>${esc(t.symbol)}</b> · ${esc(t.strategyId || '')} · ${esc(t.role || '')}</div>
+            <div class="hint"><b>${esc(t.symbol)}</b>${pairTag} · ${esc(t.strategyId || '')} · ${esc(t.role || '')}</div>
 
             <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">قرارداد</h4>
             <div class="stats-grid">

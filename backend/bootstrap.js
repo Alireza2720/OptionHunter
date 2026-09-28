@@ -54,11 +54,102 @@ const healthJob = require('./jobs/health.job');
 const correlationJob = require('./jobs/correlation.job');
 const regimeJob = require('./jobs/regime.job');
 const driftJob = require('./jobs/drift.job');
+const sectorRankJob = require('./jobs/sector-rank.job');   // 🆕
 
 // strategies
 const strategiesModule = require('./strategies');
 
 let booted = false;
+
+// ============================================================
+// 🆕 Cleanup stale meta & cache after strategy updates
+// ============================================================
+async function cleanupStaleMeta(logger) {
+    try {
+        const db = mongo.getDB();
+        const validList = Object.keys(strategiesModule.STRATEGIES);
+        const validSet = new Set(validList);
+        let totalCleaned = 0;
+
+        // 1) signal_whitelist — pairهای حاوی استراتژی حذف‌شده
+        const sw = await db.collection(COLLECTIONS.META).findOne({ _id: 'signal_whitelist' });
+        if (sw && Array.isArray(sw.pairs)) {
+            const validPairs = sw.pairs.filter(p => {
+                const parts = String(p).split('::');
+                return parts.length === 2 && validSet.has(parts[1]);
+            });
+            if (validPairs.length !== sw.pairs.length) {
+                const dropped = sw.pairs.length - validPairs.length;
+                logger.info(`cleanup: signal_whitelist dropping ${dropped} stale pairs`);
+                if (validPairs.length === 0) {
+                    await db.collection(COLLECTIONS.META).deleteOne({ _id: 'signal_whitelist' });
+                } else {
+                    await db.collection(COLLECTIONS.META).updateOne(
+                        { _id: 'signal_whitelist' },
+                        { $set: { pairs: validPairs, cleanedAt: new Date() } }
+                    );
+                }
+                totalCleaned += dropped;
+            }
+        }
+
+        // 2) wf_strategy_whitelist — استراتژی‌های حذف‌شده
+        const wf = await db.collection(COLLECTIONS.META).findOne({ _id: 'wf_strategy_whitelist' });
+        if (wf && Array.isArray(wf.strategies)) {
+            const valid = wf.strategies.filter(sid => validSet.has(sid));
+            if (valid.length !== wf.strategies.length) {
+                const dropped = wf.strategies.length - valid.length;
+                logger.info(`cleanup: wf_whitelist dropping ${dropped} stale strategies`);
+                if (valid.length === 0) {
+                    await db.collection(COLLECTIONS.META).deleteOne({ _id: 'wf_strategy_whitelist' });
+                } else {
+                    await db.collection(COLLECTIONS.META).updateOne(
+                        { _id: 'wf_strategy_whitelist' },
+                        { $set: { strategies: valid, cleanedAt: new Date() } }
+                    );
+                }
+                totalCleaned += dropped;
+            }
+        }
+
+        // 3) backtest_trade_cache — entryهای استراتژی‌های حذف‌شده
+        try {
+            const cacheRes = await db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE).deleteMany({
+                'signature.strategyId': { $nin: validList }
+            });
+            if (cacheRes.deletedCount > 0) {
+                logger.info(`cleanup: backtest_trade_cache removed ${cacheRes.deletedCount} stale`);
+                totalCleaned += cacheRes.deletedCount;
+            }
+        } catch (_) {}
+
+        // 4) backtest_result_cache — کش‌های قدیمی‌تر از 7 روز (خودکار توسط TTL ولی برای اطمینان)
+        try {
+            const res = await db.collection(COLLECTIONS.BACKTEST_RESULT_CACHE).deleteMany({
+                createdAt: { $lt: new Date(Date.now() - 7 * 86400 * 1000) }
+            });
+            if (res.deletedCount > 0) {
+                logger.info(`cleanup: backtest_result_cache removed ${res.deletedCount} old`);
+            }
+        } catch (_) {}
+
+        // 5) signal_whitelist cache در حافظه پاک می‌شه
+        try {
+            const sf = require('./services/signal-filter.service');
+            if (sf && typeof sf.clear === 'function') {
+                // هیچ کاری نمی‌کنیم چون هر بار از DB می‌خونه
+            }
+        } catch (_) {}
+
+        if (totalCleaned > 0) {
+            logger.info(`cleanup: total ${totalCleaned} items cleaned`);
+        }
+        return totalCleaned;
+    } catch (e) {
+        logger.warn('cleanupStaleMeta: ' + e.message);
+        return 0;
+    }
+}
 
 // ============================================================
 // Symbols cache (sync access from getUnderlyingNames)
@@ -245,6 +336,13 @@ async function bootstrap() {
         notify: telegram.notify
     });
 
+    // 11.12.5) sector-rank job 🆕
+    sectorRankJob.init({
+        getDB: mongo.getDB,
+        dataService,
+        logger
+    });
+
     // daily-backfill
     dailyBackfillJob.init({
         logger,
@@ -404,6 +502,13 @@ async function bootstrap() {
         if (n) logger.info(`cleaned ${n} orphan configs`);
     } catch (_) {}
 
+    // 15.5) 🆕 cleanup stale meta & cache (بعد از هر تغییر استراتژی)
+    try {
+        await cleanupStaleMeta(logger);
+    } catch (e) {
+        logger.warn('cleanup stale meta: ' + e.message);
+    }
+
     logger.info('bootstrap complete');
 
     // برگرداندن همه deps
@@ -441,6 +546,7 @@ async function bootstrap() {
         correlationJob,
         regimeJob,
         driftJob,
+        sectorRankJob,   // 🆕
         dailyBackfillJob,
         gapDetectorJob,
         monthlyReportJob,

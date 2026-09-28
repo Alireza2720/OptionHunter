@@ -286,6 +286,7 @@ async function runBacktestCompareJob(job) {
 
             const cfg = {
                 symbol,
+                pairSymbol: s.pairSymbol || null,   // 🆕
                 strategyId: s.id,
                 timeframe: s.timeframe || def.defaultTimeframe,
                 htfTimeframe: s.htfTimeframe || def.htfTimeframe || '1d',
@@ -333,6 +334,7 @@ async function runBacktestCompareJob(job) {
                             $set: {
                                 jobId,
                                 symbol,
+                                pairSymbol: cfg.pairSymbol || null,   // 🆕
                                 strategyId: s.id,
                                 strategyName: def.name,
                                 timeframe: cfg.timeframe,
@@ -569,7 +571,9 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
     const th = getThresholds(dataDays);
 
     const STRATEGIES = deps.strategies.STRATEGIES;
-    const strategies = Object.values(STRATEGIES).filter(s => s.id !== 'ensemble');
+    // ⛔ حذف ensemble (ترکیبی) + pairs_spread (نیاز به pairSymbol دستی)
+    const EXCLUDED = new Set(['ensemble', 'pairs_spread']);
+    const strategies = Object.values(STRATEGIES).filter(s => !EXCLUDED.has(s.id));
     const results = [];
 
     for (const def of strategies) {

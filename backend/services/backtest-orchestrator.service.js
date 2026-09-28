@@ -292,8 +292,10 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
             const wr = target.winRate || 0;
             const n = target.count || 0;
             const score = pf * 0.4 + (wr / 100) * 0.3 + Math.min(n, 20) / 20 * 0.3;
-            return { ...d, _pf: pf, _wr: wr, _n: n, _score: score };
-        }).filter(d => d._n > 0)
+            // 🆕 pairs_spread بدون pairSymbol قابل apply نیست
+            const applicable = d.strategyId !== 'pairs_spread' || !!d.pairSymbol;
+            return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _applicable: applicable };
+        }).filter(d => d._n > 0 && d._applicable)
           .sort((a, b) => b._score - a._score);
 
         if (!scored.length) {
@@ -311,6 +313,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
             symbol: sym,
             leader: {
                 strategyId: leader.strategyId,
+                pairSymbol: leader.pairSymbol || null,   // 🆕
                 strategyName: leader.strategyName,
                 timeframe: leader.timeframe,
                 htfTimeframe: leader.htfTimeframe,
@@ -321,6 +324,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
             },
             confirmers: confirmers.map(c => ({
                 strategyId: c.strategyId,
+                pairSymbol: c.pairSymbol || null,   // 🆕
                 strategyName: c.strategyName,
                 timeframe: c.timeframe,
                 htfTimeframe: c.htfTimeframe,
@@ -331,6 +335,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
             })),
             allCandidates: scored.map(s => ({
                 strategyId: s.strategyId,
+                pairSymbol: s.pairSymbol || null,   // 🆕
                 strategyName: s.strategyName,
                 timeframe: s.timeframe,
                 htfTimeframe: s.htfTimeframe,
@@ -382,8 +387,18 @@ async function applySelections(jobId, selections) {
             const def = STRATEGIES[p.strategyId];
             if (!def) continue;
 
+            // 🆕 pairs_spread نیاز به pairSymbol داره
+            const pairSymbol = detail.pairSymbol || p.pairSymbol || null;
+            if (p.strategyId === 'pairs_spread' && !pairSymbol) {
+                deps.logger && deps.logger.warn(
+                    `apply: pairs_spread برای ${symbol} بدون pairSymbol — رد شد`
+                );
+                continue;
+            }
+
             const doc = {
                 symbol,
+                pairSymbol,   // 🆕
                 strategyId: p.strategyId,
                 timeframe: detail.timeframe || def.defaultTimeframe,
                 htfTimeframe: detail.htfTimeframe || def.htfTimeframe || '1d',
@@ -396,7 +411,7 @@ async function applySelections(jobId, selections) {
                 role: p.role === 'confirmer' ? 'confirmer' : 'leader',
                 autoConfigured: true,
                 sourceJobId: String(jobId),
-                trainedFrom: jobId ? null : null,
+                trainedFrom: null,
                 trainedAt: new Date(),
                 createdAt: new Date()
             };

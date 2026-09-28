@@ -98,11 +98,21 @@ function computeEffectiveRiskPct(limits, stats) {
 // ============================================================
 // Duplicate guard
 // ============================================================
-function hasOpenForSymbol(portfolio, symbol, entryTs) {
+function hasOpenForSymbol(portfolio, symbol, entryTs, pairSymbol) {
     if (!portfolio.openPositions) return false;
-    return portfolio.openPositions.some(p =>
-        p.symbol === symbol && p.exitTime > entryTs
-    );
+    return portfolio.openPositions.some(p => {
+        if (p.exitTime <= entryTs) return false;
+        // 🆕 اگه هر دو pair دارن → چک pair + symbol
+        // اگه هیچکدوم pair ندارن → چک symbol
+        // اگه یکیش pair داره → بلاک نکن (استراتژی‌های متفاوت)
+        if (pairSymbol && p.pairSymbol) {
+            return p.symbol === symbol && p.pairSymbol === pairSymbol;
+        }
+        if (!pairSymbol && !p.pairSymbol) {
+            return p.symbol === symbol;
+        }
+        return false;
+    });
 }
 
 function releaseExpired(portfolio, nowTs) {
@@ -254,10 +264,11 @@ function canOpen(candidate, portfolio, limits, ctx) {
     }
 
     // 2) Duplicate guard
-    if (limits.useDuplicateGuard && hasOpenForSymbol(portfolio, candidate.symbol, entryTs)) {
+    if (limits.useDuplicateGuard && hasOpenForSymbol(portfolio, candidate.symbol, entryTs, candidate.pairSymbol)) {
+        const pairInfo = candidate.pairSymbol ? ` (pair: ${candidate.pairSymbol})` : '';
         violations.push({
             rule: 'duplicate',
-            message: `پوزیشن باز روی ${candidate.symbol} وجود دارد`
+            message: `پوزیشن باز روی ${candidate.symbol}${pairInfo} وجود دارد`
         });
     }
 
@@ -385,10 +396,10 @@ function emptyPortfolio() {
     };
 }
 
-function addPosition(portfolio, symbol, value, exitTime) {
+function addPosition(portfolio, symbol, value, exitTime, pairSymbol) {
     portfolio.totalExposure += value;
     portfolio.exposureBySymbol[symbol] = (portfolio.exposureBySymbol[symbol] || 0) + value;
-    portfolio.openPositions.push({ symbol, value, exitTime });
+    portfolio.openPositions.push({ symbol, pairSymbol: pairSymbol || null, value, exitTime });   // 🆕
 }
 
 function removePosition(portfolio, symbol, value) {

@@ -53,10 +53,23 @@ async function countAll() {
 // ============================================================
 async function create(input) {
     const STRATEGIES = deps.strategies.STRATEGIES;
-    const { symbol, strategyId, timeframe, htfTimeframe, candleType, params, enabled, role } = input;
+    const { symbol, strategyId, timeframe, htfTimeframe, candleType, params, enabled, role, pairSymbol } = input;
 
     if (!symbol || !STRATEGIES[strategyId]) {
         throw Object.assign(new Error('نماد یا استراتژی نامعتبر'), { status: 400 });
+    }
+    // 🆕 pairs_spread نیاز به pairSymbol داره
+    if (strategyId === 'pairs_spread') {
+        if (!pairSymbol) {
+            throw Object.assign(new Error('استراتژی Pairs Spread نیاز به انتخاب نماد جفت دارد'), { status: 400 });
+        }
+        if (pairSymbol === symbol) {
+            throw Object.assign(new Error('نماد جفت نباید با نماد اصلی یکسان باشد'), { status: 400 });
+        }
+        const pairMonitored = await deps.getDB().collection(COLLECTIONS.MONITORED_SYMBOLS).findOne({ symbol: pairSymbol });
+        if (!pairMonitored) {
+            throw Object.assign(new Error(`نماد جفت «${pairSymbol}» در لیست پایش نیست`), { status: 400 });
+        }
     }
     if (!TIMEFRAME_MINUTES[timeframe]) {
         throw Object.assign(new Error('تایم فریم نامعتبر'), { status: 400 });
@@ -81,6 +94,7 @@ async function create(input) {
 
     const doc = {
         symbol,
+        pairSymbol: strategyId === 'pairs_spread' ? pairSymbol : null,   // 🆕
         strategyId,
         timeframe,
         htfTimeframe: htf,
@@ -96,19 +110,36 @@ async function create(input) {
 }
 
 async function update(id, upd) {
+    const db = deps.getDB();
+    const existing = await db.collection(COLLECTIONS.STRATEGY_CONFIGS)
+        .findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+        throw Object.assign(new Error('config یافت نشد'), { status: 404 });
+    }
+
     const clean = {};
-    if (upd.params !== undefined) clean.params = upd.params;
-    if (upd.enabled !== undefined) clean.enabled = upd.enabled;
+    // 🆕 merge params (نه overwrite) — فقط کلیدهای ارسالی آپدیت می‌شن
+    if (upd.params !== undefined && typeof upd.params === 'object') {
+        clean.params = { ...(existing.params || {}), ...upd.params };
+    }
+    if (upd.enabled !== undefined) clean.enabled = !!upd.enabled;
     if (upd.role === 'leader' || upd.role === 'confirmer') clean.role = upd.role;
+    if (upd.pairSymbol !== undefined) {
+        const ps = upd.pairSymbol ? String(upd.pairSymbol) : null;
+        if (ps === existing.symbol) {
+            throw Object.assign(new Error('نماد جفت نباید با نماد اصلی یکسان باشد'), { status: 400 });
+        }
+        clean.pairSymbol = ps;
+    }
 
     if (!Object.keys(clean).length) {
         throw Object.assign(new Error('فیلدی مشخص نشد'), { status: 400 });
     }
 
-    await deps.getDB().collection(COLLECTIONS.STRATEGY_CONFIGS)
+    await db.collection(COLLECTIONS.STRATEGY_CONFIGS)
         .updateOne({ _id: new ObjectId(id) }, { $set: clean });
 
-    if (clean.params) {
+    if (clean.params || clean.pairSymbol !== undefined) {
         await deps.backtest.invalidateCacheForConfig(id).catch(() => {});
     }
 
@@ -130,6 +161,7 @@ async function bulkUpdate(ids, patch) {
     const upd = {};
     if (typeof patch.enabled === 'boolean') upd.enabled = patch.enabled;
     if (patch.role === 'leader' || patch.role === 'confirmer') upd.role = patch.role;
+    if (patch.pairSymbol !== undefined) upd.pairSymbol = patch.pairSymbol ? String(patch.pairSymbol) : null;   // 🆕
     if (!Object.keys(upd).length) {
         throw Object.assign(new Error('فیلدی مشخص نشد'), { status: 400 });
     }

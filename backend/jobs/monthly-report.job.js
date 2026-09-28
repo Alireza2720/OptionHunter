@@ -9,17 +9,27 @@ const cron = require('node-cron');
 let deps = { getDB: null, logger: null, notify: null };
 function init(d) { deps = { ...deps, ...d }; }
 
-const STRATEGY_FA = {
-    smc_unicorn: 'SMC Unicorn',
-    ob_sweep: 'OB + Sweep',
-    supply_demand: 'Supply & Demand',
-    ob_after_sweep: 'OB After Sweep',
-    supertrend: 'Supertrend',
-    bb_squeeze: 'BB Squeeze',
-    donchian: 'Donchian',
-    keltner_pb: 'Keltner Pullback',
-    ensemble: 'Ensemble'
-};
+// 🆕 Auto-generate از strategies.js (nameFa اگه هست، وگرنه name)
+let STRATEGY_FA = {};
+try {
+    const { STRATEGIES } = require('../strategies');
+    for (const s of Object.values(STRATEGIES)) {
+        STRATEGY_FA[s.id] = s.nameFa || s.name || s.id;
+    }
+} catch (_) {
+    // Fallback hardcoded (اگه strategies.js در دسترس نبود)
+    STRATEGY_FA = {
+        smc_unicorn: 'SMC Unicorn', ob_sweep: 'OB + Sweep',
+        supply_demand: 'Supply & Demand', ob_after_sweep: 'OB After Sweep',
+        orb: 'Opening Range Breakout', vwap_bounce: 'VWAP Bounce',
+        rsi_pullback: 'RSI Pullback', macd_trend: 'MACD Trend',
+        ichimoku_cloud: 'Ichimoku Cloud', ema_stack: 'EMA Stack',
+        rsi_oversold_bounce: 'RSI Oversold Bounce', gap_fill: 'Gap Fill',
+        atr_expansion: 'ATR Expansion', bb_squeeze: 'BB Squeeze',
+        donchian: 'Donchian', pairs_spread: 'Pairs Spread',
+        sector_momentum: 'Sector Momentum', ensemble: 'Ensemble'
+    };
+}
 
 function fmtPF(pf) {
     if (pf === null || pf === undefined) return '—';
@@ -98,9 +108,12 @@ async function generate() {
             pairs: 0, totalTrades: 0, totalWins: 0, totalPnl: 0,
             // 🆕 جمع GP/GL برای محاسبه PF درست
             totalGrossWin: 0, totalGrossLoss: 0,
-            pfs: [], best: null, worst: null
+            pfs: [], best: null, worst: null,
+            pairSymbols: new Set()   // 🆕
         };
         const s = stratMap[sid];
+        // 🆕 ثبت pairSymbol اگه وجود داشت
+        if (d.pairSymbol) s.pairSymbols.add(d.pairSymbol);
         const tradeCount = t.count || 0;
         const wr = (t.winRate || 0) / 100;
         const wins = tradeCount * wr;
@@ -147,6 +160,7 @@ async function generate() {
             strategyId: s.strategyId,
             name: s.name,
             pairs: s.pairs,
+            pairSymbols: Array.from(s.pairSymbols || []),   // 🆕
             totalTrades: s.totalTrades,
             totalPnl: Math.round(s.totalPnl * 100) / 100,
             // 🆕 فیلدهای درست

@@ -59,6 +59,7 @@ async function simulateFromJob(jobId, opts = {}) {
                 normalized = {
                     ...t,
                     symbol: d.symbol,
+                    pairSymbol: d.pairSymbol || null,   // 🆕
                     strategyId: d.strategyId,
                     strategyName: d.strategyName,
                     _mode: 'option'

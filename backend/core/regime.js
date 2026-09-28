@@ -122,19 +122,43 @@ function detectVolatilityState(dailyCandles, opts = {}) {
 // ------------------------------------------------------------
 // macro: لیست رژیم‌های ماکرو که استراتژی در آن‌ها مجاز است
 // vol:   لیست حالت‌های نوسان
-const STRATEGY_REGIME_MAP = {
-    smc_unicorn:    { macro: ['bull', 'range'], vol: ['normal', 'high'] },
-    ob_sweep:       { macro: ['bull', 'range', 'bear'], vol: ['normal', 'high'] },
-    supply_demand:  { macro: ['bull', 'range'], vol: ['normal', 'low'] },
-    ob_after_sweep: { macro: ['bull', 'range'], vol: ['normal', 'high'] },
-    orb:            { macro: ['bull', 'range'], vol: ['normal', 'high'] },
-    ensemble:       { macro: ['bull', 'range'], vol: ['normal', 'high'] },
-    vwap_bounce:    { macro: ['bull', 'range'], vol: ['normal'] },
-    supertrend:     { macro: ['bull', 'bear'], vol: ['normal', 'high'] },
-    bb_squeeze:     { macro: ['range', 'bull'], vol: ['low', 'normal'] },
-    donchian:       { macro: ['bull', 'bear'], vol: ['normal', 'high'] },
-    keltner_pb:     { macro: ['bull'], vol: ['normal'] }
-};
+// 🆕 auto-derive از strategies.js (regime field) — با fallback
+let STRATEGY_REGIME_MAP = {};
+try {
+    const { STRATEGIES } = require('../strategies');
+    for (const s of Object.values(STRATEGIES)) {
+        if (s.regime && s.regime.macro) {
+            STRATEGY_REGIME_MAP[s.id] = {
+                macro: s.regime.macro,
+                vol: s.regime.vol || ['normal']
+            };
+        }
+    }
+} catch (_) {}
+
+// Fallback: اگه هیچی از strategies نیومد
+if (Object.keys(STRATEGY_REGIME_MAP).length === 0) {
+    STRATEGY_REGIME_MAP = {
+        smc_unicorn:         { macro: ['bull','range'], vol: ['normal','high'] },
+        ob_sweep:            { macro: ['bull','range','bear'], vol: ['normal','high'] },
+        supply_demand:       { macro: ['bull','range'], vol: ['normal','low'] },
+        ob_after_sweep:      { macro: ['bull','range'], vol: ['normal','high'] },
+        orb:                 { macro: ['bull','range'], vol: ['normal','high'] },
+        ensemble:            { macro: ['bull','range'], vol: ['normal','high'] },
+        vwap_bounce:         { macro: ['bull','range'], vol: ['normal'] },
+        bb_squeeze:          { macro: ['range','bull'], vol: ['low','normal'] },
+        donchian:            { macro: ['bull','bear'], vol: ['normal','high'] },
+        rsi_pullback:        { macro: ['bull'], vol: ['normal'] },
+        macd_trend:          { macro: ['bull','bear'], vol: ['normal','high'] },
+        ichimoku_cloud:      { macro: ['bull','bear'], vol: ['normal','high'] },
+        ema_stack:           { macro: ['bull'], vol: ['normal','low'] },
+        rsi_oversold_bounce: { macro: ['range','bear','bull'], vol: ['normal','high'] },
+        gap_fill:            { macro: ['range','bull','bear'], vol: ['normal'] },
+        atr_expansion:       { macro: ['bull','range'], vol: ['high','normal'] },
+        pairs_spread:        { macro: ['range','bull','bear'], vol: ['normal','low'] },
+        sector_momentum:     { macro: ['bull'], vol: ['normal','high'] }
+    };
+}
 
 // ------------------------------------------------------------
 // Regime Size Factor (Soft) — فیلوسوفی جدید

@@ -31,6 +31,7 @@ async function sync() {
                 positionId: pid,
                 configId: p.configId,
                 symbol: p.underlying,
+                pairSymbol: cfg ? (cfg.pairSymbol || null) : null,   // 🆕
                 strategyId: cfg ? cfg.strategyId : null,
                 role: cfg ? cfg.role : null,
                 contract: {
@@ -101,6 +102,7 @@ async function sync() {
 async function buildSetup(p, cfg) {
     const setup = {
         strategyId: cfg ? cfg.strategyId : null,
+        pairSymbol: cfg ? (cfg.pairSymbol || null) : null,   // 🆕
         timeframe: cfg ? cfg.timeframe : null,
         htfTimeframe: cfg ? cfg.htfTimeframe : null,
         confluence: p.confluence || 1,
@@ -108,7 +110,6 @@ async function buildSetup(p, cfg) {
         entryReason: null,
         htfTrend: null
     };
-
     // تلاش برای گرفتن signal history مرتبط
     try {
         const db = deps.getDB();

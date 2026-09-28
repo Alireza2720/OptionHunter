@@ -43,7 +43,8 @@ function computeSignalScore(input) {
         rsiFast = null,
         ivHv = null,
         regimeMacro = 'unknown',
-        regimeVol = 'normal'
+        regimeVol = 'normal',
+        sectorRank = null   // 🆕
     } = input || {};
 
     // Base — هر سیگنال معتبر این رو داره
@@ -97,6 +98,16 @@ function computeSignalScore(input) {
     if (regimeVol === 'high') regimeBonus *= 0.5;
     score += regimeBonus;
     parts.push({ name: 'regime', value: regimeBonus });
+
+    // ۷. Sector Rank bonus (-0.05 تا +0.05) 🆕
+    let sectorBonus = 0;
+    if (sectorRank !== null && Number.isFinite(sectorRank) && sectorRank > 0) {
+        if (sectorRank <= 3) sectorBonus = 0.05;
+        else if (sectorRank <= 5) sectorBonus = 0.02;
+        else if (sectorRank >= 8) sectorBonus = -0.05;
+    }
+    score += sectorBonus;
+    parts.push({ name: 'sectorRank', value: sectorBonus });
 
     // Cap [0, 1]
     score = Math.max(0, Math.min(1, score));
