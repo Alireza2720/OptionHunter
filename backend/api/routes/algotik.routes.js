@@ -220,25 +220,42 @@ function register(app, deps) {
                 const optOk = cOpt >= 100 && cIv >= 50;
                 const liveOk = cTicks >= 500;
 
+                // 🆕 چک آپشن بعد از تاریخ قطع
+                const OPT_CUTOFF_MS = new Date('2026-06-09T00:00:00Z').getTime();
+                const optToMs = c.options && c.options.to ? new Date(c.options.to).getTime() : 0;
+                const optHasRecent = optToMs >= OPT_CUTOFF_MS;
+                const optIsStale = cOpt > 0 && !optHasRecent;
+
                 let quality, reason;
-                if (stockOk && optOk) {
+                if (!stockOk) {
+                    quality = 'bad'; reason = `کندل ناکافی (1m: ${c1m.toLocaleString()})`; bad++;
+                } else if (optIsStale) {
+                    // 🆕 آپشن وجود داره ولی از تاریخ قطع قدیمی‌تره
+                    quality = 'bad';
+                    reason = `آپشن قدیمی (آخرین: ${c.options.to.slice(0,10)}) — نیاز به backfill`;
+                    bad++;
+                } else if (stockOk && optOk) {
                     quality = 'good'; reason = 'آماده بک‌تست آپشن'; good++;
                 } else if (stockOk && cOpt > 0 && cOpt < 100) {
                     quality = 'warn'; reason = `آپشن ناقص (${cOpt}/100)`; warn++;
                 } else if (stockOk && cOpt === 0) {
-                    quality = 'warn'; reason = 'بدون آپشن — فقط بک تست سهم'; warn++;
-                } else if (c1m < 10000) {
-                    quality = 'bad'; reason = 'کندل ناکافی'; bad++;
+                    // 🆕 بدون هیچ آپشن — خطای واضح
+                    quality = 'bad';
+                    reason = `از 1405/03/19 به بعد آپشن ندارد — نماد اصلاً آپشن نداره`;
+                    bad++;
                 } else {
                     quality = 'warn'; reason = 'داده متوسط'; warn++;
                 }
 
                 symbols.push({
                     symbol: m.symbol, quality, reason,
-                    backtestReady: stockOk && optOk,
+                    backtestReady: stockOk && optOk && optHasRecent,
                     liveReady: liveOk,
+                    optHasRecent,
+                    optIsStale,
                     candle_1m: c1m, candle_daily: cDaily,
                     option_history: cOpt, option_with_iv: cIv,
+                    option_last_date: c.options && c.options.to ? c.options.to.slice(0,10) : null,
                     stock_ticks_7d: cTicks
                 });
             }

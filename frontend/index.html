@@ -409,6 +409,21 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
 
             <div id="ptab-symbols" style="margin-top:14px;">
                 <div id="algotikStats" class="sys-grid" style="margin-bottom:12px;"></div>
+
+                <!-- 🆕 Auto Fix Banner -->
+                <div id="autoFixBanner" style="margin-bottom:12px; padding:10px 14px; background:linear-gradient(135deg, rgba(201,151,61,.1), rgba(217,83,79,.1)); border:1px solid var(--warn); border-radius:8px; display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <div>
+                            <b style="font-size:13px;">⚠️ نمادهای ناقص شناسایی شد</b>
+                            <div class="hint" id="autoFixCount" style="margin:2px 0 0;"></div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn tiny outline" onclick="openQualitySummary()">مشاهده</button>
+                            <button class="btn tiny success" onclick="autoFixAllGaps(this)">🔧 تعمیر خودکار همه</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-row">
                     <div class="field" style="flex:1; min-width:180px;">
                         <label>افزودن نماد جدید</label>
@@ -845,11 +860,14 @@ function renderMonitoredSymbols() {
         const q = window._symbolQuotes && window._symbolQuotes[s.symbol];
         const collectOn = s.collectEnabled !== false;
 
+        const marketOpen = isMarketOpenNow();
         const priceHtml = q && q.price
             ? `<span>قیمت: <b>${q.price.toLocaleString()}</b></span>` +
               (q.queue === 'buy' ? '<span class="badge warn">صف خرید</span>' : '') +
               (q.queue === 'sell' ? '<span class="badge short">صف فروش</span>' : '')
-            : '<span style="opacity:.5;">در حال دریافت...</span>';
+            : (marketOpen
+                ? '<span style="opacity:.5;">در حال دریافت...</span>'
+                : '<span style="opacity:.5;font-size:10.5px;">— بازار بسته</span>');
 
         const r = (window._regimeMap && window._regimeMap[s.symbol]) || null;
         const regimeHtml = r
@@ -1180,6 +1198,117 @@ async function loadDataPipeline() {
         const el = document.getElementById('algotikStats');
         if (el) el.innerHTML = `<div class="sys-stat"><div class="label">خطا</div><div class="value" style="font-size:12px;color:var(--bad);">${esc(e.message)}</div></div>`;
     }
+
+    // 🆕 Re-render نمادها با coverage جدید
+    try { renderMonitoredSymbols(); } catch (_) {}
+    // 🆕 چک نمادهای ناقص
+    try { checkQualityBanner(); } catch (_) {}
+}
+
+// 🆕 بنر هشدار نمادهای ناقص
+async function checkQualityBanner() {
+    try {
+        const q = await apiFetch(`${BACKEND_URL}/api/algotik/quality`, {}, 0);
+        const banner = document.getElementById('autoFixBanner');
+        const cntEl = document.getElementById('autoFixCount');
+        if (!banner || !cntEl) return;
+        const bad = (q.symbols || []).filter(s => s.quality === 'bad');
+        const warn = (q.symbols || []).filter(s => s.quality === 'warn');
+        window._qualityCache = q;
+        if (!bad.length && !warn.length) {
+            banner.style.display = 'none';
+            return;
+        }
+        banner.style.display = 'block';
+        const names = bad.slice(0, 5).map(s => s.symbol).join('، ');
+        cntEl.innerHTML = `<b style="color:var(--bad);">${bad.length} ناقص</b> · <span style="color:var(--warn);">${warn.length} متوسط</span>` +
+            (bad.length ? `<br>${esc(names)}${bad.length > 5 ? ' و ' + (bad.length - 5) + ' دیگر' : ''}` : '');
+    } catch (_) {}
+}
+
+// 🆕 خلاصه کیفیت
+async function openQualitySummary() {
+    const q = window._qualityCache;
+    if (!q) {
+        openModal('کیفیت دیتا', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+        try {
+            const r = await apiFetch(`${BACKEND_URL}/api/algotik/quality`, {}, 0);
+            window._qualityCache = r;
+            renderQualitySummary(r);
+        } catch (e) {
+            openModal('کیفیت دیتا', `<div class="empty-note">${esc(e.message)}</div>`);
+        }
+        return;
+    }
+    renderQualitySummary(q);
+}
+
+function renderQualitySummary(q) {
+    const sorted = [...(q.symbols || [])].sort((a, b) => {
+        const order = { bad: 0, warn: 1, good: 2 };
+        return (order[a.quality] || 3) - (order[b.quality] || 3);
+    });
+    const rows = sorted.map(s => {
+        const cls = s.quality === 'good' ? 'long' : s.quality === 'warn' ? 'warn' : 'short';
+        return `<tr>
+            <td><b>${esc(s.symbol)}</b></td>
+            <td><span class="badge ${cls}">${s.quality === 'good' ? '✅' : s.quality === 'warn' ? '⚠️' : '❌'} ${esc(s.reason)}</span></td>
+            <td>${s.candle_1m.toLocaleString()}</td>
+            <td>${s.option_history.toLocaleString()}</td>
+            <td>${s.option_last_date || '—'}</td>
+            <td>${s.backtestReady ? '✅' : '❌'}</td>
+        </tr>`;
+    }).join('');
+
+    openModal('کیفیت دیتا', `
+        <div class="stats-grid" style="margin-bottom:12px;">
+            <div class="stat"><small>کل</small><b>${q.summary.total}</b></div>
+            <div class="stat highlight-good"><small>آماده</small><b>${q.summary.good}</b></div>
+            <div class="stat"><small>متوسط</small><b>${q.summary.warn}</b></div>
+            <div class="stat highlight-bad"><small>ناقص</small><b>${q.summary.bad}</b></div>
+        </div>
+        <div class="hint">"تاریخ آخرین آپشن" باید بعد از 1405/03/19 باشه.</div>
+        <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
+            <table class="data-table">
+                <thead><tr><th>نماد</th><th>وضعیت</th><th>1m</th><th>آپشن</th><th>آخرین آپشن</th><th>بک‌تست</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `);
+}
+
+// 🆕 تعمیر خودکار همه
+async function autoFixAllGaps(btn) {
+    const q = window._qualityCache;
+    if (!q) return showAlert('اول کیفیت رو رفرش کن', 'warn');
+
+    const bad = q.symbols.filter(s => s.quality === 'bad' || s.optIsStale);
+    if (!bad.length) return showAlert('همه نمادها سالم هستن', 'success');
+
+    const names = bad.map(s => s.symbol);
+    if (!confirm(`پر کردن شکاف ${names.length} نماد؟\n\n${names.slice(0, 10).join('، ')}${names.length > 10 ? ' و...' : ''}`)) return;
+
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = `⏳ 0/${names.length}`;
+
+    let done = 0, failed = 0;
+    for (const s of names) {
+        try {
+            await apiFetch(`${BACKEND_URL}/api/algotik/fix-gaps/${encodeURIComponent(s.symbol)}`, { method: 'POST' }, 0);
+            done++;
+        } catch (e) {
+            failed++;
+            console.warn(`fix-gaps ${s.symbol}:`, e.message);
+        }
+        btn.textContent = `⏳ ${done}/${names.length}`;
+        await new Promise(r => setTimeout(r, 500));
+    }
+
+    btn.textContent = origText;
+    btn.disabled = false;
+    showAlert(`✅ ${done} backfill شروع شد${failed ? ` | ${failed} خطا` : ''}`, 'success', 8000);
+    await checkQualityBanner();
 }
 function startDataPipelinePolling() {
     if (dpTimer) clearInterval(dpTimer);
