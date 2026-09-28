@@ -40,6 +40,8 @@ async function generate() {
     const { COLLECTIONS } = require('../config/constants');
 
     const now = new Date();
+    const since30 = new Date(now.getTime() - 30 * 86400000);
+    const since90 = new Date(now.getTime() - 90 * 86400000);
 
     // ── داده‌ها ──
     const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
