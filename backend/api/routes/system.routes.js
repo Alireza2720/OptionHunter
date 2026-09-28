@@ -152,13 +152,46 @@ function register(app, deps) {
         try {
             const backendJobs = await backtestService.listJobs(50, true);
 
-            let collectorJobs = [];
+            // 🆕 collector /jobs آرایه برمی‌گردونه نه {jobs:[...]}
+            let raw = [];
             try {
                 const r = await algotik.listJobs(20);
-                collectorJobs = (r.jobs || []).filter(j =>
-                    j.status === 'RUNNING' || j.status === 'QUEUED'
-                );
+                raw = Array.isArray(r) ? r : (r && r.jobs ? r.jobs : []);
             } catch (_) {}
+
+            const activeCollector = raw.filter(j =>
+                j.status === 'RUNNING' || j.status === 'QUEUED'
+            );
+
+            // 🆕 map به schema قابل نمایش
+            const collectorMapped = activeCollector.map(j => {
+                const phases = j.phases || {};
+                const entries = Object.entries(phases);
+                const curPhase = j.phase || '-';
+                const cur = phases[curPhase] || {};
+                const donePhases = entries.filter(([, v]) =>
+                    v && v.current >= v.total
+                ).length;
+
+                return {
+                    id: String(j._id),
+                    source: 'collector',
+                    type: 'full-backfill',
+                    status: j.status,
+                    progress: {
+                        current: cur.current || 0,
+                        total: cur.total || 0,
+                        message: `${curPhase} (${donePhases}/${entries.length}) ${cur.current_symbol ? '— ' + cur.current_symbol : ''}`,
+                        chunks: entries.map(([name, p]) => ({
+                            label: name,
+                            status: p && p.current >= p.total ? 'DONE' : 'RUNNING',
+                            tradesCount: p && p.stats ? Object.keys(p.stats).length : 0
+                        }))
+                    },
+                    createdAt: j.created_at,
+                    startedAt: j.started_at
+                };
+            });
 
             res.json({
                 backend: backendJobs.map(j => ({
@@ -172,15 +205,7 @@ function register(app, deps) {
                     symbolCount: (j.payload && j.payload.symbols)
                         ? j.payload.symbols.length : 1
                 })),
-                collector: collectorJobs.map(j => ({
-                    id: j.job_id, source: 'collector',
-                    type: 'collector-job', status: j.status,
-                    processed: j.processed, total: j.total,
-                    records: j.records, errors: j.errors,
-                    message: j.message,
-                    underlyingCount: (j.underlyings || []).length,
-                    createdAt: j.created_at, startedAt: j.started_at
-                }))
+                collector: collectorMapped
             });
         } catch (e) { next(e); }
     });

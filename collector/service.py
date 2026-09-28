@@ -311,10 +311,10 @@ def _run_full_backfill(job_id: str, payload: dict):
                     'current_symbol': sym,
                     'stats': stats['option_snapshot'],
                 })
-        # 🆕 Phase 4.5: options migration (historical data from AlgoTik raw)
+        # 🆕 Phase 4.5: options migration
         if payload.get('includeOptionMigration'):
             try:
-                from pipeline import options as opt_mod
+                # ⚠️ opt_mod در بالای فایل import شده — دوباره اینجا import نکن!
                 result = opt_mod.migrate_from_daily_algotik(
                     underlyings=symbols,
                     dry_run=False,

@@ -938,6 +938,7 @@ async function algotikStartBackfill(btn) {
     if (!from || !to) return showAlert('تاریخ شروع و پایان را وارد کن', 'warn');
     if (!confirm(`Backfill کامل از ${from} تا ${to}؟\n\nهشدار: چند ساعت طول می‌کشد.`)) return;
     if (btn) { btn.disabled = true; btn.textContent = 'در حال شروع...'; }
+    window._backfillRunning = true;   // 🆕 polling رو متوقف کن
     const jobArea = document.getElementById('algotikBackfillJobArea');
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/algotik/full-backfill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dateFrom: from, dateTo: to, includeStockIntraday: true, includeStockDaily: true, includeOptionHistory: true, includeOptionSnapshot: true, includeAggregate: true, includeOptionMigration: true }) }, 0);
@@ -1097,7 +1098,7 @@ async function algotikShowLogs() { openModal('لاگ Collector', '<div style="te
 
 async function loadDataPipeline() {
     try {
-        const r = await apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 1);
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 0);
         const syms = r.symbols || [];
         window._coverageData = syms;
 
@@ -1110,25 +1111,31 @@ async function loadDataPipeline() {
             totalTicks += (s.stock_ticks && s.stock_ticks.count) || 0;
         }
 
-        // 🆕 یک پنل compact واحد (به‌جای 2 تا)
+        // 🆕 status جدا، غیر-blocking
+        let cs = {};
+        try {
+            cs = await apiFetch(`${BACKEND_URL}/api/algotik/status`, {}, 0);
+        } catch (_) {}
+
+        const t = cs.ticker || {};
+        const rf = cs.risk_free || 0;
+        const snapshots = cs.option_snapshots || 0;
+        const symbolsEnabled = cs.symbols_enabled;
+        const collectorOnline = Object.keys(cs).length > 0;
+
         const el = document.getElementById('algotikStats');
         if (el) {
-            // داده‌های collector status
-            let cs = {};
-            try { cs = await apiFetch(`${BACKEND_URL}/api/algotik/status`, {}, 0); } catch (_) {}
-            const t = cs.ticker || {};
-            const rf = cs.risk_free || 0;
-
             el.innerHTML = `
                 <div class="sys-stat" style="padding:8px 10px;">
                     <div class="label">Collector</div>
-                    <div class="value" style="font-size:12px;color:var(--good);">آنلاین</div>
-                    <div class="sub">پورت 5000</div>
+                    <div class="value" style="font-size:12px;color:${collectorOnline ? 'var(--good)' : 'var(--text-dim)'};">
+                        ${collectorOnline ? 'آنلاین' : '...'}
+                    </div>
                 </div>
                 <div class="sys-stat" style="padding:8px 10px;">
                     <div class="label">نمادها</div>
                     <div class="value">${syms.length}</div>
-                    <div class="sub">${cs.symbols_enabled || 0} فعال</div>
+                    <div class="sub">${symbolsEnabled != null ? symbolsEnabled + ' فعال' : '...'}</div>
                 </div>
                 <div class="sys-stat" style="padding:8px 10px;">
                     <div class="label">1m</div>
@@ -1143,11 +1150,11 @@ async function loadDataPipeline() {
                 <div class="sys-stat" style="padding:8px 10px;">
                     <div class="label">ticks</div>
                     <div class="value">${totalTicks.toLocaleString()}</div>
-                    <div class="sub">${(cs.option_snapshots||0).toLocaleString()} snapshot</div>
+                    <div class="sub">${snapshots ? snapshots.toLocaleString() + ' snapshot' : '—'}</div>
                 </div>
                 <div class="sys-stat" style="padding:8px 10px;">
                     <div class="label">Risk-Free</div>
-                    <div class="value">${(rf*100).toFixed(1)}%</div>
+                    <div class="value">${rf ? (rf*100).toFixed(1)+'%' : '—'}</div>
                     <div class="sub">از اخزا</div>
                 </div>
                 <div class="sys-stat" style="padding:8px 10px;${t.running ? 'border-color:var(--good);' : ''}">
@@ -1155,7 +1162,6 @@ async function loadDataPipeline() {
                     <div class="value" style="font-size:12px;color:${t.running ? 'var(--good)' : 'var(--text-dim)'};">
                         ${t.running ? '🟢 فعال' : '⚪ غیرفعال'}
                     </div>
-                    <div class="sub">${t.ticks || 0} ticks</div>
                 </div>
             `;
         }
@@ -1166,13 +1172,12 @@ async function loadDataPipeline() {
 }
 function startDataPipelinePolling() {
     if (dpTimer) clearInterval(dpTimer);
-    // 🆕 فقط هر ۹۰ ثانیه و از cache سرور
     dpTimer = setInterval(() => {
-        // اگه تب مخفی مرورگره، poll نکن
         if (document.hidden) return;
+        // اگه Backfill داره اجرا می‌شه، poll نکن (collector مشغوله)
+        if (window._backfillRunning) return;
         loadDataPipeline().catch(() => {});
-    }, 90000);
-    setTimeout(() => loadDataPipeline().catch(() => {}), 500);
+    }, 120000);
 }
 
 async function loadTimeframes() { const tfs = await apiFetch(`${BACKEND_URL}/api/timeframes`, {}, 0); document.getElementById('timeframeSelect').innerHTML = tfs.map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); document.getElementById('htfSelect').innerHTML = tfs.filter(t => TF_MIN[t] >= 15).map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); }
@@ -3519,29 +3524,43 @@ window.addEventListener('load', async () => {
     document.getElementById('bootOverlay').style.display = 'none';
     jdpInit();
 
-    await checkBackendStatus();
-    await loadTimeframes();
-    await loadStrategies();
-    await loadMonitoredSymbols();
-    await loadConfigs();
-    await loadSignalHistory();
-    await loadOptionPositions();
-    await loadLiveDashboard();
+    // ─── ۱) بارگذاری موازی سبک (نه ترتیبی) ───
+    await Promise.allSettled([
+        checkBackendStatus(),
+        loadTimeframes(),
+        loadStrategies(),
+        loadMonitoredSymbols(),
+        loadConfigs(),
+        loadSignalHistory(),
+        loadOptionPositions()
+    ]);
+
+    // ─── ۲) بارگذاری‌های سنگین‌تر (fire-and-forget) ───
+    Promise.allSettled([
+        loadLiveDashboard(),
+        loadDataPipeline()
+    ]);
+
     updateIndCount();
-    await algotikRefresh();
     updateTickerStatus();
     startSystemPolling();
-    setInterval(checkBackendStatus, 60000);
-    setInterval(loadConfigs, 60000);
-    setInterval(loadMonitoredSymbols, 120000);
-    setInterval(refreshQuotesOnly, 30000);
-    setInterval(loadSignalHistory, 60000);
-    setInterval(loadOptionPositions, 60000);
-    setInterval(loadLiveDashboard, 30000);
-    setInterval(loadRegimeMap, 300000);
-    setInterval(() => { if (!document.hidden) updateTickerStatus(); }, 8000);
-    // 🆕 تیکر status فوری
-    setTimeout(updateTickerStatus, 500);
+
+    // ─── ۳) Polling با فاصله بیشتر + document.hidden check ───
+    const safeInterval = (fn, ms) => setInterval(() => {
+        if (document.hidden) return;
+        try { fn(); } catch (_) {}
+    }, ms);
+
+    safeInterval(checkBackendStatus, 120000);
+    safeInterval(loadConfigs, 120000);
+    safeInterval(loadMonitoredSymbols, 180000);
+    safeInterval(refreshQuotesOnly, 60000);
+    safeInterval(loadSignalHistory, 120000);
+    safeInterval(loadOptionPositions, 120000);
+    safeInterval(loadLiveDashboard, 90000);
+    safeInterval(loadRegimeMap, 600000);
+    safeInterval(updateTickerStatus, 15000);
+
     startDataPipelinePolling();
 });
 
