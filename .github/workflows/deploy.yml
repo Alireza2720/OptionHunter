@@ -53,20 +53,34 @@ jobs:
             pm2 startOrRestart ecosystem.config.js --update-env
             pm2 save
 
-            echo "=== Health check (polling تا ۳۰ ثانیه) ==="
-            for i in 1 2 3 4 5 6 7 8 9 10; do
+            echo "=== Health check (polling تا ۶۰ ثانیه) ==="
+            HEALTH_OK=0
+            for i in $(seq 1 20); do
               sleep 3
-              if curl -fsS http://127.0.0.1:3000/ping > /dev/null 2>&1; then
-                echo "✅ Deploy OK بعد از $((i * 3)) ثانیه"
-                pm2 status
-                exit 0
+              if curl -sfS --max-time 2 http://127.0.0.1:3000/ping > /tmp/oh_health.txt 2>/dev/null; then
+                HEALTH_OK=1
+                echo "✅ Deploy OK بعد از $((i * 3)) ثانیه — $(cat /tmp/oh_health.txt)"
+                break
               fi
-              echo "  تلاش $i/10..."
+              # اگه اپ داره crash می‌کنه، سریع‌تر fail کن
+              if pm2 jlist 2>/dev/null | grep -q '"status":"errored"'; then
+                echo "❌ PM2 status errored — skip polling"
+                break
+              fi
+              echo "  تلاش $i/20..."
             done
 
-            echo "❌ SERVER NOT RESPONDING بعد از ۳۰ ثانیه"
+            echo ""
             echo "── PM2 status ──"
             pm2 status || true
-            echo "── PM2 logs ──"
-            pm2 logs OptionHunter --lines 80 --nostream || true
-            exit 1
+
+            if [ "$HEALTH_OK" != "1" ]; then
+              echo "⚠️  Health check ناکام — ولی PM2 restart انجام شد"
+              echo "── PM2 logs (آخرین ۵۰ خط) ──"
+              pm2 logs OptionHunter --lines 50 --nostream || true
+              echo "── وضعیت پورت 3000 ──"
+              sudo ss -tlnp 2>/dev/null | grep 3000 || echo "پورت 3000 گوش نمی‌ده"
+              exit 1
+            fi
+
+            echo "✅ Deploy fully OK"
