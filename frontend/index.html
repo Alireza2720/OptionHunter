@@ -4010,12 +4010,12 @@ function renderMonthlyReport(r) {
                     <div style="display:flex;gap:12px;font-size:11.5px;color:var(--text-dim);flex-wrap:wrap;">
                         <span>راهبر: <b style="color:var(--text);">${s.leaderCount}</b></span>
                         <span>تأیید: <b style="color:var(--text);">${s.confirmerCount}</b></span>
-                        <span>PF: <b style="color:${color};">${s.avgPF}</b></span>
+                        <span>PF: <b style="color:${color};">${s.avgPF}</b> (med ${s.medianPF})</span>
                         <span>WR: <b style="color:var(--text);">${s.winRate}%</b></span>
                         <span>N: <b style="color:var(--text);">${s.totalTrades}</b></span>
                     </div>
-                    ${s.best && s.best.pf > 0 ? `<div style="font-size:11px;color:var(--text-dim);margin-top:4px;">🥇 ${esc(s.best.symbol)} (PF=${fmtPF(s.best.pf)}, N=${s.best.n})</div>` : ''}
-                    ${s.worst && s.worst.pf < 1 && s.worst.pf > 0 ? `<div style="font-size:11px;color:var(--warn);">⚠️ ${esc(s.worst.symbol)} (PF=${fmtPF(s.worst.pf)})</div>` : ''}
+                    ${s.best && s.best.pf > 0 && s.best.n >= 10 ? `<div style="font-size:11px;color:var(--text-dim);margin-top:4px;">🥇 ${esc(s.best.symbol)} (PF=${fmtPF(s.best.pf)}, N=${s.best.n})</div>` : ''}
+                    ${s.worst && s.worst.pf < 1 && s.worst.pf > 0 && s.worst.n >= 10 ? `<div style="font-size:11px;color:var(--warn);">⚠️ ${esc(s.worst.symbol)} (PF=${fmtPF(s.worst.pf)}, N=${s.worst.n})</div>` : ''}
                 </div>
             `;
         }
@@ -4031,12 +4031,13 @@ function renderMonthlyReport(r) {
                 <tbody>
                     ${r.symStats.map(s => {
                         const color = s.status === '🟢' ? 'var(--good)' : s.status === '🟡' ? 'var(--warn)' : s.status === '🔴' ? 'var(--bad)' : 'var(--text-dim)';
+                        const bestInfo = s.best ? `${esc(s.best.name)} (PF=${fmtPF(s.best.pf)}, N=${s.best.n})` : '—';
                         return `<tr>
                             <td><b>${esc(s.symbol)}</b></td>
                             <td style="color:${color};">${s.status}</td>
-                            <td>${esc(s.best.name)}</td>
-                            <td><b>${fmtPF(s.best.pf)}</b></td>
-                            <td>${s.best.n}</td>
+                            <td>${bestInfo}</td>
+                            <td><b>${s.aggregatePF}</b></td>
+                            <td>${s.totalTrades}</td>
                         </tr>`;
                     }).join('')}
                 </tbody>

@@ -70,37 +70,75 @@ async function generate() {
     const stratMap = {};
     for (const d of details) {
         const t = d.optionStats || d.stockStats || {};
-        const pf = t.profitFactor;
-        const safePf = Number.isFinite(pf) ? pf : (pf === Infinity ? 999 : 0);
-        if (!stratMap[d.strategyId]) stratMap[d.strategyId] = {
-            strategyId: d.strategyId,
-            name: STRATEGY_FA[d.strategyId] || d.strategyId,
+        const sid = d.strategyId;
+        if (!stratMap[sid]) stratMap[sid] = {
+            strategyId: sid,
+            name: STRATEGY_FA[sid] || sid,
             pairs: 0, totalTrades: 0, totalWins: 0, totalPnl: 0,
+            // 🆕 جمع GP/GL برای محاسبه PF درست
+            totalGrossWin: 0, totalGrossLoss: 0,
             pfs: [], best: null, worst: null
         };
-        const s = stratMap[d.strategyId];
+        const s = stratMap[sid];
+        const tradeCount = t.count || 0;
+        const wr = (t.winRate || 0) / 100;
+        const wins = tradeCount * wr;
+        const losses = tradeCount - wins;
+        // تخمین GP و GL از avgWin/avgLoss
+        const avgWin = Math.abs(t.avgWin || 0);
+        const avgLoss = Math.abs(t.avgLoss || 0);
+        const gp = wins * avgWin;
+        const gl = losses * avgLoss;
+
         s.pairs++;
-        s.totalTrades += t.count || 0;
-        s.totalWins += (t.winRate || 0) * (t.count || 0) / 100;
+        s.totalTrades += tradeCount;
+        s.totalWins += wins;
         s.totalPnl += t.totalPnl || 0;
-        if (safePf > 0) s.pfs.push(safePf);
-        if (!s.best || safePf > s.best.pf) s.best = { symbol: d.symbol, pf: safePf, n: t.count || 0 };
-        if (!s.worst || safePf < s.worst.pf) s.worst = { symbol: d.symbol, pf: safePf, n: t.count || 0 };
+        s.totalGrossWin += gp;
+        s.totalGrossLoss += gl;
+
+        // برای median و best/worst از PF per-pair استفاده می‌کنیم
+        const pf = t.profitFactor;
+        const safePf = Number.isFinite(pf) ? pf : (pf === Infinity ? 999 : 0);
+        if (safePf > 0 && tradeCount >= 5) s.pfs.push(safePf);  // فقط pairهای N>=5
+        if (!s.best || safePf > s.best.pf) s.best = { symbol: d.symbol, pf: safePf, n: tradeCount };
+        if (!s.worst || safePf < s.worst.pf) s.worst = { symbol: d.symbol, pf: safePf, n: tradeCount };
     }
 
     const stratStats = Object.values(stratMap).map(s => {
-        const avgPF = s.pfs.length ? s.pfs.reduce((a, b) => a + b, 0) / s.pfs.length : 0;
+        // 🆕 PF درست: aggregate (sum GP / sum GL)
+        const aggregatePF = s.totalGrossLoss > 0
+            ? s.totalGrossWin / s.totalGrossLoss
+            : (s.totalGrossWin > 0 ? 999 : 0);
+
+        // 🆕 median PF (robust نسبت به outliers)
+        const sortedPfs = [...s.pfs].sort((a, b) => a - b);
+        const medianPF = sortedPfs.length
+            ? sortedPfs[Math.floor(sortedPfs.length / 2)]
+            : 0;
+
         const wr = s.totalTrades ? (s.totalWins / s.totalTrades * 100) : 0;
         const configCount = configs.filter(c => c.strategyId === s.strategyId).length;
         const leaderCount = configs.filter(c => c.strategyId === s.strategyId && c.role === 'leader').length;
         const confirmerCount = configs.filter(c => c.strategyId === s.strategyId && c.role === 'confirmer').length;
+
         return {
-            ...s,
-            avgPF: Math.round(avgPF * 100) / 100,
+            strategyId: s.strategyId,
+            name: s.name,
+            pairs: s.pairs,
+            totalTrades: s.totalTrades,
+            totalPnl: Math.round(s.totalPnl * 100) / 100,
+            // 🆕 فیلدهای درست
+            avgPF: Math.round(aggregatePF * 100) / 100,
+            medianPF: Math.round(medianPF * 100) / 100,
+            grossWin: Math.round(s.totalGrossWin),
+            grossLoss: Math.round(s.totalGrossLoss),
             winRate: Math.round(wr * 10) / 10,
             avgPnlPerTrade: s.totalTrades ? Math.round(s.totalPnl / s.totalTrades * 100) / 100 : 0,
             leaderCount, confirmerCount, configCount,
-            status: statusEmoji(avgPF, s.totalTrades)
+            best: s.best,
+            worst: s.worst,
+            status: statusEmoji(aggregatePF, s.totalTrades)
         };
     }).sort((a, b) => b.avgPF - a.avgPF);
 
@@ -108,33 +146,66 @@ async function generate() {
     const symMap = {};
     for (const d of details) {
         const t = d.optionStats || d.stockStats || {};
-        const pf = t.profitFactor;
-        const safePf = Number.isFinite(pf) ? pf : (pf === Infinity ? 999 : 0);
+        const sid = d.strategyId;
         if (!symMap[d.symbol]) symMap[d.symbol] = {
-            symbol: d.symbol, configs: 0, strategies: [], totalTrades: 0, best: null, worst: null
+            symbol: d.symbol,
+            configs: 0, strategies: [],
+            totalTrades: 0, totalGrossWin: 0, totalGrossLoss: 0,
+            best: null, worst: null
         };
         const s = symMap[d.symbol];
+        const tradeCount = t.count || 0;
+        const wr = (t.winRate || 0) / 100;
+        const wins = tradeCount * wr;
+        const losses = tradeCount - wins;
+        const gp = wins * Math.abs(t.avgWin || 0);
+        const gl = losses * Math.abs(t.avgLoss || 0);
+
         s.configs++;
-        s.strategies.push({ id: d.strategyId, name: STRATEGY_FA[d.strategyId] || d.strategyId, pf: safePf, n: t.count || 0 });
-        s.totalTrades += t.count || 0;
-        if (!s.best || safePf > s.best.pf) s.best = { name: STRATEGY_FA[d.strategyId] || d.strategyId, pf: safePf, n: t.count || 0 };
-        if (!s.worst || safePf < s.worst.pf) s.worst = { name: STRATEGY_FA[d.strategyId] || d.strategyId, pf: safePf, n: t.count || 0 };
+        s.totalTrades += tradeCount;
+        s.totalGrossWin += gp;
+        s.totalGrossLoss += gl;
+
+        // 🆕 فقط pairهای با N>=10 برای best/worst
+        if (tradeCount >= 10) {
+            const pf = t.profitFactor;
+            const safePf = Number.isFinite(pf) ? pf : (pf === Infinity ? 999 : 0);
+            s.strategies.push({ id: sid, name: STRATEGY_FA[sid] || sid, pf: safePf, n: tradeCount });
+            if (!s.best || safePf > s.best.pf) s.best = { name: STRATEGY_FA[sid] || sid, pf: safePf, n: tradeCount };
+            if (!s.worst || safePf < s.worst.pf) s.worst = { name: STRATEGY_FA[sid] || sid, pf: safePf, n: tradeCount };
+        }
     }
-    const symStats = Object.values(symMap).map(s => ({
-        ...s,
-        status: statusEmoji(s.best ? s.best.pf : 0, s.totalTrades)
-    })).sort((a, b) => (b.best ? b.best.pf : 0) - (a.best ? a.best.pf : 0));
+
+    const symStats = Object.values(symMap).map(s => {
+        // 🆕 aggregate PF برای هر نماد
+        const aggPF = s.totalGrossLoss > 0
+            ? s.totalGrossWin / s.totalGrossLoss
+            : (s.totalGrossWin > 0 ? 999 : 0);
+        return {
+            symbol: s.symbol,
+            configs: s.configs,
+            totalTrades: s.totalTrades,
+            aggregatePF: Math.round(aggPF * 100) / 100,
+            best: s.best,
+            worst: s.worst,
+            status: statusEmoji(aggPF, s.totalTrades)
+        };
+    }).sort((a, b) => b.aggregatePF - a.aggregatePF);
 
     // ── هشدارها ──
     const warnings = [];
+    // فقط warnings معنادار
     for (const s of stratStats) {
-        if (s.avgPF > 0 && s.avgPF < 0.7 && s.totalTrades >= 10) {
-            warnings.push(`🔴 استراتژی <b>${s.name}</b>: PF=${s.avgPF} در ${s.totalTrades} معامله`);
+        if (s.avgPF < 0.5 && s.totalTrades >= 100) {
+            warnings.push(`🔴 <b>${s.name}</b>: PF=${s.avgPF} در ${s.totalTrades} معامله (ضعیف)`);
+        } else if (s.avgPF >= 2.0 && s.totalTrades >= 50) {
+            warnings.push(`🟢 <b>${s.name}</b>: PF=${s.avgPF} در ${s.totalTrades} معامله (قوی)`);
         }
     }
     for (const s of symStats) {
-        if (s.best && s.best.pf < 0.7 && s.totalTrades >= 5) {
-            warnings.push(`🟠 نماد <b>${s.symbol}</b>: بهترین PF=${s.best.pf} — احتمالاً کار نمی‌کند`);
+        // فقط نمادهایی که aggregate PF خیلی ضعیفه
+        if (s.aggregatePF < 0.3 && s.totalTrades >= 50) {
+            warnings.push(`🔴 <b>${s.symbol}</b>: PF=${s.aggregatePF} در ${s.totalTrades} معامله`);
         }
     }
 
@@ -206,11 +277,12 @@ function buildText(report) {
     for (const s of report.stratStats) {
         t += `${s.status} <b>${s.name}</b>\n`;
         t += `   راهبر: ${s.leaderCount} | تأیید: ${s.confirmerCount} | pair: ${s.pairs}\n`;
-        t += `   PF میانگین: ${s.avgPF} | WR: ${s.winRate}% | N: ${s.totalTrades}\n`;
-        if (s.best && s.best.pf > 0) {
+        t += `   PF: <b>${s.avgPF}</b> (median ${s.medianPF}) | WR: ${s.winRate}% | N: ${s.totalTrades}\n`;
+        t += `   GP/GL: ${s.grossWin.toLocaleString()}/${s.grossLoss.toLocaleString()}\n`;
+        if (s.best && s.best.pf > 0 && s.best.n >= 10) {
             t += `   🥇 ${s.best.symbol} (PF=${fmtPF(s.best.pf)}, N=${s.best.n})\n`;
         }
-        if (s.worst && s.worst.pf < 1 && s.worst.pf > 0) {
+        if (s.worst && s.worst.pf < 1 && s.worst.pf > 0 && s.worst.n >= 10) {
             t += `   ⚠️ ${s.worst.symbol} (PF=${fmtPF(s.worst.pf)}, N=${s.worst.n})\n`;
         }
         t += `\n`;
@@ -221,7 +293,8 @@ function buildText(report) {
     t += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
     const top5 = report.symStats.slice(0, 5);
     for (const s of top5) {
-        t += `${s.status} <b>${s.symbol}</b> — ${s.best.name} (PF=${fmtPF(s.best.pf)}, N=${s.best.n})\n`;
+        const best = s.best ? ` — ${s.best.name} (PF=${fmtPF(s.best.pf)}, N=${s.best.n})` : '';
+        t += `${s.status} <b>${s.symbol}</b> | PF=${s.aggregatePF} | N=${s.totalTrades}${best}\n`;
     }
     t += `\n`;
 
