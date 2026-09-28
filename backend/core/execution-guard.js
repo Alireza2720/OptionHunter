@@ -29,7 +29,7 @@ const DEFAULT_LIMITS = {
     useKelly: true,
     kellyCapPct: 3.0,
     useCorrelation: true,
-    corrThreshold: 0.7,
+    corrThreshold: 0.85,   // 🆕 از 0.7 به 0.85 (بازار ایران)
     maxClusterPct: 30,
     useSectors: true,
     maxSectorPct: 40,

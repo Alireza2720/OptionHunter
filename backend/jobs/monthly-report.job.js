@@ -40,24 +40,43 @@ async function generate() {
     const { COLLECTIONS } = require('../config/constants');
 
     const now = new Date();
-    const since30 = new Date(now.getTime() - 30 * 86400000);
-    const since90 = new Date(now.getTime() - 90 * 86400000);
 
     // ── داده‌ها ──
     const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
     const configs = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).find({}).toArray();
 
-    // آخرین بک‌تست compare با details
-    const lastJob = await db.collection(COLLECTIONS.BACKTEST_JOBS)
+    // 🆕 فقط jobهای با حداقل 15 نماد (نه اجراهای کوچیک)
+    const candidates = await db.collection(COLLECTIONS.BACKTEST_JOBS)
         .find({ type: 'backtest-compare', status: 'DONE' })
-        .sort({ finishedAt: -1 }).limit(1).toArray();
-    const btJobId = lastJob[0] ? String(lastJob[0]._id) : null;
+        .sort({ finishedAt: -1 }).limit(10).toArray();
+
+    let lastJob = null;
+    for (const c of candidates) {
+        const symCount = (c.payload && c.payload.symbols && c.payload.symbols.length) || 0;
+        if (symCount >= 15) { lastJob = c; break; }
+    }
+    if (!lastJob && candidates.length) lastJob = candidates[0];
+
+    const btJobId = lastJob ? String(lastJob._id) : null;
+    const btInfo = lastJob ? {
+        jobId: btJobId,
+        finishedAt: lastJob.finishedAt,
+        symbolsCount: (lastJob.payload && lastJob.payload.symbols && lastJob.payload.symbols.length) || 0,
+        strategiesCount: (lastJob.payload && lastJob.payload.strategies && lastJob.payload.strategies.length) || 0
+    } : null;
 
     let details = [];
     if (btJobId) {
         details = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
             .find({ jobId: btJobId }).toArray();
     }
+
+    // 🆕 فیلتر به configهای actually active
+    const activeConfigs = configs.filter(c => c.enabled);
+    const activePairs = new Set(activeConfigs.map(c => `${c.symbol}::${c.strategyId}`));
+
+    // 🆕 محاسبه aggregate فقط روی active pairs
+    const activeDetails = details.filter(d => activePairs.has(`${d.symbol}::${d.strategyId}`));
 
     // positions زنده (اختیاری)
     const livePositions = await db.collection(COLLECTIONS.OPTION_POSITIONS)
@@ -210,6 +229,26 @@ async function generate() {
     }
 
     // ── آمار کلی ──
+    // 🆕 آمار فیلترشده
+    const actWins = activeDetails.reduce((s, d) => {
+        const t = d.optionStats || d.stockStats || {};
+        const n = t.count || 0;
+        return s + Math.round(n * (t.winRate || 0) / 100);
+    }, 0);
+    const actTrades = activeDetails.reduce((s, d) => s + ((d.optionStats && d.optionStats.count) || 0), 0);
+    const actPfAgg = (() => {
+        let gp = 0, gl = 0;
+        for (const d of activeDetails) {
+            const t = d.optionStats || d.stockStats || {};
+            const n = t.count || 0;
+            const w = n * (t.winRate || 0) / 100;
+            const l = n - w;
+            gp += w * Math.abs(t.avgWin || 0);
+            gl += l * Math.abs(t.avgLoss || 0);
+        }
+        return gl > 0 ? gp / gl : (gp > 0 ? 999 : 0);
+    })();
+
     const overall = {
         symbolsMonitored: monitored.length,
         totalConfigs: configs.length,
@@ -217,13 +256,19 @@ async function generate() {
         strategies: stratStats.length,
         leaders: configs.filter(c => c.role === 'leader').length,
         confirmers: configs.filter(c => c.role === 'confirmer').length,
-        btJobId,
+        btInfo,
         btTotalTrades: details.reduce((a, d) => a + ((d.optionStats && d.optionStats.count) || 0), 0),
         btPf: btpf ? btpf.pf : null,
         btMaxDD: btpf ? btpf.maxDD : null,
         btSharpe: btpf ? btpf.sharpe : null,
         btReturn: btpf ? btpf.returnPct : null,
-        livePositions: livePositions.length
+        livePositions: livePositions.length,
+        // 🆕 فیلترشده (فقط configهای فعال)
+        activeTrades: actTrades,
+        activePF: Math.round(actPfAgg * 100) / 100,
+        activeWinRate: actTrades ? Math.round(actWins / actTrades * 1000) / 10 : 0,
+        activePairs: activeDetails.length,
+        totalPairs: details.length
     };
 
     const report = {
@@ -251,25 +296,38 @@ async function generate() {
 
 function buildText(report) {
     const o = report.overall;
+    const info = o.btInfo || {};
     let t = `📊 گزارش ماهانه — ${report.monthLabel}\n`;
     t += `━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-    // کلیات
-    t += `🎯 کلیات\n`;
-    t += `• نماد پایش‌شده: ${o.symbolsMonitored}\n`;
-    t += `• استراتژی فعال: ${o.enabledConfigs} از ${o.totalConfigs}\n`;
-    t += `• راهبر/تأیید: ${o.leaders}/${o.confirmers}\n`;
-    t += `• استراتژی‌های در دسترس: ${o.strategies}\n\n`;
-
-    // عملکرد
-    if (o.btPf) {
-        t += `📈 برآورد بک‌تست\n`;
-        t += `• معاملات: ${o.btTotalTrades}\n`;
-        t += `• PF: ${fmtPF(o.btPf)}\n`;
-        t += `• بازده: ${o.btReturn ? o.btReturn.toFixed(1) + '%' : '—'}\n`;
-        t += `• Sharpe: ${o.btSharpe ? o.btSharpe.toFixed(2) : '—'}\n`;
-        t += `• MaxDD: ${o.btMaxDD ? o.btMaxDD.toFixed(1) + '%' : '—'}\n\n`;
+    // 🆕 مشخص کردن job
+    if (info.jobId) {
+        t += `📋 بک‌تست مرجع\n`;
+        t += `• ${info.symbolsCount} نماد × ${info.strategiesCount} استراتژی\n`;
+        t += `• تمام شد: ${info.finishedAt ? new Date(info.finishedAt).toLocaleString('fa-IR') : '-'}\n\n`;
     }
+
+    t += `🎯 کلیات\n`;
+    t += `• نماد پایش: ${o.symbolsMonitored}\n`;
+    t += `• استراتژی فعال: ${o.enabledConfigs} از ${o.totalConfigs}\n`;
+    t += `• راهبر/تأیید: ${o.leaders}/${o.confirmers}\n\n`;
+
+    // 🆕 مقایسه raw vs filtered
+    t += `⚖️ مقایسه: خام vs فیلترشده\n`;
+    t += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    t += `📊 خام (همه ${o.totalPairs} pair):\n`;
+    t += `   معاملات: ${o.btTotalTrades.toLocaleString()}\n`;
+    if (o.btPf) t += `   PF پورتفولیو: ${fmtPF(o.btPf)}\n`;
+    if (o.btReturn != null) t += `   بازده: ${o.btReturn.toFixed(1)}%\n`;
+    if (o.btSharpe) t += `   Sharpe: ${o.btSharpe.toFixed(2)}\n`;
+    if (o.btMaxDD) t += `   MaxDD: ${o.btMaxDD.toFixed(1)}%\n`;
+    t += `\n`;
+    t += `✅ فیلترشده (${o.activePairs} pair فعال):\n`;
+    t += `   معاملات: ${o.activeTrades.toLocaleString()}\n`;
+    t += `   PF: ${o.activePF}\n`;
+    t += `   Win Rate: ${o.activeWinRate}%\n`;
+    t += `\n`;
+    t += `⚠️ توجه: PF خام پایین طبیعیه — سیستم روی فیلترشده کار می‌کنه.\n\n`;
 
     // استراتژی‌ها
     t += `🎯 استراتژی‌ها (${report.stratStats.length})\n`;
