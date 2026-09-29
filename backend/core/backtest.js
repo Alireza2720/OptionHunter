@@ -67,8 +67,22 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
         htfTf
     );
 
-    // warmup buffer
-    const WARMUP_SEC = 90 * 86400;
+    // 🆕 Warmup داینامیک بر اساس نیاز استراتژی (نه ۹۰ روز ثابت)
+    const tfMin = TIMEFRAME_MINUTES[cfg.timeframe] || 30;
+    const htfMin = TIMEFRAME_MINUTES[htfTf] || 1440;
+    const required = (deps.strategies.getRequiredCandles
+        ? deps.strategies.getRequiredCandles(cfg.strategyId, cfg.params)
+        : 100) || 100;
+    const requiredHtf = (deps.strategies.getRequiredHtfCandles
+        ? deps.strategies.getRequiredHtfCandles(cfg.strategyId, cfg.params)
+        : 50) || 50;
+
+    // TF: دقیقه‌ی خالص × 60 + 50% بافر برای gap بازار
+    const warmupFromTf = required * tfMin * 60 * 1.5;
+    // HTF: تعداد کندل × دقیقه‌ی HTF × 1.5 (تعطیلات و روزهای بسته)
+    const warmupFromHtf = requiredHtf * htfMin * 60 * 1.5;
+    const WARMUP_SEC = Math.max(warmupFromTf, warmupFromHtf, 7 * 86400);
+
     if (dateFrom) {
         const fromWarm = dateFrom - WARMUP_SEC;
         candles = candles.filter(c => c.time >= fromWarm);

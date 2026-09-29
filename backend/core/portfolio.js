@@ -128,7 +128,9 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
             scoreFactor: decision.scoreFactor || 1,
             combinedFactor: decision.combinedFactor || 1,
             regimeReason: decision.regimeReason || null,
-            scoreReason: decision.scoreReason || null
+            scoreReason: decision.scoreReason || null,
+            // 🆕 Time-Decay
+            timeDecayMult: decision.timeDecayMult || 1
         });
 
         usedStrategies.add(t.strategyId);

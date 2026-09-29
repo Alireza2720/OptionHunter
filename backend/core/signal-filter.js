@@ -81,20 +81,19 @@ function filterTrades(trades, analysis, opts = {}) {
         let reason = null;
 
         if (mode === 'pair') {
-            // gate مستقیم pair
-            if (p.pf >= minPairPF && p.trades >= minPairTrades) {
+            // 🆕 فقط PF — تعداد معامله سخت‌گیرانه نیست (دیتا کم داریم)
+            if (p.pf >= minPairPF) {
                 decision = true;
                 reason = `pair PF=${p.pf.toFixed(2)} >= ${minPairPF}`;
             } else if (p.lb >= minPairLB) {
                 decision = true;
                 reason = `pair LB=${p.lb.toFixed(2)} >= ${minPairLB}`;
-            } else if (trustedStrategies.has(p.strategyId) && p.pf >= 1.0 && p.trades >= 3) {
-                // fallback: استراتژی معتمده + pair حداقل سودآور
+            } else if (trustedStrategies.has(p.strategyId) && p.pf >= 1.0) {
                 decision = true;
                 reason = `trusted strategy + pair PF>=1`;
             } else {
                 decision = false;
-                reason = `PF=${p.pf.toFixed(2)}, LB=${p.lb.toFixed(2)}, strategy=${trustedStrategies.has(p.strategyId) ? 'trusted' : 'no'}`;
+                reason = `PF=${p.pf.toFixed(2)}, LB=${p.lb.toFixed(2)}`;
             }
         } else if (mode === 'strategy') {
             decision = trustedStrategies.has(p.strategyId);

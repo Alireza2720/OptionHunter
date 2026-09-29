@@ -20,7 +20,6 @@ const DEFAULTS = {
     MAX_SYMBOL_EXPOSURE_PCT: 20,
     MAX_TOTAL_EXPOSURE_PCT: 50,
     MIN_CASH_RESERVE_PCT: 20,
-    MAX_POSITION_SIZE: 10,
 
     // ---- لایه ۱: ضریب قدرت سیگنال (بر اساس تعداد تأیید) ----
     SIGNAL_FACTOR_1: 0.7,      // لیدر تنها
@@ -41,7 +40,7 @@ const DEFAULTS = {
     IV_FACTOR_BASE: 1.1,
 
     // ---- آستانه‌ی زمانی Confluence ----
-    CONFLUENCE_TIME_WINDOW: 0,  // 0 = غیرفعال، در غیر این صورت ثانیه
+    CONFLUENCE_TIME_WINDOW: 1800,  // 🆕 ۳۰ دقیقه — سیگنال‌های قدیمی‌تر حساب نشن
 
     // ---- چند تأییدکننده ----
     MULTI_CONFIRMER_MIN: 2,

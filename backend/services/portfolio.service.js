@@ -200,13 +200,12 @@ async function simulateFromJob(jobId, opts = {}) {
         maxSymPct: opts.maxSymPct || 20,
         maxTotalPct: opts.maxTotalPct || 50,
         minCashPct: opts.minCashPct || 20,
-        maxPositionSize: opts.maxPositionSize || 10,
         // Step 2
         useDuplicateGuard: opts.useDuplicateGuard !== false,
         useKelly: opts.useKelly !== false,
         kellyCapPct: opts.kellyCapPct || 3.0,
         useCorrelation: opts.useCorrelation !== false,
-        corrThreshold: opts.corrThreshold || 0.7,
+        corrThreshold: opts.corrThreshold || 0.85,   // 🆕 0.7 → 0.85
         maxClusterPct: opts.maxClusterPct || 30,
         useSectors: opts.useSectors !== false,
         maxSectorPct: opts.maxSectorPct || 40,

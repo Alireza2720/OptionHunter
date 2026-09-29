@@ -560,14 +560,28 @@ async function evaluateConfig(config, marketInfo) {
             return;
         }
 
+        // 🆕 رژیم‌محور: bear → skip، range → 1.5R، bull → 3R
+        const regime = deps.regimeService ? await deps.regimeService.getForSymbol(config.symbol) : null;
+        const macro = regime ? regime.macro : 'unknown';
+
+        if (macro === 'bear') {
+            await deps.notify(`${config.symbol}: رژیم نزولی — سیگنال آپشن داده نمی‌شود.`);
+            return;
+        }
+
+        let targetMultiplier;
+        if (macro === 'range') targetMultiplier = 1.5;
+        else if (macro === 'bull') targetMultiplier = 3.0;
+        else targetMultiplier = 2.0;   // unknown — محافظه‌کارانه
+
         const stop = last.indicators && last.indicators.stop;
         const atr = last.indicators && last.indicators.atr;
         const risk = stop && stop < lastPrice ? lastPrice - stop : (atr ? 2 * atr : lastPrice * 0.03);
-        const targetPct = (risk * 3.0 / lastPrice) * 100;
+        const targetPct = (risk * targetMultiplier / lastPrice) * 100;
         const minTarget = deps.minTargetPct();
 
         if (targetPct < minTarget) {
-            await deps.notify(`${config.symbol}: هدف سهم فقط ${targetPct.toFixed(1)}% - کمتر از حداقل ${minTarget}%.`);
+            await deps.notify(`${config.symbol}: هدف سهم فقط ${targetPct.toFixed(1)}% (${targetMultiplier}R در ${macro}) - کمتر از حداقل ${minTarget}%.`);
             return;
         }
 
@@ -581,8 +595,9 @@ async function evaluateConfig(config, marketInfo) {
                 confluence,
                 confirmers: confirmersList,
                 signalScore: signalScoreResult,
-                regimeFactor: regimeResult.factor || 1.0,   // 🆕 Phase 6
-                regimeReason: regimeResult.reason
+                regimeFactor: regimeResult.factor || 1.0,
+                regimeReason: regimeResult.reason,
+                targetMultiplier   // 🆕
             });
         } catch (e) {
             await deps.notify(`انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`);

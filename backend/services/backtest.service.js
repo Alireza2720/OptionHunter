@@ -839,8 +839,21 @@ function aggregateCompare(allResults) {
 // Startup recovery
 // ============================================================
 async function resumeStuckJobs() {
-    const r = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).updateMany(
-        { status: JOB_STATUS.RUNNING },
+    const db = deps.getDB();
+
+    // 🆕 RUNNING jobs با error → cancelled (loop نمی‌کنیم)
+    await db.collection(COLLECTIONS.BACKTEST_JOBS).updateMany(
+        { status: JOB_STATUS.RUNNING, error: { $ne: null } },
+        { $set: {
+            status: JOB_STATUS.CANCELLED,
+            finishedAt: new Date(),
+            'progress.message': 'لغو شد (خطای قبلی)'
+        }}
+    );
+
+    // 🆕 RUNNING jobs بدون error → دوباره در صف
+    const r = await db.collection(COLLECTIONS.BACKTEST_JOBS).updateMany(
+        { status: JOB_STATUS.RUNNING, error: null },
         { $set: {
             status: JOB_STATUS.QUEUED,
             updatedAt: new Date(),

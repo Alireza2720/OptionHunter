@@ -50,7 +50,7 @@ const DEFAULT_SETTINGS = {
     rewardRisk: 3.0,
     topN: 3,
     optionStopPct: 20,
-    take1Pct: 50, take2Pct: 100,
+    take2Pct: 100,             // 🆕 فقط TP کامل
     closeDaysBefore: 5
 };
 
@@ -516,16 +516,22 @@ function horizonDaysFor(config) {
     return Math.max(2, Math.ceil(tradingDays * 7 / 5));
 }
 
-async function buildScenario(config, price, liveS, indicators, s) {
+async function buildScenario(config, price, liveS, indicators, s, targetMultiplier) {
     const stop = indicators && indicators.stop;
     const atr = indicators && indicators.atr;
     const risk = stop && stop < price ? price - stop : atr ? 2 * atr : price * 0.03;
+    // 🆕 اگه targetMultiplier داده شده، از اون استفاده کن (بر اساس رژیم)
+    const mult = (targetMultiplier != null && Number.isFinite(targetMultiplier))
+        ? targetMultiplier
+        : s.rewardRisk;
 
     return {
         S: liveS || price,
         entry: price,
         stop: price - risk,
-        target: price + risk * s.rewardRisk,
+        target: price + risk * mult,
+        targetMultiplier: mult,   // 🆕
+        risk,                     // 🆕
         horizonDays: horizonDaysFor(config),
         hv: await hvFromDaily(config.symbol)
     };
@@ -563,7 +569,6 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
     const riskAmt = deps.settings.riskAmount();
     const maxSymbol = deps.settings.maxSymbolExposure();
     const maxTotal = deps.settings.maxTotalExposure();
-    const maxSize = settings.MAX_POSITION_SIZE || 10;
 
     const contractValue = pick.ask * (pick.size || 1000);
     if (!(contractValue > 0)) return { size: 0, reason: 'قیمت قرارداد نامعتبر', baseSize: 0 };
@@ -618,7 +623,7 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
     const remainingTotal = Math.max(0, maxTotal - currentTotal);
     const byTotal = Math.floor(remainingTotal / effectiveContractValue);
 
-    const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byTotal, maxSize, maxFromLiquidity));
+    const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byTotal, maxFromLiquidity));
 
     let limitReason = null;
     if (finalSize < adjusted) {
@@ -626,7 +631,6 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
             limitReason = 'نقدینگی سرخط کافی نیست (impact)';
         else if (bySymbol < adjusted && bySymbol <= byTotal) limitReason = 'سقف درگیری این نماد پر شده';
         else if (byTotal < adjusted) limitReason = 'سقف کل درگیری پر شده';
-        else if (maxSize < adjusted) limitReason = 'به حداکثر تعداد قرارداد رسیده';
     }
     if (finalSize === 0) {
         if (maxFromLiquidity === 0) limitReason = 'نقدینگی سرخط صفر است';
@@ -748,10 +752,10 @@ function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title 
 // ============================================================
 // Signal handler
 // ============================================================
-async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [], signalScore = null, regimeFactor = 1.0, regimeReason = null }) {
+async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [], signalScore = null, regimeFactor = 1.0, regimeReason = null, targetMultiplier = null }) {
     const s = await getSettings();
     const chain = await requireDep('getChain')();
-    const sc = await buildScenario(config, price, liveS, indicators, s);
+    const sc = await buildScenario(config, price, liveS, indicators, s, targetMultiplier);
     const names = getNames(config.symbol);
     const res = selectCalls(chain, names, sc, s);
     const portfolio = await getPortfolioState();
@@ -805,8 +809,7 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
             scenario: sc,
             paper: true,
             status: 'open',
-            confluence,
-            stagedExits: []
+            confluence
         });
     }
     return res;
@@ -884,17 +887,6 @@ async function managePositions(chain) {
         };
 
         let reason = null;
-        const staged = p.stagedExits || [];
-        const taken1 = staged.includes(1), taken2 = staged.includes(2);
-
-        if (!reason && pnlPct >= s.take1Pct && !taken1) {
-            upd.stagedExits = [...staged, 1];
-            await requireDep('notify')(`${p.symbol} | سود ${pnlPct.toFixed(0)}% - فروش 33% موقعیت (پله 1)`);
-        }
-        if (!reason && pnlPct >= s.take2Pct && !taken2) {
-            upd.stagedExits = [...(upd.stagedExits || staged), 2];
-            await requireDep('notify')(`${p.symbol} | سود ${pnlPct.toFixed(0)}% - فروش 33% موقعیت (پله 2)`);
-        }
 
         // 🆕 محاسبه‌ی option-aware exit conditions
         const heldDays = p.entryTime ? (Date.now() - new Date(p.entryTime).getTime()) / 86400000 : 0;
@@ -902,20 +894,16 @@ async function managePositions(chain) {
         const thetaPerDayPct = (p.entryTheta && p.entryAsk && p.entryAsk > 0)
             ? Math.abs(p.entryTheta) / p.entryAsk * 100 : 0;
 
+        // Exit logic ساده: فقط TP/SL کامل
         if (!longIds.has(p.configId)) reason = 'سیگنال خروج یا لغو روی سهم پایه';
         else if (c.daysLeft <= s.closeDaysBefore) reason = `${c.daysLeft} روز تا سررسید`;
         else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}%)`;
-        else if (pnlPct >= s.take2Pct && taken2) reason = `حد سود کامل (${pnlPct.toFixed(0)}%)`;
-        // 🆕
+        else if (pnlPct >= s.take2Pct) reason = `حد سود کامل (${pnlPct.toFixed(0)}%)`;
         else if (ivDrop < -0.30) reason = `IV سقوط شدید (${(ivDrop*100).toFixed(0)}%)`;
         else if (thetaPerDayPct > 2.5 && heldDays >= 2 && pnlPct < 10) reason = `تتا سنگین (${thetaPerDayPct.toFixed(1)}%/روز)`;
 
         const warns = [];
         if (sellQueueSet.has(p.underlying)) warns.push(`نماد پایه در صف فروش است - برای بستن آپشن باید منتظر باز شدن صف بمانی`);
-        if (!reason && pnlPct >= s.take1Pct && !p.take1Notified) {
-            warns.push(`سود ${pnlPct.toFixed(0)}% - پیشنهاد: فروش نیمی`);
-            upd.take1Notified = true;
-        }
         if (!reason && p.entryIv && iv && iv < p.entryIv * 0.8 && !p.ivWarned) {
             warns.push(`IV از ${(p.entryIv * 100).toFixed(0)}% به ${(iv * 100).toFixed(0)}% افت کرد`);
             upd.ivWarned = true;
@@ -934,6 +922,8 @@ async function managePositions(chain) {
                 status: 'closed', exitTime: new Date(),
                 exitBid: exitPx, exitS: c.S, pnlPct, exitReason: reason
             });
+            // 🆕 پاک کردن stagedExits قدیمی
+            upd.$unset = { stagedExits: '' };
 
             let roll = '';
             if (longIds.has(p.configId) && c.daysLeft <= s.closeDaysBefore && p.scenario) {

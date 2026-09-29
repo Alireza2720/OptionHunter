@@ -556,8 +556,8 @@ const PARAM_LABELS = {
     atrLookback:'بازه ATR', atrMult:'ضریب ATR',
     zThreshold:'آستانه Z-Score', zLookback:'بازه Z', zExit:'Z خروج'
 };
-const OPT_LABELS = { minDays:'حداقل روز', maxDays:'حداکثر روز', maxSpreadPct:'حداکثر اسپرد', minOI:'حداقل OI', minTrades:'حداقل معامله', minPremium:'حداقل پرمیوم', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'R:R', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر', take1Pct:'هشدار نیمه', take2Pct:'حد سود کامل', closeDaysBefore:'بستن X روز قبل' };
-const TRADING_LABELS = { ENTRY_START: 'شروع بازه ورود', ENTRY_END: 'پایان بازه ورود', OPTION_FEE_BUY: 'کارمزد خرید', OPTION_FEE_SELL: 'کارمزد فروش', RISK_FREE_RATE: 'نرخ بدون ریسک', TOTAL_CAPITAL: 'سرمایه کل', RISK_PER_TRADE_PCT: 'ریسک هر معامله', MAX_SYMBOL_EXPOSURE_PCT: 'درگیری هر نماد', MAX_TOTAL_EXPOSURE_PCT: 'درگیری کل', MIN_CASH_RESERVE_PCT: 'نقد ذخیره', MAX_POSITION_SIZE: 'حداکثر قرارداد', SIGNAL_FACTOR_1: 'ضریب سیگنال 1', SIGNAL_FACTOR_2: 'ضریب سیگنال 2', SIGNAL_FACTOR_3: 'ضریب سیگنال 3', SIGNAL_FACTOR_4PLUS: 'ضریب سیگنال 4+', LEVEL_FACTOR_A_PLUS: 'ضریب A+', LEVEL_FACTOR_A: 'ضریب A', LEVEL_FACTOR_B: 'ضریب B', LEVEL_FACTOR_C: 'ضریب C', LEVEL_FACTOR_D: 'ضریب D', IV_FACTOR_MIN: 'حداقل ضریب IV', IV_FACTOR_MAX: 'حداکثر ضریب IV', IV_FACTOR_BASE: 'پایه ضریب IV', CONFLUENCE_TIME_WINDOW: 'پنجره Confluence', MULTI_CONFIRMER_MIN: 'حداقل تاییدکننده', MULTI_CONFIRMER_TIME_WINDOW: 'پنجره چند تایید', MIN_TARGET_PCT: 'حداقل هدف سهم' };
+const OPT_LABELS = { minDays:'حداقل روز', maxDays:'حداکثر روز', maxSpreadPct:'حداکثر اسپرد', minOI:'حداقل OI', minTrades:'حداقل معامله', minPremium:'حداقل پرمیوم', deltaMin:'حداقل دلتا', deltaMax:'حداکثر دلتا', maxIvHv:'حداکثر IV/HV', rewardRisk:'R:R', topN:'تعداد پیشنهاد', optionStopPct:'حد ضرر', take2Pct:'حد سود کامل', closeDaysBefore:'بستن X روز قبل' };
+const TRADING_LABELS = { ENTRY_START: 'شروع بازه ورود', ENTRY_END: 'پایان بازه ورود', OPTION_FEE_BUY: 'کارمزد خرید', OPTION_FEE_SELL: 'کارمزد فروش', RISK_FREE_RATE: 'نرخ بدون ریسک', TOTAL_CAPITAL: 'سرمایه کل', RISK_PER_TRADE_PCT: 'ریسک هر معامله', MAX_SYMBOL_EXPOSURE_PCT: 'درگیری هر نماد', MAX_TOTAL_EXPOSURE_PCT: 'درگیری کل', MIN_CASH_RESERVE_PCT: 'نقد ذخیره', SIGNAL_FACTOR_1: 'ضریب سیگنال 1', SIGNAL_FACTOR_2: 'ضریب سیگنال 2', SIGNAL_FACTOR_3: 'ضریب سیگنال 3', SIGNAL_FACTOR_4PLUS: 'ضریب سیگنال 4+', LEVEL_FACTOR_A_PLUS: 'ضریب A+', LEVEL_FACTOR_A: 'ضریب A', LEVEL_FACTOR_B: 'ضریب B', LEVEL_FACTOR_C: 'ضریب C', LEVEL_FACTOR_D: 'ضریب D', IV_FACTOR_MIN: 'حداقل ضریب IV', IV_FACTOR_MAX: 'حداکثر ضریب IV', IV_FACTOR_BASE: 'پایه ضریب IV', CONFLUENCE_TIME_WINDOW: 'پنجره Confluence', MULTI_CONFIRMER_MIN: 'حداقل تاییدکننده', MULTI_CONFIRMER_TIME_WINDOW: 'پنجره چند تایید', MIN_TARGET_PCT: 'حداقل هدف سهم' };
 
 let strategiesInfo = [], monitoredSymbols = [], configs = [], statusMap = {};
 let selectedConfigId = null;
@@ -1977,12 +1977,13 @@ async function openPortfolioSim() {
             </div>
             <div style="display:flex; gap:14px; flex-wrap:wrap; margin:10px 0; font-size:12.5px;">
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseDup" checked> Duplicate Guard</label>
-                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseKelly" checked> Kelly</label>
-                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCorr" checked> Correlation</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseKelly" checked> Kelly (N≥30)</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseCorr" checked> Correlation (0.85)</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseSectors" checked> Sectors</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseFilter" checked> Signal Filter</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseRegime" checked> Regime (soft)</label>
                 <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseScore" checked> Signal Score</label>
+                <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" id="pfUseTimeDecay" checked> Time-Decay (11:30+)</label>
                 <button class="btn success" id="pfRunBtn" onclick="runPortfolioSim()">اجرا</button>
                 <button class="btn outline small" onclick="refreshCorrelation()">رفرش Correlation</button>
             </div>
@@ -2010,6 +2011,7 @@ async function runPortfolioSim() {
         useSignalFilter: document.getElementById('pfUseFilter').checked,
         useRegime: document.getElementById('pfUseRegime').checked,
         useSignalScore: document.getElementById('pfUseScore').checked,
+        useTimeDecay: document.getElementById('pfUseTimeDecay').checked,       // 🆕
         filterMode: 'pair',
         minPairPF: 2.0,
         minTrades: 5
@@ -2100,6 +2102,7 @@ function renderPortfolioResults(d) {
         const sf = t.scoreFactor !== undefined ? t.scoreFactor.toFixed(2) : '-';
         const cf = t.combinedFactor !== undefined ? t.combinedFactor.toFixed(2) : '-';
         const cfColor = cf !== '-' && parseFloat(cf) >= 1.0 ? 'var(--good)' : parseFloat(cf) < 0.5 ? 'var(--bad)' : 'var(--warn)';
+        const td = t.timeDecayMult != null ? t.timeDecayMult.toFixed(2) : '-';
         return `<tr>
             <td>${i+1}</td>
             <td><b>${esc(t.symbol)}</b></td>
@@ -2109,7 +2112,7 @@ function renderPortfolioResults(d) {
             <td>${Math.round(t.entryValue || 0).toLocaleString()}</td>
             <td>${score}</td>
             <td>${rf}</td>
-            <td>${sf}</td>
+            <td>${td}</td>
             <td style="color:${cfColor}; font-weight:600;">${cf}×</td>
             <td>${pct(ret)}</td>
             <td>${Math.round(t.pnlAbs || 0).toLocaleString()}</td>
@@ -2153,6 +2156,7 @@ function renderPortfolioResults(d) {
         <div class="hint" style="margin-top:4px; font-size:10.5px;">
             میانگین ضریب: Regime ${(d.trades||[]).length ? (d.trades.reduce((s,t)=>s+(t.regimeFactor||1),0)/(d.trades||[]).length).toFixed(2) : '-'}× ·
             Score ${(d.trades||[]).length ? (d.trades.reduce((s,t)=>s+(t.scoreFactor||1),0)/(d.trades||[]).length).toFixed(2) : '-'}× ·
+            TimeDecay ${(d.trades||[]).length ? (d.trades.reduce((s,t)=>s+(t.timeDecayMult||1),0)/(d.trades||[]).length).toFixed(2) : '-'}× ·
             ترکیبی ${(d.trades||[]).length ? (d.trades.reduce((s,t)=>s+(t.combinedFactor||1),0)/(d.trades||[]).length).toFixed(2) : '-'}×
         </div>
         ${eqStr}
@@ -2170,7 +2174,7 @@ function renderPortfolioResults(d) {
         <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">معاملات (${(d.trades || []).length})</h4>
         <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
             <table class="data-table">
-                <thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>ورود</th><th>حجم</th><th>ارزش</th><th>Score</th><th>R×</th><th>S×</th><th>ترکیبی</th><th>بازده</th><th>سود</th></tr></thead>
+                <thead><tr><th>#</th><th>نماد</th><th>استراتژی</th><th>ورود</th><th>حجم</th><th>ارزش</th><th>Score</th><th>R×</th><th>TD×</th><th>ترکیبی</th><th>بازده</th><th>سود</th></tr></thead>
                 <tbody>${tradesRows || '<tr class="empty-row"><td colspan="12">معامله‌ای نیست</td></tr>'}</tbody>
             </table>
         </div>
@@ -2564,7 +2568,7 @@ async function openSettings() {
     try {
         const [t, o] = await Promise.all([apiFetch(`${BACKEND_URL}/api/trading-settings`, {}, 0), apiFetch(`${BACKEND_URL}/api/options/settings`, {}, 0)]);
         const tradingKeys = ['ENTRY_START','ENTRY_END','OPTION_FEE_BUY','OPTION_FEE_SELL','RISK_FREE_RATE'];
-        const capitalKeys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT','MAX_POSITION_SIZE'];
+        const capitalKeys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT'];
         const factorKeys = ['SIGNAL_FACTOR_1','SIGNAL_FACTOR_2','SIGNAL_FACTOR_3','SIGNAL_FACTOR_4PLUS','LEVEL_FACTOR_A_PLUS','LEVEL_FACTOR_A','LEVEL_FACTOR_B','LEVEL_FACTOR_C','LEVEL_FACTOR_D','IV_FACTOR_MIN','IV_FACTOR_MAX','IV_FACTOR_BASE'];
         const confKeys = ['CONFLUENCE_TIME_WINDOW','MULTI_CONFIRMER_MIN','MULTI_CONFIRMER_TIME_WINDOW','MIN_TARGET_PCT'];
         const field = (k, val) => { const isT = k === 'ENTRY_START' || k === 'ENTRY_END'; return `<div class="field"><label>${TRADING_LABELS[k]||k}</label><input type="${isT?'text':'number'}" ${isT?'':'step="any"'} id="ts_${k}" value="${val}"></div>`; };
@@ -2573,12 +2577,12 @@ async function openSettings() {
         const factorFields = factorKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
         const confFields = confKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
         const optFields = Object.keys(o.defaults).map(k => `<div class="field"><label>${OPT_LABELS[k]||k}</label><input type="number" step="any" id="opt_${k}" value="${o.values[k]}"></div>`).join('');
-        openModal('تنظیمات عمومی', `<div class="tabs"><button class="tab active" onclick="switchSettingsTab('trading', this)">معاملات</button><button class="tab" onclick="switchSettingsTab('capital', this)">مدیریت سرمایه</button><button class="tab" onclick="switchSettingsTab('factors', this)">ضرایب</button><button class="tab" onclick="switchSettingsTab('confluence', this)">هم گرایی</button><button class="tab" onclick="switchSettingsTab('option', this)">آپشن</button></div><div id="tab-trading"><div class="form-row">${tradingFields}</div><button class="btn" onclick="saveTradingSettings(['ENTRY_START','ENTRY_END','OPTION_FEE_BUY','OPTION_FEE_SELL','RISK_FREE_RATE'])">ذخیره</button></div><div id="tab-capital" style="display:none;"><div class="form-row">${capitalFields}</div><button class="btn" onclick="saveTradingSettings(['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT','MAX_POSITION_SIZE'])">ذخیره</button></div><div id="tab-factors" style="display:none;"><div class="form-row">${factorFields}</div><button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره</button></div><div id="tab-confluence" style="display:none;"><div class="form-row">${confFields}</div><button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره</button></div><div id="tab-option" style="display:none;"><div class="form-row">${optFields}</div><button class="btn" onclick="saveOptionSettings()">ذخیره</button></div>`);
+        openModal('تنظیمات عمومی', `<div class="tabs"><button class="tab active" onclick="switchSettingsTab('trading', this)">معاملات</button><button class="tab" onclick="switchSettingsTab('capital', this)">مدیریت سرمایه</button><button class="tab" onclick="switchSettingsTab('factors', this)">ضرایب</button><button class="tab" onclick="switchSettingsTab('confluence', this)">هم گرایی</button><button class="tab" onclick="switchSettingsTab('option', this)">آپشن</button></div><div id="tab-trading"><div class="form-row">${tradingFields}</div><button class="btn" onclick="saveTradingSettings(['ENTRY_START','ENTRY_END','OPTION_FEE_BUY','OPTION_FEE_SELL','RISK_FREE_RATE'])">ذخیره</button></div><div id="tab-capital" style="display:none;"><div class="form-row">${capitalFields}</div><button class="btn" onclick="saveTradingSettings(['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT'])">ذخیره</button></div><div id="tab-factors" style="display:none;"><div class="form-row">${factorFields}</div><button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره</button></div><div id="tab-confluence" style="display:none;"><div class="form-row">${confFields}</div><button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره</button></div><div id="tab-option" style="display:none;"><div class="form-row">${optFields}</div><button class="btn" onclick="saveOptionSettings()">ذخیره</button></div>`);
     } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 function switchSettingsTab(which, btn) { ['trading','capital','factors','confluence','option'].forEach(w => { const el = document.getElementById(`tab-${w}`); if (el) el.style.display = w === which ? 'block' : 'none'; }); document.querySelectorAll('.modal .tabs .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
 async function saveTradingSettings(keys) { const body = {}; keys.forEach(k => { const el = document.getElementById(`ts_${k}`); if (el) { const v = el.value.trim(); if (v !== '') body[k] = v; } }); try { await apiFetch(`${BACKEND_URL}/api/trading-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); await checkBackendStatus(); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function saveOptionSettings() { const body = {}; const defaults = { minDays:15,maxDays:45,maxSpreadPct:7,minOI:200,minTrades:1,minPremium:200,deltaMin:0.4,deltaMax:0.75,maxIvHv:1.5,rewardRisk:3,topN:3,optionStopPct:20,take1Pct:50,take2Pct:100,closeDaysBefore:5 }; for (const k of Object.keys(defaults)) { const el = document.getElementById(`opt_${k}`); if (el) body[k] = parseFloat(el.value); } try { await apiFetch(`${BACKEND_URL}/api/options/settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function saveOptionSettings() { const body = {}; const defaults = { minDays:15,maxDays:45,maxSpreadPct:7,minOI:200,minTrades:1,minPremium:200,deltaMin:0.4,deltaMax:0.75,maxIvHv:1.5,rewardRisk:3,topN:3,optionStopPct:20,take2Pct:100,closeDaysBefore:5 }; for (const k of Object.keys(defaults)) { const el = document.getElementById(`opt_${k}`); if (el) body[k] = parseFloat(el.value); } try { await apiFetch(`${BACKEND_URL}/api/options/settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function openStrategyDefaults() { openModal('پیش فرض استراتژی ها', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>'); try { const d = await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, {}, 0); const defaults = d.defaults, overrides = d.overrides; let html = `<div class="hint">مقادیر پایه ای که همه جا استفاده می شوند.</div>`; for (const s of strategiesInfo) { const values = defaults[s.id] || s.defaultParams; const hasOv = overrides[s.id] && Object.keys(overrides[s.id]).length > 0; const fields = Object.entries(values).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" data-sid="${s.id}" data-param="${k}" value="${v}"></div>`).join(''); html += `<div class="adv-accordion ${hasOv ? 'open' : ''}" id="sd-${s.id}"><div class="adv-header" onclick="document.getElementById('sd-${s.id}').classList.toggle('open')"><span>${esc(s.name)} ${hasOv ? '<span class="badge warn">ویرایش شده</span>' : ''}</span><span class="chev">▼</span></div><div class="adv-body"><div class="form-row">${fields}</div><button class="btn tiny outline" onclick="resetStrategyDefault('${s.id}')">بازگردانی</button></div></div>`; } html += `<div style="margin-top:16px; display:flex; gap:8px;"><button class="btn" onclick="saveStrategyDefaults()">ذخیره</button><button class="btn outline" onclick="resetAllStrategyDefaults()">بازگردانی همه</button></div>`; openModal('پیش فرض استراتژی ها', html); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function saveStrategyDefaults() { const overrides = {}; document.querySelectorAll('[data-sid][data-param]').forEach(inp => { const sid = inp.dataset.sid, k = inp.dataset.param; if (!overrides[sid]) overrides[sid] = {}; const v = parseFloat(inp.value); if (Number.isFinite(v)) overrides[sid][k] = v; }); try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ overrides }) }); showAlert('ذخیره شد.', 'success', 3000); await loadStrategies(); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function resetStrategyDefault(sid) { if (!confirm(`بازگردانی ${sid}؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults/${sid}`, { method: 'DELETE' }); showAlert('بازگشت.', 'success', 3000); await openStrategyDefaults(); await loadStrategies(); } catch (e) { showAlert('خطا: ' + e.message); } }
@@ -4076,12 +4080,10 @@ window.addEventListener('load', async () => {
     document.getElementById('bootOverlay').style.display = 'none';
     jdpInit();
 
-    // ─── ۱) بارگذاری موازی — ضروری‌ها اول ───
-    await Promise.allSettled([
-        checkBackendStatus(),
-        loadTimeframes(),
-        loadStrategies(),
-    ]);
+    // ─── ۱) بارگذاری ترتیبی — ضروری‌ها اول (کاهش فشار MongoDB در startup) ───
+    await checkBackendStatus().catch(() => {});
+    await loadTimeframes().catch(() => {});
+    await loadStrategies().catch(() => {});
 
     // ─── ۱.۵) بقیه غیر-blocking ───
     Promise.allSettled([

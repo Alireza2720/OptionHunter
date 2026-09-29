@@ -22,14 +22,13 @@ const DEFAULT_LIMITS = {
     maxSymPct: 20,
     maxTotalPct: 50,
     minCashPct: 20,
-    maxPositionSize: 10,
 
     // Step 2
     useDuplicateGuard: true,
     useKelly: true,
     kellyCapPct: 3.0,
     useCorrelation: true,
-    corrThreshold: 0.85,   // 🆕 از 0.7 به 0.85 (بازار ایران)
+    corrThreshold: 0.85,
     maxClusterPct: 30,
     useSectors: true,
     maxSectorPct: 40,
@@ -40,7 +39,14 @@ const DEFAULT_LIMITS = {
 
     // Phase 4 + 6
     useRegime: true,
-    useSignalScore: true
+    useSignalScore: true,
+
+    // 🆕 Time-Decay Sizing (فقط برای ۱۱:۳۰ به بعد)
+    useTimeDecay: true,
+    timeDecayFullBeforeMin: 11 * 60 + 30,   // تا ۱۱:۳۰ = ۱۰۰٪
+    timeDecayHalfAfterMin: 12 * 60,         // بعد از ۱۲:۰۰ = ۵۰٪
+    timeDecayMidMultiplier: 0.75,           // بین ۱۱:۳۰ و ۱۲:۰۰ = ۷۵٪
+    timeDecayLateMultiplier: 0.5,           // بعد از ۱۲:۰۰ = ۵۰٪
 };
 
 // ============================================================
@@ -56,7 +62,11 @@ function toNum(v) {
 function computeGlobalStats(trades) {
     const pnls = trades.map(t => toNum(t.pnlPct)).filter(Number.isFinite);
     if (!pnls.length) {
-        return { count: 0, winRate: 0, avgWin: 0, avgLoss: 0, halfKelly: 0, cvar95Pct: 0 };
+        return {
+            count: 0, winRate: 0, avgWin: 0, avgLoss: 0,
+            halfKelly: 0, cvar95Pct: 0,
+            kellyReliable: false, kellySamples: 0   // 🆕
+        };
     }
     const wins = pnls.filter(x => x > 0);
     const losses = pnls.filter(x => x <= 0);
@@ -64,11 +74,15 @@ function computeGlobalStats(trades) {
     const avgWin = wins.length ? wins.reduce((s, x) => s + x, 0) / wins.length : 0;
     const avgLoss = losses.length ? Math.abs(losses.reduce((s, x) => s + x, 0) / losses.length) : 0;
 
+    // 🆕 Kelly فقط با نمونه کافی (N ≥ 30) — وگرنه fallback به riskPct ثابت
+    const MIN_KELLY_TRADES = 30;
     let halfKelly = 0;
-    if (avgLoss > 0 && avgWin > 0 && winRate > 0 && winRate < 1) {
+    let kellyReliable = false;
+    if (pnls.length >= MIN_KELLY_TRADES && avgLoss > 0 && avgWin > 0 && winRate > 0 && winRate < 1) {
         const R = avgWin / avgLoss;
         const kelly = (winRate * R - (1 - winRate)) / R;
         halfKelly = Math.max(0, Math.min(kelly * 0.5, 0.15));
+        kellyReliable = true;
     }
 
     const sorted = [...pnls].sort((a, b) => a - b);
@@ -82,15 +96,20 @@ function computeGlobalStats(trades) {
         avgWin: Math.round(avgWin * 100) / 100,
         avgLoss: Math.round(avgLoss * 100) / 100,
         halfKelly,
-        cvar95Pct: cvar
+        cvar95Pct: cvar,
+        kellyReliable,               // 🆕
+        kellySamples: pnls.length    // 🆕
     };
 }
 
 function computeEffectiveRiskPct(limits, stats) {
     if (!limits.useKelly) return limits.riskPct;
+    // 🆕 اگه نمونه کافی نبود، Kelly رو نادیده بگیر و به riskPct ثابت برگرد
+    if (!stats.kellyReliable) return limits.riskPct;
+
     const kellyPct = stats.halfKelly * 100;
     if (!Number.isFinite(kellyPct) || kellyPct <= 0.5) {
-        return limits.riskPct;   // fallback
+        return limits.riskPct;
     }
     return Math.min(limits.riskPct, kellyPct, limits.kellyCapPct);
 }
@@ -170,11 +189,15 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     }
 
     let baseSize = Math.floor(riskAmt / contractValue);
-    baseSize = Math.min(baseSize, limits.maxPositionSize);
 
-    // 🆕 Soft multipliers (regime + score)
+    // Soft multipliers (regime + score)
     if (ctx.combinedFactor && ctx.combinedFactor !== 1.0) {
         baseSize = Math.floor(baseSize * ctx.combinedFactor);
+    }
+
+    // 🆕 Time-Decay Multiplier
+    if (ctx.timeDecayMult && ctx.timeDecayMult !== 1.0) {
+        baseSize = Math.floor(baseSize * ctx.timeDecayMult);
     }
 
     const curSym = portfolio.exposureBySymbol[candidate.symbol] || 0;
@@ -320,13 +343,17 @@ function canOpen(candidate, portfolio, limits, ctx) {
         ? computeSectorExposure(candidate.symbol, portfolio, ctx.sectorMap)
         : 0;
 
+    // 🆕 Time-Decay (فقط ۱۱:۳۰ به بعد)
+    const timeDecayMult = getTimeDecayMultiplier(entryTs, limits);
+
     // 4) Sizing — همه‌ی سقف‌ها
     const combinedFactor = regimeFactor * scoreFactor;
     const sizing = calcPositionSize(candidate, portfolio, limits, {
         effectiveRiskPct: ctx.effectiveRiskPct,
         clusterExposure,
         sectorExposure,
-        combinedFactor
+        combinedFactor,
+        timeDecayMult        // 🆕
     });
 
     if (sizing.size <= 0) {
@@ -358,7 +385,8 @@ function canOpen(candidate, portfolio, limits, ctx) {
         regimeReason,
         scoreFactor,
         scoreReason,
-        combinedFactor
+        combinedFactor,
+        timeDecayMult        // 🆕
     };
 }
 
@@ -399,7 +427,28 @@ function emptyPortfolio() {
 function addPosition(portfolio, symbol, value, exitTime, pairSymbol) {
     portfolio.totalExposure += value;
     portfolio.exposureBySymbol[symbol] = (portfolio.exposureBySymbol[symbol] || 0) + value;
-    portfolio.openPositions.push({ symbol, pairSymbol: pairSymbol || null, value, exitTime });   // 🆕
+    portfolio.openPositions.push({
+        symbol,
+        pairSymbol: pairSymbol || null,
+        value,
+        exitTime
+    });
+}
+
+// 🆕 محاسبه‌ی ساعت تهران از unix timestamp
+function getTehranMinutesOfDay(unixSeconds) {
+    const utc = new Date(unixSeconds * 1000);
+    const tehran = new Date(utc.getTime() + 3.5 * 3600 * 1000);
+    return tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+}
+
+// 🆕 Time-Decay Multiplier — فقط ۱۱:۳۰ به بعد
+function getTimeDecayMultiplier(entryTs, limits) {
+    if (!limits.useTimeDecay) return 1.0;
+    const m = getTehranMinutesOfDay(entryTs);
+    if (m >= limits.timeDecayHalfAfterMin) return limits.timeDecayLateMultiplier;
+    if (m >= limits.timeDecayFullBeforeMin) return limits.timeDecayMidMultiplier;
+    return 1.0;
 }
 
 function removePosition(portfolio, symbol, value) {
