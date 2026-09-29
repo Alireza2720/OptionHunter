@@ -101,6 +101,12 @@ async function computeInBackground(jobId) {
     const db = deps.getDB();
     const cacheId = 'backtest_result_' + jobId;
 
+    // 🆕 وضعیت job رو به COMPUTING تغییر بده → تو فعالیت‌ها دیده بشه
+    await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { status: 'COMPUTING', updatedAt: new Date() } }
+    );
+
     // flag اول
     await db.collection(COLLECTIONS.META).updateOne(
         { _id: cacheId },
@@ -120,6 +126,13 @@ async function computeInBackground(jobId) {
             { _id: cacheId },
             { $set: { computing: false, result, cachedAt: new Date() }, $unset: { startedAt: '' } }
         );
+
+        // 🆕 بعد از اتمام محاسبه → DONE
+        await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+            { _id: new ObjectId(jobId) },
+            { $set: { status: 'DONE', updatedAt: new Date() } }
+        );
+
         deps.logger && deps.logger.info(
             `[bt-compute] ${jobId} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     } catch (e) {
@@ -127,6 +140,13 @@ async function computeInBackground(jobId) {
             { _id: cacheId },
             { $set: { computing: false, error: e.message }, $unset: { startedAt: '' } }
         );
+
+        // 🆕 خطا → FAILED
+        await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+            { _id: new ObjectId(jobId) },
+            { $set: { status: 'FAILED', error: e.message, updatedAt: new Date() } }
+        );
+
         deps.logger && deps.logger.error(`[bt-compute] ${jobId} FAILED: ${e.message}`);
     }
 }

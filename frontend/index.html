@@ -99,6 +99,7 @@ header { text-align:center; margin-bottom:22px; }
 .job-status { font-size:10.5px; padding:2px 7px; border-radius:10px; }
 .job-status.QUEUED { background:rgba(125,133,144,.15); color:var(--text-dim); }
 .job-status.RUNNING { background:rgba(201,151,61,.15); color:var(--warn); }
+.job-status.COMPUTING { background:rgba(61,125,216,.15); color:var(--accent); animation:loadingPulse 1.6s ease-in-out infinite; }
 .job-status.DONE { background:rgba(46,168,138,.15); color:var(--good); }
 .job-status.FAILED, .job-status.CANCELLED { background:rgba(217,83,79,.15); color:var(--bad); }
 .job-msg { font-size:11px; color:var(--text-dim); margin-top:4px; }
@@ -735,7 +736,7 @@ async function loadActiveJobs(btn) {
         const el = document.getElementById('menuActiveJobs');
         if (el) {
             if (!allJobs.length) el.innerHTML = '<div class="empty-note">فعالیتی نیست</div>';
-            else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
+            else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${statusLabels[j.status] || j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
         }
     } catch (e) {}
     finally {
@@ -2590,7 +2591,7 @@ async function resetAllStrategyDefaults() { if (!confirm('بازگردانی ه�
 
 const jobTrackersTimers = new Map();
 function trackJob(jobId, onUpdate) { if (jobTrackersTimers.has(jobId)) return; const tick = async () => { try { const job = await apiFetch(`${BACKEND_URL}/api/jobs/${jobId}`, {}, 0); if (onUpdate) onUpdate(job); if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') { clearInterval(jobTrackersTimers.get(jobId)); jobTrackersTimers.delete(jobId); loadActiveJobs(); } } catch (e) {} }; tick(); const t = setInterval(tick, 3000); jobTrackersTimers.set(jobId, t); }
-function renderJobProgress(job) { const chunks = (job.progress && job.progress.chunks) || []; const dc = chunks.filter(c => c.status === 'DONE').length; const tt = chunks.length || (job.progress && job.progress.total) || 1; const pv = tt > 0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0; const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card ${job.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span><span class="job-status ${job.status}">${statusLabels[job.status] || job.status}</span><span class="job-msg" style="margin-right:auto;">${esc(job.progress ? job.progress.message : '')}</span></div><div class="progress-bar"><div class="progress-fill" style="width:${pv}%"></div></div><div class="job-msg">${dc} / ${tt} (${pv}%)</div></div>`; }
+function renderJobProgress(job) { const chunks = (job.progress && job.progress.chunks) || []; const dc = chunks.filter(c => c.status === 'DONE').length; const tt = chunks.length || (job.progress && job.progress.total) || 1; const pv = tt > 0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0; const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه‌ی نتایج', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card ${job.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span><span class="job-status ${job.status}">${statusLabels[job.status] || job.status}</span><span class="job-msg" style="margin-right:auto;">${esc(job.progress ? job.progress.message : '')}</span></div><div class="progress-bar"><div class="progress-fill" style="width:${pv}%"></div></div><div class="job-msg">${dc} / ${tt} (${pv}%)</div></div>`; }
 
 let _jobsPanelTimer = null;
 let _jobsPanelUserActive = false;
@@ -2618,7 +2619,7 @@ async function refreshJobsPanel() {
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/jobs?limit=50&all=1`, {}, 0);
         const allJobs = r.jobs || [];
-        const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED'].includes(j.status));
+        const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED','COMPUTING'].includes(j.status));
         // 🆕 بدون فیلتر زمان — همه‌ی تاریخچه نمایش داده بشه
         const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status));
         const doneCount = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).length;
@@ -2697,26 +2698,84 @@ async function viewJobDetail(id) {
         const job = await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, {}, 0);
         hideLoader();
 
-        // 🆕 backtest-compare → همون نمای کامل
-        if (job.type === 'backtest-compare' && job.result && (job.result.results || job.result.details)) {
-            window._lastBtCompareJobId = id;
-            window._lastBtCompareResult = job.result;
-            const dateStr = job.createdAt ? new Date(job.createdAt).toLocaleString('fa-IR') : '';
-            openModal(`نتیجه بک تست — ${dateStr}`, `
-                <div class="hint" style="margin-bottom:10px;">
-                    وضعیت: <b>${job.status}</b> ·
-                    شروع: ${job.startedAt ? new Date(job.startedAt).toLocaleString('fa-IR') : '-'} ·
-                    پایان: ${job.finishedAt ? new Date(job.finishedAt).toLocaleString('fa-IR') : '-'}
-                </div>
-                <div id="btResults"><div id="btCompareResultArea"></div></div>
-            `);
-            setTimeout(() => {
-                try { renderBtCompareResult(job.result); } catch (err) { console.error(err); }
-            }, 80);
+        // 🆕 برای backtest-compare و pipeline → همون نمای فرش
+        if (job.type === 'backtest-compare' || job.type === 'pipeline') {
+            openBacktestResultView(id);
             return;
         }
 
         renderJobDetailModal(job);
+    } catch (e) {
+        hideLoader();
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
+
+// 🆕 باز کردن نمای نتیجه‌ی بک‌تست از تاریخچه — دقیقاً مثل نمای فرش
+async function openBacktestResultView(jobId) {
+    showLoader('در حال بارگذاری نتیجه...');
+    try {
+        // از همون endpoint فرش استفاده می‌کنیم (rich result)
+        const r = await apiFetch(`${BACKEND_URL}/api/backtest/results/${jobId}`, {}, 0);
+        hideLoader();
+
+        // ست کردن global ها تا دکمه‌های Apply کار کنن
+        _btJobId = jobId;
+        if (r.result && r.result.mode) _btMode = r.result.mode;
+        if (r.result) {
+            _btLastResult = r.result;
+            window._lastBtCompareResult = r.result;
+            window._lastBtCompareJobId = jobId;
+        }
+
+        const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleString('fa-IR') : '';
+        const modeLabel = _btMode === 'stock' ? '📊 سهم پایه' : '🎯 آپشن';
+
+        // 🆕 همون ساختار DOM که openBacktestPanel می‌سازه
+        openModal(`نتیجه بک تست — ${dateStr}`, `
+            <div class="hint" style="margin-bottom:10px;">
+                نوع: <b>${modeLabel}</b> ·
+                وضعیت: <b>${r.status}</b> ·
+                شروع: ${r.startedAt ? new Date(r.startedAt).toLocaleString('fa-IR') : '-'} ·
+                پایان: ${r.finishedAt ? new Date(r.finishedAt).toLocaleString('fa-IR') : '-'}
+            </div>
+            <div id="bt2Progress" style="margin-bottom:12px;"></div>
+            <div id="bt2ResultsArea"></div>
+        `);
+
+        // حالت در حال محاسبه
+        if (r.computing) {
+            const el = document.getElementById('bt2Progress');
+            if (el) {
+                const sec = r.computingFor || 0;
+                const timeStr = sec > 60 ? `${Math.floor(sec/60)}د ${sec%60}ث` : `${sec}ث`;
+                el.innerHTML = `
+                    <div class="job-card">
+                        <div class="job-header">
+                            <span class="job-type backtest-compare">${_btMode === 'stock' ? 'Stock BT' : 'Option BT'}</span>
+                            <span class="job-status RUNNING">⏳ محاسبه نتایج</span>
+                        </div>
+                        <div class="job-msg">در حال تحلیل آماری + WF + رژیم + پورتفولیو... (${timeStr})</div>
+                        <div class="progress-bar"><div class="progress-fill" style="width:100%;animation:loadingPulse 1.4s ease-in-out infinite;"></div></div>
+                    </div>
+                `;
+            }
+            if (_btPollTimer) clearInterval(_btPollTimer);
+            _btPollTimer = setInterval(pollBacktest, 3000);
+            pollBacktest();
+            return;
+        }
+
+        // حالت آماده
+        if (r.result) {
+            renderBacktestResults(r.result);
+        } else if (r.error) {
+            const el = document.getElementById('bt2ResultsArea');
+            if (el) el.innerHTML = `<div class="empty-note">خطا: ${esc(r.error)}</div>`;
+        } else {
+            const el = document.getElementById('bt2ResultsArea');
+            if (el) el.innerHTML = `<div class="empty-note">نتیجه‌ای موجود نیست</div>`;
+        }
     } catch (e) {
         hideLoader();
         showAlert('خطا: ' + e.message, 'error');
