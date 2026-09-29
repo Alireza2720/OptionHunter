@@ -39,10 +39,18 @@ function marketStateLabel() {
     return 'open';
 }
 
+// 🆕 TTL مناسب برای cache پرهزینه (coverage, quality)
+// تو ساعات بازار: ۳۰ دقیقه (پولینگ فعال)
+// خارج از بازار: ۶ ساعت (بی‌کاری طولانی)
+function expensiveCacheTTL() {
+    return isMarketHourOrNear() ? 30 * 60 * 1000 : 6 * 60 * 60 * 1000;
+}
+
 module.exports = {
     isMarketOpen,
     isMarketHourOrNear,
     marketStateLabel,
+    expensiveCacheTTL,
     SESSION_START_MIN,
     SESSION_END_MIN,
 };

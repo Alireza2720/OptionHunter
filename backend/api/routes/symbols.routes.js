@@ -57,8 +57,12 @@ function register(app, deps) {
             let covMap = {};
             if (dataService) {
                 try {
-                    // 🆕 TTL از 60s به 15min (چون پولینگ فرانت هر 10 دقیقه است)
-                    const cov = await dataService.cached('coverage', 15 * 60 * 1000,
+                    // 🆕 SWR: TTL 15min، stale window 24h
+                    // اگه cache قدیمی شد ولی هنوز تو 24h → فوری بده + پس‌زمینه refresh
+                    const marketHours = require('../../infra/market-hours');
+                    const ttl = marketHours.expensiveCacheTTL();
+                    const cov = await dataService.cachedSWR('coverage',
+                        ttl,
                         () => deps.algotik.getCoverage());
                     for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
                 } catch (_) {}

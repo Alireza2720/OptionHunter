@@ -65,37 +65,24 @@ function register(app, deps) {
     });
 
     // ---- Coverage (heavy — cache 5 min) ----
-    let _covCache = null;
-    let _covAt = 0;
-    let _covInFlight = null;
+    // 🆕 استفاده از SWR cache مشترک با monitored-symbols
+    const covCacheKey = 'algotik_coverage';
 
     app.get('/api/algotik/coverage', async (req, res, next) => {
         try {
-            // 🆕 TTL داینامیک: تو ساعات بازار 30min، خارج 120min
-            const marketHours = require('../../infra/market-hours');
-            const TTL = marketHours.isMarketHourOrNear() ? 30 * 60 * 1000 : 120 * 60 * 1000;
             const fresh = req.query.fresh === '1';
+            const marketHours = require('../../infra/market-hours');
+            const ttl = marketHours.expensiveCacheTTL();
 
-            if (!fresh && _covCache && (Date.now() - _covAt) < TTL) {
-                return res.json(_covCache);
+            if (fresh) {
+                // درخواست دستی → cache رو نادیده بگیر
+                deps.dataService.clearCache(covCacheKey);
             }
 
-            // جلوگیری از درخواست‌های همزمان
-            if (_covInFlight) {
-                const r = await _covInFlight;
-                return res.json(r);
-            }
-
-            _covInFlight = algotik.getCoverage();
-            const r = await _covInFlight;
-            _covCache = r;
-            _covAt = Date.now();
-            _covInFlight = null;
+            const r = await deps.dataService.cachedSWR(covCacheKey, ttl,
+                () => algotik.getCoverage());
             res.json(r);
-        } catch (e) {
-            _covInFlight = null;
-            next(e);
-        }
+        } catch (e) { next(e); }
     });
 
     // ---- Audit ----
@@ -196,96 +183,101 @@ function register(app, deps) {
     });
 
     // ---- Data Quality ----
-    let _qualityCache = null, _qualityAt = 0;
     app.get('/api/algotik/quality', async (req, res, next) => {
         try {
             const fresh = req.query.fresh === '1';
-            if (!fresh && _qualityCache && (Date.now() - _qualityAt) < 60000) {
-                return res.json(_qualityCache);
+            const marketHours = require('../../infra/market-hours');
+            const ttl = marketHours.expensiveCacheTTL();
+            const key = 'algotik_quality';
+
+            if (fresh) {
+                deps.dataService.clearCache(key);
             }
 
-            const db = getDB();
-            const { COLLECTIONS } = require('../../config/constants');
-            const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
-                .find({ enabled: true }).toArray();
-
-            const cov = await algotik.getCoverage();
-            const covMap = {};
-            for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
-
-            const since7 = new Date(Date.now() - 7 * 86400000);
-            const ticksAgg = await db.collection('stock_ticks').aggregate([
-                { $match: { time: { $gte: since7 } } },
-                { $group: { _id: '$symbol', count: { $sum: 1 } } }
-            ]).toArray();
-            const ticksMap = {};
-            for (const t of ticksAgg) ticksMap[t._id] = t.count;
-
-            const symbols = [];
-            let good = 0, warn = 0, bad = 0;
-            for (const m of monitored) {
-                const c = covMap[m.symbol] || {};
-                const c1m = (c.stock_base && c.stock_base.count) || 0;
-                const cDaily = (c.stock_daily && c.stock_daily.count) || 0;
-                const cOpt = (c.options && c.options.count) || 0;
-                const cIv = (c.options && c.options.with_iv) || 0;
-                const cTicks = ticksMap[m.symbol] || 0;
-
-                // 🆕 آستانه واقع‌گرایانه‌تر
-                const stockOk = c1m >= 30000 && cDaily >= 40;
-                const optOk = cOpt >= 100 && cIv >= 50;
-                const liveOk = cTicks >= 500;
-
-                // 🆕 چک آپشن بعد از تاریخ قطع
-                const OPT_CUTOFF_MS = new Date('2026-06-09T00:00:00Z').getTime();
-                const optToMs = c.options && c.options.to ? new Date(c.options.to).getTime() : 0;
-                const optHasRecent = optToMs >= OPT_CUTOFF_MS;
-                const optIsStale = cOpt > 0 && !optHasRecent;
-
-                let quality, reason;
-                if (!stockOk) {
-                    quality = 'bad'; reason = `کندل ناکافی (1m: ${c1m.toLocaleString()})`; bad++;
-                } else if (optIsStale) {
-                    // 🆕 آپشن وجود داره ولی از تاریخ قطع قدیمی‌تره
-                    quality = 'bad';
-                    reason = `آپشن قدیمی (آخرین: ${c.options.to.slice(0,10)}) — نیاز به backfill`;
-                    bad++;
-                } else if (stockOk && optOk) {
-                    quality = 'good'; reason = 'آماده بک‌تست آپشن'; good++;
-                } else if (stockOk && cOpt > 0 && cOpt < 100) {
-                    quality = 'warn'; reason = `آپشن ناقص (${cOpt}/100)`; warn++;
-                } else if (stockOk && cOpt === 0) {
-                    // 🆕 بدون هیچ آپشن — خطای واضح
-                    quality = 'bad';
-                    reason = `از 1405/03/19 به بعد آپشن ندارد — نماد اصلاً آپشن نداره`;
-                    bad++;
-                } else {
-                    quality = 'warn'; reason = 'داده متوسط'; warn++;
-                }
-
-                symbols.push({
-                    symbol: m.symbol, quality, reason,
-                    backtestReady: stockOk && optOk && optHasRecent,
-                    liveReady: liveOk,
-                    optHasRecent,
-                    optIsStale,
-                    candle_1m: c1m, candle_daily: cDaily,
-                    option_history: cOpt, option_with_iv: cIv,
-                    option_last_date: c.options && c.options.to ? c.options.to.slice(0,10) : null,
-                    stock_ticks_7d: cTicks
-                });
-            }
-
-            const result = {
-                symbols,
-                summary: { total: symbols.length, good, warn, bad },
-                computedAt: new Date().toISOString()
-            };
-            _qualityCache = result;
-            _qualityAt = Date.now();
-            res.json(result);
+            const r = await deps.dataService.cachedSWR(key, ttl, async () => {
+                // کد قدیمی رو داخل این تابع پیچیده بشه
+                return await computeQuality();
+            });
+            return res.json(r);
         } catch (e) { next(e); }
     });
+
+    // 🆕 جدا کردن محاسبه‌ی quality
+    async function computeQuality() {
+        const db = getDB();
+        const { COLLECTIONS } = require('../../config/constants');
+        const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+            .find({ enabled: true }).toArray();
+
+        const cov = await algotik.getCoverage();
+        const covMap = {};
+        for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
+
+        const since7 = new Date(Date.now() - 7 * 86400000);
+        const ticksAgg = await db.collection('stock_ticks').aggregate([
+            { $match: { time: { $gte: since7 } } },
+            { $group: { _id: '$symbol', count: { $sum: 1 } } }
+        ]).toArray();
+        const ticksMap = {};
+        for (const t of ticksAgg) ticksMap[t._id] = t.count;
+
+        const symbols = [];
+        let good = 0, warn = 0, bad = 0;
+        for (const m of monitored) {
+            const c = covMap[m.symbol] || {};
+            const c1m = (c.stock_base && c.stock_base.count) || 0;
+            const cDaily = (c.stock_daily && c.stock_daily.count) || 0;
+            const cOpt = (c.options && c.options.count) || 0;
+            const cIv = (c.options && c.options.with_iv) || 0;
+            const cTicks = ticksMap[m.symbol] || 0;
+
+            const stockOk = c1m >= 30000 && cDaily >= 40;
+            const optOk = cOpt >= 100 && cIv >= 50;
+            const liveOk = cTicks >= 500;
+
+            const OPT_CUTOFF_MS = new Date('2026-06-09T00:00:00Z').getTime();
+            const optToMs = c.options && c.options.to ? new Date(c.options.to).getTime() : 0;
+            const optHasRecent = optToMs >= OPT_CUTOFF_MS;
+            const optIsStale = cOpt > 0 && !optHasRecent;
+
+            let quality, reason;
+            if (!stockOk) {
+                quality = 'bad'; reason = `کندل ناکافی (1m: ${c1m.toLocaleString()})`; bad++;
+            } else if (optIsStale) {
+                quality = 'bad';
+                reason = `آپشن قدیمی (آخرین: ${c.options.to.slice(0,10)}) — نیاز به backfill`;
+                bad++;
+            } else if (stockOk && optOk) {
+                quality = 'good'; reason = 'آماده بک‌تست آپشن'; good++;
+            } else if (stockOk && cOpt > 0 && cOpt < 100) {
+                quality = 'warn'; reason = `آپشن ناقص (${cOpt}/100)`; warn++;
+            } else if (stockOk && cOpt === 0) {
+                quality = 'bad';
+                reason = `از 1405/03/19 به بعد آپشن ندارد — نماد اصلاً آپشن نداره`;
+                bad++;
+            } else {
+                quality = 'warn'; reason = 'داده متوسط'; warn++;
+            }
+
+            symbols.push({
+                symbol: m.symbol, quality, reason,
+                backtestReady: stockOk && optOk && optHasRecent,
+                liveReady: liveOk,
+                optHasRecent,
+                optIsStale,
+                candle_1m: c1m, candle_daily: cDaily,
+                option_history: cOpt, option_with_iv: cIv,
+                option_last_date: c.options && c.options.to ? c.options.to.slice(0,10) : null,
+                stock_ticks_7d: cTicks
+            });
+        }
+
+        return {
+            symbols,
+            summary: { total: symbols.length, good, warn, bad },
+            computedAt: new Date().toISOString()
+        };
+    }
 
     // ---- Fix gaps for single symbol ----
     app.post('/api/algotik/fix-gaps/:symbol', async (req, res, next) => {

@@ -538,9 +538,50 @@ function cached(key, ttlMs, fn) {
         return v;
     });
 }
+
+// 🆕 Stale-While-Revalidate cache
+// اگه cache تازه → فوری
+// اگه cache قدیمی ولی نه خیلی → نسخه‌ی قدیمی + refresh پس‌زمینه
+// اگه cache سرد → منتظر
+const _swrCache = new Map();
+const SWR_STALE_WINDOW = 24 * 60 * 60 * 1000;   // ۲۴ ساعت
+
+function cachedSWR(key, ttlMs, fn, opts = {}) {
+    const now = Date.now();
+    const staleWindow = opts.staleWindowMs || SWR_STALE_WINDOW;
+    const e = _swrCache.get(key);
+
+    // تازه
+    if (e && (now - e.at) < ttlMs) return Promise.resolve(e.value);
+
+    // قدیمی ولی usable → فوری برگردون + refresh پس‌زمینه
+    if (e && (now - e.at) < staleWindow) {
+        if (!e.refreshing) {
+            e.refreshing = true;
+            Promise.resolve(fn())
+                .then(v => {
+                    _swrCache.set(key, { value: v, at: Date.now(), refreshing: false });
+                    if (deps.logger) deps.logger.info(`swr: refreshed "${key}"`);
+                })
+                .catch(err => {
+                    e.refreshing = false;
+                    if (deps.logger) deps.logger.warn(`swr refresh "${key}": ${err.message}`);
+                });
+        }
+        return Promise.resolve(e.value);
+    }
+
+    // سرد
+    return Promise.resolve(fn()).then(v => {
+        _swrCache.set(key, { value: v, at: Date.now(), refreshing: false });
+        return v;
+    });
+}
+
 function clearCache(prefix) {
-    if (!prefix) { _cache.clear(); return; }
+    if (!prefix) { _cache.clear(); _swrCache.clear(); return; }
     for (const k of _cache.keys()) if (k.startsWith(prefix)) _cache.delete(k);
+    for (const k of _swrCache.keys()) if (k.startsWith(prefix)) _swrCache.delete(k);
 }
 // ============================================================
 // 🆕 Candle cache — با eviction خودکار (رفع memory leak)
@@ -617,6 +658,7 @@ module.exports = {
     invalidateCandleCache,
     init,
     cached,
+    cachedSWR,
     clearCache,
     // time
     getTehranParts, tehranPartsToUTCDate, dayStartUTC, getBucketTime,

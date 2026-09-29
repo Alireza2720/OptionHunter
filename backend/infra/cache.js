@@ -115,7 +115,6 @@ function mongo(getDBFn, collectionName = COLLECTIONS.BACKTEST_RESULT_CACHE, defa
 }
 
 // ---------- Memoize helper ----------
-// کش کردن نتیجه یه async function برای مدت مشخص
 function memoize(fn, ttlMs = 60000) {
     const cache = memory(200, ttlMs);
     return async function (...args) {
@@ -128,4 +127,42 @@ function memoize(fn, ttlMs = 60000) {
     };
 }
 
-module.exports = { memory, mongo, memoize };
+// 🆕 Stale-While-Revalidate
+// - اگه cache گرم و تازه → فوری برگردون
+// - اگه cache گرم ولی قدیمی → نسخه‌ی قدیمی رو فوری بده + تو پس‌زمینه refresh کن
+// - اگه cache سرد → منتظر بمان و refresh کن
+function staleWhileRevalidate(fn, ttlMs = 60000, staleWindowMs = 24 * 60 * 60 * 1000) {
+    const entries = new Map();      // key → { value, at, refreshing }
+    return async function (...args) {
+        const key = JSON.stringify(args);
+        const now = Date.now();
+        const e = entries.get(key);
+
+        // cache تازه
+        if (e && (now - e.at) < ttlMs) {
+            return e.value;
+        }
+
+        // cache قدیمی ولی هنوز تو stale window — فوری برگردون + پس‌زمینه refresh
+        if (e && (now - e.at) < staleWindowMs) {
+            if (!e.refreshing) {
+                e.refreshing = true;
+                fn.apply(this, args)
+                    .then(v => {
+                        entries.set(key, { value: v, at: Date.now(), refreshing: false });
+                    })
+                    .catch(() => {
+                        e.refreshing = false;
+                    });
+            }
+            return e.value;
+        }
+
+        // cache سرد — منتظر بمان
+        const result = await fn.apply(this, args);
+        entries.set(key, { value: result, at: Date.now(), refreshing: false });
+        return result;
+    };
+}
+
+module.exports = { memory, mongo, memoize, staleWhileRevalidate };
