@@ -105,9 +105,15 @@ async function checkBackendMemory() {
 let task = null;
 function start() {
     if (task) return;
-    task = cron.schedule('*/2 * * * *', checkHealth);
-    cron.schedule('0 * * * *', checkBackendMemory);
-    cron.schedule('*/5 * * * *', checkTickFreshness);   // 🆕
+    const marketHours = require('../infra/market-hours');
+    const healthSchedule = () => {
+        // 🆕 تو ساعات بازار skip (tick خودش freshness رو چک می‌کنه)
+        if (marketHours.isMarketOpen()) return;
+        return checkHealth();
+    };
+    task = cron.schedule('*/2 * * * *', healthSchedule);
+    cron.schedule('0 */2 * * *', checkBackendMemory);       // هر 2 ساعت
+    cron.schedule('*/5 * * * *', checkTickFreshness);       // tick freshness بمونه
     deps.logger && deps.logger.info('health.job started');
 }
 

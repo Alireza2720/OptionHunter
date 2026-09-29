@@ -1252,6 +1252,8 @@ async function loadDataPipeline() {
 
 // 🆕 بنر هشدار نمادهای ناقص
 async function checkQualityBanner() {
+    // 🆕 تو ساعات بازار اجرا نشه
+    if (isMarketOpenNow()) return;
     try {
         const q = await apiFetch(`${BACKEND_URL}/api/algotik/quality`, {}, 0);
         const banner = document.getElementById('autoFixBanner');
@@ -1414,10 +1416,11 @@ function startDataPipelinePolling() {
     if (dpTimer) clearInterval(dpTimer);
     dpTimer = setInterval(() => {
         if (document.hidden) return;
-        // اگه Backfill داره اجرا می‌شه، poll نکن (collector مشغوله)
+        // 🆕 تو ساعات بازار poll نکن (coverage سنگینه)
+        if (isMarketOpenNow()) return;
         if (window._backfillRunning) return;
         loadDataPipeline().catch(() => {});
-    }, 120000);
+    }, 300000);   // از 2 دقیقه به 5 دقیقه
 }
 
 async function loadTimeframes() { const tfs = await apiFetch(`${BACKEND_URL}/api/timeframes`, {}, 0); document.getElementById('timeframeSelect').innerHTML = tfs.map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); document.getElementById('htfSelect').innerHTML = tfs.filter(t => TF_MIN[t] >= 15).map(t => `<option value="${t}">${TF_LABELS[t]||t}</option>`).join(''); }
@@ -4107,25 +4110,30 @@ window.addEventListener('load', async () => {
 // 🆕 Unified Polling Scheduler — ۱ تایمر جای ۹ تا
 // ============================================================
 let _unifiedTimer = null;
+// 🆕 critical = تو ساعات بازار هم اجرا می‌شه
 const _pollTasks = [
-    { fn: checkBackendStatus,       every: 120000, last: 0 },
-    { fn: loadConfigs,              every: 120000, last: 0 },
-    { fn: loadMonitoredSymbols,     every: 180000, last: 0 },
-    { fn: refreshQuotesOnly,        every: 60000,  last: 0 },
-    { fn: loadSignalHistory,        every: 120000, last: 0 },
-    { fn: loadOptionPositions,      every: 120000, last: 0 },
-    { fn: loadLiveDashboard,        every: 90000,  last: 0 },
-    { fn: loadRegimeMap,            every: 600000, last: 0 },
-    { fn: updateTickerStatus,       every: 15000,  last: 0 },
+    // 🟢 critical — تو ساعات بازار هم اجرا می‌شن (فقط اینا برای عملکرد زنده)
+    { fn: refreshQuotesOnly,        every: 60000,  last: 0, critical: true },   // 30s → 60s
+    { fn: updateTickerStatus,       every: 60000,  last: 0, critical: true },   // 15s → 60s 🚨
+    { fn: checkBackendStatus,       every: 180000, last: 0, critical: true },   // 2min → 3min
+    // 🟡 non-critical — فقط خارج از ساعات بازار
+    { fn: loadConfigs,              every: 600000, last: 0, critical: false },  // 2min → 10min
+    { fn: loadMonitoredSymbols,     every: 600000, last: 0, critical: false },  // 3min → 10min
+    { fn: loadSignalHistory,        every: 300000, last: 0, critical: false },  // 2min → 5min
+    { fn: loadOptionPositions,      every: 300000, last: 0, critical: false },  // 2min → 5min
+    { fn: loadLiveDashboard,        every: 180000, last: 0, critical: false },  // 90s → 3min
+    { fn: loadRegimeMap,            every: 900000, last: 0, critical: false },  // 10min → 15min
 ];
 
 function startUnifiedPolling() {
     if (_unifiedTimer) clearInterval(_unifiedTimer);
-    // tick هر ۵ ثانیه — فقط taskهایی که موعدشون رسیده اجرا می‌شن
     _unifiedTimer = setInterval(() => {
         if (document.hidden) return;
+        const marketOpen = isMarketOpenNow();
         const now = Date.now();
         for (const t of _pollTasks) {
+            // 🆕 تو ساعات بازار فقط critical اجرا می‌شن
+            if (marketOpen && !t.critical) continue;
             if (now - t.last < t.every) continue;
             t.last = now;
             try {

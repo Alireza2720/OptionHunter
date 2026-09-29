@@ -31,7 +31,7 @@ jobs:
             git reset --hard origin/main
 
             echo "=== Clean ==="
-            git clean -fd -e .env -e ecosystem.config.js -e package-lock.json -e node_modules -e logs
+            git clean -fd -e .env -e package-lock.json -e node_modules -e logs
 
             # 🔒 بازیابی .env اگر پاک شد
             if [ ! -f .env ] && [ -f /tmp/optionhunter.env.backup ]; then

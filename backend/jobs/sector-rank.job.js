@@ -11,7 +11,14 @@ function init(d) { deps = { ...deps, ...d }; }
 
 const LOOKBACK_BARS = 20;
 
+const marketHours = require('../infra/market-hours');
+
 async function compute() {
+    // 🆕 تو ساعات بازار اجرا نشه
+    if (marketHours.isMarketHourOrNear()) {
+        deps.logger && deps.logger.info('sector-rank: skipped (market open)');
+        return [];
+    }
     try {
         const db = deps.getDB();
         const { COLLECTIONS } = require('../config/constants');
@@ -81,11 +88,9 @@ async function compute() {
 let task = null;
 function start() {
     if (task) return;
-    // هر ۱۵ دقیقه
-    task = cron.schedule('*/15 * * * *', compute, { timezone: 'Asia/Tehran' });
-    deps.logger && deps.logger.info('sector-rank.job started');
-    // اولین اجرا بعد ۳۰ ثانیه
-    setTimeout(() => { compute().catch(()=>{}); }, 30000);
+    // 🆕 فقط بعد از بازار: ۱۲:۴۰ و ۱۳:۳۰ و ۱۴:۳۰
+    task = cron.schedule('40 12,13,14 * * 6,0,1,2,3', compute, { timezone: 'Asia/Tehran' });
+    deps.logger && deps.logger.info('sector-rank.job started (post-market only)');
 }
 function stop() { if (task) { task.stop(); task = null; } }
 

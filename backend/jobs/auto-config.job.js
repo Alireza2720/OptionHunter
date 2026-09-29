@@ -67,7 +67,14 @@ async function flushTelegram() {
     try { await deps.telegram.flush(); } catch (_) {}
 }
 
+const marketHours = require('../infra/market-hours');
+
 async function rollingPerformanceCheck() {
+    // 🆕 تو ساعات بازار اجرا نشه
+    if (marketHours.isMarketHourOrNear()) {
+        deps.logger && deps.logger.info('rolling perf: skipped (market open)');
+        return;
+    }
     try {
         const perf = await deps.configService.rollingPerformance(30);
         const toDisable = perf.filter(p => p.action === 'disable' && p.status === 'computed');

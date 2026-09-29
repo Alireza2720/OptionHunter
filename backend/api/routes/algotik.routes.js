@@ -11,8 +11,21 @@ function register(app, deps) {
         try { res.json({ online: await algotik.isOnline() }); }
         catch (e) { res.json({ online: false, error: e.message }); }
     });
+    // 🆕 Cache 30s برای /status (چون فرانت هر 60s صداش می‌زنه)
+    let _statusCache = null;
+    let _statusAt = 0;
+    const STATUS_TTL = 30000;
+
     app.get('/api/algotik/status', async (req, res, next) => {
-        try { res.json(await algotik.getStatus()); } catch (e) { next(e); }
+        try {
+            const fresh = req.query.fresh === '1';
+            if (!fresh && _statusCache && (Date.now() - _statusAt) < STATUS_TTL) {
+                return res.json(_statusCache);
+            }
+            _statusCache = await algotik.getStatus();
+            _statusAt = Date.now();
+            res.json(_statusCache);
+        } catch (e) { next(e); }
     });
 
     // ---- Symbols ----
@@ -58,7 +71,9 @@ function register(app, deps) {
 
     app.get('/api/algotik/coverage', async (req, res, next) => {
         try {
-            const TTL = 5 * 60 * 1000;   // 5 دقیقه
+            // 🆕 TTL داینامیک: تو ساعات بازار 15min، خارج 60min
+            const marketHours = require('../../infra/market-hours');
+            const TTL = marketHours.isMarketHourOrNear() ? 15 * 60 * 1000 : 60 * 60 * 1000;
             const fresh = req.query.fresh === '1';
 
             if (!fresh && _covCache && (Date.now() - _covAt) < TTL) {

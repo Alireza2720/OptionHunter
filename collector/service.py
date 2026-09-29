@@ -158,13 +158,14 @@ def health():
 @app.get('/status')
 def status():
     db = get_db()
+    # 🆕 estimated_document_count = O(1) از metadata (به جای اسکن کامل)
     return {
-        'symbols_total': db[COL_MONITORED].count_documents({}),
+        'symbols_total': db[COL_MONITORED].estimated_document_count(),
         'symbols_enabled': db[COL_MONITORED].count_documents({'enabled': True}),
-        'candles_base': db[COL_CANDLES_BASE].count_documents({}),
-        'candles_daily': db[COL_CANDLES_DAILY].count_documents({}),
-        'option_history': db[COL_OPTION_HISTORY].count_documents({}),
-        'option_snapshots': db[COL_OPTION_SNAPSHOTS].count_documents({}),
+        'candles_base': db[COL_CANDLES_BASE].estimated_document_count(),
+        'candles_daily': db[COL_CANDLES_DAILY].estimated_document_count(),
+        'option_history': db[COL_OPTION_HISTORY].estimated_document_count(),
+        'option_snapshots': db[COL_OPTION_SNAPSHOTS].estimated_document_count(),
         'risk_free': get_current_rf(),
         'ticker': live_mod.get_stats(),
         'backfill_running': _backfill_lock.locked(),

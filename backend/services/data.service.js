@@ -543,12 +543,45 @@ function clearCache(prefix) {
     for (const k of _cache.keys()) if (k.startsWith(prefix)) _cache.delete(k);
 }
 // ============================================================
-// 🆕 Candle cache — جلوگیری از DB hit های تکراری
+// 🆕 Candle cache — با eviction خودکار (رفع memory leak)
 // ============================================================
 const _candleCache = new Map();
-const CANDLE_TTL_MS = 5 * 60 * 1000;   // ۵ دقیقه
+const CANDLE_TTL_MS = 3 * 60 * 1000;    // ۳ دقیقه
+const CANDLE_MAX_ENTRIES = 80;           // 🆕 حداکثر ۸۰ ورودی
+const CANDLE_MAX_HEAP_MB = 200;          // 🆕 سقف تخمینی حافظه
 
 function _cacheKey(symbol, tf) { return `${symbol}::${tf}`; }
+
+// 🆕 پاک‌سازی دورهای — هر ۶۰ ثانیه
+let _cacheCleanupTimer = null;
+function _startCacheCleanup() {
+    if (_cacheCleanupTimer) return;
+    _cacheCleanupTimer = setInterval(() => {
+        const now = Date.now();
+        let removed = 0;
+        // 1) حذف منقضی‌شده‌ها
+        for (const [k, v] of _candleCache) {
+            if (now - v.at > CANDLE_TTL_MS) {
+                _candleCache.delete(k);
+                removed++;
+            }
+        }
+        // 2) اگه هنوز بیشتر از سقف بود، قدیمی‌ترین‌ها رو حذف کن
+        if (_candleCache.size > CANDLE_MAX_ENTRIES) {
+            const sorted = [..._candleCache.entries()].sort((a, b) => a[1].at - b[1].at);
+            const toRemove = _candleCache.size - CANDLE_MAX_ENTRIES;
+            for (let i = 0; i < toRemove; i++) {
+                _candleCache.delete(sorted[i][0]);
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            deps.logger && deps.logger.info(`candle cache: evicted ${removed}, size=${_candleCache.size}`);
+        }
+    }, 60000);
+    // unref تا مانع خروج process نشه
+    if (_cacheCleanupTimer.unref) _cacheCleanupTimer.unref();
+}
 
 function invalidateCandleCache(symbol, tf) {
     if (symbol && tf) _candleCache.delete(_cacheKey(symbol, tf));
@@ -560,6 +593,7 @@ function invalidateCandleCache(symbol, tf) {
 // wrap getCandles
 const _origGetCandles = getCandles;
 getCandles = async function cachedGetCandles(symbol, tf) {
+    _startCacheCleanup();
     const key = _cacheKey(symbol, tf);
     const e = _candleCache.get(key);
     if (e && Date.now() - e.at < CANDLE_TTL_MS) return e.val;
@@ -570,6 +604,7 @@ getCandles = async function cachedGetCandles(symbol, tf) {
 
 const _origGetBaseCandles = getBaseCandles;
 getBaseCandles = async function cachedGetBaseCandles(symbol) {
+    _startCacheCleanup();
     const key = _cacheKey(symbol, '_base');
     const e = _candleCache.get(key);
     if (e && Date.now() - e.at < CANDLE_TTL_MS) return e.val;
