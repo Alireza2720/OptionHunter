@@ -80,11 +80,37 @@ async function getResults(jobId) {
         return { ...base, result: cached.result };
     }
 
+    // compute خطا خورده → دوباره شروع کن
+    if (cached && cached.error && !cached.computing) {
+        deps.logger && deps.logger.warn(`[bt-compute] ${jobId} retry after error`);
+        computeInBackground(jobId).catch(e =>
+            deps.logger && deps.logger.error('[bt-compute] ' + e.message));
+        return { ...base, computing: true, computingFor: 0 };
+    }
+
     // در حال compute → flag رو برگردون
     if (cached && cached.computing) {
-        const elapsed = cached.startedAt
-            ? Math.round((Date.now() - new Date(cached.startedAt).getTime()) / 1000)
+        const elapsedMs = cached.startedAt
+            ? Date.now() - new Date(cached.startedAt).getTime()
             : 0;
+        const elapsed = Math.round(elapsedMs / 1000);
+
+        // 🆕 اگه بیشتر از ۱۵ دقیقه از شروع گذشته و هنوز تموم نشده → stuck
+        const STUCK_THRESHOLD_MS = 15 * 60 * 1000;
+        if (elapsedMs > STUCK_THRESHOLD_MS) {
+            deps.logger && deps.logger.warn(
+                `[bt-compute] ${jobId} stuck for ${elapsed}s — restarting`
+            );
+            // پاک کردن flag و شروع مجدد
+            await db.collection(COLLECTIONS.META).updateOne(
+                { _id: cacheId },
+                { $set: { computing: false, error: 'stuck — auto-restart' }, $unset: { startedAt: '' } }
+            );
+            computeInBackground(jobId).catch(e =>
+                deps.logger && deps.logger.error('[bt-compute] ' + e.message));
+            return { ...base, computing: true, computingFor: 0 };
+        }
+
         return { ...base, computing: true, computingFor: elapsed };
     }
 

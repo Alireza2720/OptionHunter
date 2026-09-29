@@ -2591,7 +2591,21 @@ async function resetAllStrategyDefaults() { if (!confirm('بازگردانی ه�
 
 const jobTrackersTimers = new Map();
 function trackJob(jobId, onUpdate) { if (jobTrackersTimers.has(jobId)) return; const tick = async () => { try { const job = await apiFetch(`${BACKEND_URL}/api/jobs/${jobId}`, {}, 0); if (onUpdate) onUpdate(job); if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') { clearInterval(jobTrackersTimers.get(jobId)); jobTrackersTimers.delete(jobId); loadActiveJobs(); } } catch (e) {} }; tick(); const t = setInterval(tick, 3000); jobTrackersTimers.set(jobId, t); }
-function renderJobProgress(job) { const chunks = (job.progress && job.progress.chunks) || []; const dc = chunks.filter(c => c.status === 'DONE').length; const tt = chunks.length || (job.progress && job.progress.total) || 1; const pv = tt > 0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0; const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه‌ی نتایج', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card ${job.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span><span class="job-status ${job.status}">${statusLabels[job.status] || job.status}</span><span class="job-msg" style="margin-right:auto;">${esc(job.progress ? job.progress.message : '')}</span></div><div class="progress-bar"><div class="progress-fill" style="width:${pv}%"></div></div><div class="job-msg">${dc} / ${tt} (${pv}%)</div></div>`; }
+function renderJobProgress(job) {
+    const chunks = (job.progress && job.progress.chunks) || [];
+    const dc = chunks.filter(c => c.status === 'DONE').length;
+    const tt = chunks.length || (job.progress && job.progress.total) || 1;
+    const pv = tt > 0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0;
+    const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' };
+    const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه‌ی نتایج', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' };
+
+    // 🆕 برای COMPUTING → نوار پیشرفت indeterminate
+    if (job.status === 'COMPUTING') {
+        return `<div class="job-card"><div class="job-header"><span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span><span class="job-status COMPUTING">محاسبه‌ی نتایج</span><span class="job-msg" style="margin-right:auto;">در حال تحلیل آماری + WF + رژیم + پورتفولیو...</span></div><div class="progress-bar"><div class="progress-fill" style="width:100%;animation:loadingPulse 1.4s ease-in-out infinite;"></div></div><div class="job-msg">این مرحله ۲-۱۰ دقیقه طول می‌کشد</div></div>`;
+    }
+
+    return `<div class="job-card ${job.cancelRequested ? 'danger' : ''}"><div class="job-header"><span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span><span class="job-status ${job.status}">${statusLabels[job.status] || job.status}</span><span class="job-msg" style="margin-right:auto;">${esc(job.progress ? job.progress.message : '')}</span></div><div class="progress-bar"><div class="progress-fill" style="width:${pv}%"></div></div><div class="job-msg">${dc} / ${tt} (${pv}%)</div></div>`;
+}
 
 let _jobsPanelTimer = null;
 let _jobsPanelUserActive = false;
@@ -2704,6 +2718,23 @@ async function viewJobDetail(id) {
             return;
         }
 
+        // 🆕 برای backtest تک-config → نمای کامل مثل فرش
+        if (job.type === 'backtest' && job.result) {
+            const dateStr = job.createdAt ? new Date(job.createdAt).toLocaleString('fa-IR') : '';
+            openModal(`نتیجه بک تست — ${dateStr}`, `
+                <div class="hint" style="margin-bottom:10px;">
+                    وضعیت: <b>${job.status}</b> ·
+                    شروع: ${job.startedAt ? new Date(job.startedAt).toLocaleString('fa-IR') : '-'} ·
+                    پایان: ${job.finishedAt ? new Date(job.finishedAt).toLocaleString('fa-IR') : '-'}
+                </div>
+                <div id="btResultArea"></div>
+            `);
+            setTimeout(() => {
+                try { renderBtResult(job.result); } catch (err) { console.error(err); }
+            }, 80);
+            return;
+        }
+
         renderJobDetailModal(job);
     } catch (e) {
         hideLoader();
@@ -2767,11 +2798,22 @@ async function openBacktestResultView(jobId) {
         }
 
         // حالت آماده
+        const cacheId = 'backtest_result_' + jobId;
+        // از raw job بخون که error در cache رو ببینیم
+        const jobDoc = await apiFetch(`${BACKEND_URL}/api/jobs/${jobId}`, {}, 0);
+
+        if (r.status === 'FAILED') {
+            const el = document.getElementById('bt2ResultsArea');
+            if (el) el.innerHTML = `<div class="empty-note" style="color:var(--bad);">خطا: ${esc(jobDoc.error || r.error || 'خطای نامشخص')}</div>`;
+            return;
+        }
+
         if (r.result) {
+            // اگه cache گفت result داره ولی compute دوباره خطا داشته
             renderBacktestResults(r.result);
         } else if (r.error) {
             const el = document.getElementById('bt2ResultsArea');
-            if (el) el.innerHTML = `<div class="empty-note">خطا: ${esc(r.error)}</div>`;
+            if (el) el.innerHTML = `<div class="empty-note" style="color:var(--bad);">خطا: ${esc(r.error)}</div>`;
         } else {
             const el = document.getElementById('bt2ResultsArea');
             if (el) el.innerHTML = `<div class="empty-note">نتیجه‌ای موجود نیست</div>`;
@@ -3679,7 +3721,13 @@ function renderBacktestResults(result) {
 
     const summary = result.summary || {};
     const panels = result.panelsUsed || {};
-    const details = result.details || [];
+    const details = Array.isArray(result.details) ? result.details : [];
+
+    // 🆕 اگه details خالیه، پیام واضح نشون بده
+    if (!details.length && !result.portfolio && !result.analysis) {
+        el.innerHTML = `<div class="empty-note" style="padding:20px; text-align:center;">⚠️ نتیجه‌ی بک‌تست خالی است — احتمالاً job قبل از تکمیل cancel شده یا خطا داشته. <br><br><button class="btn outline small" onclick="closeModal()">بستن</button></div>`;
+        return;
+    }
 
     // summary stats
     const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;

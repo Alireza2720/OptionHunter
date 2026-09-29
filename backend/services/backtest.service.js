@@ -125,10 +125,28 @@ async function updateChunk(id, idx, fields) {
 }
 
 async function cancelJob(id) {
-    await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+    const db = deps.getDB();
+    const sid = String(id);
+
+    // 1) ست cancelRequested
+    await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
         { _id: new ObjectId(id), status: { $in: ACTIVE_JOB_STATUSES } },
         { $set: { cancelRequested: true, updatedAt: new Date() } }
     );
+
+    // 🆕 2) اگه در COMPUTING بود → flag compute رو پاک کن + status رو CANCELLED کن
+    const job = await db.collection(COLLECTIONS.BACKTEST_JOBS).findOne(
+        { _id: new ObjectId(id) }, { projection: { status: 1 } }
+    );
+    if (job && job.status === 'COMPUTING') {
+        await db.collection(COLLECTIONS.META).deleteOne({
+            _id: 'backtest_result_' + sid
+        });
+        await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status: 'CANCELLED', finishedAt: new Date(), updatedAt: new Date() } }
+        );
+    }
 }
 
 async function forceCancelJob(id) {
@@ -841,7 +859,7 @@ function aggregateCompare(allResults) {
 async function resumeStuckJobs() {
     const db = deps.getDB();
 
-    // 🆕 RUNNING jobs با error → cancelled (loop نمی‌کنیم)
+    // 1) RUNNING jobs با error → cancelled
     await db.collection(COLLECTIONS.BACKTEST_JOBS).updateMany(
         { status: JOB_STATUS.RUNNING, error: { $ne: null } },
         { $set: {
@@ -851,7 +869,27 @@ async function resumeStuckJobs() {
         }}
     );
 
-    // 🆕 RUNNING jobs بدون error → دوباره در صف
+    // 2) 🆕 COMPUTING jobs → reset کن (compute process مرده)
+    //    و flag محاسبه در meta رو پاک کن
+    const computingJobs = await db.collection(COLLECTIONS.BACKTEST_JOBS)
+        .find({ status: 'COMPUTING' }, { projection: { _id: 1 } }).toArray();
+
+    for (const j of computingJobs) {
+        await db.collection(COLLECTIONS.META).deleteOne({
+            _id: 'backtest_result_' + String(j._id)
+        });
+    }
+
+    await db.collection(COLLECTIONS.BACKTEST_JOBS).updateMany(
+        { status: 'COMPUTING' },
+        { $set: {
+            status: JOB_STATUS.QUEUED,
+            updatedAt: new Date(),
+            'progress.message': 'بازگشت به صف (compute cancelled)'
+        }}
+    );
+
+    // 3) RUNNING jobs بدون error → دوباره در صف
     const r = await db.collection(COLLECTIONS.BACKTEST_JOBS).updateMany(
         { status: JOB_STATUS.RUNNING, error: null },
         { $set: {
@@ -860,7 +898,7 @@ async function resumeStuckJobs() {
             'progress.message': 'ادامه پس از ری استارت سرور'
         }}
     );
-    return r.modifiedCount;
+    return r.modifiedCount + computingJobs.length;
 }
 
 async function cleanupOldJobs(daysOld = 90) {
