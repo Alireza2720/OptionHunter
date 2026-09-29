@@ -285,6 +285,8 @@ async function runBacktestCompareJob(job) {
     const db = deps.getDB();
     const jobId = String(job._id);
     const allResults = [];
+    // 🆕 memory guard
+    const memGuard = require('../infra/memory-guard');
 
     // 🆕 پاک کردن جزئیات قدیمی (اگه job دوباره اجرا شد)
     await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS).deleteMany({ jobId });
@@ -298,6 +300,9 @@ async function runBacktestCompareJob(job) {
 
         for (const s of strategies) {
             if (await isCancelled(job._id)) throw new Error(ERROR_CODES.CANCELED_BY_USER);
+
+            // 🆕 اگه heap پر شد، GC کن
+            memGuard.maybeGC();
 
             const def = deps.strategies.STRATEGIES[s.id];
             if (!def) continue;
@@ -411,6 +416,14 @@ async function runBacktestCompareJob(job) {
             finishedAt: new Date(),
             tradesCount: allResults.filter(r => r.symbol === symbol).length
         });
+
+        // 🆕 Memory cleanup بعد از هر نماد
+        memGuard.maybeGC();
+        if (deps.logger) {
+            const mem = memGuard.getMemoryStatus();
+            deps.logger.info(`[bt] ${symbol} done | RSS=${mem.processRssMB}MB | free=${mem.systemFreeMB}MB`);
+        }
+
         await new Promise(r => setImmediate(r));
     }
 

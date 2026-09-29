@@ -14,7 +14,28 @@ function register(app, deps) {
     // POST /api/backtest/run
     app.post('/api/backtest/run', async (req, res, next) => {
         try {
+            // 🆕 Memory guard
+            const memGuard = require('../../infra/memory-guard');
+            const check = memGuard.canStartHeavyJob();
+            if (!check.ok) {
+                return res.status(503).json({
+                    error: check.reason,
+                    memory: check.status,
+                });
+            }
+
             const body = req.body || {};
+
+            // 🆕 هشدار برای بک‌تست‌های خیلی سنگین
+            const symCount = (body.symbols || []).length;
+            const stratCount = (body.strategies || []).length;
+            if (symCount * stratCount > 200 && check.status.systemFreeMB < 500) {
+                return res.status(503).json({
+                    error: `بک‌تست سنگین (${symCount}×${stratCount}=${symCount*stratCount} ترکیب) با RAM آزاد ${check.status.systemFreeMB}MB — لطفاً صبر کنید یا تعداد را کم کنید`,
+                    memory: check.status,
+                });
+            }
+
             const r = await backtestOrchestrator.runBacktest(body);
             res.json(r);
         } catch (e) {

@@ -421,7 +421,8 @@ async function bootstrap() {
         wfService,
         regimeService,
         portfolioService,
-        signalFilterService
+        signalFilterService,
+        notify: telegram.notify   // 🆕
     });
 
     // refresh اولیه (async — non-blocking)

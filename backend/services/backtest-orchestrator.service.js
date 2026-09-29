@@ -11,7 +11,8 @@ let deps = {
     getDB: null, logger: null,
     backtestService: null, analysisService: null,
     signalFilterService: null, wfService: null,
-    regimeService: null, portfolioService: null
+    regimeService: null, portfolioService: null,
+    notify: null   // 🆕 برای ارسال گزارش تلگرام
 };
 function init(d) { deps = { ...deps, ...d }; }
 
@@ -146,11 +147,47 @@ async function computeInBackground(jobId) {
             .findOne({ _id: new ObjectId(jobId) });
         if (!job) throw new Error('job disappeared');
 
+        const memGuard = require('../infra/memory-guard');
+        const before = memGuard.getMemoryStatus();
+        deps.logger && deps.logger.info(
+            `[bt-compute] ${jobId} start | RSS=${before.processRssMB}MB | free=${before.systemFreeMB}MB`
+        );
+
         const result = await computeFullResult(job, jobId);
+
+        // 🆕 اگه result خیلی بزرگه، خلاصه‌اش کن
+        const resultSizeMB = Buffer.byteLength(JSON.stringify(result), 'utf8') / 1048576;
+        let savedResult = result;
+
+        // اگه بیشتر از 5MB، trades رو از result حذف کن (توی details هستن)
+        if (resultSizeMB > 5) {
+            deps.logger && deps.logger.warn(
+                `[bt-compute] ${jobId} result is ${resultSizeMB.toFixed(1)}MB — trimming trades from top-level`
+            );
+            savedResult = {
+                ...result,
+                details: (result.details || []).map(d => ({
+                    ...d,
+                    // trades رو نگه دار فقط برای 10 تا اول
+                    trades: (d.trades || []).slice(0, 10),
+                    _tradesTruncated: (d.trades || []).length > 10,
+                    _totalTrades: (d.trades || []).length,
+                })),
+                _trimmed: true,
+                _originalSizeMB: Math.round(resultSizeMB * 10) / 10,
+            };
+        }
 
         await db.collection(COLLECTIONS.META).updateOne(
             { _id: cacheId },
-            { $set: { computing: false, result, cachedAt: new Date() }, $unset: { startedAt: '' } }
+            { $set: { computing: false, result: savedResult, cachedAt: new Date() }, $unset: { startedAt: '' } }
+        );
+
+        // 🆕 پاکسازی صریح
+        memGuard.maybeGC();
+        const after = memGuard.getMemoryStatus();
+        deps.logger && deps.logger.info(
+            `[bt-compute] ${jobId} end | RSS=${after.processRssMB}MB | free=${after.systemFreeMB}MB`
         );
 
         // 🆕 بعد از اتمام محاسبه → DONE
@@ -159,8 +196,15 @@ async function computeInBackground(jobId) {
             { $set: { status: 'DONE', updatedAt: new Date() } }
         );
 
-        deps.logger && deps.logger.info(
-            `[bt-compute] ${jobId} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        deps.logger && deps.logger.info(`[bt-compute] ${jobId} done in ${elapsed}s`);
+
+        // 🆕 Telegram notify کامل
+        try {
+            await sendBacktestNotification(job, result, elapsed);
+        } catch (notifyErr) {
+            deps.logger && deps.logger.warn(`[bt-compute] notify failed: ${notifyErr.message}`);
+        }
     } catch (e) {
         await db.collection(COLLECTIONS.META).updateOne(
             { _id: cacheId },
@@ -174,7 +218,102 @@ async function computeInBackground(jobId) {
         );
 
         deps.logger && deps.logger.error(`[bt-compute] ${jobId} FAILED: ${e.message}`);
+
+        // 🆕 Telegram error notify
+        try {
+            if (deps.notify) {
+                await deps.notify(`❌ بک‌تست خطا خورد\n\nJob: ${jobId.slice(0,8)}\nخطا: ${e.message.slice(0, 200)}`);
+            }
+        } catch (_) {}
     }
+}
+
+// 🆕 ارسال گزارش کامل به تلگرام
+async function sendBacktestNotification(job, result, elapsed) {
+    if (!deps.notify) return;
+
+    const mode = (job.payload && job.payload.mode) || 'option';
+    const modeLabel = mode === 'stock' ? '📊 سهم پایه' : '🎯 آپشن';
+    const symbols = (job.payload && job.payload.symbols) || [];
+    const strategies = (job.payload && job.payload.strategies) || [];
+    const details = (result.details || []);
+
+    const targetKey = mode === 'stock' ? 'stockStats' : 'optionStats';
+
+    // valid details
+    const valid = details.filter(d => {
+        const t = d[targetKey];
+        return t && t.count > 0;
+    });
+
+    // top 5 pairs
+    const sorted = [...valid].sort((a, b) => {
+        const pa = (a[targetKey] && a[targetKey].profitFactor) || 0;
+        const pb = (b[targetKey] && b[targetKey].profitFactor) || 0;
+        return pb - pa;
+    });
+    const top = sorted.slice(0, 5);
+
+    // آمار کل
+    let totalTrades = 0;
+    let totalWins = 0;
+    for (const d of valid) {
+        const t = d[targetKey];
+        totalTrades += t.count || 0;
+        totalWins += (t.count || 0) * (t.winRate || 0) / 100;
+    }
+    const winRate = totalTrades > 0 ? (totalWins / totalTrades * 100).toFixed(1) : '0';
+
+    // Portfolio
+    let portfolioLine = '';
+    if (result.portfolio && !result.portfolio.error && result.portfolio.stats) {
+        const p = result.portfolio.stats;
+        portfolioLine =
+            `\n💼 پورتفولیو:` +
+            `\n   قبول/کل: ${result.portfolio.acceptedTrades || 0}/${result.portfolio.totalTrades || 0}` +
+            `\n   بازده: ${p.totalReturnPct != null ? p.totalReturnPct.toFixed(1) : '-'}%` +
+            `\n   MaxDD: ${p.maxDD != null ? p.maxDD.toFixed(1) : '-'}%` +
+            `\n   PF: ${p.profitFactor != null ? p.profitFactor.toFixed(2) : '-'}` +
+            `\n   Sharpe: ${p.sharpe != null ? p.sharpe.toFixed(2) : '-'}`;
+    }
+
+    // Analysis
+    let analysisLine = '';
+    if (result.analysis && !result.analysis.error) {
+        analysisLine = `\n📈 تحلیل آماری: PASS=${result.analysis.passing || 0} از ${result.analysis.totalAnalyzed || 0}`;
+    }
+
+    // WF
+    let wfLine = '';
+    if (result.wf && !result.wf.error && result.wf.wfWhitelistSaved) {
+        const s = result.wf.wfWhitelistSaved;
+        wfLine = `\n🔬 WF برندگان: ${(s.passingStrategies || []).length}`;
+    }
+
+    // Top pairs
+    let topLine = '\n🏆 برترین pairها:';
+    for (let i = 0; i < top.length; i++) {
+        const d = top[i];
+        const t = d[targetKey];
+        const pf = t.profitFactor != null ? (Number.isFinite(t.profitFactor) ? t.profitFactor.toFixed(2) : '∞') : '-';
+        topLine += `\n   ${i+1}. ${d.symbol} / ${d.strategyName} | PF=${pf} N=${t.count || 0}`;
+    }
+    if (!top.length) topLine = '\n🏆 برنده‌ای نداشت';
+
+    const text =
+        `✅ بک‌تست کامل شد (${elapsed}s)\n` +
+        `\n${modeLabel}` +
+        `\n${symbols.length} نماد × ${strategies.length} استراتژی = ${symbols.length * strategies.length} ترکیب` +
+        `\nمعتبر: ${valid.length} / ${details.length}` +
+        `\nمیانگین WR: ${winRate}%` +
+        `\nمجموع معاملات: ${totalTrades}` +
+        topLine +
+        portfolioLine +
+        analysisLine +
+        wfLine;
+
+    await deps.notify(text);
+    deps.logger && deps.logger.info(`[bt-compute] notify sent (${top.length} top pairs)`);
 }
 
 async function computeFullResult(job, jobId) {
