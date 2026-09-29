@@ -609,6 +609,16 @@ function closeModal() {
         document.getElementById('modalBody').innerHTML = prev.html;
         return;
     }
+    // 🆕 اگه بک‌تست در حال polling بود، متوقفش کن
+    if (_btPollTimer) {
+        clearInterval(_btPollTimer);
+        _btPollTimer = null;
+    }
+    // 🆕 اگه job tracker فعال بود، پاک کن
+    if (typeof jobTrackersTimers !== 'undefined') {
+        for (const t of jobTrackersTimers.values()) clearInterval(t);
+        jobTrackersTimers.clear();
+    }
     document.getElementById('modalBg').classList.remove('open');
     document.body.classList.remove('modal-open');
 }
