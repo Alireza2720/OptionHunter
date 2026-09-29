@@ -3468,8 +3468,12 @@ function openBacktestPanel(mode) {
                 <div class="date-range-row">
                     <label>از: <input type="date" id="bt2From" value="${fromDefault}" ${optionLock ? 'readonly style="background:var(--bg);cursor:not-allowed;opacity:.7;"' : ''}></label>
                     <label>تا: <input type="date" id="bt2To" value="${today}"></label>
-                    ${optionLock ? '<span class="hint" style="align-self:center;">🔒 شروع ثابت: 1405/03/19 (اولین دیتای آپشن)</span>' : ''}
+                    ${optionLock
+                        ? '<span class="hint" style="align-self:center;">🔒 شروع ثابت: 1405/03/19 (اولین دیتای آپشن)</span>'
+                        : `<button class="btn tiny outline" onclick="bt2UseAllData(this)" title="از اولین دیتای موجود تا امروز">📅 کل دیتا</button>`
+                    }
                 </div>
+                <div id="bt2RangeInfo" class="hint" style="display:none; margin-top:-4px;"></div>
 
                 ${mode === 'option' ? `
                 <div class="form-row" style="margin-top:8px;">
@@ -3569,6 +3573,46 @@ function openBacktestPanel(mode) {
     `);
 }
 
+// 🆕 پر کردن بازه با کل دیتای موجود
+async function bt2UseAllData(btn) {
+    const orig = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    const infoEl = document.getElementById('bt2RangeInfo');
+
+    try {
+        // از همون endpoint که پنل قدیمی استفاده می‌کرد
+        const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
+        if (!r || !r.from) {
+            if (infoEl) {
+                infoEl.style.display = 'block';
+                infoEl.innerHTML = '⚠️ بازه‌ی دیتا پیدا نشد — ابتدا Backfill بزن';
+                infoEl.style.color = 'var(--warn)';
+            }
+            if (btn) { btn.disabled = false; btn.textContent = orig; }
+            return;
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        document.getElementById('bt2From').value = r.from;
+        document.getElementById('bt2To').value = today;
+
+        if (infoEl) {
+            infoEl.style.display = 'block';
+            const days = r.days || Math.floor((new Date(today) - new Date(r.from)) / 86400000);
+            infoEl.innerHTML = `✅ بازه انتخاب شد: <b>${r.from}</b> → <b>${today}</b> (${days} روز)`;
+            infoEl.style.color = 'var(--good)';
+        }
+    } catch (e) {
+        if (infoEl) {
+            infoEl.style.display = 'block';
+            infoEl.innerHTML = `خطا: ${esc(e.message)}`;
+            infoEl.style.color = 'var(--bad)';
+        }
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+}
+
 async function runBacktestOrchestrator() {
     const symbols = Array.from(document.querySelectorAll('.bt2-sym:checked')).map(c => c.value);
     const strategies = Array.from(document.querySelectorAll('.bt2-strat:checked')).map(c => ({ id: c.value }));
@@ -3623,6 +3667,15 @@ async function runBacktestOrchestrator() {
     res.innerHTML = '';
     btn.disabled = true;
     btn.textContent = '...';
+
+    // 🆕 نمایش بازه در حین اجرا (برای تأیید کاربر)
+    const infoEl = document.getElementById('bt2RangeInfo');
+    if (infoEl) {
+        const days = Math.floor((to - from) / 86400);
+        infoEl.style.display = 'block';
+        infoEl.innerHTML = `🎯 در حال اجرا: <b>${fromV}</b> → <b>${toV}</b> (${days} روز) · <b>${symbols.length}</b> نماد × <b>${strategies.length}</b> استراتژی`;
+        infoEl.style.color = 'var(--accent)';
+    }
 
     try {
         const r = await apiFetch(`${BACKEND_URL}/api/backtest/run`, {
