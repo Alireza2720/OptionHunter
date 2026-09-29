@@ -429,6 +429,14 @@ async function bootstrap() {
         logger.warn('initial regime refresh: ' + e.message)
     );
 
+    // 🆕 Warm-up: coverage و quality cache رو از قبل پر کن
+    // که کاربر اول صبح منتظر 25s نمونه
+    setTimeout(() => {
+        algotik.getCoverage()
+            .then(() => logger.info('✅ coverage cache warmed'))
+            .catch(e => logger.warn('coverage warmup: ' + e.message));
+    }, 3000);
+
     // 11.6) correlation service (Phase 3 Step 2)
     correlationService.init({
         getDB: mongo.getDB,

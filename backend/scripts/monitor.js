@@ -54,8 +54,7 @@ function getMongoConn() {
 }
 
 function getCpu() {
-    // 🆕 vmstat با دو نمونه — قابل اعتماد
-    // ستون ۱۵ = idle. دو نمونه می‌گیریم، دومی رو می‌خونیم.
+    // 🆕 vmstat با ۲ نمونه — قابل اعتماد برای batch mode
     const out = safe("vmstat 1 2 | tail -1 | awk '{print 100 - $15}'");
     return out ? Math.round(parseFloat(out)) : '?';
 }
