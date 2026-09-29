@@ -71,9 +71,9 @@ function register(app, deps) {
 
     app.get('/api/algotik/coverage', async (req, res, next) => {
         try {
-            // 🆕 TTL داینامیک: تو ساعات بازار 15min، خارج 60min
+            // 🆕 TTL داینامیک: تو ساعات بازار 30min، خارج 120min
             const marketHours = require('../../infra/market-hours');
-            const TTL = marketHours.isMarketHourOrNear() ? 15 * 60 * 1000 : 60 * 60 * 1000;
+            const TTL = marketHours.isMarketHourOrNear() ? 30 * 60 * 1000 : 120 * 60 * 1000;
             const fresh = req.query.fresh === '1';
 
             if (!fresh && _covCache && (Date.now() - _covAt) < TTL) {

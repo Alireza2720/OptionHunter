@@ -57,7 +57,8 @@ function register(app, deps) {
             let covMap = {};
             if (dataService) {
                 try {
-                    const cov = await dataService.cached('coverage', 60000,
+                    // 🆕 TTL از 60s به 15min (چون پولینگ فرانت هر 10 دقیقه است)
+                    const cov = await dataService.cached('coverage', 15 * 60 * 1000,
                         () => deps.algotik.getCoverage());
                     for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
                 } catch (_) {}

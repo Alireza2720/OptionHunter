@@ -429,12 +429,18 @@ async function bootstrap() {
         logger.warn('initial regime refresh: ' + e.message)
     );
 
-    // 🆕 Warm-up: coverage و quality cache رو از قبل پر کن
-    // که کاربر اول صبح منتظر 25s نمونه
+    // 🆕 Warm-up: coverage رو از هر دو مسیر پر کن
     setTimeout(() => {
+        // 1) مستقیم از collector (cache روی collector)
         algotik.getCoverage()
-            .then(() => logger.info('✅ coverage cache warmed'))
+            .then(() => logger.info('✅ coverage cache warmed (collector)'))
             .catch(e => logger.warn('coverage warmup: ' + e.message));
+
+        // 🆕 2) از مسیر dataService.cached (cache مشترک backend)
+        //    چون /api/monitored-symbols و /api/algotik/coverage از این استفاده می‌کنن
+        dataService.cached('coverage', 15 * 60 * 1000, () => algotik.getCoverage())
+            .then(() => logger.info('✅ coverage cache warmed (backend)'))
+            .catch(e => logger.warn('coverage warmup backend: ' + e.message));
     }, 3000);
 
     // 11.6) correlation service (Phase 3 Step 2)
