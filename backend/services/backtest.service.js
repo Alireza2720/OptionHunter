@@ -329,8 +329,7 @@ async function runBacktestCompareJob(job) {
                 const isStockOnly = (job.payload.mode === 'stock');
                 const result = await deps.backtest.runBacktest(cfg, fromTs, toTs, {
                     useRealOption: !!useRealOption,
-                    mode: isStockOnly ? 'stock' : 'option',
-                    stockOnly: isStockOnly
+                    mode: isStockOnly ? 'stock' : 'option'
                 });
 
                 // 🆕 خلاصه سبک برای لیست اصلی

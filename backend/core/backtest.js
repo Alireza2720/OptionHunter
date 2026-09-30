@@ -803,7 +803,7 @@ function round2(v) {
 // ============================================================
 async function runBacktest(cfg, from, to, opts = {}) {
     // 🆕 mode: 'stock' یعنی فقط سهام، بدون آپشن
-    const isStockOnly = opts.mode === 'stock' || (!opts.useRealOption && opts.stockOnly);
+    const isStockOnly = opts.mode === 'stock';
     const mode = opts.useRealOption ? 'real' : 'hybrid';
 
     const computeFn = async (c, f, t) => {
