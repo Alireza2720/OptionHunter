@@ -231,8 +231,9 @@ function register(app, deps) {
             const cIv = (c.options && c.options.with_iv) || 0;
             const cTicks = ticksMap[m.symbol] || 0;
 
-            const stockOk = c1m >= 30000 && cDaily >= 40;
-            const optOk = cOpt >= 100 && cIv >= 50;
+            // 🆕 آستانه‌های واقع‌گرایانه‌تر برای نمادهای کم‌معامله
+            const stockOk = c1m >= 5000 && cDaily >= 40;
+            const optOk = cOpt >= 50 && cIv >= 20;
             const liveOk = cTicks >= 500;
 
             const OPT_CUTOFF_MS = new Date('2026-06-09T00:00:00Z').getTime();
