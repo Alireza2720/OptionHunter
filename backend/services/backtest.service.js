@@ -602,8 +602,8 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
     const th = getThresholds(dataDays);
 
     const STRATEGIES = deps.strategies.STRATEGIES;
-    // ⛔ حذف ensemble (ترکیبی) + pairs_spread (نیاز به pairSymbol دستی)
-    const EXCLUDED = new Set(['ensemble', 'pairs_spread']);
+    // ⛔ حذف ensemble + pairs_spread + sector_momentum (بدون context → N=0)
+    const EXCLUDED = new Set(['ensemble', 'pairs_spread', 'sector_momentum']);
     const strategies = Object.values(STRATEGIES).filter(s => !EXCLUDED.has(s.id));
     const results = [];
 

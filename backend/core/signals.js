@@ -291,6 +291,32 @@ async function evaluateConfig(config, marketInfo) {
     const latest = result.signals[result.signals.length - 1];
     if (!latest) return;
 
+    // 🆕 فقط وقتی کندل بسته شده سیگنال معتبره
+    const _sigTfMin = TIMEFRAME_MINUTES[config.timeframe] || 30;
+    const _sigNowSec = Math.floor(Date.now() / 1000);
+    const _sigLastCloseTime = latest.time + _sigTfMin * 60;
+
+    if (_sigLastCloseTime > _sigNowSec) {
+        // کندل در حال تشکیل — سیگنال رو skip کن (نه صادر کن، نه state رو خراب کن)
+        await stateColl.updateOne(
+            { configId },
+            { $set: {
+                ...base,
+                insufficientData: false,
+                position: latest.position,
+                indicators: latest.indicators,
+                price: candles[candles.length - 1].close,
+                lastCandleTime: latest.time,
+                htfTrend: result.htfTrend || null,
+                reason: 'کندل در حال تشکیل — بدون سیگنال',
+                lastSkippedAt: new Date(),
+                lastSkipReason: 'candle_forming'
+            }},
+            { upsert: true }
+        );
+        return;
+    }
+
     // ---- Warmup (اولین بار) ----
     if (!prev) {
         await stateColl.updateOne(

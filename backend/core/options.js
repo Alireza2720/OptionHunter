@@ -66,14 +66,13 @@ const OPT_BT_DEFAULTS = {
     maxReturnPct: 150,
     minExitDays: 0.5,
     realEnabled: true,
-    // 🆕 Phase 2: Realism
-    closeHaircutPct: 0.025,       // 2.5% نصف اسپرد تخمینی (وقتی bid/ask نیست)
-    timeWindowDays: 1,            // 🆕 پنجره‌ی جستجو (قبلاً 3 روز)
-    dynSlipBase: 0.001,           // 0.1% slippage پایه
-    dynSlipImpactCoef: 0.5,       // ضریب Almgren-Chriss
-    minFillRatio: 0.05,           // حداقل نسبت پر شدن (5%)
-    maxParticipation: 0.2,        // حداکثر 20% از حجم روز
-    latencySec: 1                 // تأخیر ورود/خروج
+    // 🆕 Phase 2: Realism — بدون تخمین
+    timeWindowDays: 1,
+    dynSlipBase: 0.001,
+    dynSlipImpactCoef: 0.5,
+    minFillRatio: 0.05,
+    maxParticipation: 0.2,
+    latencySec: 1
 };
 
 const RELAX_LEVELS = [
@@ -104,30 +103,17 @@ const pc = v => v === null || v === undefined ? '-' : `${v >= 0 ? '+' : ''}${v.t
 // 🆕 Phase 2: Realism helpers
 // ============================================================
 
-/**
- * قیمت خرید واقع‌گرایانه
- * - اگه ask واقعی هست → استفاده کن
- * - وگرنه close/last با haircut مثبت (چون ask > close معمولاً)
- */
-function realisticBuyPrice(row, haircutPct) {
+// 🆕 bid/ask اجباری — بدون حدس‌زنی
+function realisticBuyPrice(row) {
     if (!row) return null;
-    if (row.ask > 0) return { price: row.ask, isReal: true, source: 'ask' };
-    const base = row.close > 0 ? row.close : (row.last > 0 ? row.last : 0);
-    if (!base) return null;
-    return { price: base * (1 + haircutPct), isReal: false, source: row.close > 0 ? 'close' : 'last' };
+    if (!(row.ask > 0)) return null;   // ⛔ اگه ask نبود → رد
+    return { price: row.ask, isReal: true, source: 'ask' };
 }
 
-/**
- * قیمت فروش واقع‌گرایانه
- * - اگه bid واقعی هست → استفاده کن
- * - وگرنه close/last با haircut منفی (چون bid < close معمولاً)
- */
-function realisticSellPrice(row, haircutPct) {
+function realisticSellPrice(row) {
     if (!row) return null;
-    if (row.bid > 0) return { price: row.bid, isReal: true, source: 'bid' };
-    const base = row.close > 0 ? row.close : (row.last > 0 ? row.last : 0);
-    if (!base) return null;
-    return { price: base * (1 - haircutPct), isReal: false, source: row.close > 0 ? 'close' : 'last' };
+    if (!(row.bid > 0)) return null;   // ⛔ اگه bid نبود → رد
+    return { price: row.bid, isReal: true, source: 'bid' };
 }
 
 /**
@@ -1188,11 +1174,10 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     }
     if (!exitRow) return null;
 
-    // ---- 🆕 قیمت‌های واقع‌گرایانه ----
-    const haircut = p.closeHaircutPct || 0.025;
-    const entry = realisticBuyPrice(best, haircut);
-    const exit  = realisticSellPrice(exitRow, haircut);
-    if (!entry || !exit) return null;
+    // ---- 🆕 قیمت‌ها فقط از bid/ask واقعی ----
+    const entry = realisticBuyPrice(best);
+    const exit  = realisticSellPrice(exitRow);
+    if (!entry || !exit) return null;   // ⛔ اگه bid/ask نبود → کل معامله skip
 
     // ---- 🆕 Slippage داینامیک ----
     const orderSize = best.size || 1000;
@@ -1402,15 +1387,13 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
 
             // 🆕 قبول رکوردهایی که bid/ask دارن یا close>0 دارن
+            // 🆕 فقط رکوردهایی که هم bid و هم ask دارن (بدون تخمین)
             const bulkRows = await db.collection('option_history').find({
                 underlying: norm(symbol),
                 time: { $gte: minTime, $lte: maxTime },
                 daysLeft: { $gte: p.minDays, $lte: Math.max(p.maxDays, 200) },
-                $or: [
-                    { bid: { $gt: 0 }, ask: { $gt: 0 } },
-                    { close: { $gt: 0 } },
-                    { last: { $gt: 0 } }
-                ]
+                bid: { $gt: 0 },
+                ask: { $gt: 0 }
             }).toArray();
 
             // group by symbol
@@ -1438,10 +1421,14 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                 result = tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
             } catch (_) { result = null; }
         }
-        if (result) { trades.push(result); realUsed++; }
+        // 🆕 فقط معاملات با bid/ask واقعی پذیرفته می‌شن
+        if (result) {
+            trades.push(result);
+            realUsed++;
+        }
+        // ⛔ approximate حذف شد — بدون bid/ask معامله معنی نداره
         else {
-            const approx = tryGetApproxTradeData(t, closes, times, p);
-            if (approx) { trades.push(approx); approxUsed++; }
+            approxUsed++;   // شمارش برای diagnostic
         }
     }
 
@@ -1473,10 +1460,9 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
     };
 
-    if (!trades.length) result.diagnostic = 'هیچ معامله ای در بک تست تولید نشد.';
-    else if (realUsed > 0 && approxUsed > 0) result.diagnostic = `ترکیبی: ${realUsed} واقعی + ${approxUsed} تقریبی`;
-    else if (realUsed > 0) result.diagnostic = `همه ${realUsed} معامله از دیتای واقعی`;
-    else result.diagnostic = `همه ${approxUsed} معامله تقریبی (volCrush ${p.volCrushFactor}، سقف ${p.maxReturnPct}%)`;
+    if (!trades.length) result.diagnostic = 'هیچ معامله ای با bid/ask واقعی پیدا نشد.';
+    else if (approxUsed > 0) result.diagnostic = `${realUsed} معامله واقعی (bid/ask کامل) — ${approxUsed} معامله به‌دلیل نداشتن bid/ask رد شد`;
+    else result.diagnostic = `همه ${realUsed} معامله از دیتای واقعی با bid/ask`;
 
     return result;
 }

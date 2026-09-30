@@ -13,7 +13,7 @@ const { execSync } = require('child_process');
 
 const LOG_DIR = path.join(__dirname, '..', '..', 'logs');
 const MAIN_LOG = path.join(LOG_DIR, 'monitor.log');
-const INTERVAL_MS = 30000;
+const INTERVAL_MS = 120000;   // 🆕 از 30s به 120s (کاهش CPU)
 const MAX_MAIN_LINES = 5000;
 const KEEP_MAIN_LINES = 2000;
 const RETENTION_DAYS = 7;

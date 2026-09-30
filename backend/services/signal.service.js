@@ -40,10 +40,13 @@ const health = {
 };
 
 let tickRunning = false;
+let tickStartTime = 0;
+const TICK_TIMEOUT_MS = 90 * 1000;
 const lastSnap = new Map();
 const lastQuotes = new Map();
 let inactiveTicks = 0;
 let holidayDate = null;
+const _lastSkipLog = new Map();   // 🆕 throttle برای skip logs
 
 // 🆕 track symbols updated this tick → for cache invalidation
 const _updatedThisTick = new Set();
@@ -144,8 +147,18 @@ async function buildMarketInfo(monitored) {
 // Main tick
 // ============================================================
 async function tick() {
-    if (tickRunning) return;
+    if (tickRunning) {
+        // 🆕 فقط لاگ کن اگه کند شده — force reset نکن (باعث تیک موازی می‌شه)
+        const elapsed = Date.now() - tickStartTime;
+        if (elapsed > 30000) {
+            deps.logger && deps.logger.warn(
+                `tick still running (${Math.round(elapsed/1000)}s) — skip`
+            );
+        }
+        return;
+    }
     tickRunning = true;
+    tickStartTime = Date.now();
     try {
         const db = deps.getDB();
         const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
@@ -236,7 +249,12 @@ async function tick() {
     } catch (e) {
         await recordTickFailure(e.message);
     } finally {
+        const duration = Date.now() - tickStartTime;
         tickRunning = false;
+        // 🆕 لاگ اگه کند بود
+        if (duration > 10000) {
+            deps.logger && deps.logger.warn(`tick slow: ${duration}ms`);
+        }
     }
 }
 

@@ -82,45 +82,11 @@ async function buildAndSaveWhitelist(jobId, opts = {}) {
 // بازیابی برای مسیر زنده
 // ------------------------------------------------------------
 async function getWhitelist() {
-    const db = deps.getDB();
-    const doc = await db.collection(COLLECTIONS.META).findOne({ _id: 'signal_whitelist' });
-    if (!doc) return null;
-
-    // 🆕 اگه whitelist بیشتر از 7 روز پیش ساخته شده، نادیده بگیر
-    // (چون pipeline دوباره اجرا نشده و ممکنه config جدید بیاد)
-    const ageDays = doc.computedAt
-        ? (Date.now() - new Date(doc.computedAt).getTime()) / 86400000
-        : 999;
-    if (ageDays > 7) {
-        deps.logger && deps.logger.info(
-            `whitelist age ${ageDays.toFixed(1)}d > 7d — ignoring (allow all)`
-        );
-        return null;
-    }
-
-    // منبع اصلی: pair-level signal_whitelist
-    const pairs = doc.pairs || [];
-    const strategies = doc.strategies || [];
-
-    // WF whitelist فقط برای insight (نه فیلتر)
-    const wfDoc = await db.collection(COLLECTIONS.META).findOne({ _id: 'wf_strategy_whitelist' });
-    let wfApplied = false;
-    let wfStrategies = null;
-    if (wfDoc && wfDoc.hasPassing && wfDoc.strategies && wfDoc.strategies.length > 0) {
-        wfApplied = true;
-        wfStrategies = wfDoc.strategies;
-    }
-
-    return {
-        pairs: new Set(pairs),
-        strategies: new Set(strategies),
-        symbols: new Set(doc.symbols || []),
-        jobId: doc.jobId,
-        computedAt: doc.computedAt,
-        filterMode: doc.filterMode,
-        wfApplied,
-        wfStrategies
-    };
+    // 🆕 TEMPORARILY DISABLED — فیلتر pair غیرفعال شد تا معیارها بازنگری بشن
+    // دلیل: 0 PASS از 328 تحلیل و همه‌ی سیگنال‌ها reject می‌شدن
+    // فعالسازی مجدد پس از کالیبره‌ی gates
+    deps.logger && deps.logger.info('whitelist bypass — filter temporarily disabled');
+    return null;
 }
 
 async function clear() {

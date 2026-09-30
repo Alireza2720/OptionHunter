@@ -3877,15 +3877,18 @@ function renderBacktestResults(result) {
 
     let bySymbolHtml = '';
     for (const [sym, rows] of Object.entries(bySymbolGrouped)) {
-        const scored = rows.map(d => {
-            const t = d[targetKey] || d.stockStats || {};
-            let pf = t.profitFactor;
-            if (pf === null || pf === undefined || !Number.isFinite(pf)) pf = 0;
-            const wr = t.winRate || 0;
-            const n = t.count || 0;
-            const score = pf * 0.4 + (wr/100) * 0.3 + Math.min(n, 20)/20 * 0.3;
-            return { ...d, _pf: pf, _wr: wr, _n: n, _score: score };
-        }).sort((a, b) => b._score - a._score);
+            const scored = rows.map(d => {
+                const t = d[targetKey] || d.stockStats || {};
+                let pf = t.profitFactor;
+                if (pf === null || pf === undefined || !Number.isFinite(pf)) pf = 0;
+                const wr = t.winRate || 0;
+                const n = t.count || 0;
+                // 🆕 Score محافظه‌کارانه برای N کم
+                const nPenalty = n < 20 ? 0.3 : 1.0;
+                const score = (pf * 0.4 + (wr / 100) * 0.3 + Math.min(n, 20) / 20 * 0.3) * nPenalty;
+                const lowN = n < 20;
+                return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _lowN: lowN };
+            }).sort((a, b) => b._score - a._score);
 
         const bestStrategy = scored[0];
         const bestPfShow = bestStrategy._pf === Infinity ? '∞' : bestStrategy._pf.toFixed(2);
@@ -3903,11 +3906,11 @@ function renderBacktestResults(result) {
                         <tbody>
                             ${scored.map((s, idx) => {
                                 const pfShow = s._pf === Infinity ? '∞' : (Number.isFinite(s._pf) ? s._pf.toFixed(2) : '-');
-                                const autoCheck = s._pf > 2 && s._n >= 5;
+                                const autoCheck = s._pf > 2 && s._n >= 20;   // هماهنگ با badge
                                 const redFlag = s._pf < 1;
                                 return `<tr class="${redFlag?'insufficient-row':''}">
                                     <td><input type="checkbox" class="bt3-sel" data-symbol="${esc(sym)}" data-strategy="${esc(s.strategyId)}" ${autoCheck?'checked':''}></td>
-                                    <td>${idx===0?'🏆 ':''}${esc(s.strategyName)}</td>
+                                    <td>${idx===0?'🏆 ':''}${esc(s.strategyName)}${s._lowN?' <span class="badge warn" style="font-size:9px;" title="نمونه کم">N<20</span>':''}</td>
                                     <td>${s._n}</td>
                                     <td><b>${pfShow}</b></td>
                                     <td>${s._wr.toFixed(1)}</td>

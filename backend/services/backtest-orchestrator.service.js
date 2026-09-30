@@ -228,9 +228,28 @@ async function computeInBackground(jobId) {
     }
 }
 
+// 🆕 Lock برای جلوگیری از notify تکراری
+const _notifiedJobs = new Set();
+const _MAX_NOTIFIED = 500;
+
+function _markNotified(jobId) {
+    _notifiedJobs.add(jobId);
+    if (_notifiedJobs.size > _MAX_NOTIFIED) {
+        const first = _notifiedJobs.values().next().value;
+        _notifiedJobs.delete(first);
+    }
+}
+
 // 🆕 ارسال گزارش کامل به تلگرام
 async function sendBacktestNotification(job, result, elapsed) {
     if (!deps.notify) return;
+
+    const jobId = String(job._id);
+    if (_notifiedJobs.has(jobId)) {
+        deps.logger && deps.logger.warn(`[bt-compute] ${jobId} already notified — skip`);
+        return;
+    }
+    _markNotified(jobId);
 
     const mode = (job.payload && job.payload.mode) || 'option';
     const modeLabel = mode === 'stock' ? '📊 سهم پایه' : '🎯 آپشن';
@@ -246,8 +265,9 @@ async function sendBacktestNotification(job, result, elapsed) {
         return t && t.count > 0;
     });
 
-    // top 5 pairs
-    const sorted = [...valid].sort((a, b) => {
+    // 🆕 top 5 pairs — فقط با N>=20 (معناداری آماری)
+    const meaningful = valid.filter(d => (d[targetKey] && d[targetKey].count || 0) >= 20);
+    const sorted = [...meaningful].sort((a, b) => {
         const pa = (a[targetKey] && a[targetKey].profitFactor) || 0;
         const pb = (b[targetKey] && b[targetKey].profitFactor) || 0;
         return pb - pa;
@@ -480,7 +500,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
             // 🆕 pairs_spread بدون pairSymbol قابل apply نیست
             const applicable = d.strategyId !== 'pairs_spread' || !!d.pairSymbol;
             return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _applicable: applicable };
-        }).filter(d => d._n > 0 && d._applicable)
+        }).filter(d => d._n >= 10 && d._applicable)   // 🆕 حداقل 10 معامله
           .sort((a, b) => b._score - a._score);
 
         if (!scored.length) {
