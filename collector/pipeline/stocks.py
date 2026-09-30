@@ -74,7 +74,10 @@ def _parse_index_date(idx):
 def fetch_intraday_1m(symbol, from_date, to_date):
     """Fetch 1m OHLC (both jalali and gregorian strings accepted)."""
     try:
-        df = att.get_intraday(symbol, interval='1min', start=from_date, end=to_date, progress=False)
+        # 🆕 algotik_tse با فرمت خط تیره کار می‌کنه، نه اسلش
+        f = str(from_date).replace('/', '-')
+        t = str(to_date).replace('/', '-')
+        df = att.get_intraday(symbol, interval='1min', start=f, end=t, progress=False)
     except Exception as e:
         return [], str(e)
 

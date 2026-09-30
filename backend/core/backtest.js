@@ -882,7 +882,7 @@ async function runBacktest(cfg, from, to, opts = {}) {
         dailyCandles = await deps.dataService.getCandles(cfg.symbol, '1d');
     } catch (_) {}
 
-    // 🆕 آمار پیشرفته — در حالت stock روی معاملات سهام، در غیر این‌صورت روی آپشن
+    // 🆕 آمار پیشرفته — در حالت stock روی معاملات سهام
     const advanced = isStockOnly
         ? computeAdvancedStats(tradeRes.trades || [], dailyCandles)
         : computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles);
@@ -910,7 +910,7 @@ async function runBacktest(cfg, from, to, opts = {}) {
         trainingMeta: { trainedFrom, trainedTo },
         overlapWarning: overlapCheck.overlap ? overlapCheck.message : null,
         overlapSeverity: overlapCheck.severity,
-        // 🆕 mode را به خروجی اضافه کن
+        // 🆕 mode در خروجی
         runMode: isStockOnly ? 'stock-only' : 'with-option',
         ...optionResult
     };
