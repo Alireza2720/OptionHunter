@@ -12,14 +12,14 @@ function init(d) { deps = { ...deps, ...d }; }
 const MIN_1M = 10000;
 const MIN_DAILY = 20;
 
-function toJalaliSlash(isoDate) {
+function toJalaliDash(isoDate) {
     const d = new Date(isoDate + 'T00:00:00Z');
     const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
         timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit'
     });
     const p = {};
     fmt.formatToParts(d).forEach(x => p[x.type] = x.value);
-    return `${p.year}/${p.month}/${p.day}`;
+    return `${p.year}-${p.month}-${p.day}`;   // 🆕 dash
 }
 
 async function checkAndFix() {

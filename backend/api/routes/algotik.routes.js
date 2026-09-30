@@ -330,7 +330,8 @@ function register(app, deps) {
                 });
                 const p = {};
                 fmt.formatToParts(d).forEach(x => p[x.type] = x.value);
-                return stripBidi(`${p.year}/${p.month}/${p.day}`);
+                // 🆕 dash format — algotik_tse فقط با dash کار می‌کنه
+                return stripBidi(`${p.year}-${p.month}-${p.day}`);
             };
 
             const r = await algotik.startFullBackfill({

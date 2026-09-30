@@ -39,7 +39,8 @@ function gregorianToJalali(gy, gm, gd) {
 
 function dateToJalaliStr(d) {
     const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-    return `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`;
+    // 🆕 dash format
+    return `${j.jy}-${String(j.jm).padStart(2, '0')}-${String(j.jd).padStart(2, '0')}`;
 }
 
 async function run() {

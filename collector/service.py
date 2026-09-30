@@ -35,23 +35,23 @@ import unicodedata
 
 def _clean_date(s: str) -> str:
     """
-    پاک‌سازی ورودی تاریخ:
-    - حذف همه‌ی کاراکترهای نامرئی (Cf category: RLM/LRM/ZWJ/BOM/...)
-    - یکسان‌سازی جداکننده‌ها
-    - لاگ کردن ورودی و خروجی برای دیباگ
+    پاک‌سازی ورودی تاریخ برای algotik_tse:
+    - حذف کاراکترهای نامرئی (Cf)
+    - تبدیل / به - (algotik_tse فقط dash قبول می‌کنه)
+    - فرمت نهایی: YYYY-MM-DD
     """
     if s is None:
         return s
     s = str(s)
     original = s
-    # حذف همه‌ی کاراکترهای Cf (format/invisible)
+    # حذف کاراکترهای Cf نامرئی
     s = ''.join(c for c in s if unicodedata.category(c) != 'Cf')
     s = s.strip()
-    s = s.replace('-', '/')
-    s = re.sub(r'/+', '/', s)
-    # دیباگ: لاگ اگه تغییری دادیم
+    # 🆕 تبدیل به dash — algotik_tse با slash کار نمی‌کنه
+    s = s.replace('/', '-')
+    s = re.sub(r'-+', '-', s)
     if original != s:
-        print(f'🧹 _clean_date: {repr(original)} → {repr(s)}')
+        print(f'🧹  _clean_date: {repr(original)} → {repr(s)}')
     return s
 
 # ---------- Risk-free ----------
