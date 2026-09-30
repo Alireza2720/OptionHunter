@@ -44,7 +44,10 @@ def _parse_index_date(idx):
     """تاریخ index (شمسی یا میلادی) رو به datetime میلادی UTC تبدیل کن."""
     # اگر string بود
     if isinstance(idx, str):
+        import unicodedata
         s = idx.strip().split('T')[0].split(' ')[0]
+        # 🆕 حذف کاراکترهای Bidi نامرئی (RLM، LRM، ...)
+        s = ''.join(c for c in s if unicodedata.category(c) != 'Cf')
         parts = s.split('-')
         if len(parts) == 3:
             y, m, d = int(parts[0]), int(parts[1]), int(parts[2])

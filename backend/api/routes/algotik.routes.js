@@ -308,8 +308,9 @@ function register(app, deps) {
                 if ([6, 0, 1, 2, 3].includes(wd)) {
                     const s = cur.toISOString().slice(0, 10);
                     const cnt = daysMap.get(s) || 0;
-                // 🆕 فقط gap واقعی: خیلی کم یا صفر (نه روزهای ناقص طبیعی)
-                if (cnt < 50) gaps.push({ date: s, count: cnt });
+                // 🆕 فقط gap واقعی (کمتر از 5 کندل = داده نداره)
+                // TSE هر روز ~180 کندل داره، پس < 5 یعنی واقعاً خالی
+                if (cnt < 5) gaps.push({ date: s, count: cnt });
                 }
                 cur = new Date(cur.getTime() + 86400000);
             }
@@ -318,6 +319,10 @@ function register(app, deps) {
                 return res.json({ ok: true, message: 'شکافی یافت نشد', gapsFound: 0 });
             }
 
+            // 🆕 حذف کاراکترهای نامرئی Bidi قبل از ارسال به collector
+            const stripBidi = (s) => String(s || '')
+                .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\u061c]/g, '');
+
             const toJalali = (iso) => {
                 const d = new Date(iso + 'T00:00:00Z');
                 const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
@@ -325,7 +330,7 @@ function register(app, deps) {
                 });
                 const p = {};
                 fmt.formatToParts(d).forEach(x => p[x.type] = x.value);
-                return `${p.year}/${p.month}/${p.day}`;
+                return stripBidi(`${p.year}/${p.month}/${p.day}`);
             };
 
             const r = await algotik.startFullBackfill({

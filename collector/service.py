@@ -36,20 +36,23 @@ import unicodedata
 def _clean_date(s: str) -> str:
     """
     پاک‌سازی ورودی تاریخ:
-    - حذف همه‌ی کاراکترهای نامرئی (Cf category = Bidi/RLM/LRM/ZWJ/ZWNJ/...)
-    - نگه‌داشتن فقط ارقام و جداکننده‌ها
-    - یکسان‌سازی جداکننده‌ها (dash → slash)
+    - حذف همه‌ی کاراکترهای نامرئی (Cf category: RLM/LRM/ZWJ/BOM/...)
+    - یکسان‌سازی جداکننده‌ها
+    - لاگ کردن ورودی و خروجی برای دیباگ
     """
     if s is None:
         return s
     s = str(s)
-    # حذف همه‌ی کاراکترهای Cf (Format/Invisible) — شامل RLM, LRM, ZWJ, ZWNJ, BOM, ...
+    original = s
+    # حذف همه‌ی کاراکترهای Cf (format/invisible)
     s = ''.join(c for c in s if unicodedata.category(c) != 'Cf')
     s = s.strip()
     s = s.replace('-', '/')
     s = re.sub(r'/+', '/', s)
+    # دیباگ: لاگ اگه تغییری دادیم
+    if original != s:
+        print(f'🧹 _clean_date: {repr(original)} → {repr(s)}')
     return s
-
 
 # ---------- Risk-free ----------
 _rf_cache = {'rate': 0.42, 'date': None}
