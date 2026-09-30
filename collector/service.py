@@ -298,13 +298,11 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # 🆕 دیباگ دقیق: بایت‌های واقعی ورودی
         raw_from = payload.get('dateFrom')
         raw_to = payload.get('dateTo')
-        print(f'📅 RAW dateFrom: {repr(raw_from)} | codepoints: {[hex(ord(c)) for c in str(raw_from or "")]}')
-        print(f'📅 RAW dateTo:   {repr(raw_to)} | codepoints: {[hex(ord(c)) for c in str(raw_to or "")]}')
+        print(f'📅 RAW: from={repr(raw_from)} to={repr(raw_to)}')
 
-        # 🆕 پاک‌سازی ورودی تاریخ (bidi + جداکننده)
         date_from = _clean_date(raw_from)
         date_to   = _clean_date(raw_to)
-        print(f'📅 CLEAN date_from: {repr(date_from)} | date_to: {repr(date_to)}')
+        print(f'📅 CLEAN: from={repr(date_from)} to={repr(date_to)}')
 
         stats = {
             'stock_intraday':   {'symbols_done': 0, 'candles': 0, 'errors': 0},

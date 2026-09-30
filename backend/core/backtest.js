@@ -802,6 +802,8 @@ function round2(v) {
 // Full backtest for a config (stock + option)
 // ============================================================
 async function runBacktest(cfg, from, to, opts = {}) {
+    // 🆕 mode: 'stock' یعنی فقط سهام، بدون آپشن
+    const isStockOnly = opts.mode === 'stock' || (!opts.useRealOption && opts.stockOnly);
     const mode = opts.useRealOption ? 'real' : 'hybrid';
 
     const computeFn = async (c, f, t) => {
@@ -811,13 +813,29 @@ async function runBacktest(cfg, from, to, opts = {}) {
 
     const tradeRes = await getOrComputeTrades(cfg, from, to, mode, computeFn, opts.onProgress);
 
-    if (opts.onProgress) opts.onProgress({ phase: 'option-backtest', tradeCount: tradeRes.trades.length });
+    if (opts.onProgress) opts.onProgress({ phase: 'stock-done', tradeCount: tradeRes.trades.length });
 
-    const optionResult = await deps.options.runHybridOptionBacktest(
-        cfg.symbol,
-        tradeRes.trades,
-        { realEnabled: !!opts.useRealOption }
-    );
+    // 🆕 در حالت stock، محاسبه‌ی آپشن کلاً skip می‌شه
+    let optionResult;
+    if (isStockOnly) {
+        optionResult = {
+            trades: [],
+            stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null },
+            mode: 'stock-only',
+            realUsed: 0,
+            approxUsed: 0,
+            hasAnyOptionData: false,
+            diagnostic: 'حالت stock-only: محاسبه‌ی آپشن skip شد',
+            assumptions: {}
+        };
+    } else {
+        if (opts.onProgress) opts.onProgress({ phase: 'option-backtest', tradeCount: tradeRes.trades.length });
+        optionResult = await deps.options.runHybridOptionBacktest(
+            cfg.symbol,
+            tradeRes.trades,
+            { realEnabled: !!opts.useRealOption }
+        );
+    }
 
     // 🆕 option-aware tagging روی هر trade
     try {
@@ -864,8 +882,10 @@ async function runBacktest(cfg, from, to, opts = {}) {
         dailyCandles = await deps.dataService.getCandles(cfg.symbol, '1d');
     } catch (_) {}
 
-    // آمار پیشرفته — روی معاملات آپشن (چون خروجی واقعی کاربر)
-    const advanced = computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles);
+    // 🆕 آمار پیشرفته — در حالت stock روی معاملات سهام، در غیر این‌صورت روی آپشن
+    const advanced = isStockOnly
+        ? computeAdvancedStats(tradeRes.trades || [], dailyCandles)
+        : computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles);
 
     // 🆕 PIT: چک همپوشانی train/test
     const trainedFrom = cfg.trainedFrom || (opts.trainingMeta && opts.trainingMeta.trainedFrom) || null;
@@ -890,6 +910,8 @@ async function runBacktest(cfg, from, to, opts = {}) {
         trainingMeta: { trainedFrom, trainedTo },
         overlapWarning: overlapCheck.overlap ? overlapCheck.message : null,
         overlapSeverity: overlapCheck.severity,
+        // 🆕 mode را به خروجی اضافه کن
+        runMode: isStockOnly ? 'stock-only' : 'with-option',
         ...optionResult
     };
 }
