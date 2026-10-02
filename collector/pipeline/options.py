@@ -366,6 +366,91 @@ def write_history(docs):
     res = db[COL_OPTION_HISTORY].bulk_write(ops, ordered=False)
     return res.upserted_count + res.modified_count
 
+
+def migrate_snapshots_to_history(underlyings=None, days=120, dry_run=False, log_fn=None):
+    """
+    🆕 Migrate option_snapshots (live tick با bid/ask واقعی) → option_history.
+    این تنها منبع bid/ask واقعی تاریخی ماست.
+    """
+    from datetime import timedelta
+    db = get_db()
+
+    q = {}
+    if underlyings:
+        q['underlying'] = {'$in': underlyings}
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    q['timestamp'] = {'$gte': since}
+
+    total = 0
+    written = 0
+    skipped_no_bidask = 0
+    ops = []
+
+    snapshots = db[COL_OPTION_SNAPSHOTS].find(q)
+    for snap in snapshots:
+        total += 1
+        bid = snap.get('bid') or 0
+        ask = snap.get('ask') or 0
+
+        # ⛔ بدون bid/ask → skip
+        if not (bid > 0 and ask > 0):
+            skipped_no_bidask += 1
+            continue
+
+        ts = snap.get('timestamp')
+        symbol = snap.get('symbol')
+        if not ts or not symbol:
+            continue
+
+        doc = {
+            'symbol': symbol,
+            'underlying': snap.get('underlying'),
+            'time': ts,
+            'bid': float(bid),
+            'ask': float(ask),
+            'bidVol': None,
+            'askVol': None,
+            'last': float(snap.get('last') or 0) or None,
+            'close': None,
+            'volume': float(snap.get('volume') or 0),
+            'oi': float(snap.get('oi') or 0) if snap.get('oi') else None,
+            'strike': float(snap.get('strike')) if snap.get('strike') else None,
+            'expiry': None,
+            'size': None,
+            'isCall': (snap.get('option_type') or '').lower() == 'call',
+            'source': 'live_snapshot',
+            'computedAt': datetime.now(timezone.utc),
+        }
+
+        ops.append(UpdateOne(
+            {'symbol': symbol, 'time': ts},
+            {'$set': doc},
+            upsert=True
+        ))
+
+        if len(ops) >= 1000:
+            if not dry_run:
+                try:
+                    res = db[COL_OPTION_HISTORY].bulk_write(ops, ordered=False)
+                    written += res.upserted_count + res.modified_count
+                except Exception as e:
+                    if log_fn: log_fn(f'bulk error: {e}')
+            ops = []
+
+    if ops and not dry_run:
+        try:
+            res = db[COL_OPTION_HISTORY].bulk_write(ops, ordered=False)
+            written += res.upserted_count + res.modified_count
+        except Exception as e:
+            if log_fn: log_fn(f'bulk error: {e}')
+
+    return {
+        'total_processed': total,
+        'written': written,
+        'skipped_no_bidask': skipped_no_bidask,
+        'dry_run': dry_run,
+    }
+
 def write_snapshot_ticks(underlying, records):
     """Raw ticks → option_snapshots (for live ticker)."""
     if not records:

@@ -632,6 +632,112 @@ class BackfillBidAskIn(BaseModel):
 @app.post('/backfill-option-bidask')
 def backfill_option_bidask(p: BackfillBidAskIn):
     """
+    🆕 دو مرحله:
+    1) Migration از option_snapshots (bid/ask واقعی تاریخی)
+    2) Snapshot زنده از algotik-tse get_option_market (bid/ask فعلی)
+    """
+    import algotik_tse as att
+    from datetime import datetime, timezone
+    from pipeline import options as opt_mod
+
+    db = get_db()
+    result = {
+        'snapshotsMigration': None,
+        'liveSnapshotsFetched': 0,
+        'contractsFound': 0,
+        'recordsUpdated': 0,
+        'errors': [],
+    }
+
+    # === مرحله ۱: migration از option_snapshots (bid/ask تاریخی) ===
+    try:
+        underlyings = p.underlyings  # None = همه
+        mig = opt_mod.migrate_snapshots_to_history(
+            underlyings=underlyings,
+            days=180,
+            dry_run=False,
+            log_fn=lambda m: log('backfill_bidask_mig', m),
+        )
+        result['snapshotsMigration'] = mig
+        log('backfill_bidask_mig_done', f"written={mig['written']}", mig)
+    except Exception as e:
+        result['errors'].append({'stage': 'migration', 'error': str(e)[:200]})
+
+    # === مرحله ۲: snapshot زنده از get_option_market ===
+    # فقط برای قراردادهای فعال فعلی
+    try:
+        targets = p.underlyings
+        if not targets:
+            from pipeline.db import COL_MONITORED
+            targets = [s['symbol'] for s in db[COL_MONITORED].find({})]
+
+        col = db[COL_OPTION_HISTORY]
+        now = datetime.now(timezone.utc)
+
+        for sym in targets:
+            try:
+                df = att.get_option_market(underlying=sym, progress=False)
+                if df is None or len(df) == 0:
+                    continue
+                result['contractsFound'] += len(df)
+
+                from pymongo import UpdateOne
+                ops = []
+                for _, row in df.iterrows():
+                    bid = row.get('BidPrice')
+                    ask = row.get('AskPrice')
+                    try:
+                        bid = float(bid) if bid is not None else 0
+                        ask = float(ask) if ask is not None else 0
+                    except (TypeError, ValueError):
+                        continue
+                    if bid <= 0 or ask <= 0:
+                        continue
+
+                    symbol = row.get('Symbol')
+                    if not symbol:
+                        continue
+
+                    doc = {
+                        'symbol': symbol,
+                        'underlying': sym,
+                        'time': now,
+                        'bid': bid,
+                        'ask': ask,
+                        'bidVol': float(row.get('BidVolume') or 0) or None,
+                        'askVol': float(row.get('AskVolume') or 0) or None,
+                        'last': float(row.get('Last') or 0) or None,
+                        'close': float(row.get('Close') or 0) or None,
+                        'volume': float(row.get('Volume') or 0),
+                        'oi': float(row.get('OpenInterest') or 0) if row.get('OpenInterest') else None,
+                        'strike': float(row.get('Strike')) if row.get('Strike') else None,
+                        'size': int(row.get('ContractSize') or 1000),
+                        'isCall': (row.get('OptionType') or '').lower() == 'call',
+                        'source': 'algotik_snapshot',
+                        'computedAt': now,
+                    }
+                    ops.append(UpdateOne(
+                        {'symbol': symbol, 'time': now},
+                        {'$set': doc},
+                        upsert=True
+                    ))
+
+                if ops:
+                    r = col.bulk_write(ops, ordered=False)
+                    result['recordsUpdated'] += (r.upserted_count + r.modified_count)
+            except Exception as e:
+                result['errors'].append({'symbol': sym, 'error': str(e)[:200]})
+
+        result['liveSnapshotsFetched'] = result['contractsFound']
+    except Exception as e:
+        result['errors'].append({'stage': 'live', 'error': str(e)[:200]})
+
+    log('backfill_bidask_done',
+        f"mig={result['snapshotsMigration']['written'] if result['snapshotsMigration'] else 0} live={result['liveSnapshotsFetched']}",
+        {k: v for k, v in result.items() if k != 'errors'})
+
+    return result
+    """
     Re-fetch option_history از algotik-tse server-side با bid/ask واقعی.
     برای هر قرارداد که bid/ask در DB نداره، get_option_history صدا می‌زنه.
     """
