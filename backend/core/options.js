@@ -45,12 +45,12 @@ const DEFAULT_SETTINGS = {
     maxSpreadPct: 7,
     minOI: 200, minTrades: 1,
     minPremium: 200,
-    deltaMin: 0.40, deltaMax: 0.75,
+    deltaMin: 0.35, deltaMax: 0.85,
     maxIvHv: 1.5,
     rewardRisk: 3.0,
     topN: 3,
     optionStopPct: 20,
-    take2Pct: 100,             // 🆕 فقط TP کامل
+    take2Pct: 100,
     closeDaysBefore: 5
 };
 
