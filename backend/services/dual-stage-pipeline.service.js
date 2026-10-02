@@ -16,7 +16,7 @@ const { ObjectId } = require('mongodb');
 const { COLLECTIONS, OPTION_DATA_CUTOFF, TIMEFRAME_MINUTES } = require('../config/constants');
 const { benjaminiHochberg } = require('../core/multiple-testing');
 const { buildSignalCorrelationMatrix, selectIndependentConfirmers } = require('../core/signal-correlation');
-const { computeRegimeDistribution } = require('../core/regime-distribution');
+const { computeRegimeDistribution } = require('../core/regime-diversity');
 const memGuard = require('../infra/memory-guard');
 
 let deps = {
