@@ -58,8 +58,9 @@ const OPT_BT_DEFAULTS = {
     assumedMaturityDays: 30,
     ivMultiplier: 1.20,
     spreadPct: 10,
-    deltaMin: 0.40, deltaMax: 0.75,
-    minDays: 15, maxDays: 45,
+    // 🆕 شل‌تر — دیتای آپشن ایران اکثراً ITM با delta بالا
+    deltaMin: 0.30, deltaMax: 0.98,
+    minDays: 7, maxDays: 90,
     volCrushFactor: 3.0,
     minIvCrush: 0.35,
     spreadMoveMult: 3.0,
@@ -1413,12 +1414,11 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
             const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
 
-            // 🆕 قبول رکوردهایی که bid/ask دارن یا close>0 دارن
-            // 🆕 فقط رکوردهایی که هم bid و هم ask دارن (بدون تخمین)
+            // 🆕 bid/ask اجباری + daysLeft منعطف‌تر
             const bulkRows = await db.collection('option_history').find({
                 underlying: norm(symbol),
                 time: { $gte: minTime, $lte: maxTime },
-                daysLeft: { $gte: p.minDays, $lte: Math.max(p.maxDays, 200) },
+                daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 200) },
                 bid: { $gt: 0 },
                 ask: { $gt: 0 }
             }).toArray();

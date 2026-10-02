@@ -603,6 +603,29 @@ async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
             const pf = optStats.profitFactor;
             const safePf = Number.isFinite(pf) ? pf : (optStats.totalPnl > 0 ? 999 : 0);
 
+            // 🆕 diagnostic غنی اگه N=0
+            let optDiag = r.diagnostic || null;
+            if (n === 0) {
+                try {
+                    const db2 = deps.getDB();
+                    const totalWithBidAsk = await db2.collection(COLLECTIONS.OPTION_HISTORY).countDocuments({
+                        underlying: pair.symbol,
+                        time: { $gte: dateRange.from, $lte: dateRange.to },
+                        bid: { $gt: 0 }, ask: { $gt: 0 }
+                    });
+                    const totalWithDelta = await db2.collection(COLLECTIONS.OPTION_HISTORY).countDocuments({
+                        underlying: pair.symbol,
+                        time: { $gte: dateRange.from, $lte: dateRange.to },
+                        bid: { $gt: 0 }, ask: { $gt: 0 },
+                        deltaApi: { $gte: 0.30, $lte: 0.98 },
+                        daysLeft: { $gte: 7, $lte: 90 }
+                    });
+                    optDiag = `N=0 | available: ${totalWithBidAsk} with bid/ask, ${totalWithDelta} after delta/days filter | ${r.diagnostic || ''}`;
+                } catch (_) {
+                    optDiag = `N=0 | ${r.diagnostic || 'no diagnostic'}`;
+                }
+            }
+
             results.push({
                 symbol: pair.symbol,
                 strategyId: pair.strategyId,
@@ -619,7 +642,7 @@ async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
                 approxUsed,
                 realRatio,
                 trades: r.trades || [],
-                diagnostic: r.diagnostic || null
+                diagnostic: optDiag
             });
         } catch (e) {
             deps.logger && deps.logger.warn(`[dual-stage] stage5 ${pair.symbol}/${pair.strategyId}: ${e.message}`);
@@ -946,35 +969,41 @@ async function runDualStage(jobId, opts = {}) {
         deps.logger && deps.logger.info(`[dual-stage ${jobId}] stage4: ${stage4.plans.length} plans`);
 
         // ============ STAGE 5 ============
-        // 🆕 قبل از Stage 5: اطمینان از bid/ask در option_history
         await _setStage(jobId, 5);
+
+        // 🆕 فقط نمادهای plan رو backfill کن
+        const planSymbols = [...new Set(stage4.plans.map(p => p.symbol))];
         let bidaskInfo = null;
-        try {
-            const bf = await deps.algotik.backfillOptionBidAsk({
-                underlyings: null,
-                contractLimit: 200,
-                includeToday: true,
-            });
-            bidaskInfo = {
-                contractsFound: bf.contractsFound,
-                recordsUpdated: bf.recordsUpdated,
-                recordsSkipped: bf.recordsSkipped,
-                snapshotsMigration: bf.snapshotsMigration ? {
-                    total: bf.snapshotsMigration.total_processed,
-                    written: bf.snapshotsMigration.written,
-                } : null,
-            };
-            deps.logger && deps.logger.info(
-                `[dual-stage ${jobId}] bidask backfill: contracts=${bf.contractsFound} updated=${bf.recordsUpdated}`
-            );
-        } catch (e) {
-            deps.logger && deps.logger.warn(`[dual-stage] bidask backfill failed: ${e.message}`);
-            bidaskInfo = { error: e.message };
+        if (planSymbols.length) {
+            try {
+                deps.logger && deps.logger.info(
+                    `[dual-stage ${jobId}] bidask backfill for ${planSymbols.length} symbols: ${planSymbols.join(', ')}`
+                );
+                const bf = await deps.algotik.backfillOptionBidAsk({
+                    underlyings: planSymbols,
+                    contractLimit: 50,
+                    includeToday: true,
+                });
+                bidaskInfo = {
+                    symbols: planSymbols,
+                    recordsUpdated: bf.recordsUpdated || 0,
+                    snapshotsMigration: bf.snapshotsMigration ? {
+                        total: bf.snapshotsMigration.total_processed,
+                        written: bf.snapshotsMigration.written,
+                        enriched: bf.snapshotsMigration.enriched,
+                    } : null,
+                };
+                deps.logger && deps.logger.info(
+                    `[dual-stage ${jobId}] bidask: updated=${bf.recordsUpdated}`
+                );
+            } catch (e) {
+                deps.logger && deps.logger.warn(`[dual-stage] bidask backfill failed: ${e.message}`);
+                bidaskInfo = { error: e.message };
+            }
         }
 
         const stage5 = await _stage5_optionBacktest(jobId, stage4.plans, ranges.test, merged);
 
-        // 🆕 یک patch واحد → هیچ overwrite نمی‌شه
         await _setStage(jobId, 5, {
             stage5: {
                 pairCount: stage5.results.length,
