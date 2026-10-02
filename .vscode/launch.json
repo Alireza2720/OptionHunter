@@ -1,0 +1,80 @@
+mkdir -p ~/apps/OptionHunter/.vscode
+cat > ~/apps/OptionHunter/.vscode/launch.json << 'EOF'
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "📦 Pack All (همه)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": [],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "📦 Pack Core (core)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": ["core"],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "📦 Pack Services (services)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": ["services"],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "📦 Pack Infra+API (infra)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": ["infra"],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "📦 Pack Frontend (frontend)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": ["frontend"],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "📦 Pack Collector (collector)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": ["collector"],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "📦 Pack List (فقط نمایش)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": ["--list"],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "📦 Clean Packed (پاک کردن)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/pack.js",
+            "args": ["--clean"],
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        }
+    ]
+}
+EOF

@@ -1,22 +1,38 @@
-cd ~/apps/OptionHunter
+cat > C:\Users\Alireza\Desktop\OptionHunter\.gitignore << 'EOF'
+# Dependencies
+node_modules/
+venv/
+env/
+__pycache__/
+*.pyc
 
-cat > .gitignore << 'EOF'
+# Logs
+logs/
+*.log
+
+# Packer output
+PACKED.txt
+packed/
+pack-*.txt
+
+# Environment
 .env
 .env.local
 .env.*.local
-node_modules/
-venv/
-__pycache__/
-*.pyc
-logs/
-*.log
-npm-debug.log*
-.pm2/
-.vscode/
-.idea/
+
+# OS
 .DS_Store
 Thumbs.db
-EOF
 
-git check-ignore -v .env
-git status --short
+# IDE
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+.idea/
+
+# Build artifacts
+dist/
+build/
+coverage/
+EOF

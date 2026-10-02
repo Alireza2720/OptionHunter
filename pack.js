@@ -1,12 +1,18 @@
 'use strict';
 // pack.js — بسته‌بندی کل پروژه در یک فایل
 // اجرا: node pack.js
+//
+// گزینه‌ها:
+//   node pack.js              → ساخت PACKED.txt
+//   node pack.js --list       → فقط لیست فایل‌ها
+//   node pack.js --clean      → پاک کردن PACKED.txt
+//   node pack.js --dry        → چک بدون نوشتن
 
 const fs = require('fs');
 const path = require('path');
 
 // ============================================================
-// تشخیص ROOT
+// تشخیص ROOT پروژه
 // ============================================================
 function isValidRoot(dir) {
     if (!dir) return false;
@@ -39,30 +45,26 @@ const OUT_FILE = path.join(ROOT, 'PACKED.txt');
 // ============================================================
 // فیلترها
 // ============================================================
-// فقط اینا skip می‌شن (بقیه همه include)
 const SKIP_DIRS = new Set([
-    'node_modules',
+    'node_modules', 'venv', 'ENV',
     '.git',
-    '__pycache__', '.pytest_cache',
-    'logs',
-    'packed',
-    'dist', 'build', 'coverage',
+    '__pycache__', '.pytest_cache', 'logs',
+    'packed', 'dist', 'build', 'coverage',
     '.next', '.cache', '.idea',
     'eggs', '.eggs', '.tox', 'htmlcov',
+    'Include', 'Lib',    // venv artifacts
 ]);
 
-// فایل‌هایی که هرگز pack نمی‌شن
 const SKIP_FILES = new Set([
+    '.env',                    // رازآمیز
     'package-lock.json',
     'yarn.lock',
     'pnpm-lock.yaml',
     'PACKED.txt',
     '.DS_Store',
     'Thumbs.db',
-    'tempCodeRunnerFile.js',
 ]);
 
-// فقط این پسوندها include می‌شن
 const INCLUDE_EXTS = new Set([
     '.js', '.mjs', '.cjs',
     '.py',
@@ -75,32 +77,19 @@ const INCLUDE_EXTS = new Set([
     '.txt',
     '.conf', '.config',
     '.toml', '.ini',
-    '.example',
-    '.env',      // 🆕 .env
-    '.local',    // 🆕 .env.local
-    '.sample',
-    '.template',
 ]);
 
-// فایل‌های خاص که با اسم match می‌شن (بدون پسوند)
 const INCLUDE_NAMES = new Set([
-    '.env',
     '.env.example',
-    '.env.local',
-    '.env.sample',
-    '.env.template',
     '.gitignore',
     '.dockerignore',
-    '.editorconfig',
-    '.eslintrc',
-    '.prettierrc',
     'Dockerfile',
     'Makefile',
     'Procfile',
     'requirements.txt',
 ]);
 
-const MAX_FILE_SIZE = 500 * 1024;
+const MAX_FILE_SIZE = 500 * 1024;   // 500KB per file
 
 function shouldSkipDir(name) {
     return SKIP_DIRS.has(name);
@@ -116,15 +105,15 @@ function shouldSkipFile(rel, name) {
 }
 
 function shouldInclude(name) {
-    // اسم خاص
     if (INCLUDE_NAMES.has(name)) return true;
-    // پسوند
+    // فایل‌های مخفی (با .) رو فقط اگه تو INCLUDE_NAMES باشن قبول کن
+    if (name.startsWith('.')) return false;
     const ext = path.extname(name).toLowerCase();
     return INCLUDE_EXTS.has(ext);
 }
 
 // ============================================================
-// Walk
+// Walk — همه‌چیز رو پیدا می‌کنه (auto-discovery)
 // ============================================================
 function walk(dir, out) {
     let entries;
@@ -161,12 +150,14 @@ function walk(dir, out) {
 function build() {
     const files = [];
     walk(ROOT, files);
+
+    // sort by relative path
     files.sort((a, b) => a.rel.localeCompare(b.rel));
 
     const lines = [];
     const bar = '═'.repeat(78);
 
-    // HEADER
+    // ─── HEADER ───
     lines.push(bar);
     lines.push('  OptionHunter — PACKED SOURCE');
     lines.push('  Generated: ' + new Date().toISOString());
@@ -174,7 +165,7 @@ function build() {
     lines.push(bar);
     lines.push('');
 
-    // فهرست
+    // ─── فهرست ───
     lines.push('📂 فهرست فایل‌ها:');
     lines.push('');
     let n = 0;
@@ -197,7 +188,7 @@ function build() {
     lines.push('');
     lines.push('');
 
-    // محتوا
+    // ─── محتوا ───
     let idx = 0;
     for (const f of files) {
         if (f.skipped) continue;
@@ -222,7 +213,7 @@ function build() {
         lines.push('');
     }
 
-    // FOOTER
+    // ─── FOOTER ───
     lines.push(bar);
     lines.push('  END OF PACKED');
     lines.push(`  ${n} files, ${Math.round(totalBytes/1024)} KB`);

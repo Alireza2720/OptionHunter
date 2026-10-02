@@ -208,7 +208,6 @@ def migrate_from_daily_algotik(underlyings=None, dry_run=False, log_fn=None):
     Migrate option_daily_algotik → option_history with IV/Greeks.
     Returns stats dict.
     """
-    import pandas as pd
     db = get_db()
 
     q = {}

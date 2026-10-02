@@ -1,0 +1,96 @@
+cat > ~/apps/OptionHunter/.vscode/tasks.json << 'EOF'
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "📦 Pack All (default)",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            }
+        },
+        {
+            "label": "📦 Pack: Core",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "core"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "📦 Pack: Services",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "services"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "📦 Pack: Infra+API",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "infra"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "📦 Pack: Jobs+Config",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "jobs"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "📦 Pack: Frontend",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "frontend"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "📦 Pack: Collector",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "collector"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "📦 Pack: List",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "--list"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "📦 Pack: Clean",
+            "type": "shell",
+            "command": "node",
+            "args": ["pack.js", "--clean"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        }
+    ]
+}
+EOF

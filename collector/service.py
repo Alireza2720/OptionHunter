@@ -4,7 +4,7 @@
 import os, sys, threading, signal, time, re
 import pandas as pd
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
