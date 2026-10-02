@@ -73,28 +73,6 @@ function getSectorRankFor(sectorRanking, symbol) {
 }
 
 // ============================================================
-// 🆕 ساخت state پرتفولیو از option_positions باز
-// ============================================================
-async function buildPortfolioState() {
-    const db = deps.getDB();
-    const open = await db.collection(COLLECTIONS.OPTION_POSITIONS)
-        .find({ status: 'open' }).toArray();
-    const portfolio = deps.executionGuard.emptyPortfolio();
-    const now = Math.floor(Date.now() / 1000);
-    for (const p of open) {
-        const value = (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
-        // تخمین exitTime: از scenario.horizonDays
-        const horizonDays = (p.scenario && p.scenario.horizonDays) || 14;
-        const entryTs = Math.floor(new Date(p.entryTime).getTime() / 1000);
-        const exitTs = entryTs + horizonDays * 86400;
-        // اگه منقضی شده (گذشته) نادیده بگیر
-        if (exitTs <= now) continue;
-        deps.executionGuard.addPosition(portfolio, p.underlying, value, exitTs);
-    }
-    return portfolio;
-}
-
-// ============================================================
 // 🆕 بررسی guard قبل از ارسال سیگنال BUY
 // ============================================================
 // ============================================================

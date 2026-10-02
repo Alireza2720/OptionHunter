@@ -1057,6 +1057,7 @@ async function algotikStartBackfill(btn) {
                 jobArea.innerHTML = renderCollectorJobProgress(j);
                 if (['DONE','FAILED','CANCELLED'].includes(j.status)) {
                     clearInterval(timer);
+                    window._backfillRunning = false;   // 🆕 آزادسازی polling
                     if (btn) { btn.disabled = false; btn.textContent = 'شروع Backfill'; }
                     if (j.status === 'DONE') { showAlert('Backfill تکمیل شد.', 'success', 8000); await algotikRefresh(); await loadDataPipeline(); }
                     else if (j.status === 'FAILED') { showAlert('Backfill با خطا.', 'error', 8000); }
@@ -1762,9 +1763,9 @@ function switchBtTab(which, btn) { ['overview','rolling','mc','robust','monthly'
 let signalHistoryLimit = 5, signalHistoryCache = null;
 async function loadSignalHistory() {
     try {
-        // 🆕 فقط ۱۰۰ رکورد آخر برای performance
+        const _isFirst = signalHistoryCache === null;
         signalHistoryCache = await apiFetch(`${BACKEND_URL}/api/signal-history?limit=100`, {}, 0);
-        signalHistoryLimit = 5;
+        if (_isFirst) signalHistoryLimit = 5;   // 🆕 فقط بار اول
         renderSignalHistory();
     } catch (e) {}
 }

@@ -1,5 +1,5 @@
 {
-  "name": "brsapi-gateway",
+  "name": "OptionHunter",
   "version": "1.0.0",
   "description": "Backend gateway + trading signal engine",
   "main": "server.js",

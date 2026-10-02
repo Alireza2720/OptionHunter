@@ -1,4 +1,3 @@
-cat > C:\Users\Alireza\Desktop\OptionHunter\.gitignore << 'EOF'
 # Dependencies
 node_modules/
 venv/
@@ -35,4 +34,3 @@ Thumbs.db
 dist/
 build/
 coverage/
-EOF

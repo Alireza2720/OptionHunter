@@ -47,6 +47,8 @@ def aggregate_symbol(symbol, tf, candles):
         b['tf'] = tf
         b['source'] = 'reaggregated'
         b['updatedAt'] = datetime.now(timezone.utc)
+        # 🆕 صریحاً کامل علامت بزن (چون rebuild بعد از بسته شدن بازار اجرا می‌شود)
+        b['complete'] = True
         out.append(b)
     return out
 

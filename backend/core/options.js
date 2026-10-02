@@ -1197,12 +1197,23 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     // 🆕 پنجره‌ی محدودتر (1 روز پیش‌فرض)
     const WINDOW_SEC = (p.timeWindowDays || 1) * 24 * 3600;
 
-    // ---- انتخاب قرارداد ورود ----
+    // ---- انتخاب قرارداد ورود (بهینه: هر نماد با slice) ----
     const candidateRows = [];
+    const _loSec = entrySec - WINDOW_SEC;
+    const _hiSec = entrySec + WINDOW_SEC;
     for (const [sym, rows] of rowsBySymbol) {
-        for (const r of rows) {
+        // 🆕 فرض: rows از قبل بر اساس زمان مرتب است → باینری سرچ
+        let lo = 0, hi = rows.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            const sec = Math.floor(new Date(rows[mid].time).getTime() / 1000);
+            if (sec < _loSec) lo = mid + 1;
+            else hi = mid;
+        }
+        for (let i = lo; i < rows.length; i++) {
+            const r = rows[i];
             const sec = Math.floor(new Date(r.time).getTime() / 1000);
-            if (sec < entrySec - WINDOW_SEC || sec > entrySec + WINDOW_SEC) continue;
+            if (sec > _hiSec) break;
             if (r.bid > 0 || r.ask > 0 || r.close > 0 || r.last > 0) {
                 candidateRows.push(r);
             }
@@ -1252,12 +1263,22 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
 
     const best = valid[0];
 
-    // ---- انتخاب رکورد خروج (نزدیک‌ترین) ----
+    // ---- انتخاب رکورد خروج (بهینه با باینری سرچ) ----
     const contractRows = rowsBySymbol.get(best.symbol) || [];
     let exitRow = null, exitDist = Infinity;
-    for (const r of contractRows) {
+    const _eLo = exitSec - WINDOW_SEC;
+    const _eHi = exitSec + WINDOW_SEC;
+    let _lo = 0, _hi = contractRows.length;
+    while (_lo < _hi) {
+        const mid = (_lo + _hi) >> 1;
+        const sec = Math.floor(new Date(contractRows[mid].time).getTime() / 1000);
+        if (sec < _eLo) _lo = mid + 1;
+        else _hi = mid;
+    }
+    for (let i = _lo; i < contractRows.length; i++) {
+        const r = contractRows[i];
         const sec = Math.floor(new Date(r.time).getTime() / 1000);
-        if (sec < exitSec - WINDOW_SEC || sec > exitSec + WINDOW_SEC) continue;
+        if (sec > _eHi) break;
         if (!(r.bid > 0 || r.close > 0 || r.last > 0)) continue;
         const dist = Math.abs(sec - exitSec);
         if (dist < exitDist) { exitDist = dist; exitRow = r; }
@@ -1497,12 +1518,16 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                 }
             ).toArray();
 
-            // group by symbol
+            // group by symbol + sort by time (برای باینری سرچ)
             for (const r of bulkRows) {
                 if (!optionRowsBySymbolTime.has(r.symbol)) {
                     optionRowsBySymbolTime.set(r.symbol, []);
                 }
                 optionRowsBySymbolTime.get(r.symbol).push(r);
+            }
+            // 🆕 مرتب‌سازی زمانی
+            for (const [sym, rows] of optionRowsBySymbolTime) {
+                rows.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
             }
         } catch (_) { /* fallback به query per trade */ }
     }

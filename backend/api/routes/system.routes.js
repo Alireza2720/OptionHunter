@@ -14,6 +14,11 @@ function register(app, deps) {
         backtestService, settings, adminToken
     } = deps;
 
+    // 🆕 cache مشترک برای /api/system/stats — جلوگیری از execSync پیاپی
+    let _statsCache = null;
+    let _statsAt = 0;
+    const STATS_TTL = 20000;   // ۲۰ ثانیه
+
     // ---- Ping ----
     app.get('/ping', (req, res) => res.json({ pong: true, time: new Date().toISOString() }));
 
@@ -59,6 +64,11 @@ function register(app, deps) {
     // ---- System Stats ----
     app.get('/api/system/stats', async (req, res, next) => {
         try {
+            // 🆕 cache کوتاه‌مدت
+            if (_statsCache && (Date.now() - _statsAt) < STATS_TTL) {
+                return res.json(_statsCache);
+            }
+
             const totalMem = os.totalmem();
             const freeMem = os.freemem();
             const usedMem = totalMem - freeMem;
@@ -121,7 +131,7 @@ function register(app, deps) {
                 };
             } catch (_) {}
 
-            res.json({
+            const payload = {
                 ram: {
                     totalMB: Math.round(totalMem / 1048576),
                     usedMB: Math.round(usedMem / 1048576),
@@ -143,7 +153,11 @@ function register(app, deps) {
                 database: dbStats,
                 uptime: Math.round(process.uptime()),
                 serverStartedAt: deps.startedAt
-            });
+            };
+            // 🆕 ذخیره در cache
+            _statsCache = payload;
+            _statsAt = Date.now();
+            res.json(payload);
         } catch (e) { next(e); }
     });
 

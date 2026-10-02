@@ -77,15 +77,24 @@ async function runMaster(jobId, opts = {}) {
             dateTo: opts.dateTo
         }, symbols.map(s => ({ label: s, items: [s] })));
 
-        // Process queue و منتظر موندن
-        await deps.backtestService.processQueue();
+        // Process queue و انتظار برای تکمیل این job خاص
+        deps.backtestService.processQueue().catch(() => {});
 
-        // نتیجه رو از job خودش بگیر
-        const btDone = await db.collection(COLLECTIONS.BACKTEST_JOBS)
-            .findOne({ _id: btJob._id });
-
+        // 🆕 Polling تا اتمام job
+        const _waitDeadline = Date.now() + 60 * 60 * 1000;   // ۱ ساعت
+        let btDone = null;
+        while (Date.now() < _waitDeadline) {
+            btDone = await db.collection(COLLECTIONS.BACKTEST_JOBS)
+                .findOne({ _id: btJob._id });
+            if (!btDone) throw new Error('job disappeared');
+            if (btDone.status === 'DONE') break;
+            if (btDone.status === 'FAILED' || btDone.status === 'CANCELLED') {
+                throw new Error('backtest-compare ' + btDone.status + ': ' + (btDone.error || ''));
+            }
+            await new Promise(r => setTimeout(r, 4000));
+        }
         if (!btDone || btDone.status !== 'DONE') {
-            throw new Error('backtest-compare ناموفق: ' + (btDone ? btDone.status : 'unknown'));
+            throw new Error('backtest-compare timeout after 60min');
         }
         const btJobId = String(btJob._id);
         steps.push({ name: 'backtest_compare', jobId: btJobId, ms: Date.now() - t1, status: 'ok' });

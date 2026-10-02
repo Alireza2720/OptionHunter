@@ -69,7 +69,7 @@ async function safeCreateIndex(collection, keys, options = {}) {
 }
 async function ensureIndexes() {
     // --- کندل‌ها ---
-    try { await db.collection(COLLECTIONS.CANDLES_BASE).dropIndex('time_1'); } catch (_) {}
+    // 🆕 بدون drop — safeCreateIndex خودش با تعارض کنار میاد
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { time: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { symbol: 1, time: 1 }, { unique: true });
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { source: 1 });
@@ -132,7 +132,7 @@ async function ensureIndexes() {
     await safeCreateIndex(db.collection(COLLECTIONS.TSETMC_FETCH_LOG), { symbol: 1, date: 1, status: 1 });
 
     // --- لاگ‌ها ---
-    try { await db.collection(COLLECTIONS.LOGS).dropIndex('at_1'); } catch (_) {}
+    // 🆕 بدون drop
     await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { at: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { level: 1, at: -1 });
 }

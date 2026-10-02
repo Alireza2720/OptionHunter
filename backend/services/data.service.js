@@ -82,7 +82,10 @@ function isCandleClosed(timeSec, tfMin, now = new Date()) {
 function closedOnly(candles, tf) {
     const tfMin = TIMEFRAME_MINUTES[tf] || 1440;
     const now = new Date();
-    return candles.filter(c => isCandleClosed(c.time, tfMin, now));
+    return candles.filter(c =>
+        isCandleClosed(c.time, tfMin, now) &&
+        c.complete !== false   // 🆕 ناقص‌ها رد شوند (undefined = ناشناخته = قبول)
+    );
 }
 
 // ============================================================

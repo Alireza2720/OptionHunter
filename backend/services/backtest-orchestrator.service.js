@@ -81,12 +81,21 @@ async function getResults(jobId) {
         return { ...base, result: cached.result };
     }
 
-    // compute خطا خورده → دوباره شروع کن
+    // compute خطا خورده → فقط اگر retry کم است دوباره شروع کن
     if (cached && cached.error && !cached.computing) {
-        deps.logger && deps.logger.warn(`[bt-compute] ${jobId} retry after error`);
+        const _retryCount = cached.retryCount || 0;
+        const MAX_RETRY = 3;
+        if (_retryCount >= MAX_RETRY) {
+            return { ...base, error: cached.error, retriesExhausted: true };
+        }
+        deps.logger && deps.logger.warn(`[bt-compute] ${jobId} retry ${_retryCount + 1}/${MAX_RETRY} after error`);
+        await db.collection(COLLECTIONS.META).updateOne(
+            { _id: cacheId },
+            { $set: { retryCount: _retryCount + 1, computing: false }, $unset: { error: '' } }
+        );
         computeInBackground(jobId).catch(e =>
             deps.logger && deps.logger.error('[bt-compute] ' + e.message));
-        return { ...base, computing: true, computingFor: 0 };
+        return { ...base, computing: true, computingFor: 0, retry: _retryCount + 1 };
     }
 
     // در حال compute → flag رو برگردون

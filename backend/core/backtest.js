@@ -283,7 +283,8 @@ async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
     // C) به آینده اضافه شده
     if (from >= cached.coveredFrom && to > cached.coveredTo) {
         if (onProgress) onProgress({ phase: 'extend-future', from: cached.coveredTo, to });
-        const newTrades = await computeFn(cfg, cached.coveredTo, to);
+        // 🆕 +1 ثانیه تا معامله‌ای که دقیقاً روی مرز است دوبار شمرده نشه
+        const newTrades = await computeFn(cfg, cached.coveredTo + 1, to);
         const merged = [...cached.trades, ...newTrades].sort((a, b) => a.entryTime - b.entryTime);
         await saveTradeCache(sigHash, signature, cached.coveredFrom, to, merged);
         const filtered = merged.filter(t => t.entryTime >= from && t.entryTime <= to);
@@ -300,10 +301,9 @@ async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
     if (from < cached.coveredFrom) {
         if (onProgress) onProgress({ phase: 'extend-past', from, to: cached.coveredFrom });
 
-        // فقط بخش جدید گذشته — از from تا cached.coveredFrom
-        const newPastTrades = await computeFn(cfg, from, cached.coveredFrom);
+        // 🆕 +1 ثانیه روی مرز جلوگیری از تکرار
+        const newPastTrades = await computeFn(cfg, from, cached.coveredFrom - 1);
 
-        // cached trades از cached.coveredFrom به بعد دست‌نخورده می‌مونن
         const survivingCached = cached.trades.filter(t => t.entryTime >= cached.coveredFrom);
 
         let merged = [...newPastTrades, ...survivingCached]
@@ -312,7 +312,8 @@ async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
         // اگه به آینده هم نیازه
         if (to > cached.coveredTo) {
             if (onProgress) onProgress({ phase: 'extend-future', from: cached.coveredTo, to });
-            const futureTrades = await computeFn(cfg, cached.coveredTo, to);
+            // 🆕 +1 ثانیه جلوگیری از تکرار
+            const futureTrades = await computeFn(cfg, cached.coveredTo + 1, to);
             merged = [...merged, ...futureTrades].sort((a, b) => a.entryTime - b.entryTime);
         }
 

@@ -6,16 +6,6 @@
     ],
     "python.analysis.diagnosticMode": "openFilesOnly",
     "python.analysis.typeCheckingMode": "off",
-    "python.analysis.disabled": [
-        "unresolved-import",
-        "reportMissingImports",
-        "reportMissingModuleSource"
-    ]
-}
-
-mkdir -p ~/apps/OptionHunter/.vscode
-cat > ~/apps/OptionHunter/.vscode/settings.json << 'EOF'
-{
     "code-runner.runInTerminal": true,
     "code-runner.cwd": "${workspaceFolder}",
     "code-runner.executorMap": {
@@ -25,4 +15,3 @@ cat > ~/apps/OptionHunter/.vscode/settings.json << 'EOF'
     "code-runner.saveFileBeforeRun": true,
     "code-runner.showExecutionMessage": true
 }
-EOF

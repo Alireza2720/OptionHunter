@@ -88,9 +88,8 @@ function patchConsole() {
 }
 
 async function ensureIndexes(db) {
-    try { await db.collection(COLLECTIONS.LOGS).dropIndex('at_1'); } catch (_) {}
-    await db.collection(COLLECTIONS.LOGS).createIndex({ at: 1 });
-    await db.collection(COLLECTIONS.LOGS).createIndex({ level: 1, at: -1 });
+    try { await db.collection(COLLECTIONS.LOGS).createIndex({ at: 1 }); } catch (_) {}
+    try { await db.collection(COLLECTIONS.LOGS).createIndex({ level: 1, at: -1 }); } catch (_) {}
 }
 
 module.exports = {

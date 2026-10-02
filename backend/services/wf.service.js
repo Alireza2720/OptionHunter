@@ -90,8 +90,13 @@ async function runOnePair(jobId, symbol, strategyId, opts = {}) {
     }
 
     const allTrades = detail.trades;
-    const minTime = Math.min(...allTrades.map(t => t.entryTime));
-    const maxTime = Math.max(...allTrades.map(t => t.exitTime || t.entryTime));
+    // 🆕 جلوگیری از stack overflow روی آرایه‌های بزرگ
+    let minTime = Infinity, maxTime = -Infinity;
+    for (const t of allTrades) {
+        if (t.entryTime < minTime) minTime = t.entryTime;
+        const ex = t.exitTime || t.entryTime;
+        if (ex > maxTime) maxTime = ex;
+    }
     const totalDays = (maxTime - minTime) / 86400;
 
     const windows = wfCore.buildWindows(totalDays, opts.numWindows || 4, 0.7);

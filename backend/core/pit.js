@@ -101,8 +101,8 @@ function checkTrainTestOverlap(trainRange, testRange) {
         };
     }
 
-    // test کاملاً قبل از train
-    if (testTo !== null && trainFrom !== null && testTo < trainFrom) {
+    // test کاملاً قبل از train — فقط وقتی هر دو سر مشخص باشن
+    if (testTo !== null && testFrom !== null && trainFrom !== null && testTo < trainFrom) {
         return {
             overlap: false,
             severity: 'ok',
