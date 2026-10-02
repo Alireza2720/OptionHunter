@@ -58,9 +58,10 @@ const OPT_BT_DEFAULTS = {
     assumedMaturityDays: 30,
     ivMultiplier: 1.20,
     spreadPct: 10,
-    // 🆕 شل‌تر — دیتای آپشن ایران اکثراً ITM با delta بالا
-    deltaMin: 0.30, deltaMax: 0.98,
-    minDays: 7, maxDays: 90,
+    // 🆕 کالیبره برای داده‌های ایران
+    // delta 0.85-1.0 اکثراً deep ITM مثل خود سهم عمل می‌کنه
+    deltaMin: 0.35, deltaMax: 0.85,
+    minDays: 7, maxDays: 60,
     volCrushFactor: 3.0,
     minIvCrush: 0.35,
     spreadMoveMult: 3.0,
@@ -1418,7 +1419,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             const bulkRows = await db.collection('option_history').find({
                 underlying: norm(symbol),
                 time: { $gte: minTime, $lte: maxTime },
-                daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 200) },
+                daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 90) },
                 bid: { $gt: 0 },
                 ask: { $gt: 0 }
             }).toArray();
