@@ -39,10 +39,11 @@ module.exports = {
       merge_logs: true,
       time: true
     },
-    {
-      // 🆕 Monitor — رصد مصرف سرور هر 30s
+   {
+      // 🆕 Monitor — رصد مصرف سرور هر 30s (daemon mode)
       name: 'OHMonitor',
       script: './backend/scripts/monitor.js',
+      args: '--daemon',
       cwd: __dirname,
       exec_mode: 'fork',
       instances: 1,

@@ -26,14 +26,69 @@ function register(app, deps) {
                     job: { startedAt: currentJob.startedAt, pid: currentJob.pid, status: currentJob.status },
                 });
             }
+
+            // 🛡 چک RAM قبل از شروع
+            const os = require('os');
+            const freeMB = os.freemem() / 1048576;
+            if (freeMB < 300) {
+                return res.status(503).json({
+                    error: `RAM آزاد کم است (${freeMB.toFixed(0)}MB < 300MB) — چند دقیقه صبر کنید یا سرور را ری‌استارت کنید`,
+                    freeMB: Math.round(freeMB),
+                });
+            }
+
             const opts = req.body || {};
-            const args = [SCRIPT];
+
+            // 🕐 چک ساعت بازار (اجباری — فقط با forceHours اجازه بده)
+            const now = new Date();
+            const tehran = new Date(now.getTime() + 3.5 * 3600 * 1000);
+            const wd = tehran.getUTCDay();
+            const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+            const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+            const SAFE_START = 8 * 60 + 45;
+            const SAFE_END = 12 * 60 + 45;
+            const inDanger = isTradingDay && mins >= SAFE_START && mins <= SAFE_END;
+            if (inDanger && !opts.forceHours) {
+                return res.status(409).json({
+                    error: 'بازار یا آستانه‌ی بازار باز است — اجرای OHDoctor الان مجاز نیست',
+                    hint: 'بعد از ساعت 12:45 امتحان کنید، یا در حالت Safe Mode با gزینه forceHours',
+                    tehranTime: `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`,
+                });
+            }
+
+            // 🚦 چک job های فعال (اگر --skip-heavy نبود)
+            if (!opts.skipHeavy) {
+                try {
+                    const MongoClient = require('mongodb').MongoClient;
+                    const uri = require('../../config/env').get().MONGO_URI;
+                    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 3000 });
+                    await client.connect();
+                    const db = client.db('trading_bot');
+                    const activeCount = await db.collection('backtest_jobs').countDocuments({
+                        status: { $in: ['QUEUED', 'RUNNING', 'COMPUTING'] },
+                    });
+                    await client.close();
+                    if (activeCount > 0 && !opts.forceHours) {
+                        return res.status(409).json({
+                            error: `${activeCount} job در حال اجراست — OHDoctor سنگین می‌تواند تداخل کند`,
+                            hint: 'صبر کنید یا با skipHeavy=true فقط بخش‌های سبک را اجرا کنید',
+                            activeJobs: activeCount,
+                        });
+                    }
+                } catch (e) {
+                    // اگر Mongo در دسترس نبود، skip کن
+                    logger && logger.warn(`[doctor] job-idle check failed: ${e.message}`);
+                }
+            }
+            const args = [SCRIPT, '--doctor'];   // 🆕 اجباری برای child process
             if (opts.skipHeavy) args.push('--skip-heavy');
             if (opts.skipPipeline) args.push('--skip-pipeline');
             if (opts.skipBacktest) args.push('--skip-backtest');
             if (opts.skipLive) args.push('--skip-live');
             if (opts.sendReport) args.push('--send-report');
             if (opts.verbose) args.push('--verbose');
+            // 🆕 چون از UI اجرا می‌شود، از قبل چک کردیم؛ به اسکریپت هم بگو از گیت رد شود
+            args.push('--force-hours');
             if (Array.isArray(opts.sections) && opts.sections.length) {
                 args.push(`--sections=${opts.sections.join(',')}`);
             }
@@ -43,7 +98,8 @@ function register(app, deps) {
             if (!fs.existsSync(LOGS)) fs.mkdirSync(LOGS, { recursive: true });
             const outStream = fs.createWriteStream(outputFile, { flags: 'a' });
 
-            const child = spawn('node', args, {
+            // 🛡 با nice -n 15 اجرا کن (کم‌اولویت CPU، اگر جایی گیر کرد، برنامه اصلی اول اجرا شه)
+            const child = spawn('nice', ['-n', '15', 'node', ...args], {
                 cwd: path.resolve(__dirname, '..', '..', '..'),
                 env: { ...process.env, OH_DOCTOR_UI: '1' },
                 stdio: ['ignore', 'pipe', 'pipe'],

@@ -38,10 +38,202 @@ const CONF = {
     verbose: ARGV.includes('--verbose') || ARGV.includes('-v'),
     quiet: ARGV.includes('--quiet'),
     sections: null,   // [1..24] or null for all
+
+    // 🆕 قیدهای زمانی و job
+    forceHours: ARGV.includes('--force-hours') || ARGV.includes('--unsafe') || ARGV.includes('--force'),
+    // ↑ اجبار به اجرا حتی در ساعات بازار
+    waitForIdle: ARGV.includes('--wait-for-idle'),
+    // ↑ اگر job فعال بود، منتظر بمان (پیش‌فرض: رد کن)
+    idleWaitMaxMin: (() => {
+        const a = ARGV.find((x) => x.startsWith('--idle-wait='));
+        return a ? parseInt(a.split('=')[1], 10) : 30;
+    })(),
+    // ↑ حداکثر زمان انتظار برای job ها (دقیقه)
 };
 const secArg = ARGV.find((a) => a.startsWith('--sections='));
 if (secArg) {
     CONF.sections = secArg.split('=')[1].split(',').map((s) => +s.trim()).filter(Boolean);
+}
+
+// ============================================================
+// 🎯 MODE DETECTION — یک فایل، دو رفتار
+// ============================================================
+// PM2 (بدون flag):     → daemon mode (پیوسته، سبک)
+// CLI (بدون flag):     → doctor mode
+// UI (--doctor ...):   → doctor mode
+// --daemon:            → daemon (اجباری)
+// --doctor:            → doctor (اجباری)
+// ============================================================
+const _pmId = process.env.pm_id;
+const _underPm2 = _pmId !== undefined && _pmId !== null && String(_pmId) !== '';
+const _hasDaemon = ARGV.includes('--daemon');
+const _doctorFlags = [
+    '--doctor', '--skip-heavy', '--skip-pipeline', '--skip-backtest',
+    '--skip-live', '--send-report', '--json', '--verbose', '-v',
+    '--force-hours', '--wait-for-idle', '--unsafe', '--force',
+];
+const _hasDoctor = ARGV.some((a) =>
+    _doctorFlags.includes(a) || a.startsWith('--sections=') || a.startsWith('--idle-wait=')
+);
+const MODE = _hasDaemon ? 'daemon'
+    : _hasDoctor ? 'doctor'
+    : _underPm2 ? 'daemon'
+    : 'doctor';
+
+// ============================================================
+// 🛡 SAFETY GUARD — جلوگیری از خفه کردن سرور
+// ============================================================
+const SAFETY = {
+    minFreeMemMB: 400,             // حداقل RAM آزاد قبل از بخش سنگین
+    watchdogMinMB: 200,            // اگر کمتر شد، اجرا را abort کن
+    maxNodeRssMB: 750,             // اگر Node بالاتر بود، skip heavy
+    maxSectionMs: 5 * 60 * 1000,   // حداکثر ۵ دقیقه برای هر بخش
+    safeMode: !ARGV.includes('--unsafe') && !ARGV.includes('--force'),
+    // safeMode = پیش‌فرض ON. برای غیرفعال کردن: --unsafe
+};
+
+let _safetyAborted = false;
+let _safetyWatchdog = null;
+
+function startSafetyWatchdog() {
+    _safetyWatchdog = setInterval(() => {
+        const free = os.freemem() / 1048576;
+        if (free < SAFETY.watchdogMinMB) {
+            _safetyAborted = true;
+            wc(`  🚨 [WATCHDOG] RAM بحرانی: ${free.toFixed(0)}MB — abort فوری`, C.red + C.bold);
+            process.exit(3);
+        }
+    }, 15000);
+    if (_safetyWatchdog.unref) _safetyWatchdog.unref();
+}
+function stopSafetyWatchdog() {
+    if (_safetyWatchdog) { clearInterval(_safetyWatchdog); _safetyWatchdog = null; }
+}
+
+// ============================================================
+// 🕐 MARKET HOURS GATE
+// ============================================================
+function checkMarketHours() {
+    const now = new Date();
+    const tehran = new Date(now.getTime() + 3.5 * 3600 * 1000);
+    const wd = tehran.getUTCDay();           // 0=Sun..6=Sat
+    const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+
+    // شنبه..چهارشنبه (6,0,1,2,3)
+    const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+    // پنجره‌ی امن: از 8:45 تا 12:45 — دیواره‌ی حاشیه‌ای برای اطمینان
+    const SAFE_START = 8 * 60 + 45;           // 08:45
+    const SAFE_END = 12 * 60 + 45;            // 12:45
+    const inDanger = isTradingDay && mins >= SAFE_START && mins <= SAFE_END;
+
+    // پیش‌بینی زمان تا پنجره‌ی بعدی
+    let hint = '';
+    if (inDanger) {
+        const minsToSafe = SAFE_END - mins;
+        hint = `بازار باز/در آستانه‌ی بازگشایی است — تا ${minsToSafe} دقیقه صبر کن (بعد از ${String(Math.floor(SAFE_END / 60)).padStart(2, '0')}:${String(SAFE_END % 60).padStart(2, '0')})`;
+    } else if (isTradingDay && mins < SAFE_START) {
+        const minsToOpen = SAFE_START - mins;
+        hint = `${minsToOpen} دقیقه تا پنجره‌ی بازار — صبر کن`;
+    } else {
+        hint = 'خارج از پنجره‌ی بازار ✓';
+    }
+
+    return {
+        ok: !inDanger,
+        isTradingDay,
+        isMarketOpen: isTradingDay && mins >= 9 * 60 && mins <= 12 * 60 + 35,
+        inDanger,
+        reason: inDanger
+            ? `🚫 بازار/آستانه‌ی بازار باز است — OHDoctor سنگین می‌تواند سرور را کند کند. ${hint}`
+            : `✅ خارج از ساعت بازار — اجرا امن است`,
+        hint,
+        tehran: tehran.toISOString(),
+    };
+}
+
+// ============================================================
+// 🚦 JOB IDLE GATE
+// ============================================================
+async function checkJobsIdle() {
+    try {
+        const r = await httpGet(CONF.backend + '/api/jobs?limit=10', { timeout: 5000 });
+        if (!r.ok || !r.json || !Array.isArray(r.json.jobs)) {
+            return { idle: true, count: 0, jobs: [], note: 'unable to query jobs — assuming idle' };
+        }
+        const active = r.json.jobs.filter((j) =>
+            ['QUEUED', 'RUNNING', 'COMPUTING'].includes(j.status)
+        );
+        return {
+            idle: active.length === 0,
+            count: active.length,
+            jobs: active.map((j) => ({
+                type: j.type,
+                status: j.status,
+                message: (j.progress && j.progress.message) || '',
+                id: String(j._id).slice(-6),
+            })),
+        };
+    } catch (e) {
+        return { idle: true, count: 0, jobs: [], note: 'error: ' + e.message };
+    }
+}
+
+async function waitForJobsIdle(maxWaitMs) {
+    const t0 = Date.now();
+    let lastCount = -1;
+    while (Date.now() - t0 < maxWaitMs) {
+        const chk = await checkJobsIdle();
+        if (chk.idle) return { ok: true, waited: Date.now() - t0 };
+        if (chk.count !== lastCount) {
+            lastCount = chk.count;
+            info(`[IDLE-WAIT] ${chk.count} job فعال — نمونه: ${chk.jobs.slice(0, 3).map((j) => `${j.type}:${j.status}`).join(', ')}`);
+        }
+        await sleep(10000);
+    }
+    return { ok: false, waited: Date.now() - t0, timedOut: true };
+}
+
+async function preHeavyCheck(sectionName) {
+    // 1) RAM آزاد سیستم
+    const totalMB = os.totalmem() / 1048576;
+    const freeMB = os.freemem() / 1048576;
+    if (freeMB < SAFETY.minFreeMemMB) {
+        warn(`[SAFETY] ${sectionName} رد شد — RAM آزاد کم: ${freeMB.toFixed(0)}MB < ${SAFETY.minFreeMemMB}MB`);
+        return false;
+    }
+
+    // 2) RSS پروسه‌ی Node اصلی (OptionHunter)
+    try {
+        const r = tryExec('pm2', ['jlist'], { timeout: 5000 });
+        if (r.ok && r.stdout) {
+            const list = JSON.parse(r.stdout);
+            for (const app of list) {
+                if (app.name === 'OptionHunter') {
+                    const rss = Math.round((app.monit && app.monit.memory || 0) / 1048576);
+                    if (rss > SAFETY.maxNodeRssMB) {
+                        warn(`[SAFETY] ${sectionName} رد شد — Node RSS بالا: ${rss}MB > ${SAFETY.maxNodeRssMB}MB`);
+                        return false;
+                    }
+                }
+            }
+        }
+    } catch (_) {}
+
+    // 3) job فعال در پس‌زمینه (خود بک‌تست یا pipeline)
+    try {
+        const jobs = await httpGet(CONF.backend + '/api/jobs?limit=5', { timeout: 5000 });
+        if (jobs.ok && jobs.json && Array.isArray(jobs.json.jobs)) {
+            const active = jobs.json.jobs.filter((j) => ['QUEUED', 'RUNNING', 'COMPUTING'].includes(j.status));
+            if (active.length > 0) {
+                warn(`[SAFETY] ${sectionName} رد شد — ${active.length} job فعال در پس‌زمینه`);
+                for (const j of active.slice(0, 3)) info(`  • ${j.type} → ${j.status}`);
+                return false;
+            }
+        }
+    } catch (_) {}
+
+    ok(`[SAFETY] ${sectionName} عبور کرد (RAM آزاد: ${freeMB.toFixed(0)}MB)`);
+    return true;
 }
 
 // ---- Env loader ----
@@ -683,6 +875,7 @@ async function s12_gaps() {
 async function s13_live_tick() {
     section(13, 'LIVE TICK');
     if (CONF.skipLiveTick) return info('skip-live');
+    if (!await preHeavyCheck('S13 LIVE-TICK')) return;
     const now = new Date(Date.now() + 3.5 * 3600 * 1000);
     const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
     const wd = now.getUTCDay();
@@ -722,6 +915,7 @@ async function s13_live_tick() {
 async function s14_strategies() {
     section(14, 'STRATEGY DRY RUN');
     if (CONF.skipHeavy) return info('skip-heavy');
+    if (!await preHeavyCheck('S14 STRATEGIES')) return;
     const stratResp = await httpGet(CONF.backend + '/api/strategies');
     if (!stratResp.ok) return fail('strategies list ناموفق');
     const strats = stratResp.json || [];
@@ -787,6 +981,7 @@ async function s14_strategies() {
 async function s15_regime() {
     section(15, 'REGIME');
     if (CONF.skipHeavy) return info('skip-heavy');
+    if (!await preHeavyCheck('S15 REGIME')) return;
     sub('Refresh all');
     const r = await httpGet(CONF.backend + '/api/regime/refresh', { method: 'POST', timeout: 120000 });
     if (!r.ok) return warn(`refresh ${r.status}`);
@@ -841,6 +1036,7 @@ async function s16_journal() {
 async function s17_portfolio() {
     section(17, 'PORTFOLIO ANALYSIS');
     if (CONF.skipHeavy) return info('skip-heavy');
+    if (!await preHeavyCheck('S17 PORTFOLIO')) return;
     sub('Correlation refresh');
     const r = await httpGet(CONF.backend + '/api/portfolio/correlation/refresh?days=30', { method: 'POST', timeout: 120000 });
     if (!r.ok) return warn(`correlation refresh ${r.status}`);
@@ -874,6 +1070,7 @@ async function s17_portfolio() {
 async function s18_pipeline() {
     section(18, 'DUAL-STAGE PIPELINE (DRY RUN)');
     if (CONF.skipPipeline) return info('skip-pipeline');
+    if (!await preHeavyCheck('S18 PIPELINE')) return;
     const symResp = await httpGet(CONF.backend + '/api/monitored-symbols');
     const syms = (symResp.ok ? symResp.json : []) || [];
     if (!syms.length) return warn('هیچ نماد');
@@ -939,6 +1136,7 @@ async function s18_pipeline() {
 async function s19_backtest() {
     section(19, 'BACKTEST MATRIX');
     if (CONF.skipBacktest || CONF.skipHeavy) return info('skip-backtest');
+    if (!await preHeavyCheck('S19 BACKTEST')) return;
     const symResp = await httpGet(CONF.backend + '/api/monitored-symbols');
     const syms = ((symResp.ok ? symResp.json : []) || []).slice(0, 2).map((s) => s.symbol);
     if (!syms.length) return warn('نماد نیست');
@@ -1193,7 +1391,87 @@ async function s24_report() {
 // ============================================================
 // MAIN
 // ============================================================
-async function main() {
+async function runDoctor() {
+    // ══════════════════════════════════════════════════════════
+    // 🕐 GATE 1: فقط خارج از ساعت بازار (اجباری)
+    // ══════════════════════════════════════════════════════════
+    const mh = checkMarketHours();
+    if (!mh.ok && !CONF.forceHours) {
+        // در حالت --json هم باید JSON بدیم
+        if (CONF.jsonOut) {
+            console.log(JSON.stringify({ error: mh.reason, marketHours: mh, aborted: true }, null, 2));
+        } else {
+            console.error('');
+            console.error('╔════════════════════════════════════════════════════════════════════╗');
+            console.error('║  🚫 OHDoctor ABORTED — Market Hours Gate                          ║');
+            console.error('╚════════════════════════════════════════════════════════════════════╝');
+            console.error('');
+            console.error(mh.reason);
+            console.error('');
+            console.error('  گزینه‌ها:');
+            console.error('    --force-hours      اجرای اجباری (ریسک فشار روی سرور)');
+            console.error('    --skip-heavy       فقط بخش‌های سبک (بدون backtest/pipeline)');
+            console.error('');
+            console.error('  پیشنهاد: اجرای خودکار در ساعت 14:00 با cron:');
+            console.error('    0 14 * * 6,0,1,2,3 cd ~/apps/OptionHunter && node backend/scripts/monitor.js --send-report');
+            console.error('');
+        }
+        process.exit(4);
+    }
+
+    // اگر safeMode و داخل پنجره‌ی خطر ولی --force-hours زده شده
+    if (!mh.ok && CONF.forceHours) {
+        console.error('');
+        console.error('  ⚠️  [FORCE-HOURS] اجرا در ساعت بازار — ریسک فشار روی سرور');
+    } else if (mh.ok) {
+        // خارج از ساعت بازار → Safe Mode را خاموش کن (چون خطری نیست)
+        // اما اگر skipHeavy دستی false بشه، احترام بذار
+        // هیچ تغییری نیاز نیست
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // 🚦 GATE 2: هیچ job فعالی نباشد
+    // ══════════════════════════════════════════════════════════
+    const jobChk = await checkJobsIdle();
+    if (!jobChk.idle) {
+        if (CONF.waitForIdle) {
+            console.error(`⏳ ${jobChk.count} job فعال — انتظار تا اتمام (حداکثر ${CONF.idleWaitMaxMin} دقیقه)...`);
+            const w = await waitForJobsIdle(CONF.idleWaitMaxMin * 60 * 1000);
+            if (!w.ok) {
+                const msg = `⏱ timeout — ${jobChk.count} job پس از ${CONF.idleWaitMaxMin} دقیقه هنوز فعال است`;
+                if (CONF.jsonOut) console.log(JSON.stringify({ error: msg, aborted: true }, null, 2));
+                else console.error('❌ ' + msg);
+                process.exit(5);
+            }
+            console.error(`✅ همه job ها تمام شدند (انتظار: ${(w.waited / 1000).toFixed(0)}s)`);
+        } else if (!CONF.forceHours) {
+            if (CONF.jsonOut) {
+                console.log(JSON.stringify({
+                    error: `${jobChk.count} job فعال`, jobs: jobChk.jobs, aborted: true,
+                }, null, 2));
+            } else {
+                console.error('');
+                console.error('╔════════════════════════════════════════════════════════════════════╗');
+                console.error('║  🚦 OHDoctor ABORTED — Jobs Active                                ║');
+                console.error('╚════════════════════════════════════════════════════════════════════╝');
+                console.error('');
+                console.error(`${jobChk.count} job در حال اجراست:`);
+                for (const j of jobChk.jobs) {
+                    console.error(`  • ${j.type} [${j.status}] ${j.message.slice(0, 80)}`);
+                }
+                console.error('');
+                console.error('  گزینه‌ها:');
+                console.error('    --wait-for-idle            صبر کن تا job ها تمام شوند');
+                console.error('    --idle-wait=60             حداکثر ۶۰ دقیقه صبر (پیش‌فرض: ۳۰)');
+                console.error('    --force-hours              اجراى اجبارى');
+                console.error('');
+            }
+            process.exit(5);
+        }
+    }
+
+    startSafetyWatchdog();
+
     if (!CONF.jsonOut) {
         w('');
         wc('╔════════════════════════════════════════════════════════════════════╗', C.bold + C.cyan);
@@ -1205,6 +1483,12 @@ async function main() {
         w(`  Collector: ${CONF.collector}`);
         w(`  Mode: skipHeavy=${CONF.skipHeavy} skipPipeline=${CONF.skipPipeline} skipBacktest=${CONF.skipBacktest} sendReport=${CONF.sendReport}`);
         if (CONF.sections) w(`  Sections filter: ${CONF.sections.join(',')}`);
+        wc(`  🛡 Safety: safeMode=${SAFETY.safeMode} minFreeMem=${SAFETY.minFreeMemMB}MB maxSectionMs=${SAFETY.maxSectionMs / 1000}s`,
+            SAFETY.safeMode ? C.green : C.yellow);
+        if (!SAFETY.safeMode) warn('safeMode خاموش است — ریسک فشار روی سرور');
+        if (mh.ok) wc(`  🕐 Market: ${mh.hint}`, C.green);
+        else wc(`  🕐 Market: ${mh.hint}`, C.yellow);
+        if (jobChk.idle) wc(`  🚦 Jobs: idle ✓`, C.green);
     }
 
     const run = async (n, title, fn, forceAsync) => {
@@ -1242,6 +1526,8 @@ async function main() {
     await run(22, 'SECURITY', s22_security, true);
     await run(23, 'LOGS', s23_logs);
     await run(24, 'REPORT', s24_report, true);
+    // 🆕 در انتهای main() بعد از همه اجراها:
+    stopSafetyWatchdog();
 
     if (CONF.jsonOut) {
         // Write final JSON to stdout only
@@ -1256,4 +1542,93 @@ async function main() {
     process.exitCode = R.issues.length > 0 ? 1 : 0;
 }
 
-main().catch((e) => { console.error('FATAL:', e); process.exit(2); });
+// ============================================================
+// 🩺 DAEMON MODE — حلقه‌ی رصد سبک (برای PM2/OHMonitor)
+// ============================================================
+function runDaemon() {
+    const LOGS_DIR = path.join(ROOT, 'logs');
+    if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+
+    const tsLocal = () => new Date().toISOString();
+    const tehranNow = () => new Date(Date.now() + 3.5 * 3600 * 1000);
+    function isMarketHours() {
+        const t = tehranNow();
+        const wd = t.getUTCDay();
+        const mins = t.getUTCHours() * 60 + t.getUTCMinutes();
+        return [6, 0, 1, 2, 3].includes(wd) && mins >= 9 * 60 && mins <= 12 * 60 + 35;
+    }
+    function appendLog(f, line) {
+        try { fs.appendFileSync(path.join(LOGS_DIR, f), line + '\n'); } catch (_) {}
+    }
+    function getNodeStats() {
+        try {
+            const raw = tryShell('pm2 jlist 2>/dev/null || echo "[]"', { timeout: 5000 }).stdout;
+            const list = JSON.parse(raw);
+            for (const p of list) {
+                if (p.name === 'OptionHunter') {
+                    return {
+                        rssMB: Math.round(((p.monit && p.monit.memory) || 0) / 1048576),
+                        cpu: (p.monit && p.monit.cpu) || 0,
+                        restarts: (p.pm2_env && p.pm2_env.restart_time) || 0,
+                    };
+                }
+            }
+        } catch (_) {}
+        return { rssMB: 0, cpu: 0, restarts: 0 };
+    }
+    function getCollectorStats() {
+        try {
+            const out = tryShell(
+                'systemctl show collector -p MemoryCurrent,ActiveState --no-pager 2>/dev/null || true',
+                { timeout: 5000 }
+            ).stdout;
+            const m = {};
+            out.split('\n').forEach((l) => {
+                const i = l.indexOf('=');
+                if (i > 0) m[l.slice(0, i)] = l.slice(i + 1);
+            });
+            return {
+                memMB: m.MemoryCurrent && m.MemoryCurrent !== '[not set]'
+                    ? Math.round(+m.MemoryCurrent / 1048576) : 0,
+                active: m.ActiveState === 'active',
+            };
+        } catch (_) {}
+        return { memMB: 0, active: false };
+    }
+    function tick() {
+        const total = os.totalmem() / 1048576;
+        const free = os.freemem() / 1048576;
+        const used = total - free;
+        const load = os.loadavg()[0];
+        const node = getNodeStats();
+        const coll = getCollectorStats();
+        const line = `[${tsLocal()}] ` +
+            `Node:${node.rssMB}M(${node.cpu}%) rst:${node.restarts} | ` +
+            `Coll:${coll.memMB}M ${coll.active ? '✓' : '✗'} | ` +
+            `RAM:${used.toFixed(0)}/${total.toFixed(0)}M free:${free.toFixed(0)}M | ` +
+            `Load:${load.toFixed(2)}`;
+        appendLog('monitor.log', line);
+        if (isMarketHours()) {
+            const day = new Date().toISOString().slice(0, 10);
+            appendLog(`market-${day}.log`, line);
+        }
+        if (node.rssMB > 750) appendLog('monitor.log', `[${tsLocal()}] ⚠️ Node RAM: ${node.rssMB}M`);
+        if (free < 150) appendLog('monitor.log', `[${tsLocal()}] ⚠️ RAM free: ${free.toFixed(0)}M`);
+        if (node.restarts > 50) appendLog('monitor.log', `[${tsLocal()}] ⚠️ Restarts: ${node.restarts}`);
+    }
+    console.log(`[${tsLocal()}] monitor.js (daemon mode) started, PID=${process.pid}`);
+    tick();
+    const timer = setInterval(tick, 30000);
+    process.on('SIGTERM', () => { clearInterval(timer); process.exit(0); });
+    process.on('SIGINT', () => { clearInterval(timer); process.exit(0); });
+}
+
+// ============================================================
+// 🚀 DISPATCH
+// ============================================================
+console.log(`[monitor.js] mode=${MODE} (pm2=${_underPm2}, args=[${ARGV.join(' ')}])`);
+if (MODE === 'daemon') {
+    runDaemon();
+} else {
+    runDoctor().catch((e) => { console.error('FATAL:', e); process.exit(2); });
+}

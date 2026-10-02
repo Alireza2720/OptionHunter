@@ -5473,14 +5473,19 @@ async function openDoctorPanel() {
                 <span><b>⚙️ گزینه‌ها</b></span><span class="chev">▼</span>
             </div>
             <div class="adv-body">
+                <div style="padding:8px 12px;background:rgba(46,168,138,.08);border:1px solid var(--good);border-radius:6px;margin-bottom:10px;font-size:12px;">
+                    <b>🛡 حالت پیشنهادی:</b> Safe Mode — روی سرور ضعیف امن است. برای اجرای heavy، تیک skip-heavy را بردار و مطمئن شو بازار بسته یا شب باشد.
+                </div>
                 <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12.5px;">
-                    <label><input type="checkbox" id="docSkipHeavy"> Skip heavy (بدون pipeline/backtest/regime/portfolio)</label>
-                    <label><input type="checkbox" id="docSkipPipeline"> Skip pipeline</label>
-                    <label><input type="checkbox" id="docSkipBacktest"> Skip backtest</label>
+                    <label><input type="checkbox" id="docSkipHeavy" checked> 🛡 Skip heavy (پیشنهاد)</label>
+                    <label><input type="checkbox" id="docSkipPipeline" checked> Skip pipeline</label>
+                    <label><input type="checkbox" id="docSkipBacktest" checked> Skip backtest</label>
                     <label><input type="checkbox" id="docSkipLive"> Skip live-tick</label>
                     <label><input type="checkbox" id="docSendReport" checked> ارسال گزارش به Bale</label>
                     <label><input type="checkbox" id="docVerbose"> Verbose</label>
+                    <label style="color:var(--bad);"><input type="checkbox" id="docForceHours"> ⚠️ Force hours (اجبار در ساعت بازار)</label>
                 </div>
+                <div id="docMarketHint" style="margin-top:8px;padding:6px 10px;border-radius:6px;font-size:11.5px;background:var(--bg-input);"></div>
                 <div class="form-row" style="margin-top:8px;">
                     <div class="field" style="flex:1;min-width:260px;">
                         <label>Sections (خالی = همه) — مثلا: 1,2,3,9</label>
@@ -5507,6 +5512,40 @@ async function openDoctorPanel() {
         </div>
     `);
 
+    // 🆕 نمایش وضعیت فعلی بازار
+    setTimeout(() => {
+        const hint = document.getElementById('docMarketHint');
+        if (!hint) return;
+        const now = new Date();
+        const tehran = new Date(now.getTime() + 3.5 * 3600 * 1000);
+        const wd = tehran.getUTCDay();
+        const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+        const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+        const SAFE_START = 8 * 60 + 45;
+        const SAFE_END = 12 * 60 + 45;
+        const inDanger = isTradingDay && mins >= SAFE_START && mins <= SAFE_END;
+        const isMarketOpen = isTradingDay && mins >= 9 * 60 && mins <= 12 * 60 + 35;
+        const timeStr = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+
+        if (!isTradingDay) {
+            hint.style.background = 'rgba(46,168,138,.1)';
+            hint.style.color = 'var(--good)';
+            hint.textContent = `✅ ${timeStr} — تعطیل یا آخر هفته. اجرا امن است.`;
+        } else if (isMarketOpen) {
+            hint.style.background = 'rgba(217,83,79,.1)';
+            hint.style.color = 'var(--bad)';
+            hint.textContent = `🚫 ${timeStr} — بازار باز است. بعد از 12:45 امتحان کن.`;
+        } else if (inDanger) {
+            hint.style.background = 'rgba(201,151,61,.1)';
+            hint.style.color = 'var(--warn)';
+            hint.textContent = `⚠️ ${timeStr} — آستانه‌ی بازار. امن‌تر است صبر کنی.`;
+        } else {
+            hint.style.background = 'rgba(46,168,138,.1)';
+            hint.style.color = 'var(--good)';
+            hint.textContent = `✅ ${timeStr} — خارج از پنجره‌ی بازار. اجرا امن است.`;
+        }
+    }, 50);
+
     await refreshDoctorStatus();
     await refreshDoctorReports();
 
@@ -5525,13 +5564,55 @@ async function runDoctor() {
     btn.disabled = true; btn.textContent = '⏳ در حال اجرا...';
     document.getElementById('docKillBtn').style.display = 'inline-block';
 
+    const skipHeavy = document.getElementById('docSkipHeavy').checked;
+    const skipPipeline = document.getElementById('docSkipPipeline').checked;
+    const skipBacktest = document.getElementById('docSkipBacktest').checked;
+    const forceHours = document.getElementById('docForceHours').checked;
+
+    // 🕐 چک ساعت بازار در سمت کلاینت
+    const now = new Date();
+    const tehran = new Date(now.getTime() + 3.5 * 3600 * 1000);
+    const wd = tehran.getUTCDay();
+    const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+    const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+    const SAFE_START = 8 * 60 + 45;
+    const SAFE_END = 12 * 60 + 45;
+    const inDanger = isTradingDay && mins >= SAFE_START && mins <= SAFE_END;
+
+    if (inDanger && !forceHours) {
+        showAlert(
+            '🚫 الان ساعت بازار است — OHDoctor اجرا نمی‌شود.\n' +
+            'بعد از 12:45 امتحان کن، یا تیک Force hours را بزن (خطرناک).',
+            'warn', 8000
+        );
+        return;
+    }
+
+    // 🛡 هشدار اگر روی سرور ضعیف heavy روشن شود
+    if (!skipHeavy && !confirm(
+        '⚠️ حالت Heavy انتخاب شده.\n\n' +
+        'Pipeline و Backtest می‌توانند تا ۱۰ دقیقه اجرا شوند و ۳۰۰-۶۰۰MB RAM مصرف کنند.\n' +
+        'اگر بازار باز است یا job فعال داری، سرور ممکن است کند شود.\n\n' +
+        'ادامه می‌دهی؟'
+    )) return;
+
+    if (forceHours && inDanger && !confirm(
+        '🚨 FORCE HOURS\n\n' +
+        'بازار هم‌اکنون باز است. اجرای OHDoctor سنگین می‌تواند:\n' +
+        '  • سیگنال‌های زنده را delayed کند\n' +
+        '  • تیک‌ها را با تأخیر پردازش کند\n' +
+        '  • سرور را به swap ببرد\n\n' +
+        'مطمئنی؟'
+    )) return;
+
     const body = {
-        skipHeavy: document.getElementById('docSkipHeavy').checked,
-        skipPipeline: document.getElementById('docSkipPipeline').checked,
-        skipBacktest: document.getElementById('docSkipBacktest').checked,
+        skipHeavy,
+        skipPipeline,
+        skipBacktest,
         skipLive: document.getElementById('docSkipLive').checked,
         sendReport: document.getElementById('docSendReport').checked,
         verbose: document.getElementById('docVerbose').checked,
+        forceHours,
     };
     const secTxt = (document.getElementById('docSections').value || '').trim();
     if (secTxt) {
