@@ -440,8 +440,8 @@ async function run() {
 let task = null;
 function start() {
     if (task) return;
-    // اول هر ماه ساعت 10:00 تهران
-    task = cron.schedule('0 10 1 * *', run, { timezone: 'Asia/Tehran' });
+    // 🆕 اول هر ماه ساعت 10:30 (جلوگیری از تداخل با weeklyBackup)
+    task = cron.schedule('30 10 1 * *', run, { timezone: 'Asia/Tehran' });
     deps.logger && deps.logger.info('monthly-report.job started');
 }
 function stop() { if (task) { task.stop(); task = null; } }

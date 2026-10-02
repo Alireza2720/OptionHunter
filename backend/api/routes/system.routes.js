@@ -17,7 +17,7 @@ function register(app, deps) {
     // 🆕 cache برای /api/system/stats — جلوگیری از execSync پیاپی
     let _statsCache = null;
     let _statsAt = 0;
-    const STATS_TTL = 20000;   // ۲۰ ثانیه
+    const STATS_TTL = 60000;   // ۲۰ ثانیه
 
     // ---- Ping ----
     app.get('/ping', (req, res) => res.json({ pong: true, time: new Date().toISOString() }));
@@ -64,7 +64,7 @@ function register(app, deps) {
     // ---- System Stats ----
     app.get('/api/system/stats', async (req, res, next) => {
         try {
-            // 🆕 cache
+            // 🆕 cache hit
             if (_statsCache && (Date.now() - _statsAt) < STATS_TTL) {
                 return res.json(_statsCache);
             }
@@ -154,7 +154,6 @@ function register(app, deps) {
                 uptime: Math.round(process.uptime()),
                 serverStartedAt: deps.startedAt
             };
-            // 🆕 ذخیره در cache
             _statsCache = payload;
             _statsAt = Date.now();
             res.json(payload);

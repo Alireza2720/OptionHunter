@@ -24,8 +24,8 @@ async function refresh() {
 let task = null;
 function start() {
     if (task) return;
-    // هر شب ساعت 03:30 تهران
-    task = cron.schedule('30 3 * * *', refresh, { timezone: 'Asia/Tehran' });
+    // 🆕 از 3:30 به 3:45 (جلوگیری از تداخل با retention)
+    task = cron.schedule('45 3 * * *', refresh, { timezone: 'Asia/Tehran' });
     deps.logger && deps.logger.info('correlation.job started');
 }
 function stop() { if (task) { task.stop(); task = null; } }

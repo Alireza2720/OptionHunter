@@ -145,8 +145,19 @@ async function ensureIndexes() {
 
     // --- لاگ‌ها ---
     // 🆕 بدون drop
-    await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { at: 1 });
-    await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { level: 1, at: -1 });
+await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { at: 1 });
+await safeCreateIndex(db.collection(COLLECTIONS.LOGS), { level: 1, at: -1 });
+
+// 🆕 stock_ticks — index + TTL
+await safeCreateIndex(
+    db.collection(COLLECTIONS.STOCK_TICKS),
+    { symbol: 1, time: -1 }
+);
+await safeCreateIndex(
+    db.collection(COLLECTIONS.STOCK_TICKS),
+    { time: 1 },
+    { expireAfterSeconds: 90 * 86400 }
+);
 }
 
 async function cleanupLegacy() {

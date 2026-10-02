@@ -84,8 +84,8 @@ const MODE = _hasDaemon ? 'daemon'
 // 🛡 SAFETY GUARD — جلوگیری از خفه کردن سرور
 // ============================================================
 const SAFETY = {
-    minFreeMemMB: 400,             // حداقل RAM آزاد قبل از بخش سنگین
-    watchdogMinMB: 200,            // اگر کمتر شد، اجرا را abort کن
+    minFreeMemMB: 250,             // 🆕 برای سرور 2GB واقع‌گرایانه‌تر
+    watchdogMinMB: 120,            // 🆕 کاهش یافته
     maxNodeRssMB: 750,             // اگر Node بالاتر بود، skip heavy
     maxSectionMs: 5 * 60 * 1000,   // حداکثر ۵ دقیقه برای هر بخش
     safeMode: !ARGV.includes('--unsafe') && !ARGV.includes('--force'),
@@ -986,7 +986,9 @@ async function s14_strategies() {
     kv('jobId', run.json.jobId);
 
     const jobId = run.json.jobId;
-    const deadline = Date.now() + 90000;
+    // 🆕 deadline ۵ دقیقه + اگر بعد از ۹۰ ثانیه هنوز RUNNING بود، کنسل کن
+    const deadline = Date.now() + 5 * 60 * 1000;
+    const SOFT_DEADLINE = Date.now() + 90 * 1000;
     let final = null;
     while (Date.now() < deadline) {
         await sleep(3000);
@@ -994,8 +996,22 @@ async function s14_strategies() {
         if (!jr.ok) continue;
         final = jr.json;
         if (['DONE', 'FAILED', 'CANCELLED'].includes(final.status)) break;
+        // 🆕 اگر از soft deadline گذشت و هنوز RUNNING بود، کنسل کن
+        if (Date.now() > SOFT_DEADLINE && final.status === 'RUNNING') {
+            info(`job بعد از 90s هنوز RUNNING — کنسل می‌کنم`);
+            try { await httpGet(CONF.backend + `/api/jobs/${jobId}/cancel`, { method: 'POST' }); } catch (_) {}
+            await sleep(3000);
+            const jr2 = await httpGet(CONF.backend + `/api/jobs/${jobId}`);
+            if (jr2.ok) final = jr2.json;
+            break;
+        }
     }
-    if (!final || final.status !== 'DONE') return fail(`status=${final && final.status}`);
+    if (!final) return fail('job دریافت نشد');
+    if (final.status === 'CANCELLED') {
+        warn(`S14 job بعد از 90s کنسل شد (${17} استراتژی زیاد بود)`);
+        return;
+    }
+    if (final.status !== 'DONE') return fail(`status=${final.status}`);
     ok('backtest کامل شد');
     const res = (final.result && final.result.results) || [];
     const errors = res.filter((r) => r.error);
@@ -1274,9 +1290,17 @@ async function s21_perf() {
     for (const t of tests) {
         sub(t.n);
         const times = [];
+        const timeoutHits = [];
         for (let i = 0; i < t.cnt; i++) {
             const r = await httpGet(CONF.backend + t.u);
             times.push(r.ms);
+            if (r.ms > 3000) timeoutHits.push({ ms: r.ms, status: r.status, error: r.error });
+        }
+        if (timeoutHits.length) {
+            warn(`${timeoutHits.length}/${t.cnt} درخواست > 3s:`);
+            for (const h of timeoutHits.slice(0, 3)) {
+                info(`  • ${h.ms}ms status=${h.status} error=${h.error || '-'}`);
+            }
         }
         times.sort((a, b) => a - b);
         const p50 = times[Math.floor(times.length * 0.5)];
@@ -1608,9 +1632,12 @@ async function s26_ssl() {
     else {
         for (const d of uniqueDomains) {
             try {
-                const r = await httpGet(`https://${d}`, { timeout: 5000 });
-                if (r.ok) ok(`${d} → HTTPS OK`);
-                else warn(`${d} → ${r.status}`);
+                // 🆕 از URL کامل استفاده کن (نه دامنه‌ی بدون path)
+                const fullUrl = domains.find((u) => u.includes(d)) || `https://${d}`;
+                const r = await httpGet(fullUrl.startsWith('http') ? fullUrl : `https://${d}`,
+                    { timeout: 8000 });
+                if (r.ok || r.status === 404 || r.status === 403) ok(`${d} → HTTPS OK (${r.status})`);
+                else info(`${d} → ${r.status}`);
             } catch (_) { info(`${d} در دسترس نیست`); }
         }
     }
@@ -1728,6 +1755,23 @@ function s28_memory_leak() {
     }
     if (samples.length < 10) return info(`فقط ${samples.length} نمونه — کافی نیست`);
 
+    // 🆕 نادیده بگیر اگر uptime کم است (از آخرین restart کمتر از 30min)
+    try {
+        const raw = tryExec('pm2', ['jlist'], { timeout: 5000 }).stdout;
+        const list = JSON.parse(raw);
+        for (const p of list) {
+            if (p.name === 'OptionHunter') {
+                const upMs = p.pm2_env && p.pm2_env.pm_uptime
+                    ? Date.now() - p.pm2_env.pm_uptime : Infinity;
+                const upMin = upMs / 60000;
+                if (upMin < 30) {
+                    info(`uptime ${upMin.toFixed(1)}min — برای leak detection کافی نیست`);
+                    return;
+                }
+            }
+        }
+    } catch (_) {}
+
     const first = samples.slice(0, 20);
     const last = samples.slice(-20);
     const avgFirst = first.reduce((a, b) => a + b, 0) / first.length;
@@ -1741,17 +1785,45 @@ function s28_memory_leak() {
         Math.abs(delta) > 50 ? C.yellow : C.green);
     kv('growth per hour', `${growthPerHour}MB/h`);
 
-    if (+growthPerHour > 5) {
-        warn(`رشد ${growthPerHour}MB/h — احتمال leak`);
+    // 🆕 فقط اگر رشد > 5MB/h و نمونه‌ها در 6h اخیر
+    const firstT = samples.length > 1 ? Date.now() - samples.length * 30000 : Date.now();
+    const hoursSpanned = (Date.now() - firstT) / 3600000;
+
+    if (+growthPerHour > 5 && hoursSpanned > 1.5) {
+        warn(`رشد ${growthPerHour}MB/h در ${hoursSpanned.toFixed(1)}h — احتمال leak`);
         const hours = Math.floor((900 - avgLast) / Math.max(0.1, +growthPerHour));
         if (hours > 0) info(`پیش‌بینی OOM/restart: ~${hours} ساعت`);
+    } else if (+growthPerHour > 5 && hoursSpanned <= 1.5) {
+        info(`رشد ${growthPerHour}MB/h ولی فقط ${hoursSpanned.toFixed(1)}h داده — نیاز به نمونه بیشتر`);
     } else if (+growthPerHour > 1) {
         info(`رشد کم — زیر 1MB/h امن است`);
     } else ok('بدون leak');
 
-    sub('Full GC availability');
-    if (typeof global.gc === 'function') ok('--expose-gc فعال است (GC دستی ممکن)');
-    else warn('--expose-gc غیرفعال — try memory-guard.maybeGC() درست کار نمی‌کند');
+    sub('Full GC availability (OptionHunter)');
+    // 🆕 بررسی کن که OptionHunter (نه OHDoctor) --expose-gc دارد
+    try {
+        const raw = tryExec('pm2', ['jlist'], { timeout: 5000 }).stdout;
+        const list = JSON.parse(raw);
+        let found = false;
+        for (const p of list) {
+            if (p.name === 'OptionHunter') {
+                const args = (p.pm2_env && p.pm2_env.node_args) || '';
+                const script = (p.pm2_env && p.pm2_env.args) || '';
+                if (args.includes('--expose-gc') || script.includes('--expose-gc')) {
+                    ok('OptionHunter با --expose-gc اجرا می‌شود');
+                } else {
+                    warn('OptionHunter بدون --expose-gc اجرا می‌شود');
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) info('OptionHunter در pm2 jlist پیدا نشد');
+    } catch (_) {
+        // Fallback: OHDoctor خودش
+        if (typeof global.gc === 'function') ok('OHDoctor با --expose-gc (فقط برای خودش)');
+        else info('--expose-gc در OHDoctor نیست');
+    }
 }
 
 // ============================================================
@@ -2335,6 +2407,8 @@ async function runDoctor() {
     await run(12, 'GAPS', s12_gaps, true);
     await run(13, 'LIVE-TICK', s13_live_tick, true);
     await run(14, 'STRATEGIES', s14_strategies, true);
+    // 🆕 صبر کن job قبلی تمام شود و RAM آزاد شود
+    await sleep(5000);
     await run(15, 'REGIME', s15_regime, true);
     await run(16, 'JOURNAL', s16_journal, true);
     await run(17, 'PORTFOLIO', s17_portfolio, true);

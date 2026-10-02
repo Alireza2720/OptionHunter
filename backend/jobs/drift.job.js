@@ -59,8 +59,8 @@ async function check() {
 let task = null;
 function start() {
     if (task) return;
-    // هر روز 13:00 تهران (بعد از بازار)
-    task = cron.schedule('0 13 * * 6,0,1,2,3', check, { timezone: 'Asia/Tehran' });
+    // 🆕 از 13:00 به 13:05 (جلوگیری از تداخل با regime)
+    task = cron.schedule('5 13 * * 6,0,1,2,3', check, { timezone: 'Asia/Tehran' });
     deps.logger && deps.logger.info('drift.job started');
 }
 function stop() { if (task) { task.stop(); task = null; } }
