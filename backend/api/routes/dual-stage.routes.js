@@ -145,7 +145,13 @@ function register(app, deps) {
                 totalConfigs: configs.length,
                 estimatedMinutes: Math.round((configs.length * 8 + symbols.length * 100) / 60)
             });
-        } catch (e) { next(e); }
+        } catch (e) {
+            logger && logger.error('dual-stage preview: ' + (e.stack || e.message));
+            res.status(500).json({
+                error: e.message,
+                stack: e.stack ? e.stack.split('\n').slice(0, 6) : null
+            });
+        }
     });
 }
 

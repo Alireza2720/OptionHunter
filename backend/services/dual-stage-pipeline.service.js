@@ -61,7 +61,7 @@ const DEFAULTS = {
     useFDR: true,
 
     // Stage 3
-    minValidationPF: 1.0,
+    minValidationPF: 0.8,
 
     // Stage 4
     maxConfirmers: 2,
@@ -220,6 +220,15 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
     let done = (resumeState && resumeState.stage1 && resumeState.stage1.done) || 0;
 
     for (let i = done; i < total; i++) {
+        // 🆕 چک cancel هر ۲۵ pair
+        if (i % 25 === 0) {
+            const j = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
+                .findOne({ _id: new ObjectId(jobId) }, { projection: { cancelRequested: 1, status: 1 } });
+            if (j && (j.cancelRequested || j.status === 'CANCELLED')) {
+                deps.logger && deps.logger.info(`[dual-stage ${jobId}] cancelled mid-stage1 at ${i}/${total}`);
+                throw new Error('CANCELLED_BY_USER');
+            }
+        }
         const cfg = configs[i];
         memGuard.maybeGC();
 
@@ -353,6 +362,14 @@ async function _stage3_validation(jobId, candidates, dateRange, opts) {
     const total = candidates.length;
 
     for (let i = 0; i < total; i++) {
+        // 🆕 چک cancel
+        if (i % 25 === 0) {
+            const j = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
+                .findOne({ _id: new ObjectId(jobId) }, { projection: { cancelRequested: 1, status: 1 } });
+            if (j && (j.cancelRequested || j.status === 'CANCELLED')) {
+                throw new Error('CANCELLED_BY_USER');
+            }
+        }
         const cand = candidates[i];
         memGuard.maybeGC();
 
@@ -374,17 +391,39 @@ async function _stage3_validation(jobId, candidates, dateRange, opts) {
             const pf = st.profitFactor;
             const safePf = Number.isFinite(pf) ? pf : (st.totalPnl > 0 ? 999 : 0);
 
-            if (n >= 3 && safePf >= (opts.minValidationPF || 1.0)) {
+            // 🆕 Validation واقع‌گرایانه:
+            // - 0 trade: قبول (استراتژی در بازه‌ی short فایر نکرده، دلیل رد نیست)
+            // - 1-4 trade: قبول (نمونه کافی برای قضاوت نداریم)
+            // - 5+ trade: PF >= 0.8 قبول
+            let pass = false;
+            let valNote = null;
+            if (n === 0) {
+                pass = true;
+                valNote = 'no trades in validation (neutral)';
+            } else if (n < 5) {
+                pass = true;
+                valNote = `only ${n} trades (too few to judge)`;
+            } else if (safePf >= (opts.minValidationPF || 0.8)) {
+                pass = true;
+                valNote = `PF=${safePf.toFixed(2)}, N=${n}`;
+            } else {
+                valNote = `PF=${safePf.toFixed(2)} < ${opts.minValidationPF || 0.8} (N=${n})`;
+            }
+
+            if (pass) {
                 validated.push({
                     ...cand,
                     valPF: safePf,
                     valN: n,
                     valWinRate: st.winRate || 0,
                     valAvgPnl: st.avgPnl || 0,
+                    valNote,
                     valTrades: r.trades || []
                 });
             } else {
-                // رد شد
+                deps.logger && deps.logger.info(
+                    `[dual-stage stage3] ${cand.symbol}/${cand.strategyId} rejected: ${valNote}`
+                );
             }
         } catch (e) {
             deps.logger && deps.logger.warn(`[dual-stage] stage3 ${cand.symbol}/${cand.strategyId}: ${e.message}`);
@@ -535,6 +574,14 @@ async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
 
     const total = pairsToRun.length;
     for (let i = 0; i < total; i++) {
+        // 🆕 چک cancel
+        if (i % 10 === 0) {
+            const j = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
+                .findOne({ _id: new ObjectId(jobId) }, { projection: { cancelRequested: 1, status: 1 } });
+            if (j && (j.cancelRequested || j.status === 'CANCELLED')) {
+                throw new Error('CANCELLED_BY_USER');
+            }
+        }
         const pair = pairsToRun[i];
         memGuard.maybeGC();
 
@@ -834,6 +881,12 @@ async function runDualStage(jobId, opts = {}) {
     // load job state (resume)
     const job = await db.collection(COLLECTIONS.BACKTEST_JOBS).findOne({ _id: new ObjectId(jobId) });
     if (!job) throw new Error('job not found');
+
+    // 🆕 چک cancel در شروع
+    if (job.cancelRequested || job.status === 'CANCELLED') {
+        deps.logger && deps.logger.info(`[dual-stage ${jobId}] cancelled before start`);
+        return { cancelled: true };
+    }
 
     const savedStage = job.pipelineStage || 0;
     const savedState = job.pipelineState || {};
