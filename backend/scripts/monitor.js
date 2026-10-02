@@ -269,12 +269,36 @@ const C = { reset: '\x1b[0m', red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[
 function w(l = '') { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(l); }
 function wc(l, c) { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(c + l + C.reset); }
 function bar() { w('═'.repeat(78)); }
+// 🆕 کل بخش‌ها — برای گزارش progress به backend
+const TOTAL_SECTIONS = 24;
+const _jobId = (() => {
+    const a = ARGV.find((x) => x.startsWith('--job-id='));
+    return a ? a.split('=')[1] : null;
+})();
+
+function emitProgress(sectionNum, title) {
+    if (!_jobId) return;
+    const s = R.sectionResults[sectionNum] || { ok: 0, warn: 0, fail: 0 };
+    const payload = {
+        section: sectionNum,
+        total: TOTAL_SECTIONS,
+        title,
+        ok: s.ok || 0,
+        warn: s.warn || 0,
+        fail: s.fail || 0,
+        percent: Math.round((sectionNum / TOTAL_SECTIONS) * 100),
+    };
+    // 🆕 خط ساختاریافته — backend آن را parse می‌کند و در DB ذخیره می‌کند
+    console.log(`>>>OHDOCTOR_PROGRESS:${JSON.stringify(payload)}`);
+}
+
 function section(n, title) {
     R.sectionResults[n] = R.sectionResults[n] || { ok: 0, warn: 0, fail: 0 };
     w('');
     bar();
     wc(`  [S${n}] ${title}`, C.bold + C.cyan);
     bar();
+    emitProgress(n, title);
 }
 function sub(t) { w(''); wc('─── ' + t + ' ───', C.gray); }
 function ok(m) { wc('  ✅ ' + m, C.green); R.oks.push(m); _sectionInc('ok'); }

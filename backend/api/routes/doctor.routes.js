@@ -6,14 +6,24 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { ObjectId } = require('mongodb');
+const { COLLECTIONS } = require('../../config/constants');
 
 const LOGS = path.resolve(__dirname, '..', '..', '..', 'logs');
 const SCRIPT = path.resolve(__dirname, '..', '..', 'scripts', 'monitor.js');
 
-let currentJob = null;   // { startedAt, pid, outputFile, status, exitCode, args }
+// 🆕 عنوان ۲۴ بخش برای پیش‌نمایش در Activities
+const OHDOCTOR_SECTIONS = [
+    'ENVIRONMENT', 'STRUCTURE', 'SYNTAX', 'BUG PATTERNS', 'CONFIG',
+    'PM2', 'SYSTEMD', 'MONGODB', 'BACKEND HTTP', 'COLLECTOR HTTP',
+    'CROSS-SERVICE', 'DATA GAP', 'LIVE TICK', 'STRATEGY DRY RUN', 'REGIME',
+    'JOURNAL', 'PORTFOLIO', 'DUAL-STAGE PIPELINE', 'BACKTEST MATRIX',
+    'BALE/TELEGRAM', 'PERFORMANCE', 'SECURITY', 'LOG TAIL', 'FINAL REPORT',
+];
+
+let currentJob = null;   // { startedAt, pid, outputFile, status, exitCode, args, dbJobId }
 
 function register(app, deps) {
-    const { logger } = deps;
+    const { logger, getDB } = deps;
 
     // ------------------------------------------------------------------
     // POST /api/doctor/run
@@ -98,13 +108,84 @@ function register(app, deps) {
             if (!fs.existsSync(LOGS)) fs.mkdirSync(LOGS, { recursive: true });
             const outStream = fs.createWriteStream(outputFile, { flags: 'a' });
 
-            // 🛡 با nice -n 15 اجرا کن (کم‌اولویت CPU، اگر جایی گیر کرد، برنامه اصلی اول اجرا شه)
+            // 🆕 ثبت job در MongoDB تا در Activities نمایش داده شود
+            const db = getDB();
+            const jobDoc = {
+                type: 'ohdoctor',
+                status: 'RUNNING',
+                payload: {
+                    skipHeavy: !!opts.skipHeavy,
+                    skipPipeline: !!opts.skipPipeline,
+                    skipBacktest: !!opts.skipBacktest,
+                    skipLive: !!opts.skipLive,
+                    sections: opts.sections || null,
+                },
+                progress: {
+                    current: 0,
+                    total: 24,
+                    message: 'شروع...',
+                    // 🆕 chunks = یک ورودی برای هر بخش
+                    chunks: OHDOCTOR_SECTIONS.map((title, i) => ({
+                        idx: i,
+                        label: `S${i + 1} ${title}`,
+                        status: 'PENDING',
+                        ok: 0, warn: 0, fail: 0,
+                    })),
+                },
+                cancelRequested: false,
+                createdAt: new Date(),
+                startedAt: new Date(),
+                updatedAt: new Date(),
+            };
+            const ins = await db.collection(COLLECTIONS.BACKTEST_JOBS).insertOne(jobDoc);
+            const dbJobId = String(ins.insertedId);
+
+            // 🆕 jobId به script می‌فرستیم
+            args.push(`--job-id=${dbJobId}`);
+
+            // 🛡 با nice -n 15 اجرا کن (کم‌اولویت CPU)
             const child = spawn('nice', ['-n', '15', 'node', ...args], {
                 cwd: path.resolve(__dirname, '..', '..', '..'),
                 env: { ...process.env, OH_DOCTOR_UI: '1' },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
-            child.stdout.pipe(outStream);
+
+            // 🆕 parse stdout برای progress markers
+            let stdoutBuf = '';
+            child.stdout.on('data', (chunk) => {
+                const s = chunk.toString();
+                outStream.write(s);
+                stdoutBuf += s;
+                const re = />>>OHDOCTOR_PROGRESS:(\{[^\n]+\})/g;
+                let m;
+                while ((m = re.exec(stdoutBuf)) !== null) {
+                    try {
+                        const p = JSON.parse(m[1]);
+                        const chunkPatch = {};
+                        chunkPatch[`progress.chunks.${p.section - 1}.status`] = 'DONE';
+                        chunkPatch[`progress.chunks.${p.section - 1}.ok`] = p.ok;
+                        chunkPatch[`progress.chunks.${p.section - 1}.warn`] = p.warn;
+                        chunkPatch[`progress.chunks.${p.section - 1}.fail`] = p.fail;
+                        if (p.section < 24) {
+                            chunkPatch[`progress.chunks.${p.section}.status`] = 'RUNNING';
+                        }
+                        db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+                            { _id: ins.insertedId },
+                            {
+                                $set: {
+                                    'progress.current': p.section,
+                                    'progress.total': p.total,
+                                    'progress.message': `[S${p.section}/${p.total}] ${p.title} — ✅${p.ok} ⚠️${p.warn} ❌${p.fail}`,
+                                    updatedAt: new Date(),
+                                    ...chunkPatch,
+                                },
+                            }
+                        ).catch(() => {});
+                    } catch (_) {}
+                }
+                // جلوگیری از رشد حافظه
+                if (stdoutBuf.length > 100000) stdoutBuf = stdoutBuf.slice(-50000);
+            });
             child.stderr.pipe(outStream);
 
             currentJob = {
@@ -115,24 +196,62 @@ function register(app, deps) {
                 exitCode: null,
                 args,
                 finishedAt: null,
+                dbJobId,
             };
 
-            child.on('exit', (code) => {
+            // 🆕 در exit، DB job را DONE/FAILED کن
+            child.on('exit', async (code) => {
                 if (currentJob) {
                     currentJob.status = code === 0 ? 'done' : 'failed';
                     currentJob.exitCode = code;
                     currentJob.finishedAt = new Date();
                 }
                 try { outStream.end(); } catch (_) {}
+                try {
+                    const patch = {
+                        status: code === 0 ? 'DONE' : 'FAILED',
+                        finishedAt: new Date(),
+                        updatedAt: new Date(),
+                        error: code === 0 ? null : `exit code ${code}`,
+                        'progress.current': 24,
+                        'progress.message': code === 0
+                            ? '✅ تکمیل'
+                            : `❌ خطا (exit ${code})`,
+                    };
+                    // اتمام همه chunks
+                    if (code === 0) {
+                        for (let i = 0; i < 24; i++) {
+                            patch[`progress.chunks.${i}.status`] = 'DONE';
+                        }
+                    }
+                    await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+                        { _id: ins.insertedId },
+                        { $set: patch }
+                    );
+                } catch (e) {
+                    logger && logger.warn(`[doctor] failed to update DB job: ${e.message}`);
+                }
                 logger && logger.info(`[doctor] job finished: exit=${code}`);
             });
-            child.on('error', (e) => {
+            child.on('error', async (e) => {
                 if (currentJob) { currentJob.status = 'failed'; currentJob.error = e.message; }
+                try {
+                    await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+                        { _id: ins.insertedId },
+                        { $set: {
+                            status: 'FAILED',
+                            error: e.message,
+                            finishedAt: new Date(),
+                            'progress.message': `spawn error: ${e.message}`,
+                        } }
+                    );
+                } catch (_) {}
                 logger && logger.error(`[doctor] spawn error: ${e.message}`);
             });
 
             res.json({
-                jobId: stamp,
+                jobId: dbJobId,                      // 🆕 برای trackJob در فرانت
+                stamp,                               // 🆕 برای outputFile
                 startedAt: currentJob.startedAt,
                 pid: child.pid,
                 outputFile: path.basename(outputFile),
@@ -216,17 +335,57 @@ function register(app, deps) {
     });
 
     // ------------------------------------------------------------------
-    // POST /api/doctor/kill — متوقف کردن اجرای فعلی
+    // POST /api/doctor/kill — متوقف کردن اجرای فعلی (هم in-memory، هم DB)
+    // body: { jobId? } — اگر ارسال شود، از DB هم چک می‌شود
     // ------------------------------------------------------------------
     app.post('/api/doctor/kill', async (req, res, next) => {
         try {
-            if (!currentJob || currentJob.status !== 'running') {
-                return res.json({ success: false, message: 'چیزی در حال اجرا نیست' });
+            const targetJobId = (req.body && req.body.jobId) || null;
+            const db = getDB();
+
+            let killed = false;
+            let message = '';
+
+            // 1) kill در-memory job (اگر همین پروسه اجرا کرده)
+            if (currentJob && currentJob.status === 'running') {
+                try { process.kill(currentJob.pid, 'SIGTERM'); killed = true; } catch (_) {}
+                currentJob.status = 'killed';
+                currentJob.finishedAt = new Date();
             }
-            try { process.kill(currentJob.pid, 'SIGTERM'); } catch (_) {}
-            currentJob.status = 'killed';
-            currentJob.finishedAt = new Date();
-            res.json({ success: true });
+
+            // 2) به‌روزرسانی job در DB — چه از طریق currentJob، چه مستقیم با jobId
+            const dbJobId = targetJobId || (currentJob && currentJob.dbJobId);
+            if (dbJobId) {
+                try {
+                    const { ObjectId } = require('mongodb');
+                    const patch = {
+                        status: 'CANCELLED',
+                        cancelRequested: true,
+                        finishedAt: new Date(),
+                        updatedAt: new Date(),
+                        'progress.message': '🛑 توسط کاربر لغو شد',
+                    };
+                    // اتمام chunks باقی‌مانده
+                    for (let i = 0; i < 24; i++) {
+                        // فقط اگر PENDING یا RUNNING بود، به CANCELLED تغییر بده
+                    }
+                    const upd = await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+                        { _id: new ObjectId(dbJobId), status: { $in: ['QUEUED', 'RUNNING', 'COMPUTING'] } },
+                        { $set: patch }
+                    );
+                    if (upd.modifiedCount > 0) killed = true;
+                } catch (e) {
+                    logger && logger.warn(`[doctor] kill DB update failed: ${e.message}`);
+                }
+            }
+
+            if (killed) {
+                message = 'کنسل شد';
+                logger && logger.info(`[doctor] job killed: ${dbJobId || 'in-memory'}`);
+            } else {
+                message = 'چیزی برای کنسل کردن نبود';
+            }
+            res.json({ success: killed, message, jobId: dbJobId });
         } catch (e) { next(e); }
     });
 

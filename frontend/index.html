@@ -96,6 +96,8 @@ header { text-align:center; margin-bottom:22px; }
 .job-type.autoconfig { background:rgba(46,168,138,.15); color:var(--good); }
 .job-type.backtest-compare { background:rgba(201,151,61,.15); color:var(--warn); }
 .job-type.full-backfill { background:rgba(46,168,138,.15); color:var(--good); }
+.job-type.ohdoctor { background:linear-gradient(135deg, rgba(217,83,79,.15), rgba(201,151,61,.15)); color:var(--warn); border:1px solid rgba(201,151,61,.3); }
+.job-type.ohdoctor { background:linear-gradient(135deg, rgba(217,83,79,.15), rgba(201,151,61,.15)); color:var(--warn); }
 .job-status { font-size:10.5px; padding:2px 7px; border-radius:10px; }
 .job-status.QUEUED { background:rgba(125,133,144,.15); color:var(--text-dim); }
 .job-status.RUNNING { background:rgba(201,151,61,.15); color:var(--warn); }
@@ -764,7 +766,7 @@ async function loadActiveJobs(btn) {
         const el = document.getElementById('menuActiveJobs');
         if (el) {
             if (!allJobs.length) el.innerHTML = '<div class="empty-note">فعالیتی نیست</div>';
-            else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${statusLabels[j.status] || j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
+            else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: '🩺 OHDoctor' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${statusLabels[j.status] || j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
         }
     } catch (e) {}
     finally {
@@ -2632,7 +2634,7 @@ function renderJobProgress(job) {
     const dc = chunks.filter(c => c.status === 'DONE').length;
     const tt = chunks.length || (job.progress && job.progress.total) || 1;
     const pv = tt > 0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0;
-    const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline' };
+    const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: '🩺 OHDoctor' };
     const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه‌ی نتایج', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' };
 
     // 🆕 برای COMPUTING → نوار پیشرفت indeterminate
@@ -2680,7 +2682,7 @@ async function refreshJobsPanel() {
         const doneCount = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).length;
 
         const renderJob = (j, isDone) => {
-            const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline' };
+            const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: '🩺 OHDoctor' };
             const total = (j.progress && j.progress.total) || 0;
             const current = (j.progress && j.progress.current) || 0;
             const symCount = (j.payload && j.payload.symbols && j.payload.symbols.length) || 1;
@@ -2692,7 +2694,7 @@ async function refreshJobsPanel() {
                     <span class="job-status ${j.status}">${j.status}</span>
                     <span class="job-msg" style="margin-right:auto;">${esc(progressLabel)}${symbolInfo}</span>
                     <div class="job-actions" style="margin-right:auto; display:flex; gap:6px;">
-                        ${!isDone ? `<button class="btn tiny danger" onclick="cancelActiveJob('${j._id}')">لغو</button>` : ''}
+                        ${!isDone ? `<button class="btn tiny danger" onclick="cancelAnyJob('${j._id}', '${j.type}')">لغو</button>` : ''}
                         ${isDone ? `<button class="btn tiny outline" onclick="viewJobDetail('${j._id}')">جزئیات</button>` : ''}
                         ${isDone ? `<button class="btn tiny outline" onclick="downloadJob('${j._id}')">JSON</button>` : ''}
                         ${isDone ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}
@@ -2730,6 +2732,31 @@ function switchJobsTab(w, btn) {
     document.getElementById('jobsTab-done').style.display = w === 'done' ? 'block' : 'none';
 }
 async function cancelActiveJob(id) { if (!confirm('لغو شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
+
+// 🆕 لغو OHDoctor از پنل Activity
+async function cancelDoctorJobById(jobId) {
+    if (!confirm('OHDoctor متوقف شود؟')) return;
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/doctor/kill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId }),
+        }, 0);
+        if (r.success) showAlert('✅ OHDoctor متوقف شد', 'success', 4000);
+        else showAlert('ℹ️ ' + (r.message || 'انجام نشد'), 'info', 4000);
+        // رفرش فوری
+        setTimeout(() => {
+            if (typeof refreshJobsPanel === 'function') refreshJobsPanel().catch(() => {});
+            if (typeof loadActiveJobs === 'function') loadActiveJobs().catch(() => {});
+        }, 500);
+    } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+
+// 🆕 router: بر اساس type تصمیم بگیر کدام cancel را صدا بزن
+function cancelAnyJob(id, type) {
+    if (type === 'ohdoctor') return cancelDoctorJobById(id);
+    return cancelActiveJob(id);
+}
 async function deleteJob(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, { method: 'DELETE' }); refreshJobsPanel(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
 function downloadJob(id) {
@@ -5463,6 +5490,7 @@ function switchDsTab(which, btn) {
 // ============================================================
 let _doctorTimer = null;
 let _doctorActiveFile = null;
+let _doctorDbJobId = null;   // 🆕 jobId در DB
 
 async function openDoctorPanel() {
     openModal('🩺 OHDoctor — بررسی جامع', `
@@ -5625,8 +5653,11 @@ async function runDoctor() {
             body: JSON.stringify(body),
         }, 0);
         _doctorActiveFile = r.outputFile;
+        _doctorDbJobId = r.jobId;      // 🆕 برای trackJob
         showAlert(`بررسی شروع شد (PID ${r.pid})`, 'success', 4000);
         document.getElementById('docConsole').style.display = 'block';
+        // 🆕 refresh فوری پنل فعالیت‌ها
+        loadActiveJobs().catch(() => {});
         pollDoctorOutput();
     } catch (e) {
         showAlert('خطا: ' + e.message, 'error');
@@ -5636,10 +5667,21 @@ async function runDoctor() {
 }
 
 async function killDoctor() {
-    if (!confirm('متوقف کنم؟')) return;
+    if (!confirm('OHDoctor متوقف شود؟')) return;
     try {
-        await apiFetch(`${BACKEND_URL}/api/doctor/kill`, { method: 'POST' }, 0);
-        showAlert('درخواست توقف ارسال شد', 'info', 3000);
+        const body = _doctorDbJobId ? { jobId: _doctorDbJobId } : {};
+        const r = await apiFetch(`${BACKEND_URL}/api/doctor/kill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }, 0);
+        if (r.success) showAlert('✅ متوقف شد', 'success', 4000);
+        else showAlert('ℹ️ ' + (r.message || 'انجام نشد'), 'info', 4000);
+        // رفرش وضعیت
+        setTimeout(() => {
+            if (typeof refreshDoctorStatus === 'function') refreshDoctorStatus().catch(() => {});
+            if (typeof loadActiveJobs === 'function') loadActiveJobs().catch(() => {});
+        }, 500);
     } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
 }
 
