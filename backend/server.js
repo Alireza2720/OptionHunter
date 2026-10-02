@@ -53,6 +53,7 @@ async function start() {
             monthlyReportJob: deps.monthlyReportJob,   // 🆕
             journalService: deps.journalService,
             backtestOrchestrator: deps.backtestOrchestrator, // 🆕
+            dualStageService: deps.dualStageService,   // 🆕
 
             // config
             adminToken: env.ADMIN_TOKEN,

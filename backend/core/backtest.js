@@ -397,6 +397,15 @@ function computeStats(trades) {
     const totalReturnPct = equity - 100;
     const calmar = maxDD > 0 ? totalReturnPct / maxDD : null;
 
+    // 🆕 برای آرایه‌های بزرگ — جلوگیری از stack overflow
+    let maxWin = -Infinity, maxLoss = Infinity;
+    for (const t of trades) {
+        if (t.pnlPct > maxWin) maxWin = t.pnlPct;
+        if (t.pnlPct < maxLoss) maxLoss = t.pnlPct;
+    }
+    if (!Number.isFinite(maxWin)) maxWin = 0;
+    if (!Number.isFinite(maxLoss)) maxLoss = 0;
+
     return {
         count: n,
         winRate: wins.length / n * 100,
@@ -406,8 +415,8 @@ function computeStats(trades) {
         profitFactor: pf,
         avgWin: wins.length ? gp / wins.length : 0,
         avgLoss: losses.length ? -gl / losses.length : 0,
-        maxWin: Math.max(...trades.map(t => t.pnlPct)),
-        maxLoss: Math.min(...trades.map(t => t.pnlPct)),
+        maxWin,
+        maxLoss,
         avgDaysHeld: trades.reduce((s, t) => s + (t.exitTime - t.entryTime) / 86400, 0) / n,
         sharpe: round2(sharpe),
         sortino: round2(sortino),

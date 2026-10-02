@@ -108,8 +108,7 @@ async function clearOld(daysOld = 7) {
     const db = dbAccessor();
     const cutoff = new Date(Date.now() - daysOld * 86400 * 1000);
     return db.collection(COLLECTIONS.TELEGRAM_OUTBOX).deleteMany({
-        sentAt: { $ne: null },
-        sentAt: { $lt: cutoff }
+        sentAt: { $ne: null, $lt: cutoff }
     });
 }
 

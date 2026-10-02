@@ -236,7 +236,8 @@ function register(app, deps) {
             const optOk = cOpt >= 50 && cIv >= 20;
             const liveOk = cTicks >= 500;
 
-            const OPT_CUTOFF_MS = new Date('2026-06-09T00:00:00Z').getTime();
+            const { OPTION_DATA_CUTOFF } = require('../../config/constants');
+            const OPT_CUTOFF_MS = OPTION_DATA_CUTOFF.getTime();
             const optToMs = c.options && c.options.to ? new Date(c.options.to).getTime() : 0;
             const optHasRecent = optToMs >= OPT_CUTOFF_MS;
             const optIsStale = cOpt > 0 && !optHasRecent;
@@ -335,24 +336,33 @@ function register(app, deps) {
                 return stripBidi(`${p.year}-${p.month}-${p.day}`);
             };
 
-            const r = await algotik.startFullBackfill({
-                symbols: [symbol],
-                dateFrom: toJalali(gaps[0].date),
-                dateTo: toJalali(gaps[gaps.length - 1].date),
-                includeStockIntraday: true,
-                includeStockDaily: true,
-                includeOptionHistory: true,
-                includeOptionSnapshot: false,
-                includeOptionMigration: false,
-                includeAggregate: true
-            });
+            // 🆕 یک backfill per-gap — جلوگیری از backfill بازه‌ی میانیشون
+            const jobIds = [];
+            for (const g of gaps) {
+                try {
+                    const r = await algotik.startFullBackfill({
+                        symbols: [symbol],
+                        dateFrom: toJalali(g.date),
+                        dateTo: toJalali(g.date),
+                        includeStockIntraday: true,
+                        includeStockDaily: true,
+                        includeOptionHistory: true,
+                        includeOptionSnapshot: false,
+                        includeOptionMigration: false,
+                        includeAggregate: true
+                    });
+                    jobIds.push(r.jobId);
+                } catch (e) {
+                    jobIds.push({ error: e.message, date: g.date });
+                }
+            }
 
             res.json({
                 ok: true,
-                jobId: r.jobId,
+                jobIds,
                 symbol,
                 gapsFound: gaps.length,
-                range: { from: gaps[0].date, to: gaps[gaps.length - 1].date },
+                gaps: gaps.map(g => g.date),
                 sample: gaps.slice(0, 5)
             });
         } catch (e) { next(e); }

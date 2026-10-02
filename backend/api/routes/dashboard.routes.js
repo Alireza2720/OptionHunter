@@ -71,9 +71,11 @@ function register(app, deps) {
             const winRate30d = closedPositions.length ? wins.length / closedPositions.length * 100 : 0;
             const totalPnl30d = closedPositions.reduce((s, p) => s + (p.pnlPct || 0), 0);
 
-            // معاملات امروز
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
+            // معاملات امروز — 🆕 نیمه‌شب تهران به UTC
+            const nowUtc = new Date();
+            const tehranMidnight = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
+            tehranMidnight.setUTCHours(0, 0, 0, 0);
+            const todayStart = new Date(tehranMidnight.getTime() - 3.5 * 3600 * 1000);
             const todayClosed = await db.collection(COLLECTIONS.OPTION_POSITIONS)
                 .countDocuments({
                     status: 'closed',

@@ -25,12 +25,18 @@ function init(d) { deps = { ...deps, ...d }; }
 // ------------------------------------------------------------
 async function runMaster(jobId, opts = {}) {
     const db = deps.getDB();
+    let _stepNum = 0;
     const log = (msg) => {
+        _stepNum++;
         deps.logger && deps.logger.info(`[pipeline ${jobId}] ${msg}`);
-        // progress در job ذخیره کن
+        // 🆕 هم message هم current رو آپدیت کن
         db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
             { _id: new ObjectId(jobId) },
-            { $set: { 'progress.message': msg, updatedAt: new Date() } }
+            { $set: {
+                'progress.message': msg,
+                'progress.current': Math.min(_stepNum, 6),
+                updatedAt: new Date()
+            } }
         ).catch(() => {});
     };
 

@@ -3,8 +3,8 @@
 // market-hours.js — تشخیص ساعات بازار تهران
 // ============================================================
 
-const SESSION_START_MIN = 9 * 60;        // 09:00
-const SESSION_END_MIN = 12 * 60 + 35;    // 12:35
+// 🆕 از constants بیاد — یک منبع حقیقت
+const { SESSION_START_MIN, SESSION_END_MIN } = require('../config/constants');
 
 function getTehranNow() {
     const now = new Date();

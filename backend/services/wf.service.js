@@ -203,10 +203,14 @@ async function runWhitelist(jobId, opts = {}) {
         return (b.overfit?.avgTestPF || 0) - (a.overfit?.avgTestPF || 0);
     });
 
+    const pairsLen = wl.pairs instanceof Set ? wl.pairs.size : (Array.isArray(wl.pairs) ? wl.pairs.length : 0);
+    const symbolsLen = wl.symbols instanceof Set ? wl.symbols.size : (Array.isArray(wl.symbols) ? wl.symbols.length : 0);
+
     return {
         jobId,
         analyzedAt: new Date(),
-        totalPairs: wl.pairs.size,
+        totalPairs: pairsLen,
+        totalSymbols: symbolsLen,
         validPairs: valid.length,
         passingPairs: passing.length,
         avgTestPF: Math.round(avgTestPF * 100) / 100,
@@ -272,10 +276,12 @@ async function runAggregate(jobId, opts = {}) {
         );
     }
 
+    const wlPairsLen = wl.pairs instanceof Set ? wl.pairs.size : (Array.isArray(wl.pairs) ? wl.pairs.length : 0);
+
     return {
         jobId,
         analyzedAt: new Date(),
-        totalWhitelistPairs: wl.pairs.size,
+        totalWhitelistPairs: wlPairsLen,
         totalTrades: allTrades.length,
         overall,
         perStrategy,

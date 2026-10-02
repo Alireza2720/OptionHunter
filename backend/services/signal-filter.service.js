@@ -82,11 +82,28 @@ async function buildAndSaveWhitelist(jobId, opts = {}) {
 // بازیابی برای مسیر زنده
 // ------------------------------------------------------------
 async function getWhitelist() {
-    // 🆕 TEMPORARILY DISABLED — فیلتر pair غیرفعال شد تا معیارها بازنگری بشن
-    // دلیل: 0 PASS از 328 تحلیل و همه‌ی سیگنال‌ها reject می‌شدن
-    // فعالسازی مجدد پس از کالیبره‌ی gates
-    deps.logger && deps.logger.info('whitelist bypass — filter temporarily disabled');
-    return null;
+    // 🆕 پیش‌فرض: bypass. برای فعال‌سازی: SIGNAL_FILTER_ENABLED=1 در .env
+    if (process.env.SIGNAL_FILTER_ENABLED !== '1') {
+        return null;
+    }
+    try {
+        const db = deps.getDB();
+        const doc = await db.collection(COLLECTIONS.META).findOne({ _id: 'signal_whitelist' });
+        if (!doc) return null;
+        // 🆕 آرایه‌ها → Set برای lookup سریع
+        return {
+            jobId: doc.jobId,
+            computedAt: doc.computedAt,
+            filterMode: doc.filterMode,
+            pairs: new Set(doc.pairs || []),
+            strategies: new Set(doc.strategies || []),
+            symbols: new Set(doc.symbols || []),
+            stats: doc.stats
+        };
+    } catch (e) {
+        deps.logger && deps.logger.warn('getWhitelist: ' + e.message);
+        return null;
+    }
 }
 
 async function clear() {

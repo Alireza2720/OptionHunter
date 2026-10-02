@@ -49,8 +49,8 @@ async function checkAndFix() {
 
         const today = new Date().toISOString().slice(0, 10);
         const from30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-        const fromJ = toJalaliSlash(from30);
-        const toJ = toJalaliSlash(today);
+        const fromJ = toJalaliDash(from30);
+        const toJ = toJalaliDash(today);
 
         // 🆕 یک backfill واحد برای همه‌ی نمادها (نه N بار موازی)
         try {

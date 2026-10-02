@@ -41,6 +41,7 @@ const journalUpdaterJob = require('./jobs/journal-updater.job');
 const executionGuard = require('./core/execution-guard');
 const pipelineService = require('./services/pipeline.service');
 const backtestOrchestrator = require('./services/backtest-orchestrator.service');
+const dualStageService = require('./services/dual-stage-pipeline.service');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -286,6 +287,7 @@ async function bootstrap() {
         options: optionsCore,
         settings: settingsModule,
         notify: telegram.notify,
+        logger,   // 🆕 برای دیباگ
         entryWindow: () => settingsModule.entryWindow(),
         confluenceWindow: () => settingsModule.confluenceTimeWindow(),
         multiConfirmerMin: () => settingsModule.multiConfirmerMin(),
@@ -407,6 +409,19 @@ async function bootstrap() {
         regimeService,
         portfolioService,
         signalFilterService,
+        notify: telegram.notify
+    });
+
+    // 🆕 11.13.5) dual-stage pipeline
+    dualStageService.init({
+        getDB: mongo.getDB,
+        logger,
+        backtest: backtestCore,
+        backtestService,
+        analysisService,
+        signalFilterService,
+        configService,
+        settings: settingsModule,
         notify: telegram.notify
     });
 
@@ -601,6 +616,7 @@ async function bootstrap() {
         strategies: strategiesModule,
         pipelineService,      // 🆕
         backtestOrchestrator, // 🆕
+        dualStageService,     // 🆕
     };
 }
 

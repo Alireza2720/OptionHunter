@@ -14,24 +14,30 @@ function register(app, deps) {
     // ------------------------------------------------------------
     app.post('/api/pipeline/run', async (req, res, next) => {
         try {
+            // 🆕 Memory guard
+            const memGuard = require('../../infra/memory-guard');
+            const check = memGuard.canStartHeavyJob();
+            if (!check.ok) {
+                return res.status(503).json({ error: check.reason, memory: check.status });
+            }
+
             const opts = req.body || {};
 
-            // نیاز به symbols و strategies
             const db = getDB();
             const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
                 .find({ enabled: true }).toArray();
 
-            // اگه symbols نداد، همه‌ی active
             const symbols = opts.symbols && opts.symbols.length
                 ? opts.symbols
                 : monitored.map(m => m.symbol);
 
-            // اگه strategies نداد، همه‌ی whitelisted قبلی یا همه
+            // 🆕 استراتژی‌های نیازمند context خاص رو exclude کن
             const { STRATEGIES } = require('../../strategies');
+            const EXCLUDED = new Set(['ensemble', 'pairs_spread', 'sector_momentum']);
             const strategies = opts.strategies && opts.strategies.length
                 ? opts.strategies
                 : Object.values(STRATEGIES)
-                    .filter(s => s.id !== 'ensemble')   // Ensemble سنگین
+                    .filter(s => !EXCLUDED.has(s.id))
                     .map(s => ({
                         id: s.id,
                         timeframe: s.defaultTimeframe,
@@ -40,6 +46,14 @@ function register(app, deps) {
 
             if (!symbols.length || !strategies.length) {
                 return res.status(400).json({ error: 'symbols یا strategies خالی' });
+            }
+
+            // 🆕 هشدار برای سنگین
+            if (symbols.length * strategies.length > 200 && check.status.systemFreeMB < 500) {
+                return res.status(503).json({
+                    error: `pipeline سنگین (${symbols.length}×${strategies.length}) با RAM آزاد ${check.status.systemFreeMB}MB`,
+                    memory: check.status
+                });
             }
 
             // ساخت job

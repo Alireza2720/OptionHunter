@@ -599,7 +599,12 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
         ? Math.floor((askVol * 0.2) / (pick.size || 1000))
         : 999;
 
-    const adjusted = Math.round(baseSize * signalFac * levelFac * ivFac * dataFac);
+    // 🆕 sizeMultiplier از dual-stage (MAYBE = 0.5)
+    const sizeMult = (config && Number.isFinite(config.sizeMultiplier))
+        ? config.sizeMultiplier
+        : 1.0;
+
+    const adjusted = Math.round(baseSize * signalFac * levelFac * ivFac * dataFac * sizeMult);
 
     const currentSymbolExposure = (currentPortfolio && currentPortfolio.bySymbol && currentPortfolio.bySymbol[pick.underlying]) || 0;
     const remainingSymbol = Math.max(0, maxSymbol - currentSymbolExposure);
@@ -625,14 +630,18 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
         else if (baseSize < 0.5) limitReason = 'سرمایه برای این قرارداد کافی نیست';
     }
 
+    const maxSizeByTotal = Math.floor(maxTotal / effectiveContractValue);
+    const maxSizeBySymbol = Math.floor(maxSymbol / effectiveContractValue);
+    const maxSize = Math.min(maxSizeByTotal, maxSizeBySymbol);
+
     return {
         size: finalSize,
         baseSize: Math.floor(baseSize),
         signalFactor: round(signalFac),
         levelFactor: round(levelFac),
         ivFactor: round(ivFac),
-        dataFactor: round(dataFac),   // 🆕
-        dataDays,                      // 🆕
+        dataFactor: round(dataFac),
+        dataDays,
         level, confluence, adjusted,
         bySymbol, byTotal, maxSize,
         maxFromLiquidity,
@@ -803,7 +812,7 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
 
 async function recommendForState(config, state) {
     const s = await getSettings();
-    const chain = await require('./options-chain-bridge').getChain();
+    const chain = await requireDep('getChain')();
     const sc = await buildScenario(config, state.price, state.livePrice, state.indicators, s);
     const names = getNames(config.symbol);
     return { scenario: sc, ...selectCalls(chain, names, sc, s) };
@@ -1179,8 +1188,9 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const exit  = realisticSellPrice(exitRow);
     if (!entry || !exit) return null;   // ⛔ اگه bid/ask نبود → کل معامله skip
 
-    // ---- 🆕 Slippage داینامیک ----
-    const orderSize = best.size || 1000;
+    // ---- 🆕 Slippage داینامیک (۱ قرارداد، نه multiplier) ----
+    const contractMultiplier = best.size || 1000;
+    const orderSize = 1 * contractMultiplier;
     const dailyVol = best.volume || 0;
     const dynSlip = computeDynamicSlippage(orderSize, dailyVol, p);
 

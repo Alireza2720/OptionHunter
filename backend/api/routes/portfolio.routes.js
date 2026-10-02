@@ -24,14 +24,18 @@ function register(app, deps) {
         try {
             const wl = await signalFilterService.getWhitelist();
             if (!wl) return res.status(404).json({ error: 'whitelist ساخته نشده' });
+            const pairsArr = wl.pairs instanceof Set ? Array.from(wl.pairs) : (Array.isArray(wl.pairs) ? wl.pairs : []);
+            const strategiesArr = wl.strategies instanceof Set ? Array.from(wl.strategies) : (Array.isArray(wl.strategies) ? wl.strategies : []);
+            const symbolsArr = wl.symbols instanceof Set ? Array.from(wl.symbols) : (Array.isArray(wl.symbols) ? wl.symbols : []);
+
             res.json({
                 jobId: wl.jobId,
                 computedAt: wl.computedAt,
                 filterMode: wl.filterMode,
-                pairsCount: wl.pairs.size,
-                strategies: Array.from(wl.strategies),
-                symbolsCount: wl.symbols.size,
-                pairs: Array.from(wl.pairs)
+                pairsCount: pairsArr.length,
+                strategies: strategiesArr,
+                symbolsCount: symbolsArr.length,
+                pairs: pairsArr
             });
         } catch (e) { next(e); }
     });

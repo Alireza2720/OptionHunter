@@ -576,9 +576,6 @@ async function applySelections(jobId, selections) {
         const oldIds = old.map(o => o._id.toString());
         await db.collection(COLLECTIONS.STRATEGY_CONFIGS).deleteMany({ symbol });
         await db.collection(COLLECTIONS.SIGNALS_STATE).deleteMany({ configId: { $in: oldIds } });
-        await deps.backtestService.constructor
-            ? Promise.resolve()
-            : Promise.resolve();
 
         let added = 0;
         const addedIds = [];

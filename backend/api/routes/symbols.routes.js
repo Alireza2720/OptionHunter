@@ -86,16 +86,22 @@ function register(app, deps) {
             if (!symbol) return res.status(400).json({ error: 'symbol الزامی است' });
 
             const db = getDB();
-            const exists = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).findOne({ symbol });
-            if (exists) return res.status(400).json({ error: 'این نماد قبلا اضافه شده است' });
-        const doc = {
-            symbol,
-            addedAt: new Date(),
-            collectEnabled: true,
-            enabled: true
-        };
-        const r = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).insertOne(doc);
-            res.json({ _id: r.insertedId, ...doc });
+            const doc = {
+                symbol,
+                addedAt: new Date(),
+                collectEnabled: true,
+                enabled: true
+            };
+            // 🆕 unique index → race condition حل
+            try {
+                const r = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).insertOne(doc);
+                res.json({ _id: r.insertedId, ...doc });
+            } catch (e) {
+                if (e.code === 11000) {
+                    return res.status(400).json({ error: 'این نماد قبلا اضافه شده است' });
+                }
+                throw e;
+            }
         } catch (e) { next(e); }
     });
 

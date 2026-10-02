@@ -18,8 +18,9 @@ function register(app, deps) {
                 .findOne({ _id: new (require('mongodb').ObjectId)(configId) });
             if (!cfg) return res.status(404).json({ error: 'تنظیم یافت نشد' });
 
-            if (forceRecompute) {
-                await backtestService.invalidateCacheForConfig(configId).catch(() => {});
+            // 🆕 invalidateCacheForConfig روی core/backtest هست، نه service
+            if (forceRecompute && deps.backtest && deps.backtest.invalidateCacheForConfig) {
+                await deps.backtest.invalidateCacheForConfig(configId).catch(() => {});
             }
 
             const job = await backtestService.createJob('backtest', {
@@ -199,8 +200,10 @@ function register(app, deps) {
     // ---- Clear old ----
     app.post('/api/jobs/clear-old', async (req, res, next) => {
         try {
-            const n = await backtestService.cleanupOldJobs(1);
-            res.json({ success: true, deleted: n });
+            // 🆕 حداقل ۳۰ روز برای امنیت
+            const days = Math.max(+(req.query.days || 90), 30);
+            const n = await backtestService.cleanupOldJobs(days);
+            res.json({ success: true, deleted: n, daysOld: days });
         } catch (e) { next(e); }
     });
 

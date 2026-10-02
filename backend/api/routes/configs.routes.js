@@ -176,10 +176,17 @@ function register(app, deps) {
                 entryWindow: deps.settings.entryWindow()
             };
             _chartCache.set(req.params.configId, { at: Date.now(), val: payload });
-            // پاکسازی cache قدیمی
+            // 🆕 پاکسازی: حذف منقضی‌ها + محدودیت سخت اندازه
             if (_chartCache.size > 50) {
-                const cutoff = Date.now() - CHART_TTL * 3;
-                for (const [k, v] of _chartCache) if (v.at < cutoff) _chartCache.delete(k);
+                const cutoff = Date.now() - CHART_TTL;
+                for (const [k, v] of _chartCache) {
+                    if (v.at < cutoff) _chartCache.delete(k);
+                }
+                if (_chartCache.size > 40) {
+                    const sorted = [..._chartCache.entries()].sort((a, b) => a[1].at - b[1].at);
+                    const toRemove = _chartCache.size - 30;
+                    for (let i = 0; i < toRemove; i++) _chartCache.delete(sorted[i][0]);
+                }
             }
             res.json(payload);
         } catch (e) { next(e); }

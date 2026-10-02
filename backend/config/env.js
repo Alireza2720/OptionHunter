@@ -156,6 +156,11 @@ function validate() {
     if (errors.length) {
         throw new Error('خطا در تنظیمات محیطی:\n  - ' + errors.join('\n  - '));
     }
+    // 🆕 هشدار امنیتی
+    if (!config.ADMIN_TOKEN && isProd()) {
+        console.warn('⚠️ ADMIN_TOKEN خالی است — تمام درخواست‌های تغییردهنده بدون احراز هویت قبول می‌شن');
+        console.warn('   برای امنیت، یک توکن قوی در .env تنظیم کن');
+    }
     return true;
 }
 

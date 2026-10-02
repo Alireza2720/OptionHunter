@@ -467,47 +467,78 @@ async function getChartCandles(symbol, timeframe) {
 // ============================================================
 async function getDataCoverage(symbols, strategies, getRequiredCandles) {
     const db = deps.getDB();
-    const result = [];
+    if (!symbols.length) return [];
 
+    // 🆕 ۴ aggregation برای همه‌ی نمادها (به جای N×M کوئری)
+    const [tfAgg, dailyAgg, optHistAgg, optDailyAgg] = await Promise.all([
+        db.collection(COLLECTIONS.CANDLES_TF).aggregate([
+            { $match: { symbol: { $in: symbols } } },
+            { $group: {
+                _id: { symbol: '$symbol', tf: '$tf' },
+                count: { $sum: 1 },
+                from: { $min: '$time' },
+                to: { $max: '$time' }
+            } }
+        ]).toArray(),
+        db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
+            { $match: { symbol: { $in: symbols } } },
+            { $group: {
+                _id: '$symbol',
+                count: { $sum: 1 },
+                from: { $min: '$time' },
+                to: { $max: '$time' }
+            } }
+        ]).toArray(),
+        db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
+            { $match: { underlying: { $in: symbols } } },
+            { $group: { _id: '$underlying', count: { $sum: 1 } } }
+        ]).toArray(),
+        db.collection(COLLECTIONS.OPTION_DAILY).aggregate([
+            { $match: { underlying: { $in: symbols } } },
+            { $group: { _id: '$underlying', count: { $sum: 1 } } }
+        ]).toArray()
+    ]);
+
+    const tfMap = {};
+    for (const r of tfAgg) {
+        const sym = r._id.symbol;
+        if (!tfMap[sym]) tfMap[sym] = {};
+        tfMap[sym][r._id.tf] = { count: r.count, from: r.from, to: r.to };
+    }
+    const dailyMap = {};
+    for (const r of dailyAgg) {
+        dailyMap[r._id] = { count: r.count, from: r.from, to: r.to };
+    }
+    const optHistMap = {};
+    for (const r of optHistAgg) optHistMap[r._id] = r.count;
+    const optDailyMap = {};
+    for (const r of optDailyAgg) optDailyMap[r._id] = r.count;
+
+    const result = [];
+    const tfs = Object.keys(TIMEFRAME_MINUTES).filter(t => t !== '1d');
     for (const sym of symbols) {
         const row = {
             symbol: sym,
             timeframes: {},
-            optionHistory: 0,
-            optionDaily: 0,
+            optionHistory: optHistMap[sym] || 0,
+            optionDaily: optDailyMap[sym] || 0,
             requirements: {}
         };
 
-        const tfs = Object.keys(TIMEFRAME_MINUTES).filter(t => t !== '1d');
         for (const tf of tfs) {
-            const count = await db.collection(COLLECTIONS.CANDLES_TF).countDocuments({ symbol: sym, tf });
-            const oldest = await db.collection(COLLECTIONS.CANDLES_TF)
-                .find({ symbol: sym, tf }).sort({ time: 1 }).limit(1).toArray();
-            const newest = await db.collection(COLLECTIONS.CANDLES_TF)
-                .find({ symbol: sym, tf }).sort({ time: -1 }).limit(1).toArray();
+            const m = (tfMap[sym] && tfMap[sym][tf]) || {};
             row.timeframes[tf] = {
-                count,
-                from: oldest[0] ? oldest[0].time : null,
-                to: newest[0] ? newest[0].time : null
+                count: m.count || 0,
+                from: m.from || null,
+                to: m.to || null
             };
         }
-
-        const dailyCount = await db.collection(COLLECTIONS.CANDLES_DAILY)
-            .countDocuments({ symbol: sym });
-        const dOld = await db.collection(COLLECTIONS.CANDLES_DAILY)
-            .find({ symbol: sym }).sort({ time: 1 }).limit(1).toArray();
-        const dNew = await db.collection(COLLECTIONS.CANDLES_DAILY)
-            .find({ symbol: sym }).sort({ time: -1 }).limit(1).toArray();
+        const dm = dailyMap[sym] || {};
         row.timeframes['1d'] = {
-            count: dailyCount,
-            from: dOld[0] ? dOld[0].time : null,
-            to: dNew[0] ? dNew[0].time : null
+            count: dm.count || 0,
+            from: dm.from || null,
+            to: dm.to || null
         };
-
-        row.optionHistory = await db.collection(COLLECTIONS.OPTION_HISTORY)
-            .countDocuments({ underlying: sym });
-        row.optionDaily = await db.collection(COLLECTIONS.OPTION_DAILY)
-            .countDocuments({ underlying: sym });
 
         for (const s of strategies) {
             const req = getRequiredCandles(s.id, s.defaultParams);
@@ -588,8 +619,7 @@ function clearCache(prefix) {
 // ============================================================
 const _candleCache = new Map();
 const CANDLE_TTL_MS = 3 * 60 * 1000;    // ۳ دقیقه
-const CANDLE_MAX_ENTRIES = 80;           // 🆕 حداکثر ۸۰ ورودی
-const CANDLE_MAX_HEAP_MB = 200;          // 🆕 سقف تخمینی حافظه
+const CANDLE_MAX_ENTRIES = 80;           // حداکثر ۸۰ ورودی
 
 function _cacheKey(symbol, tf) { return `${symbol}::${tf}`; }
 

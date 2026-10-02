@@ -86,8 +86,11 @@ async function dailySummary() {
         // 🆕 تعداد رکوردهای stock_ticks امروز
         let stockTickCount = 0;
         try {
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
+            // 🆕 نیمه‌شب تهران به UTC
+            const nowUtc = new Date();
+            const tehranMidnight = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
+            tehranMidnight.setUTCHours(0, 0, 0, 0);
+            const todayStart = new Date(tehranMidnight.getTime() - 3.5 * 3600 * 1000);
             stockTickCount = await db.collection('stock_ticks')
                 .countDocuments({ time: { $gte: todayStart } });
         } catch (_) {}
