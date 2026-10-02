@@ -273,6 +273,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();" title="تحلیل خوشه‌ها و ماتریس همبستگی">🔗 تحلیل پرتفولیو</button>
         <button class="menu-item" onclick="openRegimePanel(); toggleMenu();" title="رژیم بازار هر نماد + نگاشت استراتژی">🌡 رژیم بازار</button>
         <button class="menu-item" onclick="openDualStagePanel(); toggleMenu();" title="Pipeline خودکار دو مرحله‌ای: Stock Backtest → Option Backtest" style="background:linear-gradient(135deg, rgba(61,125,216,.15), rgba(46,168,138,.15)); border:1px solid var(--accent); font-weight:600;">🎯 Pipeline دو مرحله‌ای</button>
+        <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();" title="بررسی جامع سیستم — ۲۴ بخش" style="background:linear-gradient(135deg, rgba(217,83,79,.12), rgba(201,151,61,.12)); border:1px solid var(--warn); font-weight:600;">🩺 OHDoctor — بررسی کامل</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -5456,6 +5457,220 @@ function switchDsTab(which, btn) {
     });
     document.querySelectorAll('#ds_results .tabs .tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
+}
+// ============================================================
+// OHDoctor UI
+// ============================================================
+let _doctorTimer = null;
+let _doctorActiveFile = null;
+
+async function openDoctorPanel() {
+    openModal('🩺 OHDoctor — بررسی جامع', `
+        <div class="hint">۲۴ بخش: env، syntax، bug-patterns، config، PM2، systemd، mongo، HTTP، collector، gaps، live-tick، strategies، regime، journal، portfolio، pipeline، backtest، Bale، perf، security، logs.</div>
+
+        <div class="adv-accordion open" id="docOpts">
+            <div class="adv-header" onclick="this.parentNode.classList.toggle('open')">
+                <span><b>⚙️ گزینه‌ها</b></span><span class="chev">▼</span>
+            </div>
+            <div class="adv-body">
+                <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12.5px;">
+                    <label><input type="checkbox" id="docSkipHeavy"> Skip heavy (بدون pipeline/backtest/regime/portfolio)</label>
+                    <label><input type="checkbox" id="docSkipPipeline"> Skip pipeline</label>
+                    <label><input type="checkbox" id="docSkipBacktest"> Skip backtest</label>
+                    <label><input type="checkbox" id="docSkipLive"> Skip live-tick</label>
+                    <label><input type="checkbox" id="docSendReport" checked> ارسال گزارش به Bale</label>
+                    <label><input type="checkbox" id="docVerbose"> Verbose</label>
+                </div>
+                <div class="form-row" style="margin-top:8px;">
+                    <div class="field" style="flex:1;min-width:260px;">
+                        <label>Sections (خالی = همه) — مثلا: 1,2,3,9</label>
+                        <input type="text" id="docSections" placeholder="1,2,3,4,5,6,7,8,9,..." style="direction:ltr;">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+            <button class="btn success" id="docRunBtn" onclick="runDoctor()" style="flex:1;font-weight:600;">🚀 شروع بررسی</button>
+            <button class="btn danger" id="docKillBtn" style="display:none;" onclick="killDoctor()">■ توقف</button>
+            <button class="btn outline" onclick="refreshDoctorReports()">📂 گزارش‌های قبلی</button>
+        </div>
+
+        <div id="docStatus" style="margin-top:12px;"></div>
+        <div id="docConsole" style="margin-top:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:monospace;font-size:11px;direction:ltr;text-align:left;max-height:400px;overflow-y:auto;white-space:pre-wrap;display:none;"></div>
+
+        <div id="docReportsList" style="margin-top:14px;"></div>
+
+        <div style="margin-top:14px;display:flex;gap:8px;">
+            <button class="btn outline" onclick="closeModal()">بستن</button>
+            <button class="btn outline" onclick="refreshDoctorStatus()">🔄 رفرش وضعیت</button>
+        </div>
+    `);
+
+    await refreshDoctorStatus();
+    await refreshDoctorReports();
+
+    if (_doctorTimer) clearInterval(_doctorTimer);
+    _doctorTimer = setInterval(() => {
+        const m = document.getElementById('modalBg');
+        if (!m || !m.classList.contains('open') || !document.getElementById('docStatus')) {
+            clearInterval(_doctorTimer); _doctorTimer = null; return;
+        }
+        refreshDoctorStatus().catch(() => {});
+    }, 3000);
+}
+
+async function runDoctor() {
+    const btn = document.getElementById('docRunBtn');
+    btn.disabled = true; btn.textContent = '⏳ در حال اجرا...';
+    document.getElementById('docKillBtn').style.display = 'inline-block';
+
+    const body = {
+        skipHeavy: document.getElementById('docSkipHeavy').checked,
+        skipPipeline: document.getElementById('docSkipPipeline').checked,
+        skipBacktest: document.getElementById('docSkipBacktest').checked,
+        skipLive: document.getElementById('docSkipLive').checked,
+        sendReport: document.getElementById('docSendReport').checked,
+        verbose: document.getElementById('docVerbose').checked,
+    };
+    const secTxt = (document.getElementById('docSections').value || '').trim();
+    if (secTxt) {
+        body.sections = secTxt.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1 && n <= 24);
+    }
+
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/doctor/run`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }, 0);
+        _doctorActiveFile = r.outputFile;
+        showAlert(`بررسی شروع شد (PID ${r.pid})`, 'success', 4000);
+        document.getElementById('docConsole').style.display = 'block';
+        pollDoctorOutput();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = '🚀 شروع بررسی';
+        document.getElementById('docKillBtn').style.display = 'none';
+    }
+}
+
+async function killDoctor() {
+    if (!confirm('متوقف کنم؟')) return;
+    try {
+        await apiFetch(`${BACKEND_URL}/api/doctor/kill`, { method: 'POST' }, 0);
+        showAlert('درخواست توقف ارسال شد', 'info', 3000);
+    } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+
+async function refreshDoctorStatus() {
+    try {
+        const s = await apiFetch(`${BACKEND_URL}/api/doctor/status`, {}, 0);
+        const el = document.getElementById('docStatus');
+        if (!el) return;
+        if (!s.running && s.status !== 'done' && s.status !== 'failed' && s.status !== 'killed') {
+            el.innerHTML = '<div class="hint">هنوز اجرایی شروع نشده</div>';
+            return;
+        }
+        const statusColor = s.running ? 'var(--warn)' : s.status === 'done' ? 'var(--good)' : 'var(--bad)';
+        const started = s.startedAt ? new Date(s.startedAt).toLocaleString('fa-IR') : '-';
+        const finished = s.finishedAt ? new Date(s.finishedAt).toLocaleString('fa-IR') : '-';
+        el.innerHTML = `
+            <div class="job-card">
+                <div class="job-header">
+                    <span class="job-type" style="background:rgba(61,125,216,.15);color:var(--accent);">OHDoctor</span>
+                    <span class="badge ${s.running ? 'warn' : s.status === 'done' ? 'long' : 'short'}">${s.status || '?'}</span>
+                    ${s.exitCode !== null && s.exitCode !== undefined ? `<span class="badge ${s.exitCode === 0 ? 'long' : 'short'}">exit=${s.exitCode}</span>` : ''}
+                </div>
+                <div class="hint" style="font-size:11.5px;">
+                    شروع: ${started} | پایان: ${finished} | PID: ${s.pid || '-'}
+                    ${s.outputFile ? ` | فایل: <code>${esc(s.outputFile)}</code> (${Math.round((s.fileSize || 0) / 1024)}KB)` : ''}
+                </div>
+                ${s.error ? `<div class="hint" style="color:var(--bad);">${esc(s.error)}</div>` : ''}
+            </div>
+        `;
+        document.getElementById('docRunBtn').disabled = s.running;
+        document.getElementById('docRunBtn').textContent = s.running ? '⏳ در حال اجرا...' : '🚀 شروع بررسی';
+        document.getElementById('docKillBtn').style.display = s.running ? 'inline-block' : 'none';
+    } catch (_) {}
+}
+
+async function pollDoctorOutput() {
+    const el = document.getElementById('docConsole');
+    if (!el) return;
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/doctor/tail?limit=300&file=${encodeURIComponent(_doctorActiveFile || '')}`, {}, 0);
+        const lines = r.lines || [];
+        el.textContent = lines.join('\n');
+        el.scrollTop = el.scrollHeight;
+    } catch (_) {}
+    const s = await apiFetch(`${BACKEND_URL}/api/doctor/status`, {}, 0).catch(() => null);
+    if (s && s.running) {
+        setTimeout(pollDoctorOutput, 2500);
+    } else {
+        // finished
+        await refreshDoctorStatus();
+        await refreshDoctorReports();
+        if (s && s.outputFile) {
+            showAlert(`بررسی تمام شد — ${s.status}`, s.status === 'done' ? 'success' : 'warn', 6000);
+            // download link
+            const el2 = document.getElementById('docStatus');
+            if (el2) {
+                const dl = document.createElement('a');
+                dl.href = `${BACKEND_URL}/api/doctor/file/${encodeURIComponent(s.outputFile)}`;
+                dl.textContent = '⬇ دانلود گزارش';
+                dl.style.cssText = 'display:inline-block;margin-top:8px;padding:6px 12px;background:var(--accent);color:#fff;border-radius:6px;text-decoration:none;font-size:12px;';
+                dl.target = '_blank';
+                el2.appendChild(dl);
+            }
+        }
+    }
+}
+
+async function refreshDoctorReports() {
+    const el = document.getElementById('docReportsList');
+    if (!el) return;
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/doctor/list`, {}, 0);
+        const files = r.files || [];
+        if (!files.length) {
+            el.innerHTML = '<div class="hint">گزارشی یافت نشد</div>';
+            return;
+        }
+        el.innerHTML = `
+            <div class="menu-label">گزارش‌های قبلی (${files.length})</div>
+            <div class="table-responsive" style="max-height:250px;overflow-y:auto;">
+                <table class="data-table">
+                    <thead><tr><th>فایل</th><th>حجم</th><th>تاریخ</th><th></th></tr></thead>
+                    <tbody>
+                        ${files.slice(0, 20).map((f) => `
+                            <tr>
+                                <td style="font-size:11px;">${esc(f.name)}</td>
+                                <td>${Math.round(f.size / 1024)}KB</td>
+                                <td style="font-size:11px;">${new Date(f.mtime).toLocaleString('fa-IR')}</td>
+                                <td>
+                                    <button class="btn tiny outline" onclick="loadDoctorFile('${esc(f.name)}')">نمایش</button>
+                                    <a class="btn tiny outline" href="${BACKEND_URL}/api/doctor/file/${encodeURIComponent(f.name)}" target="_blank" style="text-decoration:none;">دانلود</a>
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (_) {}
+}
+
+async function loadDoctorFile(name) {
+    _doctorActiveFile = name;
+    const el = document.getElementById('docConsole');
+    if (!el) return;
+    el.style.display = 'block';
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/doctor/tail?limit=1000&file=${encodeURIComponent(name)}`, {}, 0);
+        el.textContent = (r.lines || []).join('\n');
+        el.scrollTop = 0;
+    } catch (e) {
+        el.textContent = 'خطا: ' + e.message;
+    }
 }
 </script>
 </body>
