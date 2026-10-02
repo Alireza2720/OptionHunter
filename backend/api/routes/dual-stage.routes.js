@@ -8,6 +8,7 @@ const { COLLECTIONS } = require('../../config/constants');
 
 function register(app, deps) {
     const { getDB, logger, dualStageService } = deps;
+
     if (!dualStageService) {
         console.warn('dual-stage.routes: dualStageService not provided — skipping');
         return;
@@ -26,7 +27,6 @@ function register(app, deps) {
 
             const opts = req.body || {};
 
-            // ساخت job
             const db = getDB();
             const jobDoc = {
                 type: 'dual-stage',
@@ -59,6 +59,29 @@ function register(app, deps) {
     });
 
     // ------------------------------------------------------------
+    // GET /api/pipeline/dual-stage/preview — 🆕 با stacktrace کامل
+    // ------------------------------------------------------------
+    app.get('/api/pipeline/dual-stage/preview', async (req, res) => {
+        try {
+            const ranges = await dualStageService._resolveDateRanges({});
+            const { configs, symbols, strategies } = await dualStageService._buildConfigs({});
+            res.json({
+                ranges,
+                symbols: symbols.length,
+                strategies: strategies.length,
+                totalConfigs: configs.length,
+                estimatedMinutes: Math.round((configs.length * 8 + symbols.length * 100) / 60)
+            });
+        } catch (e) {
+            logger && logger.error('dual-stage preview: ' + (e.stack || e.message));
+            res.status(500).json({
+                error: e.message,
+                stack: e.stack ? e.stack.split('\n').slice(0, 10) : null
+            });
+        }
+    });
+
+    // ------------------------------------------------------------
     // GET /api/pipeline/dual-stage/:jobId
     // ------------------------------------------------------------
     app.get('/api/pipeline/dual-stage/:jobId', async (req, res, next) => {
@@ -68,7 +91,6 @@ function register(app, deps) {
                 .findOne({ _id: new ObjectId(req.params.jobId) });
             if (!job) return res.status(404).json({ error: 'job یافت نشد' });
 
-            // خلاصه‌ی سبک — بدون trades
             const result = job.result ? {
                 ...job.result,
                 stages: job.result.stages ? {
@@ -77,7 +99,7 @@ function register(app, deps) {
                         ...job.result.stages[4],
                         plans: (job.result.stages[4].plans || []).map(p => ({
                             ...p,
-                            signalCorrelation: undefined   // حذف ماتریس سنگین
+                            signalCorrelation: undefined
                         }))
                     } : null,
                     5: job.result.stages[5] ? {
@@ -129,29 +151,6 @@ function register(app, deps) {
             );
             res.json({ success: true });
         } catch (e) { next(e); }
-    });
-
-    // ------------------------------------------------------------
-    // GET /api/pipeline/dual-stage/preview — پیش‌بینی بازه‌ها
-    // ------------------------------------------------------------
-    app.get('/api/pipeline/dual-stage/preview', async (req, res, next) => {
-        try {
-            const ranges = await dualStageService._resolveDateRanges({});
-            const { configs, symbols, strategies } = await dualStageService._buildConfigs({});
-            res.json({
-                ranges,
-                symbols: symbols.length,
-                strategies: strategies.length,
-                totalConfigs: configs.length,
-                estimatedMinutes: Math.round((configs.length * 8 + symbols.length * 100) / 60)
-            });
-        } catch (e) {
-            logger && logger.error('dual-stage preview: ' + (e.stack || e.message));
-            res.status(500).json({
-                error: e.message,
-                stack: e.stack ? e.stack.split('\n').slice(0, 6) : null
-            });
-        }
     });
 }
 

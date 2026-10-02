@@ -7,7 +7,7 @@
 // Stage 2: FDR filter
 // Stage 3: Validation روی VALIDATION
 // Stage 4: Leader/Confirmer با signal correlation
-// Stage 5: Option backtest روی TEST (بازه‌ی آپشن)
+// Stage 5: Option backtest روی TEST
 // Stage 6: Verdict (GO/MAYBE/SKIP)
 // Stage 7: Apply configs
 // ============================================================
@@ -50,8 +50,8 @@ const DEFAULTS = {
     trainTo: null,
     validationFrom: null,
     validationTo: null,
-    testFrom: null,       // پیش‌فرض: OPTION_DATA_CUTOFF
-    testTo: null,         // پیش‌فرض: امروز
+    testFrom: null,
+    testTo: null,
 
     // Stage 1 gates
     minStockTrades: 30,
@@ -60,8 +60,9 @@ const DEFAULTS = {
     fdrQ: 0.05,
     useFDR: true,
 
-    // Stage 3
+    // Stage 3 — 🆕 منعطف‌تر
     minValidationPF: 0.8,
+    validationMinTrades: 0,
 
     // Stage 4
     maxConfirmers: 2,
@@ -92,39 +93,49 @@ const DEFAULTS = {
 };
 
 // ============================================================
-// Helper: تعیین بازه‌ها
+// Helper: چک cancel
+// ============================================================
+async function _isCancelled(jobId) {
+    try {
+        const j = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
+            .findOne({ _id: new ObjectId(jobId) }, { projection: { cancelRequested: 1, status: 1 } });
+        return !!(j && (j.cancelRequested || j.status === 'CANCELLED'));
+    } catch (_) {
+        return false;
+    }
+}
+
+// ============================================================
+// Helper: بازه‌ها
 // ============================================================
 async function _resolveDateRanges(opts) {
     const db = deps.getDB();
+    const CUTOFF = OPTION_DATA_CUTOFF || new Date('2026-06-09T00:00:00Z');
 
-    // Test period
     let testFrom = opts.testFrom;
     let testTo = opts.testTo;
-    if (!testFrom) testFrom = Math.floor(OPTION_DATA_CUTOFF.getTime() / 1000);
+    if (!testFrom) testFrom = Math.floor(CUTOFF.getTime() / 1000);
     else testFrom = Math.floor(new Date(testFrom).getTime() / 1000);
     if (!testTo) testTo = Math.floor(Date.now() / 1000);
     else testTo = Math.floor(new Date(testTo).getTime() / 1000);
 
-    // Validation period
     let valFrom = opts.validationFrom;
     let valTo = opts.validationTo;
-    if (!valTo) valTo = testFrom - 86400;   // ۱ روز قبل از test
+    if (!valTo) valTo = testFrom - 86400;
     else valTo = Math.floor(new Date(valTo).getTime() / 1000);
     if (!valFrom) {
         const days = opts.validationsDays || 60;
         valFrom = valTo - days * 86400;
     } else valFrom = Math.floor(new Date(valFrom).getTime() / 1000);
 
-    // Train period
     let trainTo = opts.trainTo;
     if (!trainTo) trainTo = valFrom - 86400;
     else trainTo = Math.floor(new Date(trainTo).getTime() / 1000);
 
     let trainFrom = opts.trainFrom;
     if (!trainFrom) {
-        // از data-range
         try {
-            const r = await deps.getDB().collection(COLLECTIONS.CANDLES_BASE)
+            const r = await db.collection(COLLECTIONS.CANDLES_BASE)
                 .findOne({}, { sort: { time: 1 }, projection: { time: 1 } });
             trainFrom = r ? Math.floor(new Date(r.time).getTime() / 1000) : (trainTo - 3 * 365 * 86400);
         } catch (_) {
@@ -140,13 +151,22 @@ async function _resolveDateRanges(opts) {
 }
 
 // ============================================================
-// Helper: ساخت لیست configs
+// Helper: configs
 // ============================================================
 async function _buildConfigs(opts) {
     const db = deps.getDB();
     const STRATEGIES = require('../strategies').STRATEGIES;
 
-    // Symbols
+    // 🆕 defensive settings accessor
+    const getDefaults = (sid) => {
+        try {
+            if (deps.settings && typeof deps.settings.getStrategyDefaults === 'function') {
+                return deps.settings.getStrategyDefaults(sid) || {};
+            }
+        } catch (_) {}
+        return {};
+    };
+
     let symbols = opts.symbols;
     if (!symbols || !symbols.length) {
         const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
@@ -154,7 +174,6 @@ async function _buildConfigs(opts) {
         symbols = monitored.map(m => m.symbol);
     }
 
-    // Strategies
     let strategyIds = opts.strategies;
     if (!strategyIds || !strategyIds.length) {
         strategyIds = Object.values(STRATEGIES)
@@ -178,7 +197,7 @@ async function _buildConfigs(opts) {
                 candleType: 'heikin',
                 params: {
                     ...def.defaultParams,
-                    ...(deps.settings.getStrategyDefaults(sid) || {})
+                    ...getDefaults(sid)
                 }
             });
         }
@@ -211,23 +230,18 @@ async function _setStage(jobId, stage, patch = {}) {
 }
 
 // ============================================================
-// STAGE 1: Stock Backtest روی Train
+// STAGE 1
 // ============================================================
 async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
     const results = [];
-    const signalTimesBySymbolStrat = new Map();   // key: "symbol::strategyId"
+    const signalTimesBySymbolStrat = new Map();
     const total = configs.length;
-    let done = (resumeState && resumeState.stage1 && resumeState.stage1.done) || 0;
+    const done = (resumeState && resumeState.stage1 && resumeState.stage1.done) || 0;
 
     for (let i = done; i < total; i++) {
         // 🆕 چک cancel هر ۲۵ pair
-        if (i % 25 === 0) {
-            const j = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
-                .findOne({ _id: new ObjectId(jobId) }, { projection: { cancelRequested: 1, status: 1 } });
-            if (j && (j.cancelRequested || j.status === 'CANCELLED')) {
-                deps.logger && deps.logger.info(`[dual-stage ${jobId}] cancelled mid-stage1 at ${i}/${total}`);
-                throw new Error('CANCELLED_BY_USER');
-            }
+        if (i % 25 === 0 && await _isCancelled(jobId)) {
+            throw new Error('CANCELLED_BY_USER');
         }
         const cfg = configs[i];
         memGuard.maybeGC();
@@ -236,8 +250,6 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
             const r = await deps.backtest.runBacktest(cfg, dateRange.from, dateRange.to, {
                 mode: 'stock'
             });
-            const trades = r.stockStats && r.stockStats.count ? (r.advanced && r.advanced.equityCurve ? [] : []) : [];
-            // trades کامل از result میاد — core/backtest.js میده stockTrades کامل
             const fullTrades = r.trades || [];
             results.push({
                 symbol: cfg.symbol,
@@ -248,11 +260,8 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
                 stockStats: r.stockStats,
                 trades: fullTrades
             });
-
-            // ذخیره‌ی times برای correlation
             const key = `${cfg.symbol}::${cfg.strategyId}`;
             signalTimesBySymbolStrat.set(key, fullTrades.map(t => t.entryTime).filter(Number.isFinite));
-
         } catch (e) {
             deps.logger && deps.logger.warn(`[dual-stage] stage1 ${cfg.symbol}/${cfg.strategyId}: ${e.message}`);
             results.push({
@@ -263,7 +272,6 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
             });
         }
 
-        // آپدیت progress + checkpoint هر ۱۰ تا
         if (i % 10 === 0 || i === total - 1) {
             await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
                 { _id: new ObjectId(jobId) },
@@ -275,7 +283,6 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
                 } }
             );
         }
-
         await new Promise(res => setImmediate(res));
     }
 
@@ -283,19 +290,14 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
 }
 
 // ============================================================
-// STAGE 2: FDR Filter
+// STAGE 2: FDR filter
 // ============================================================
 function _stage2_fdrFilter(stage1Results, opts) {
-    // p-values from t-test روی trades هر pair
     const pvalues = [];
-    const indexed = new Map();   // key → result
 
     for (const r of stage1Results) {
         if (r.error || !r.trades || r.trades.length < 2) continue;
         const key = `${r.symbol}::${r.strategyId}`;
-        indexed.set(key, r);
-
-        // t-test یک‌طرفه روی pnlPct
         const pnls = r.trades.map(t => t.pnlPct).filter(Number.isFinite);
         if (pnls.length < 3) continue;
         const p = _oneSampleTTestPValue(pnls);
@@ -307,7 +309,6 @@ function _stage2_fdrFilter(stage1Results, opts) {
         fdrResult = benjaminiHochberg(pvalues, opts.fdrQ || 0.05);
     }
 
-    // Filter: FDR pass + PF >= minStockPF + N >= minStockTrades + LB >= minLB
     const candidates = [];
     for (const r of stage1Results) {
         if (r.error) continue;
@@ -319,11 +320,8 @@ function _stage2_fdrFilter(stage1Results, opts) {
 
         if (n < (opts.minStockTrades || 30)) continue;
         if (safePf < (opts.minStockPF || 1.3)) continue;
-
         if (opts.useFDR && fdrResult.pass && !fdrResult.pass.has(key)) continue;
 
-        // LB از bootstrap (اگه analysisService داریم)
-        // فعلاً ساده: skip LB چک اگه سرویس نبود
         candidates.push({
             symbol: r.symbol,
             strategyId: r.strategyId,
@@ -339,7 +337,6 @@ function _stage2_fdrFilter(stage1Results, opts) {
         });
     }
 
-    // مرتب‌سازی نزولی بر اساس PF
     candidates.sort((a, b) => b.stockPF - a.stockPF);
 
     return {
@@ -355,46 +352,46 @@ function _stage2_fdrFilter(stage1Results, opts) {
 }
 
 // ============================================================
-// STAGE 3: Validation
+// STAGE 3: Validation — 🆕 منطق منعطف
 // ============================================================
 async function _stage3_validation(jobId, candidates, dateRange, opts) {
     const validated = [];
     const total = candidates.length;
+    const STRATEGIES = require('../strategies').STRATEGIES;
 
     for (let i = 0; i < total; i++) {
-        // 🆕 چک cancel
-        if (i % 25 === 0) {
-            const j = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
-                .findOne({ _id: new ObjectId(jobId) }, { projection: { cancelRequested: 1, status: 1 } });
-            if (j && (j.cancelRequested || j.status === 'CANCELLED')) {
-                throw new Error('CANCELLED_BY_USER');
-            }
+        if (i % 25 === 0 && await _isCancelled(jobId)) {
+            throw new Error('CANCELLED_BY_USER');
         }
         const cand = candidates[i];
         memGuard.maybeGC();
 
+        const def = STRATEGIES[cand.strategyId];
+        const cfg = {
+            symbol: cand.symbol,
+            strategyId: cand.strategyId,
+            timeframe: cand.timeframe,
+            htfTimeframe: cand.htfTimeframe,
+            candleType: 'heikin',
+            params: {
+                ...(def ? def.defaultParams : {}),
+                ...((deps.settings && deps.settings.getStrategyDefaults)
+                    ? (deps.settings.getStrategyDefaults(cand.strategyId) || {})
+                    : {})
+            }
+        };
+
         try {
-            const cfg = {
-                symbol: cand.symbol,
-                strategyId: cand.strategyId,
-                timeframe: cand.timeframe,
-                htfTimeframe: cand.htfTimeframe,
-                candleType: 'heikin',
-                params: {
-                    ...require('../strategies').STRATEGIES[cand.strategyId].defaultParams,
-                    ...(deps.settings.getStrategyDefaults(cand.strategyId) || {})
-                }
-            };
             const r = await deps.backtest.runBacktest(cfg, dateRange.from, dateRange.to, { mode: 'stock' });
             const st = r.stockStats || {};
             const n = st.count || 0;
             const pf = st.profitFactor;
             const safePf = Number.isFinite(pf) ? pf : (st.totalPnl > 0 ? 999 : 0);
 
-            // 🆕 Validation واقع‌گرایانه:
-            // - 0 trade: قبول (استراتژی در بازه‌ی short فایر نکرده، دلیل رد نیست)
-            // - 1-4 trade: قبول (نمونه کافی برای قضاوت نداریم)
-            // - 5+ trade: PF >= 0.8 قبول
+            // 🆕 Validation منعطف:
+            // - n=0: قبول (استراتژی در بازه‌ی کوتاه فایر نکرده، دلیل رد نیست)
+            // - 1-4 trade: قبول
+            // - 5+: PF >= minValidationPF (0.8) قبول
             let pass = false;
             let valNote = null;
             if (n === 0) {
@@ -447,10 +444,9 @@ async function _stage3_validation(jobId, candidates, dateRange, opts) {
 }
 
 // ============================================================
-// STAGE 4: Leader/Confirmer Selection
+// STAGE 4: Leader/Confirmer
 // ============================================================
 async function _stage4_leaderConfirmer(validated, signalTimesBySymbolStrat, opts) {
-    // Group by symbol
     const bySymbol = {};
     for (const v of validated) {
         if (!bySymbol[v.symbol]) bySymbol[v.symbol] = [];
@@ -463,11 +459,9 @@ async function _stage4_leaderConfirmer(validated, signalTimesBySymbolStrat, opts
     const tolerance = opts.signalCorrToleranceSec || 300;
 
     for (const [sym, list] of Object.entries(bySymbol)) {
-        // مرتب بر اساس PF (نزولی)
         list.sort((a, b) => b.valPF - a.valPF);
         const leader = list[0];
 
-        // signal correlation matrix برای این نماد
         const timesByStrategy = {};
         for (const c of list) {
             const key = `${sym}::${c.strategyId}`;
@@ -489,14 +483,16 @@ async function _stage4_leaderConfirmer(validated, signalTimesBySymbolStrat, opts
             .map(sid => list.find(x => x.strategyId === sid))
             .filter(Boolean);
 
-        // چک regime diversity روی leader's trades
         let regimeInfo = null;
         try {
-            const dailyCandles = await deps.dataService
-                ? await deps.dataService.getCandles(sym, '1d')
-                : [];
-            regimeInfo = computeRegimeDistribution(leader.trades || [], dailyCandles);
-        } catch (_) {}
+            const dataService = require('./data.service');
+            if (dataService && dataService.getCandles) {
+                const dailyCandles = await dataService.getCandles(sym, '1d');
+                regimeInfo = computeRegimeDistribution(leader.trades || [], dailyCandles);
+            }
+        } catch (e) {
+            deps.logger && deps.logger.warn(`[dual-stage stage4] regime ${sym}: ${e.message}`);
+        }
 
         const diverse = !regimeInfo || regimeInfo.diverse === true;
 
@@ -539,13 +535,12 @@ async function _stage4_leaderConfirmer(validated, signalTimesBySymbolStrat, opts
 }
 
 // ============================================================
-// STAGE 5: Option Backtest روی Test
+// STAGE 5: Option Backtest
 // ============================================================
 async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
     const results = [];
     const STRATEGIES = require('../strategies').STRATEGIES;
 
-    // ساخت لیست همه‌ی pairهای leader+confirmers
     const pairsToRun = [];
     for (const p of plans) {
         pairsToRun.push({
@@ -574,13 +569,8 @@ async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
 
     const total = pairsToRun.length;
     for (let i = 0; i < total; i++) {
-        // 🆕 چک cancel
-        if (i % 10 === 0) {
-            const j = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
-                .findOne({ _id: new ObjectId(jobId) }, { projection: { cancelRequested: 1, status: 1 } });
-            if (j && (j.cancelRequested || j.status === 'CANCELLED')) {
-                throw new Error('CANCELLED_BY_USER');
-            }
+        if (i % 10 === 0 && await _isCancelled(jobId)) {
+            throw new Error('CANCELLED_BY_USER');
         }
         const pair = pairsToRun[i];
         memGuard.maybeGC();
@@ -593,8 +583,10 @@ async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
             htfTimeframe: pair.htfTimeframe,
             candleType: 'heikin',
             params: {
-                ...def.defaultParams,
-                ...(deps.settings.getStrategyDefaults(pair.strategyId) || {})
+                ...(def ? def.defaultParams : {}),
+                ...((deps.settings && deps.settings.getStrategyDefaults)
+                    ? (deps.settings.getStrategyDefaults(pair.strategyId) || {})
+                    : {})
             }
         };
 
@@ -737,7 +729,6 @@ async function _stage7_apply(verdicts, plans, opts) {
     const db = deps.getDB();
     const STRATEGIES = require('../strategies').STRATEGIES;
 
-    // برای هر نماد، لیست pairهای GO/MAYBE رو جمع کن
     const bySymbol = {};
     for (const v of verdicts) {
         if (v.verdict === 'SKIP') continue;
@@ -747,24 +738,19 @@ async function _stage7_apply(verdicts, plans, opts) {
 
     const applied = [];
     for (const [sym, list] of Object.entries(bySymbol)) {
-        // چک: leader هست؟
         const hasLeader = list.some(x => x.role === 'leader');
         if (!hasLeader) continue;
 
-        // حذف configs قدیمی
         const old = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).find({ symbol: sym }).toArray();
         const oldIds = old.map(o => o._id.toString());
         await db.collection(COLLECTIONS.STRATEGY_CONFIGS).deleteMany({ symbol: sym });
         await db.collection(COLLECTIONS.SIGNALS_STATE).deleteMany({ configId: { $in: oldIds } });
 
-        // ساخت configs جدید
         let added = 0;
         for (const v of list) {
             const def = STRATEGIES[v.strategyId];
             if (!def) continue;
-
             const sizeMultiplier = v.verdict === 'GO' ? 1.0 : 0.5;
-
             const doc = {
                 symbol: sym,
                 strategyId: v.strategyId,
@@ -773,7 +759,9 @@ async function _stage7_apply(verdicts, plans, opts) {
                 candleType: 'heikin',
                 params: {
                     ...def.defaultParams,
-                    ...(deps.settings.getStrategyDefaults(v.strategyId) || {})
+                    ...((deps.settings && deps.settings.getStrategyDefaults)
+                        ? (deps.settings.getStrategyDefaults(v.strategyId) || {})
+                        : {})
                 },
                 enabled: true,
                 role: v.role,
@@ -805,7 +793,7 @@ async function _stage7_apply(verdicts, plans, opts) {
 }
 
 // ============================================================
-// Helper: t-test p-value (یک‌طرفه، H1: mean > 0)
+// t-test helpers
 // ============================================================
 function _oneSampleTTestPValue(pnls) {
     const n = pnls.length;
@@ -818,13 +806,11 @@ function _oneSampleTTestPValue(pnls) {
     const t = mean / se;
     return 1 - _studentTCdf(t, n - 1);
 }
-
 function _studentTCdf(t, df) {
     const x = df / (df + t * t);
     const ib = _incompleteBeta(x, df / 2, 0.5);
     return t >= 0 ? 1 - 0.5 * ib : 0.5 * ib;
 }
-
 function _incompleteBeta(x, a, b) {
     if (x <= 0) return 0;
     if (x >= 1) return 1;
@@ -833,7 +819,6 @@ function _incompleteBeta(x, a, b) {
     if (x < (a + 1) / (a + b + 2)) return bt * _betacf(x, a, b) / a;
     return 1 - bt * _betacf(1 - x, b, a) / b;
 }
-
 function _betacf(x, a, b) {
     const MAXIT = 200, EPS = 3e-7, FPMIN = 1e-30;
     const qab = a + b, qap = a + 1, qam = a - 1;
@@ -857,7 +842,6 @@ function _betacf(x, a, b) {
     }
     return h;
 }
-
 function _logGamma(x) {
     const cof = [
         76.18009172947146, -86.50532032941677, 24.01409824083091,
@@ -871,18 +855,16 @@ function _logGamma(x) {
 }
 
 // ============================================================
-// MAIN: runDualStage
+// MAIN
 // ============================================================
 async function runDualStage(jobId, opts = {}) {
     const db = deps.getDB();
     const merged = { ...DEFAULTS, ...opts };
     const t0 = Date.now();
 
-    // load job state (resume)
     const job = await db.collection(COLLECTIONS.BACKTEST_JOBS).findOne({ _id: new ObjectId(jobId) });
     if (!job) throw new Error('job not found');
 
-    // 🆕 چک cancel در شروع
     if (job.cancelRequested || job.status === 'CANCELLED') {
         deps.logger && deps.logger.info(`[dual-stage ${jobId}] cancelled before start`);
         return { cancelled: true };
@@ -894,19 +876,15 @@ async function runDualStage(jobId, opts = {}) {
     deps.logger && deps.logger.info(`[dual-stage ${jobId}] start from stage ${savedStage + 1}`);
 
     try {
-        // ---- Resolve ranges ----
         const ranges = savedState.ranges || await _resolveDateRanges(merged);
         await _setStage(jobId, 0, { ranges });
 
-        // ---- Build configs ----
         const { configs, symbols, strategies } = savedState.configs
             ? { configs: savedState.configs, symbols: savedState.symbols, strategies: savedState.strategies }
             : await _buildConfigs(merged);
         if (!savedState.configs) {
             await _setStage(jobId, 0, {
-                configs,
-                symbols,
-                strategies,
+                configs, symbols, strategies,
                 totalConfigs: configs.length
             });
         }
@@ -915,16 +893,14 @@ async function runDualStage(jobId, opts = {}) {
             `[dual-stage ${jobId}] ${symbols.length} sym × ${strategies.length} strat = ${configs.length} combos`
         );
 
-        // ============ STAGE 1 ============
+        // STAGE 1
         let stage1;
         if (savedStage >= 1 && savedState.stage1) {
             stage1 = savedState.stage1;
-            // reconstruct signalTimes Map
             stage1.signalTimesBySymbolStrat = new Map(Object.entries(savedState.stage1.signalTimes || {}));
         } else {
             await _setStage(jobId, 1);
             stage1 = await _stage1_stockBacktest(jobId, configs, ranges.train, savedState);
-            // serialize Map
             await _setStage(jobId, 1, {
                 stage1: {
                     done: stage1.done,
@@ -932,23 +908,19 @@ async function runDualStage(jobId, opts = {}) {
                     signalTimes: Object.fromEntries(stage1.signalTimesBySymbolStrat)
                 }
             });
-            // ذخیره‌ی results سنگین رو skip می‌کنیم (فقط در memory استفاده می‌شن)
         }
 
-        // ============ STAGE 2 ============
+        // STAGE 2
         await _setStage(jobId, 2);
         const stage2 = _stage2_fdrFilter(stage1.results, merged);
         await _setStage(jobId, 2, {
-            stage2: {
-                candidateCount: stage2.candidates.length,
-                fdrMeta: stage2.fdrMeta
-            }
+            stage2: { candidateCount: stage2.candidates.length, fdrMeta: stage2.fdrMeta }
         });
         deps.logger && deps.logger.info(
             `[dual-stage ${jobId}] stage2: ${stage2.candidates.length} candidates (FDR: ${stage2.fdrMeta.passed}/${stage2.fdrMeta.totalTested})`
         );
 
-        // ============ STAGE 3 ============
+        // STAGE 3
         await _setStage(jobId, 3);
         const stage3 = await _stage3_validation(jobId, stage2.candidates, ranges.validation, merged);
         await _setStage(jobId, 3, {
@@ -961,7 +933,7 @@ async function runDualStage(jobId, opts = {}) {
             `[dual-stage ${jobId}] stage3: ${stage3.validated.length}/${stage3.initialCount} validated`
         );
 
-        // ============ STAGE 4 ============
+        // STAGE 4
         await _setStage(jobId, 4);
         const stage4 = await _stage4_leaderConfirmer(
             stage3.validated,
@@ -969,41 +941,30 @@ async function runDualStage(jobId, opts = {}) {
             merged
         );
         await _setStage(jobId, 4, {
-            stage4: {
-                planCount: stage4.plans.length,
-                symbols: stage4.plans.map(p => p.symbol)
-            }
+            stage4: { planCount: stage4.plans.length, symbols: stage4.plans.map(p => p.symbol) }
         });
         deps.logger && deps.logger.info(`[dual-stage ${jobId}] stage4: ${stage4.plans.length} plans`);
 
-        // ============ STAGE 5 ============
+        // STAGE 5
         await _setStage(jobId, 5);
         const stage5 = await _stage5_optionBacktest(jobId, stage4.plans, ranges.test, merged);
-        await _setStage(jobId, 5, {
-            stage5: {
-                pairCount: stage5.results.length
-            }
-        });
+        await _setStage(jobId, 5, { stage5: { pairCount: stage5.results.length } });
         deps.logger && deps.logger.info(`[dual-stage ${jobId}] stage5: ${stage5.results.length} option results`);
 
-        // ============ STAGE 6 ============
+        // STAGE 6
         await _setStage(jobId, 6);
         const stage6 = _stage6_verdict(stage5.results, merged);
-        await _setStage(jobId, 6, {
-            stage6: stage6.summary
-        });
+        await _setStage(jobId, 6, { stage6: stage6.summary });
         deps.logger && deps.logger.info(
             `[dual-stage ${jobId}] stage6: GO=${stage6.summary.go} MAYBE=${stage6.summary.maybe} SKIP=${stage6.summary.skip}`
         );
 
-        // ============ STAGE 7 ============
+        // STAGE 7
         await _setStage(jobId, 7);
         const stage7 = await _stage7_apply(stage6.verdicts, stage4.plans, merged);
-        await _setStage(jobId, 7, {
-            stage7
-        });
+        await _setStage(jobId, 7, { stage7 });
 
-        // ============ Done ============
+        // Done
         const elapsed = Math.round((Date.now() - t0) / 1000);
         await _setStage(jobId, 99);
 
@@ -1043,7 +1004,6 @@ async function runDualStage(jobId, opts = {}) {
             } }
         );
 
-        // notify
         if (deps.notify) {
             try {
                 const s = finalResult.summary;
@@ -1063,17 +1023,19 @@ async function runDualStage(jobId, opts = {}) {
         return finalResult;
 
     } catch (e) {
-        deps.logger && deps.logger.error(`[dual-stage ${jobId}] FATAL: ${e.message}\n${e.stack || ''}`);
+        const isCancel = e.message === 'CANCELLED_BY_USER';
+        deps.logger && deps.logger.error(`[dual-stage ${jobId}] ${isCancel ? 'CANCELLED' : 'FATAL'}: ${e.message}`);
+
         await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
             { _id: new ObjectId(jobId) },
             { $set: {
-                status: 'FAILED',
-                error: e.message,
+                status: isCancel ? 'CANCELLED' : 'FAILED',
+                error: isCancel ? null : e.message,
                 finishedAt: new Date(),
                 updatedAt: new Date()
             } }
         );
-        throw e;
+        if (!isCancel) throw e;
     }
 }
 
