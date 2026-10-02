@@ -206,7 +206,8 @@ async function preHeavyCheck(sectionName) {
     try {
         const r = tryExec('pm2', ['jlist'], { timeout: 5000 });
         if (r.ok && r.stdout) {
-            const list = JSON.parse(r.stdout);
+            let list;
+            try { list = JSON.parse(r.stdout); } catch (_) { list = []; }
             for (const app of list) {
                 if (app.name === 'OptionHunter') {
                     const rss = Math.round((app.monit && app.monit.memory || 0) / 1048576);
@@ -223,7 +224,10 @@ async function preHeavyCheck(sectionName) {
     try {
         const jobs = await httpGet(CONF.backend + '/api/jobs?limit=5', { timeout: 5000 });
         if (jobs.ok && jobs.json && Array.isArray(jobs.json.jobs)) {
-            const active = jobs.json.jobs.filter((j) => ['QUEUED', 'RUNNING', 'COMPUTING'].includes(j.status));
+            const active = jobs.json.jobs.filter((j) =>
+                ['QUEUED', 'RUNNING', 'COMPUTING'].includes(j.status) &&
+                j.type !== 'ohdoctor'   // 🆕 خود OHDoctor را نادیده بگیر
+            );
             if (active.length > 0) {
                 warn(`[SAFETY] ${sectionName} رد شد — ${active.length} job فعال در پس‌زمینه`);
                 for (const j of active.slice(0, 3)) info(`  • ${j.type} → ${j.status}`);
@@ -270,7 +274,7 @@ function w(l = '') { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(
 function wc(l, c) { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(c + l + C.reset); }
 function bar() { w('═'.repeat(78)); }
 // 🆕 کل بخش‌ها — برای گزارش progress به backend
-const TOTAL_SECTIONS = 24;
+const TOTAL_SECTIONS = 34;
 const _jobId = (() => {
     const a = ARGV.find((x) => x.startsWith('--job-id='));
     return a ? a.split('=')[1] : null;
@@ -458,12 +462,23 @@ function s2_structure() {
         if (fs.existsSync(path.join(ROOT, d))) info(`✓ ${d}`);
         else warn(`پوشه غایب: ${d}`);
     }
-    const files = ['package.json', 'ecosystem.config.js', '.env', '.env.example',
+    const files = [
+        // Root files
+        'package.json', 'ecosystem.config.js', '.env',
+        // 🆕 .env.example (در backend/ طبق ساختار پروژه)
+        'backend/.env.example',
+        // Backend core
         'backend/server.js', 'backend/bootstrap.js', 'backend/settings.js', 'backend/strategies.js',
         'backend/api/index.js', 'backend/core/backtest.js', 'backend/core/options.js',
         'backend/infra/mongo.js', 'backend/services/dual-stage-pipeline.service.js',
-        'backend/scripts/monitor.js', 'collector/service.py', 'collector/requirements.txt',
-        'frontend/index.html'];
+        'backend/scripts/monitor.js',
+        // Collector
+        'collector/service.py', 'collector/requirements.txt',
+        // Frontend
+        'frontend/index.html',
+        // 🆕 فایل‌های اضافی مهم
+        'pack.js', 'README.md',
+    ];
     for (const f of files) {
         const p = path.join(ROOT, f);
         if (fs.existsSync(p)) info(`✓ ${f} (${fmtBytes(fileSize(p))}, ${fileLines(p)}L)`);
@@ -543,21 +558,26 @@ const PATTERNS = [
     { n: 'TODO/FIXME', r: /\b(TODO|FIXME|XXX|HACK)\b/, sev: 'info' },
     { n: 'console.log در core/services', r: /console\.log\s*\(/, sev: 'info', files: ['backend/core/', 'backend/services/'] },
     { n: 'x-admin-token در URL', r: /x-admin-token=[^&"'\s]+/, sev: 'fail' },
-    { n: '12:31 vs 12:35 hardcode', r: /12\s*\*\s*60\s*\+\s*3[0-9]/, sev: 'warn' },
+    // حذف شد — false positive در تمام موارد (constants.js درست است)
     { n: 'hardcoded secret', r: /(password|passwd|secret|api[_-]?key)\s*[:=]\s*["'][^"']{10,}["']/i, sev: 'fail' },
     { n: 'eval / Function', r: /\b(eval|Function)\s*\(/, sev: 'warn' },
     { n: 'Bidi chars', r: /[\u202A-\u202E\u2066-\u2069]/, sev: 'fail' },
-    { n: 'process.exit بدون log', r: /process\.exit\s*\(\s*[0-9]+\s*\)\s*;?\s*$/m, sev: 'info' },
+    // حذف شد — false positive (context در سطرهای قبلی چک می‌شود)
     { n: 'updateOne بدون upsert', r: /updateOne\s*\(\s*\{[^}]*\}\s*,\s*\{[^}]*\$set[^}]*\}\s*\)\s*;/, sev: 'info' },
     { n: 'require داخل تابع', r: /function\s+\w+\s*\([^)]*\)\s*\{[^}]{0,500}\brequire\s*\(/m, sev: 'info' },
-    { n: 'async بدون await', r: /async\s+function\s+\w+\s*\([^)]*\)\s*\{[^}]{0,800}\}/m, sev: 'info' },
+    // حذف شد — false positive (async روی توابعی که Promise return می‌کنند درست است)
     { n: 'let داخل حلقه بدون نیاز', r: /for\s*\([^)]*\)\s*\{[^}]{0,200}\blet\b/m, sev: 'info' },
     { n: 'JSON.parse بدون try', r: /JSON\.parse\s*\([^)]+\)(?![\s\S]{0,50}catch)/, sev: 'warn' },
 ];
 function s4_patterns() {
     section(4, 'BUG PATTERNS');
-    const all = [...walk(ROOT, (f) => f.endsWith('.js') && !f.includes('/tests/') && !f.includes('/node_modules/')),
-        ...walk(COLLECTOR_DIR, (f) => f.endsWith('.py'))];
+    const all = [
+        ...walk(ROOT, (f) => f.endsWith('.js')
+            && !f.includes('/tests/')
+            && !f.includes('/node_modules/')
+            && !f.endsWith('/scripts/monitor.js')),   // 🆕 خود detector را نادیده بگیر
+        ...walk(COLLECTOR_DIR, (f) => f.endsWith('.py'))
+    ];
     for (const p of PATTERNS) {
         const matches = [];
         for (const f of all) {
@@ -1413,7 +1433,782 @@ async function s24_report() {
 }
 
 // ============================================================
-// MAIN
+// S24 — BACKUP & DISASTER RECOVERY
+// ============================================================
+function s24_backup() {
+    section(24, 'BACKUP & DISASTER RECOVERY');
+
+    sub('Backup directories');
+    let foundAny = false;
+    const dirs = [
+        path.join(ROOT, 'backups'),
+        path.join(ROOT, 'logs'),
+    ];
+    for (const dir of dirs) {
+        if (!fs.existsSync(dir)) continue;
+        const files = fs.readdirSync(dir).filter((f) => /backup|\.tar\.gz|\.zip$/i.test(f));
+        if (!files.length) continue;
+        foundAny = true;
+        for (const f of files.slice(0, 8)) {
+            const p = path.join(dir, f);
+            const st = fs.statSync(p);
+            const ageH = (Date.now() - st.mtimeMs) / 3600000;
+            const ageStr = ageH < 24 ? `${ageH.toFixed(1)}h` : `${(ageH / 24).toFixed(1)}d`;
+            kv(path.relative(ROOT, p), `${fmtBytes(st.size)} — ${ageStr}`);
+            if (ageH > 14 * 24) warn(`${f} قدیمی (${(ageH / 24).toFixed(0)} روز)`);
+        }
+    }
+    if (!foundAny) warn('هیچ فایل backup یافت نشد — ریسک بالا');
+
+    sub('.env backup');
+    const envBak = tryShell('ls -la ~/.env.backup* /tmp/optionhunter.env.backup 2>/dev/null | head -3');
+    if (envBak.ok && envBak.stdout.trim()) {
+        for (const l of envBak.stdout.trim().split('\n').slice(0, 3)) info(l.slice(0, 120));
+        ok('.env backup یافت شد');
+    } else warn('.env backup نیست — cp .env .env.backup بزن');
+
+    sub('MongoDB dump capability');
+    const which = tryExec('which', ['mongodump']);
+    if (which.ok) ok('mongodump نصب است');
+    else warn('mongodump نصب نیست — بکاپ DB دستی سخت می‌شود');
+
+    sub('Git backup (آخرین commit)');
+    const gitLog = tryShell('git log -1 --format="%h %ar %s" 2>/dev/null');
+    if (gitLog.ok && gitLog.stdout.trim()) info(gitLog.stdout.trim().slice(0, 120));
+    else info('Git repository نیست یا دسترسی ندارد');
+}
+
+// ============================================================
+// S25 — CRON SCHEDULE AUDIT
+// ============================================================
+function s25_cron() {
+    section(25, 'CRON SCHEDULE AUDIT');
+
+    sub('System crontab');
+    const sysCron = tryShell('crontab -l 2>/dev/null');
+    if (sysCron.ok && sysCron.stdout.trim()) {
+        for (const l of sysCron.stdout.trim().split('\n')) {
+            if (!l.trim() || l.trim().startsWith('#')) continue;
+            info(l.slice(0, 130));
+        }
+    } else info('هیچ crontab برای کاربر deploy نیست');
+
+    sub('Application cron jobs (parsed)');
+    // اسکن سورس برای تشخیص cron.schedule
+    const jobs = walk(path.join(BACKEND, 'jobs'), (f) => f.endsWith('.job.js'));
+    const scheduleRe = /cron\.schedule\s*\(\s*['"]([^'"]+)['"]\s*,\s*([^,)]+)/g;
+    const found = [];
+    for (const f of jobs) {
+        const txt = readText(f);
+        let m;
+        while ((m = scheduleRe.exec(txt)) !== null) {
+            found.push({
+                file: path.basename(f),
+                expr: m[1],
+                handler: m[2].trim().slice(0, 40),
+            });
+        }
+    }
+    kv('total jobs', found.length);
+
+    // تشخیص تداخل و job در ساعات بازار
+    const MARKET_START = 8 * 60 + 45;
+    const MARKET_END = 12 * 60 + 45;
+    let duringMarket = 0, duringNight = 0;
+    for (const j of found) {
+        const parts = j.expr.split(/\s+/);
+        let hour = null, min = null;
+        if (parts.length === 5) {
+            min = parts[0];
+            hour = parts[1];
+            // اگر عدد ثابت بود
+            if (/^\d+$/.test(hour) && /^\d+$/.test(min)) {
+                const h = +hour, mi = +min;
+                const tod = h * 60 + mi;
+                if (tod >= MARKET_START && tod <= MARKET_END) duringMarket++;
+                else if (h >= 20 || h < 6) duringNight++;
+            }
+        }
+    }
+    info(`jobs در ساعات بازار: ${duringMarket}`);
+    info(`jobs در شب (20-06): ${duringNight}`);
+    if (duringMarket > 4) warn(`${duringMarket} job در ساعات بازار — احتمال تداخل`);
+
+    sub('Next scheduled runs (top 5)');
+    // محاسبه‌ی تقریبی برای cronهای استاندارد
+    for (const j of found.slice(0, 5)) {
+        info(`${j.file} → ${j.expr} → ${j.handler}`);
+    }
+
+    sub('Overlap detection');
+    // چک تداخل hour/minute
+    const timing = {};
+    for (const j of found) {
+        const parts = j.expr.split(/\s+/);
+        if (parts.length !== 5) continue;
+        if (/^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+            const key = `${parts[1]}:${parts[0].padStart(2, '0')}`;
+            if (!timing[key]) timing[key] = [];
+            timing[key].push(j.file);
+        }
+    }
+    let overlaps = 0;
+    for (const [t, files] of Object.entries(timing)) {
+        if (files.length > 1) {
+            overlaps++;
+            if (overlaps <= 5) warn(`تداخل در ${t}: ${files.join(', ')}`);
+        }
+    }
+    if (overlaps === 0) ok('هیچ تداخل زمانی یافت نشد');
+}
+
+// ============================================================
+// S26 — SSL/TLS & NETWORK EXPOSURE
+// ============================================================
+async function s26_ssl() {
+    section(26, 'SSL/TLS & NETWORK EXPOSURE');
+
+    sub('Listening ports');
+    const ss = tryShell("ss -tlnp 2>/dev/null | grep -E ':(80|443|3000|5000|27017|3001)\\b'");
+    if (ss.ok && ss.stdout.trim()) {
+        for (const l of ss.stdout.trim().split('\n')) {
+            info(l.slice(0, 130));
+            // 0.0.0.0 = exposed publicly
+            if (/0\.0\.0\.0:(3000|5000|27017)/.test(l)) {
+                warn(`پورت ${l.match(/:(\d+)/)?.[1]} روی 0.0.0.0 باز است — firewall چک کن`);
+            }
+        }
+    } else info('هیچ پورت مشخصی گوش نمی‌دهد');
+
+    sub('Public IP');
+    const pub = await httpGet('https://api.ipify.org?format=json', { timeout: 8000 });
+    if (pub.ok && pub.json && pub.json.ip) kv('Public IP', pub.json.ip);
+
+    sub('Firewall (UFW)');
+    const ufw = tryShell('sudo ufw status 2>/dev/null || echo "not-installed"');
+    const ufwOut = (ufw.stdout || '').trim();
+    if (ufwOut.includes('Status: active')) ok('UFW فعال است');
+    else if (ufwOut.includes('Status: inactive')) warn('UFW نصب ولی غیرفعال');
+    else info('UFW نصب نیست');
+
+    sub('nginx / reverse proxy');
+    const nginx = tryShell('systemctl is-active nginx 2>/dev/null; systemctl is-active caddy 2>/dev/null');
+    const ngOut = nginx.stdout.trim();
+    if (ngOut.includes('active')) ok('reverse proxy فعال است');
+    else info('هیچ reverse proxy فعالی نیست — backend روی HTTP ساده');
+
+    sub('SSL certificate expiry');
+    // سعی کن گواهی دامنه‌ها را چک کنی
+    const envText = readText(ENV_FILE);
+    const domains = (envText.match(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi) || [])
+        .map((u) => u.replace(/^https?:\/\//i, '').split('/')[0])
+        .filter((d) => !d.match(/^\d+\.\d+\.\d+\.\d+/) && !d.includes('localhost'));
+    const uniqueDomains = [...new Set(domains)].slice(0, 5);
+    if (!uniqueDomains.length) info('دامنه‌ای برای چک SSL یافت نشد');
+    else {
+        for (const d of uniqueDomains) {
+            try {
+                const r = await httpGet(`https://${d}`, { timeout: 5000 });
+                if (r.ok) ok(`${d} → HTTPS OK`);
+                else warn(`${d} → ${r.status}`);
+            } catch (_) { info(`${d} در دسترس نیست`); }
+        }
+    }
+
+    sub('Backend bind address');
+    const backendHost = ENV.HOST || '127.0.0.1';
+    if (backendHost === '127.0.0.1' || backendHost === 'localhost') {
+        ok(`backend روی ${backendHost} — فقط localhost (امن)`);
+    } else {
+        warn(`backend روی ${backendHost} — از بیرون در دسترس`);
+    }
+}
+
+// ============================================================
+// S27 — DISK & LOG ROTATION
+// ============================================================
+function s27_disk() {
+    section(27, 'DISK & LOG ROTATION');
+
+    sub('Disk usage');
+    const df = tryShell("df -h / /var /tmp 2>/dev/null | grep -v Filesystem");
+    if (df.ok) {
+        for (const l of df.stdout.trim().split('\n')) info(l.slice(0, 100));
+    }
+    const dfi = tryShell("df -i / 2>/dev/null | tail -1");
+    if (dfi.ok) {
+        const parts = dfi.stdout.trim().split(/\s+/);
+        const inodeUse = parts[4] ? parseInt(parts[4]) : 0;
+        kv('Inode use', `${parts[4] || '?'}`);
+        if (inodeUse > 80) fail(`Inode ${inodeUse}% — بحرانی`);
+        else if (inodeUse > 60) warn(`Inode ${inodeUse}%`);
+    }
+
+    sub('Large files (>50MB)');
+    const large = tryShell("find " + ROOT + " -type f -size +50M 2>/dev/null | head -20");
+    if (large.ok && large.stdout.trim()) {
+        for (const l of large.stdout.trim().split('\n')) {
+            const p = l.trim();
+            kv(path.relative(ROOT, p), fmtBytes(fileSize(p)));
+        }
+    } else ok('هیچ فایل >50MB در پروژه');
+
+    sub('Log files');
+    if (fs.existsSync(LOGS)) {
+        const logFiles = fs.readdirSync(LOGS)
+            .filter((f) => f.endsWith('.log') || f.endsWith('.txt') || f.endsWith('.json'))
+            .map((f) => ({ f, size: fileSize(path.join(LOGS, f)) }))
+            .sort((a, b) => b.size - a.size);
+        const totalSize = logFiles.reduce((s, x) => s + x.size, 0);
+        kv('total log size', fmtBytes(totalSize));
+        kv('file count', logFiles.length);
+        for (const { f, size } of logFiles.slice(0, 8)) {
+            kv(f, fmtBytes(size), size > 100 * 1048576 ? C.red : size > 20 * 1048576 ? C.yellow : '');
+        }
+        const big = logFiles.filter((x) => x.size > 100 * 1048576);
+        if (big.length) fail(`${big.length} log > 100MB — rotation فوری`);
+    }
+
+    sub('logrotate config');
+    const lr = tryShell("ls /etc/logrotate.d/ 2>/dev/null | head -10");
+    if (lr.ok && lr.stdout.trim()) {
+        const has = lr.stdout.includes('optionhunter') || lr.stdout.includes('pm2');
+        if (has) ok('logrotate برای پروژه تنظیم شده');
+        else info('logrotate system فعال است ولی برای این پروژه تنظیم نشده');
+        info('configs: ' + lr.stdout.trim().replace(/\n/g, ', '));
+    } else warn('logrotate نصب نیست — log ها بی‌نهایت رشد می‌کنند');
+
+    sub('PM2 log settings');
+    const pm2 = tryShell('pm2 conf 2>/dev/null | grep -i "log" | head -5');
+    if (pm2.ok && pm2.stdout.trim()) {
+        for (const l of pm2.stdout.trim().split('\n')) info(l.slice(0, 100));
+    }
+}
+
+// ============================================================
+// S28 — MEMORY LEAK DETECTION
+// ============================================================
+function s28_memory_leak() {
+    section(28, 'MEMORY LEAK DETECTION');
+
+    sub('Current process memory');
+    const mem = process.memoryUsage();
+    kv('RSS', fmtBytes(mem.rss));
+    kv('heapUsed', fmtBytes(mem.heapUsed));
+    kv('heapTotal', fmtBytes(mem.heapTotal));
+    kv('external', fmtBytes(mem.external));
+
+    sub('PM2 OptionHunter trend');
+    try {
+        const raw = tryExec('pm2', ['jlist'], { timeout: 5000 }).stdout;
+        const list = JSON.parse(raw);
+        for (const p of list) {
+            if (p.name === 'OptionHunter') {
+                const rss = Math.round(((p.monit && p.monit.memory) || 0) / 1048576);
+                const maxMem = parseInt((p.pm2_env && p.pm2_env.max_memory_restart) || '0', 10) || 900;
+                const pct = (rss / maxMem * 100).toFixed(1);
+                kv('current RSS', `${rss}MB / ${maxMem}MB (${pct}%)`,
+                    pct > 85 ? C.red : pct > 70 ? C.yellow : C.green);
+                if (rss > maxMem * 0.85) warn(`RSS ${pct}% از سقف — نزدیک restart`);
+            }
+        }
+    } catch (_) {}
+
+    sub('Trend from monitor.log (last 100 samples)');
+    const mp = path.join(LOGS, 'monitor.log');
+    if (!fs.existsSync(mp)) return info('monitor.log موجود نیست — trend قابل محاسبه نیست');
+    const tail = tryShell(`tail -100 "${mp}"`);
+    if (!tail.ok) return;
+    const lines = tail.stdout.split('\n').filter(Boolean);
+    const re = /Node:(\d+)M/;
+    const samples = [];
+    for (const l of lines) {
+        const m = l.match(re);
+        if (m) samples.push(+m[1]);
+    }
+    if (samples.length < 10) return info(`فقط ${samples.length} نمونه — کافی نیست`);
+
+    const first = samples.slice(0, 20);
+    const last = samples.slice(-20);
+    const avgFirst = first.reduce((a, b) => a + b, 0) / first.length;
+    const avgLast = last.reduce((a, b) => a + b, 0) / last.length;
+    const delta = avgLast - avgFirst;
+    const growthPerHour = (delta / (samples.length * 30 / 3600)).toFixed(1);
+
+    kv('avg (first 20)', `${avgFirst.toFixed(0)}MB`);
+    kv('avg (last 20)', `${avgLast.toFixed(0)}MB`);
+    kv('delta', `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}MB`,
+        Math.abs(delta) > 50 ? C.yellow : C.green);
+    kv('growth per hour', `${growthPerHour}MB/h`);
+
+    if (+growthPerHour > 5) {
+        warn(`رشد ${growthPerHour}MB/h — احتمال leak`);
+        const hours = Math.floor((900 - avgLast) / Math.max(0.1, +growthPerHour));
+        if (hours > 0) info(`پیش‌بینی OOM/restart: ~${hours} ساعت`);
+    } else if (+growthPerHour > 1) {
+        info(`رشد کم — زیر 1MB/h امن است`);
+    } else ok('بدون leak');
+
+    sub('Full GC availability');
+    if (typeof global.gc === 'function') ok('--expose-gc فعال است (GC دستی ممکن)');
+    else warn('--expose-gc غیرفعال — try memory-guard.maybeGC() درست کار نمی‌کند');
+}
+
+// ============================================================
+// S29 — DATA INTEGRITY
+// ============================================================
+async function s29_integrity() {
+    section(29, 'DATA INTEGRITY');
+    const uri = ENV.MONGO_URI;
+    if (!uri) return fail('MONGO_URI غایب');
+    let MongoClient;
+    try { MongoClient = require(path.join(ROOT, 'node_modules', 'mongodb')).MongoClient; }
+    catch (_) { try { MongoClient = require('mongodb').MongoClient; } catch (e) { return fail('driver نیافت'); } }
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 8000, maxPoolSize: 4 });
+    let db;
+    try { await client.connect(); db = client.db('trading_bot'); }
+    catch (e) { return fail('Mongo: ' + e.message); }
+
+    try {
+        sub('Duplicate detection');
+        // candles_base duplicates (same symbol+time)
+        try {
+            const dupBase = await db.collection('candles_base').aggregate([
+                { $group: { _id: { symbol: '$symbol', time: '$time' }, c: { $sum: 1 } } },
+                { $match: { c: { $gt: 1 } } },
+                { $limit: 5 },
+            ]).toArray();
+            if (dupBase.length) warn(`${dupBase.length}+ duplicate در candles_base`);
+            else ok('بدون duplicate در candles_base');
+        } catch (_) {}
+
+        try {
+            const dupDaily = await db.collection('candles_daily').aggregate([
+                { $group: { _id: { symbol: '$symbol', time: '$time' }, c: { $sum: 1 } } },
+                { $match: { c: { $gt: 1 } } },
+                { $limit: 5 },
+            ]).toArray();
+            if (dupDaily.length) warn(`${dupDaily.length}+ duplicate در candles_daily`);
+            else ok('بدون duplicate در candles_daily');
+        } catch (_) {}
+
+        sub('Orphan records');
+        // signals_state بدون config
+        try {
+            const cfgIds = new Set(
+                (await db.collection('strategy_configs').find({}, { projection: { _id: 1 } }).toArray())
+                    .map((c) => String(c._id))
+            );
+            const states = await db.collection('signals_state').find({}, { projection: { configId: 1 } }).toArray();
+            const orphans = states.filter((s) => !cfgIds.has(String(s.configId)));
+            if (orphans.length) {
+                warn(`${orphans.length} signals_state orphan`);
+                info(`پیشنهاد: حذف orphan states از طریق configService.cleanOrphans()`);
+            } else ok('signals_state بدوorphan');
+        } catch (_) {}
+
+        // configs با strategyId ناشناخته
+        try {
+            const strategies = require(path.join(BACKEND, 'strategies')).STRATEGIES;
+            const validIds = new Set(Object.keys(strategies));
+            const configs = await db.collection('strategy_configs').find({}).toArray();
+            const bad = configs.filter((c) => !validIds.has(c.strategyId));
+            if (bad.length) {
+                warn(`${bad.length} config با strategyId ناشناخته`);
+                for (const b of bad.slice(0, 3)) info(`  • ${b.symbol} / ${b.strategyId}`);
+            } else ok('همه configs با strategy معتبر');
+        } catch (_) {}
+
+        sub('Index efficiency');
+        // ایندکس‌های استفاده‌نشده
+        try {
+            const stats = await db.collection('candles_base').aggregate([{ $indexStats: {} }]).toArray();
+            for (const s of stats) {
+                const name = s.name;
+                const accesses = s.accesses && s.accesses.ops ? s.accesses.ops : 0;
+                if (name === '_id_') continue;
+                if (accesses === 0) info(`index استفاده‌نشده: ${name}`);
+            }
+        } catch (_) {}
+
+        sub('Sample validation');
+        // یک سند از هر collection مهم بخون و فیلدهای کلیدی رو چک کن
+        const checks = [
+            { col: 'candles_base', fields: ['symbol', 'time', 'open', 'high', 'low', 'close'] },
+            { col: 'candles_daily', fields: ['symbol', 'time', 'close'] },
+            { col: 'option_history', fields: ['symbol', 'underlying', 'time', 'strike'] },
+            { col: 'strategy_configs', fields: ['symbol', 'strategyId', 'timeframe'] },
+            { col: 'signals_state', fields: ['configId', 'symbol'] },
+        ];
+        for (const { col, fields } of checks) {
+            try {
+                const doc = await db.collection(col).findOne({});
+                if (!doc) { info(`${col}: خالی`); continue; }
+                const missing = fields.filter((f) => doc[f] === undefined);
+                if (missing.length) warn(`${col}: فیلدهای غایب در نمونه: ${missing.join(', ')}`);
+                else info(`${col}: ✓`);
+            } catch (_) {}
+        }
+
+        sub('Null/zero stats');
+        try {
+            // کندل‌های با قیمت صفر
+            const zeroCandles = await db.collection('candles_base').countDocuments({
+                $or: [{ open: 0 }, { high: 0 }, { low: 0 }, { close: 0 }],
+            });
+            kv('candles with 0 price', zeroCandles.toLocaleString(),
+                zeroCandles > 100 ? C.yellow : C.green);
+        } catch (_) {}
+    } finally { try { await client.close(); } catch (_) {} }
+}
+
+// ============================================================
+// S30 — SIGNAL QUALITY & STRATEGY HEALTH
+// ============================================================
+async function s30_signals() {
+    section(30, 'SIGNAL QUALITY & STRATEGY HEALTH');
+
+    sub('Signals overview');
+    const sig = await httpGet(CONF.backend + '/api/signal-history?limit=200');
+    if (!sig.ok || !Array.isArray(sig.json)) return warn('signal-history دریافت نشد');
+    const list = sig.json;
+    kv('recent signals', list.length);
+    if (!list.length) return info('هیچ سیگنالی نیست');
+
+    // تعداد به تفکیک استراتژی
+    const byStrat = {};
+    const byType = { BUY: 0, EXIT_LONG: 0 };
+    const byConf = { solo: 0, dual: 0, multi: 0 };
+    const rejected = { yes: 0, no: 0 };
+    let lastSignalAt = 0;
+    for (const s of list) {
+        byStrat[s.strategyName || s.strategyId] = (byStrat[s.strategyName || s.strategyId] || 0) + 1;
+        byType[s.signalType] = (byType[s.signalType] || 0) + 1;
+        const c = s.confluence || 1;
+        if (c <= 1) byConf.solo++;
+        else if (c === 2) byConf.dual++;
+        else byConf.multi++;
+        if (s.rejected) rejected.yes++; else rejected.no++;
+        if (s.createdAt && new Date(s.createdAt).getTime() > lastSignalAt) {
+            lastSignalAt = new Date(s.createdAt).getTime();
+        }
+    }
+    kv('BUY / EXIT', `${byType.BUY} / ${byType.EXIT_LONG}`);
+    kv('conf solo/dual/multi', `${byConf.solo} / ${byConf.dual} / ${byConf.multi}`);
+    kv('rejected / accepted', `${rejected.yes} / ${rejected.no}`);
+    if (lastSignalAt) {
+        const h = ((Date.now() - lastSignalAt) / 3600000).toFixed(1);
+        kv('last signal', `${h}h ago`, +h > 72 ? C.yellow : C.green);
+    }
+    if (rejected.yes > 0) {
+        const rate = (rejected.yes / list.length * 100).toFixed(0);
+        info(`rejection rate: ${rate}%`);
+    }
+
+    sub('Top strategies by signal count');
+    const sorted = Object.entries(byStrat).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    for (const [n, c] of sorted) kv(n, c);
+
+    sub('Dead configs (no signals in last 7d)');
+    try {
+        const cfg = await httpGet(CONF.backend + '/api/strategy-configs');
+        if (cfg.ok && Array.isArray(cfg.json)) {
+            const enabled = cfg.json.filter((c) => c.enabled);
+            const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).getTime();
+            const activeStrategies = new Set();
+            for (const s of list) {
+                const t = new Date(s.createdAt || 0).getTime();
+                if (t > sevenDaysAgo) activeStrategies.add(s.strategyId);
+            }
+            const dead = enabled.filter((c) => !activeStrategies.has(c.strategyId));
+            kv('enabled configs', enabled.length);
+            kv('configs with signals', activeStrategies.size);
+            kv('dead configs', dead.length, dead.length > enabled.length * 0.5 ? C.yellow : '');
+            if (dead.length > 0) {
+                info('نمونه‌ای از configهای مرده:');
+                for (const d of dead.slice(0, 5)) {
+                    info(`  • ${d.symbol} / ${d.strategyId}`);
+                }
+            }
+        }
+    } catch (_) {}
+
+    sub('Confluence effectiveness');
+    if (byConf.solo + byConf.dual + byConf.multi > 0) {
+        const total = byConf.solo + byConf.dual + byConf.multi;
+        info(`solo: ${(byConf.solo / total * 100).toFixed(0)}%`);
+        info(`dual: ${(byConf.dual / total * 100).toFixed(0)}%`);
+        info(`multi (3+): ${(byConf.multi / total * 100).toFixed(0)}%`);
+    }
+
+    sub('Config vs live PF');
+    try {
+        const dash = await httpGet(CONF.backend + '/api/dashboard/live');
+        if (dash.ok && dash.json && dash.json.drift) {
+            const d = dash.json.drift;
+            kv('backtest PF', d.backtestPF);
+            kv('live PF', d.livePF);
+            kv('ratio', `${(d.ratio * 100).toFixed(0)}%`,
+                d.severity === 'critical' ? C.red : d.severity === 'warn' ? C.yellow : C.green);
+            if (d.severity === 'critical') fail(`drift بحرانی: ${d.message}`);
+        }
+    } catch (_) {}
+}
+
+// ============================================================
+// S31 — FAILED JOBS ANALYSIS
+// ============================================================
+async function s31_failed_jobs() {
+    section(31, 'FAILED JOBS ANALYSIS');
+    const r = await httpGet(CONF.backend + '/api/jobs?limit=100&all=1');
+    if (!r.ok) return warn('jobs دریافت نشد');
+    const jobs = (r.json && r.json.jobs) || [];
+    kv('total jobs (last 100)', jobs.length);
+
+    const byStatus = {};
+    const byType = {};
+    const failedJobs = [];
+    for (const j of jobs) {
+        byStatus[j.status] = (byStatus[j.status] || 0) + 1;
+        byType[j.type] = byType[j.type] || { total: 0, failed: 0 };
+        byType[j.type].total++;
+        if (j.status === 'FAILED') {
+            byType[j.type].failed++;
+            failedJobs.push(j);
+        }
+    }
+
+    sub('Status distribution');
+    for (const [k, v] of Object.entries(byStatus)) kv(k, v);
+
+    sub('Failure rate by type');
+    for (const [t, s] of Object.entries(byType)) {
+        const rate = s.total > 0 ? (s.failed / s.total * 100).toFixed(0) : 0;
+        kv(t, `${s.failed}/${s.total} (${rate}%)`,
+            +rate > 30 ? C.red : +rate > 10 ? C.yellow : C.green);
+    }
+
+    sub('Recent failures (top 10)');
+    const recentFailures = failedJobs
+        .sort((a, b) => new Date(b.finishedAt || 0) - new Date(a.finishedAt || 0))
+        .slice(0, 10);
+    if (!recentFailures.length) return ok('هیچ job شکست‌خورده‌ای نیست');
+    for (const j of recentFailures) {
+        const t = j.finishedAt ? new Date(j.finishedAt).toLocaleString('fa-IR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '?';
+        wc(`     • ${t} | ${j.type} | ${(j.error || 'بدون پیام').slice(0, 80)}`, C.red);
+    }
+
+    sub('Common error patterns');
+    const errCounts = {};
+    for (const j of failedJobs) {
+        const e = (j.error || '').slice(0, 60).replace(/\d+/g, 'N').replace(/'[^']*'/g, 'X');
+        errCounts[e] = (errCounts[e] || 0) + 1;
+    }
+    const topErr = Object.entries(errCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    for (const [e, c] of topErr) info(`${c}× — ${e}`);
+
+    sub('Stuck jobs (RUNNING > 1h)');
+    const now = Date.now();
+    const stuck = jobs.filter((j) => {
+        if (j.status !== 'RUNNING' && j.status !== 'COMPUTING') return false;
+        if (!j.startedAt) return false;
+        return (now - new Date(j.startedAt).getTime()) > 3600000;
+    });
+    if (stuck.length) {
+        warn(`${stuck.length} job احتمالاً گیر کرده:`);
+        for (const j of stuck.slice(0, 5)) {
+            const hours = ((now - new Date(j.startedAt).getTime()) / 3600000).toFixed(1);
+            info(`  • ${j.type} (${j._id.slice(-6)}) — ${hours}h`);
+        }
+    } else ok('بدون job گیرکرده');
+}
+
+// ============================================================
+// S32 — NETWORK & EXTERNAL DEPENDENCIES
+// ============================================================
+async function s32_network() {
+    section(32, 'NETWORK & EXTERNAL DEPENDENCIES');
+
+    sub('Internet connectivity');
+    const ping = tryShell('ping -c 1 -W 3 8.8.8.8 2>&1 | grep -E "1 received|1 packets received"');
+    if (ping.ok && ping.stdout.trim()) ok('ICMP به 8.8.8.8 موفق');
+    else info('ICMP بلاک است (طبیعی روی بعضی VPS ها)');
+
+    sub('DNS resolution');
+    for (const host of ['google.com', 'cloudflare.com']) {
+        const r = tryExec('host', [host], { timeout: 5000 });
+        if (r.ok) info(`${host} → OK`);
+        else warn(`${host} → شکست در DNS`);
+    }
+
+    sub('External APIs reachability');
+    const apis = [
+        { name: 'Optionschool24', url: ENV.OPTIONS_API_URL || 'https://s3.optionschool24.com/last?type=3', timeout: 10000 },
+        { name: 'Bale/Telegram API', url: (ENV.TELEGRAM_API_BASE || 'https://api.telegram.org') + '/', timeout: 8000 },
+        { name: 'Google (base check)', url: 'https://www.google.com', timeout: 5000 },
+    ];
+    for (const api of apis) {
+        const t0 = Date.now();
+        const r = await httpGet(api.url, { timeout: api.timeout });
+        const ms = Date.now() - t0;
+        const col = r.ok ? C.green : r.status > 0 ? C.yellow : C.red;
+        kv(api.name, `${r.ok ? '✅' : '❌'} ${r.status || r.error} (${ms}ms)`, col);
+    }
+
+    sub('Collector latency');
+    const t0 = Date.now();
+    const c = await httpGet(CONF.collector + '/health', { timeout: 10000 });
+    const cMs = Date.now() - t0;
+    kv('collector /health', `${c.ok ? '✅' : '❌'} ${cMs}ms`, cMs > 1000 ? C.yellow : C.green);
+
+    sub('DNS / loopback');
+    const loop = await httpGet(CONF.backend + '/ping', { timeout: 3000 });
+    kv('backend loopback', loop.ok ? `${loop.ms}ms` : 'failed',
+        loop.ms > 100 ? C.yellow : C.green);
+}
+
+// ============================================================
+// S33 — OPEN POSITION RISK AUDIT
+// ============================================================
+async function s33_positions() {
+    section(33, 'OPEN POSITION RISK AUDIT');
+
+    sub('Positions');
+    const pos = await httpGet(CONF.backend + '/api/options/positions');
+    if (!pos.ok) return warn(`positions ${pos.status}`);
+    const open = ((pos.json && pos.json.positions) || []).filter((p) => p.status === 'open');
+    kv('open positions', open.length);
+
+    sub('Exposure vs limits');
+    const dash = await httpGet(CONF.backend + '/api/dashboard/live');
+    const port = await httpGet(CONF.backend + '/api/portfolio');
+
+    if (port.ok && port.json) {
+        const p = port.json;
+        kv('capital', (p.totalCapital || 0).toLocaleString());
+        kv('total exposure', (p.totalExposure || 0).toLocaleString());
+        kv('exposure %', `${(p.exposurePct || 0).toFixed(1)}%`,
+            (p.exposurePct || 0) > 60 ? C.red : (p.exposurePct || 0) > 40 ? C.yellow : C.green);
+        kv('available cash', (p.availableCash || 0).toLocaleString());
+        kv('risk per trade', (p.riskPerTrade || 0).toLocaleString());
+        kv('max symbol limit', (p.maxSymbolExposure || 0).toLocaleString());
+        kv('max total limit', (p.maxTotalExposure || 0).toLocaleString());
+        kv('min cash reserve', (p.minCashReserve || 0).toLocaleString());
+
+        if ((p.exposurePct || 0) > 60) fail(`exposure بالای حد (${p.exposurePct.toFixed(1)}%)`);
+        if ((p.availableCash || 0) < (p.minCashReserve || 0)) {
+            fail(`cash ${p.availableCash} < min reserve ${p.minCashReserve}`);
+        }
+
+        sub('Concentration by symbol');
+        const bySymbol = p.bySymbol || {};
+        const top = Object.entries(bySymbol).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        for (const [sym, v] of top) {
+            const pct = p.totalCapital > 0 ? (v / p.totalCapital * 100).toFixed(1) : 0;
+            kv(sym, `${Math.round(v).toLocaleString()} (${pct}%)`,
+                +pct > 20 ? C.yellow : '');
+            if (+pct > 20) warn(`${sym} تمرکز ${pct}% (بالای حد ۲۰٪)`);
+        }
+        if (!top.length) info('هیچ exposure روی هیچ نمادی نیست');
+    } else {
+        info('portfolio endpoint در دسترس نیست');
+    }
+
+    sub('Contract-level positions');
+    if (!open.length) return ok('هیچ پوزیشن بازی نیست');
+    for (const p of open.slice(0, 5)) {
+        const entry = p.entryS || 0;
+        const last = p.lastS || entry;
+        const change = entry > 0 ? ((last - entry) / entry * 100).toFixed(2) : 0;
+        const pnl = p.lastPnlPct != null ? p.lastPnlPct.toFixed(2) : '?';
+        info(`${p.underlying} / ${p.symbol} | entry ${p.entryAsk} → last ${p.lastBid} | PnL ${pnl}% | S ${change}%`);
+    }
+
+    sub('Days held');
+    const now = Date.now();
+    let maxDays = 0, sumDays = 0;
+    for (const p of open) {
+        const d = (now - new Date(p.entryTime).getTime()) / 86400000;
+        if (d > maxDays) maxDays = d;
+        sumDays += d;
+    }
+    if (open.length) {
+        kv('avg days held', `${(sumDays / open.length).toFixed(1)}`);
+        kv('max days held', `${maxDays.toFixed(1)}`, maxDays > 20 ? C.yellow : '');
+        if (maxDays > 30) warn(`پوزیشنی ${maxDays.toFixed(0)} روز نگه داشته شده — چرا؟`);
+    }
+}
+
+// ============================================================
+// S34 — FINAL REPORT (renamed from 24)
+// ============================================================
+async function s34_report() {
+    section(34, 'FINAL REPORT');
+
+    const elapsed = ((Date.now() - R.startedAt.getTime()) / 1000).toFixed(1);
+    kv('Started', R.startedAt.toISOString());
+    kv('Elapsed', elapsed + 's');
+    kv('Total OK', R.oks.length, C.green);
+    kv('Total warnings', R.warnings.length, R.warnings.length ? C.yellow : C.green);
+    kv('Total issues', R.issues.length, R.issues.length ? C.red : C.green);
+
+    if (R.issues.length) {
+        w('');
+        wc('  🚨 ISSUES:', C.bold + C.red);
+        for (const m of R.issues.slice(0, 40)) wc('  • ' + m, C.red);
+        if (R.issues.length > 40) wc(`  ... +${R.issues.length - 40}`, C.gray);
+    }
+    if (R.warnings.length) {
+        w('');
+        wc('  ⚠️  WARNINGS:', C.bold + C.yellow);
+        for (const m of R.warnings.slice(0, 30)) wc('  • ' + m, C.yellow);
+    }
+
+    w('');
+    bar();
+    if (!R.issues.length && R.warnings.length < 5) wc('  🎯 ✅ سیستم سالم', C.green + C.bold);
+    else if (!R.issues.length) wc('  🎯 🟡 OK با هشدار', C.yellow + C.bold);
+    else if (R.issues.length < 5) wc('  🎯 🟠 چند مسئله', C.yellow + C.bold);
+    else wc('  🎯 🔴 مشکلات جدی', C.red + C.bold);
+    bar();
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const file = path.join(LOGS, `ohdoctor-${stamp}.txt`);
+    if (!fs.existsSync(LOGS)) fs.mkdirSync(LOGS, { recursive: true });
+    try {
+        fs.writeFileSync(file, OUT.join('\n'), 'utf8');
+        w('');
+        w(`  📄 Report: ${file}`);
+    } catch (e) { w(`  ⚠️ ذخیره ناموفق: ${e.message}`); }
+
+    try {
+        fs.writeFileSync(path.join(LOGS, `ohdoctor-${stamp}.json`), JSON.stringify({
+            startedAt: R.startedAt, elapsed,
+            issues: R.issues, warnings: R.warnings, oks: R.oks,
+            sectionResults: R.sectionResults,
+        }, null, 2), 'utf8');
+    } catch (_) {}
+
+    if (CONF.sendReport && ENV.TELEGRAM_BOT_TOKEN && ENV.TELEGRAM_CHAT_ID) {
+        const base = ENV.TELEGRAM_API_BASE || 'https://api.telegram.org';
+        const url = `${base}/bot${ENV.TELEGRAM_BOT_TOKEN}/sendMessage`;
+        const header = `🩺 OHDoctor — ${R.startedAt.toISOString().slice(0, 19)}Z\n` +
+            `Elapsed: ${elapsed}s\n` +
+            `OK: ${R.oks.length} | ⚠️ ${R.warnings.length} | ❌ ${R.issues.length}\n`;
+        const body = header +
+            (R.issues.length ? '\n🚨 مسائل:\n' + R.issues.slice(0, 15).map((x) => `• ${x}`).join('\n') : '') +
+            (R.warnings.length ? '\n\n⚠️ هشدارها:\n' + R.warnings.slice(0, 8).map((x) => `• ${x}`).join('\n') : '') +
+            `\n\n📄 کامل: ${path.basename(file)}`;
+        const txt = body.slice(0, 3800);
+        await httpGet(url, { method: 'POST', body: { chat_id: ENV.TELEGRAM_CHAT_ID, text: txt }, timeout: 10000 });
+        w('  📲 گزارش به Bale ارسال شد');
+    } else if (CONF.sendReport) {
+        w('  ℹ️ send-report درخواست شد اما Bale/Telegram پیکربندی نشده');
+    }
+}
+
+// ============================================================
+// 🩺 DOCTOR MODE
 // ============================================================
 async function runDoctor() {
     // ══════════════════════════════════════════════════════════
@@ -1549,8 +2344,18 @@ async function runDoctor() {
     await run(21, 'PERF', s21_perf, true);
     await run(22, 'SECURITY', s22_security, true);
     await run(23, 'LOGS', s23_logs);
-    await run(24, 'REPORT', s24_report, true);
-    // 🆕 در انتهای main() بعد از همه اجراها:
+    // 🆕 ۱۰ بخش جدید
+    await run(24, 'BACKUP', s24_backup);
+    await run(25, 'CRON', s25_cron);
+    await run(26, 'SSL/TLS', s26_ssl, true);
+    await run(27, 'DISK', s27_disk);
+    await run(28, 'MEMORY-LEAK', s28_memory_leak);
+    await run(29, 'INTEGRITY', s29_integrity, true);
+    await run(30, 'SIGNALS', s30_signals, true);
+    await run(31, 'FAILED-JOBS', s31_failed_jobs, true);
+    await run(32, 'NETWORK', s32_network, true);
+    await run(33, 'POSITIONS', s33_positions, true);
+    await run(34, 'REPORT', s34_report, true);
     stopSafetyWatchdog();
 
     if (CONF.jsonOut) {

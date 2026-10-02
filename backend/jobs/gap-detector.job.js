@@ -9,8 +9,11 @@ const cron = require('node-cron');
 let deps = { getDB: null, algotik: null, logger: null, notify: null };
 function init(d) { deps = { ...deps, ...d }; }
 
-const MIN_1M = 10000;
-const MIN_DAILY = 20;
+// 🆕 آستانه‌های سخت‌گیرانه‌تر برای تشخیص شکاف‌های کوچک
+const MIN_1M = 50000;              // قبلاً 10000
+const MIN_DAILY = 60;              // قبلاً 20
+const MIN_DAYS_LOOKBACK = 30;      // 🆕 پنجره‌ی بررسی
+const PER_DAY_MIN_CANDLES = 200;   // 🆕 اگر یک روز < 200 کندل داشت، شکاف است
 
 function toJalaliDash(isoDate) {
     const d = new Date(isoDate + 'T00:00:00Z');
@@ -33,13 +36,36 @@ async function checkAndFix() {
         const covMap = {};
         for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
 
-        // نمادهایی که دیتای کافی ندارن
+        // 🆕 نمادهایی که دیتای کافی ندارن + شکاف‌های روزانه
         const bad = [];
         for (const m of monitored) {
             const c = covMap[m.symbol] || {};
             const c1m = (c.stock_base && c.stock_base.count) || 0;
             const cDaily = (c.stock_daily && c.stock_daily.count) || 0;
-            if (c1m < MIN_1M || cDaily < MIN_DAILY) bad.push(m.symbol);
+
+            // شرط ۱: کلی دیتا کم است
+            if (c1m < MIN_1M || cDaily < MIN_DAILY) {
+                bad.push(m.symbol);
+                continue;
+            }
+
+            // 🆕 شرط ۲: شکاف در ۳۰ روز اخیر
+            try {
+                const since = new Date(Date.now() - MIN_DAYS_LOOKBACK * 86400000);
+                const dailyAgg = await db.collection('candles_base').aggregate([
+                    { $match: {
+                        symbol: m.symbol,
+                        source: 'algotik_intraday',
+                        time: { $gte: since },
+                    }},
+                    { $group: {
+                        _id: { $dateToString: { format: '%Y-%m-%d', date: '$time', timezone: 'Asia/Tehran' } },
+                        count: { $sum: 1 },
+                    }},
+                ]).toArray();
+                const hasGap = dailyAgg.some((d) => d.count > 0 && d.count < PER_DAY_MIN_CANDLES);
+                if (hasGap) bad.push(m.symbol);
+            } catch (_) {}
         }
 
         if (!bad.length) {

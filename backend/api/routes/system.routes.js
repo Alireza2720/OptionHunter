@@ -14,7 +14,7 @@ function register(app, deps) {
         backtestService, settings, adminToken
     } = deps;
 
-    // 🆕 cache مشترک برای /api/system/stats — جلوگیری از execSync پیاپی
+    // 🆕 cache برای /api/system/stats — جلوگیری از execSync پیاپی
     let _statsCache = null;
     let _statsAt = 0;
     const STATS_TTL = 20000;   // ۲۰ ثانیه
@@ -64,11 +64,10 @@ function register(app, deps) {
     // ---- System Stats ----
     app.get('/api/system/stats', async (req, res, next) => {
         try {
-            // 🆕 cache کوتاه‌مدت
+            // 🆕 cache
             if (_statsCache && (Date.now() - _statsAt) < STATS_TTL) {
                 return res.json(_statsCache);
             }
-
             const totalMem = os.totalmem();
             const freeMem = os.freemem();
             const usedMem = totalMem - freeMem;
@@ -87,7 +86,8 @@ function register(app, deps) {
             const procs = [];
             try {
                 const pm2Raw = execSync('pm2 jlist 2>/dev/null || echo "[]"').toString();
-                const pm2List = JSON.parse(pm2Raw);
+                let pm2List = [];
+                try { pm2List = JSON.parse(pm2Raw); } catch (_) {}
                 for (const p of pm2List) {
                     procs.push({
                         name: p.name, type: 'node', pid: p.pid,

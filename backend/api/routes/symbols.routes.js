@@ -239,9 +239,17 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // ---- Data Coverage ----
+    // ---- Data Coverage ---- 🆕 cache 5 دقیقه
+    let _covCache = null, _covCacheAt = 0;
+    const COV_TTL = 5 * 60 * 1000;
+
     app.get('/api/data-coverage', async (req, res, next) => {
         try {
+            const fresh = req.query.fresh === '1';
+            if (!fresh && _covCache && (Date.now() - _covCacheAt) < COV_TTL) {
+                return res.json({ ..._covCache, cached: true });
+            }
+
             const db = getDB();
             const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
             const STRATEGIES = require('../../strategies').STRATEGIES;
@@ -258,7 +266,11 @@ function register(app, deps) {
                 strategies,
                 getRequiredCandles
             );
-            res.json({ symbols: coverage, generatedAt: new Date() });
+
+            const payload = { symbols: coverage, generatedAt: new Date() };
+            _covCache = payload;
+            _covCacheAt = Date.now();
+            res.json(payload);
         } catch (e) { next(e); }
     });
 }

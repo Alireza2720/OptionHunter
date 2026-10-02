@@ -1489,15 +1489,19 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     let optionRowsBySymbolTime = new Map();
     if (realEnabled && hasAnyOptionData) {
         try {
-            const allSec = [];
+            let _minSec = Infinity, _maxSec = -Infinity;
             for (const t of closedTrades) {
-                allSec.push(t.entryFillTime || t.entryTime);
-                allSec.push(t.exitFillTime || t.exitTime);
+                const e = t.entryFillTime || t.entryTime;
+                const x = t.exitFillTime || t.exitTime;
+                if (e < _minSec) _minSec = e;
+                if (e > _maxSec) _maxSec = e;
+                if (x < _minSec) _minSec = x;
+                if (x > _maxSec) _maxSec = x;
             }
             // 🆕 پنجره‌ی مبتنی بر p.timeWindowDays
             const WINDOW_MS = (p.timeWindowDays || 1) * 24 * 3600 * 1000 * 2;
-            const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
-            const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
+            const minTime = new Date(_minSec * 1000 - WINDOW_MS);
+            const maxTime = new Date(_maxSec * 1000 + WINDOW_MS);
 
             // 🆕 bid/ask اجباری + daysLeft منعطف‌تر + projection برای کاهش حافظه
             const bulkRows = await db.collection('option_history').find(
@@ -1563,8 +1567,15 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
     const gp = sum(wins), gl = -sum(losses);
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
-    const maxWin = trades.length ? Math.max(...trades.map(t => t.pnlPct)) : 0;
-    const maxLoss = trades.length ? Math.min(...trades.map(t => t.pnlPct)) : 0;
+    // 🆕 جلوگیری از stack overflow روی آرایه‌های بزرگ
+    let maxWin = 0, maxLoss = 0;
+    if (trades.length) {
+        maxWin = -Infinity; maxLoss = Infinity;
+        for (const t of trades) {
+            if (t.pnlPct > maxWin) maxWin = t.pnlPct;
+            if (t.pnlPct < maxLoss) maxLoss = t.pnlPct;
+        }
+    }
 
     const result = {
         assumptions: p,

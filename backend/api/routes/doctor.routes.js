@@ -17,7 +17,12 @@ const OHDOCTOR_SECTIONS = [
     'PM2', 'SYSTEMD', 'MONGODB', 'BACKEND HTTP', 'COLLECTOR HTTP',
     'CROSS-SERVICE', 'DATA GAP', 'LIVE TICK', 'STRATEGY DRY RUN', 'REGIME',
     'JOURNAL', 'PORTFOLIO', 'DUAL-STAGE PIPELINE', 'BACKTEST MATRIX',
-    'BALE/TELEGRAM', 'PERFORMANCE', 'SECURITY', 'LOG TAIL', 'FINAL REPORT',
+    'BALE/TELEGRAM', 'PERFORMANCE', 'SECURITY', 'LOG TAIL',
+    // 🆕 ۱۰ بخش جدید
+    'BACKUP', 'CRON', 'SSL/TLS', 'DISK', 'MEMORY LEAK',
+    'DATA INTEGRITY', 'SIGNAL QUALITY', 'FAILED JOBS', 'NETWORK', 'OPEN POSITIONS',
+    // FINAL
+    'FINAL REPORT',
 ];
 
 let currentJob = null;   // { startedAt, pid, outputFile, status, exitCode, args, dbJobId }
@@ -122,7 +127,7 @@ function register(app, deps) {
                 },
                 progress: {
                     current: 0,
-                    total: 24,
+                    total: OHDOCTOR_SECTIONS.length,
                     message: 'شروع...',
                     // 🆕 chunks = یک ورودی برای هر بخش
                     chunks: OHDOCTOR_SECTIONS.map((title, i) => ({
@@ -160,7 +165,8 @@ function register(app, deps) {
                 let m;
                 while ((m = re.exec(stdoutBuf)) !== null) {
                     try {
-                        const p = JSON.parse(m[1]);
+                        let p;
+                        try { p = JSON.parse(m[1]); } catch (_) { continue; }
                         const chunkPatch = {};
                         chunkPatch[`progress.chunks.${p.section - 1}.status`] = 'DONE';
                         chunkPatch[`progress.chunks.${p.section - 1}.ok`] = p.ok;
@@ -220,7 +226,7 @@ function register(app, deps) {
                     };
                     // اتمام همه chunks
                     if (code === 0) {
-                        for (let i = 0; i < 24; i++) {
+                        for (let i = 0; i < OHDOCTOR_SECTIONS.length; i++) {
                             patch[`progress.chunks.${i}.status`] = 'DONE';
                         }
                     }
@@ -365,10 +371,7 @@ function register(app, deps) {
                         updatedAt: new Date(),
                         'progress.message': '🛑 توسط کاربر لغو شد',
                     };
-                    // اتمام chunks باقی‌مانده
-                    for (let i = 0; i < 24; i++) {
-                        // فقط اگر PENDING یا RUNNING بود، به CANCELLED تغییر بده
-                    }
+                    // اتمام chunks باقی‌مانده — کار اضافه لازم نیست چون status کلی CANCELLED می‌شود
                     const upd = await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
                         { _id: new ObjectId(dbJobId), status: { $in: ['QUEUED', 'RUNNING', 'COMPUTING'] } },
                         { $set: patch }

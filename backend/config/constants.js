@@ -84,7 +84,8 @@ const COLLECTIONS = {
     OPTION_SNAPSHOTS_ALGOTIK: 'option_snapshots_algotik',
     OPTION_DAILY_ALGOTIK: 'option_daily_algotik',
     TSETMC_FETCH_LOG: 'tsetmc_fetch_log',
-    TELEGRAM_OUTBOX: 'telegram_outbox'
+    TELEGRAM_OUTBOX: 'telegram_outbox',
+    STOCK_TICKS: 'stock_ticks'   // 🆕
 };
 
 // ---- برچسب‌های خطا ----

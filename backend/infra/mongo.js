@@ -126,6 +126,18 @@ async function ensureIndexes() {
     // --- Telegram ---
     await safeCreateIndex(db.collection(COLLECTIONS.TELEGRAM_OUTBOX), { sentAt: 1, createdAt: 1 });
 
+    // --- stock ticks (🆕) ---
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.STOCK_TICKS),
+        { symbol: 1, time: -1 }
+    );
+    // 🆕 TTL: 90 روز
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.STOCK_TICKS),
+        { time: 1 },
+        { expireAfterSeconds: 90 * 86400 }
+    );
+
     // --- TSETMC ---
     await safeCreateIndex(db.collection(COLLECTIONS.TSETMC_FETCH_LOG), { symbol: 1, date: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.TSETMC_FETCH_LOG), { createdAt: -1 });

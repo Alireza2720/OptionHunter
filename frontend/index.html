@@ -2633,6 +2633,7 @@ function renderJobProgress(job) {
     const chunks = (job.progress && job.progress.chunks) || [];
     const dc = chunks.filter(c => c.status === 'DONE').length;
     const tt = chunks.length || (job.progress && job.progress.total) || 1;
+    // 🆕 برای ohdoctor تعداد chunks = 34 است — خودکار محاسبه می‌شود
     const pv = tt > 0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0;
     const typeMap = { backtest: 'بک تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: '🩺 OHDoctor' };
     const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه‌ی نتایج', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' };
