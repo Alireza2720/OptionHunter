@@ -619,6 +619,162 @@ class MigrateOptionsIn(BaseModel):
     underlyings: Optional[List[str]] = None
     dryRun: bool = False
 
+
+# 🆕 ---------- Backfill Option Bid/Ask ----------
+class BackfillBidAskIn(BaseModel):
+    underlyings: Optional[List[str]] = None   # None = همه monitored
+    fromDate: Optional[str] = None            # jalali '1405-03-19' یا gregorian
+    toDate: Optional[str] = None
+    contractLimit: int = 100                  # سقف تعداد قرارداد در هر اجرا
+    includeToday: bool = True
+
+
+@app.post('/backfill-option-bidask')
+def backfill_option_bidask(p: BackfillBidAskIn):
+    """
+    Re-fetch option_history از algotik-tse server-side با bid/ask واقعی.
+    برای هر قرارداد که bid/ask در DB نداره، get_option_history صدا می‌زنه.
+    """
+    import algotik_tse as att
+    import pandas as pd
+    from pymongo import UpdateOne
+    from datetime import datetime, timezone
+
+    db = get_db()
+    col = db[COL_OPTION_HISTORY]
+
+    # پیدا کردن قراردادهای فاقد bid/ask
+    match_q = {}
+    if p.underlyings:
+        match_q['underlying'] = {'$in': p.underlyings}
+
+    pipeline = [
+        {'$match': match_q},
+        {'$group': {
+            '_id': '$symbol',
+            'underlying': {'$first': '$underlying'},
+            'has_bidask': {'$max': {'$cond': [
+                {'$and': [
+                    {'$gt': [{'$ifNull': ['$bid', 0]}, 0]},
+                    {'$gt': [{'$ifNull': ['$ask', 0]}, 0]}
+                ]}, 1, 0
+            ]}},
+            'records': {'$sum': 1}
+        }},
+        {'$match': {'has_bidask': 0}},
+        {'$sort': {'records': -1}},
+        {'$limit': max(1, min(p.contractLimit, 500))}
+    ]
+    contracts = list(col.aggregate(pipeline))
+
+    log('backfill_bidask_start',
+        f'{len(contracts)} contracts to backfill',
+        {'count': len(contracts)})
+
+    result = {
+        'contractsFound': len(contracts),
+        'contractsProcessed': 0,
+        'recordsUpdated': 0,
+        'recordsSkipped': 0,
+        'errors': [],
+    }
+
+    for item in contracts:
+        symbol = item['_id']
+        underlying = item['underlying']
+        try:
+            kwargs = {'progress': False, 'include_today': p.includeToday}
+            if p.fromDate:
+                kwargs['start'] = _clean_date(p.fromDate)
+            if p.toDate:
+                kwargs['end'] = _clean_date(p.toDate)
+
+            df = att.get_option_history(symbol, **kwargs)
+            if df is None or len(df) == 0:
+                result['recordsSkipped'] += 1
+                continue
+
+            df = df.reset_index()
+
+            ops = []
+            for _, row in df.iterrows():
+                # Timestamp
+                ts = row.get('Timestamp') if 'Timestamp' in row else row.get('index')
+                if ts is None:
+                    continue
+                if hasattr(ts, 'to_pydatetime'):
+                    ts = ts.to_pydatetime()
+                elif isinstance(ts, str):
+                    ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+
+                # bid/ask اجباری
+                try:
+                    bid = float(row['BidPrice']) if pd.notna(row.get('BidPrice')) else 0
+                    ask = float(row['AskPrice']) if pd.notna(row.get('AskPrice')) else 0
+                except (TypeError, ValueError):
+                    continue
+                if bid <= 0 or ask <= 0:
+                    result['recordsSkipped'] += 1
+                    continue
+
+                expiry = row.get('EndDate')
+                if expiry is not None and pd.notna(expiry):
+                    expiry = str(expiry)[:10]
+                else:
+                    expiry = None
+
+                doc = {
+                    'symbol': symbol,
+                    'underlying': underlying,
+                    'time': ts,
+                    'bid': bid,
+                    'ask': ask,
+                    'bidVol': _safe_num(row.get('BidVolume')),
+                    'askVol': _safe_num(row.get('AskVolume')),
+                    'last': _safe_num(row.get('Last')),
+                    'close': _safe_num(row.get('Close')),
+                    'volume': _safe_num(row.get('Volume')),
+                    'oi': _safe_num(row.get('OpenInterest')),
+                    'strike': _safe_num(row.get('Strike')),
+                    'expiry': expiry,
+                    'size': int(_safe_num(row.get('ContractSize')) or 1000),
+                    'source': 'algotik_serverside',
+                    'updatedAt': datetime.now(timezone.utc),
+                }
+                ops.append(UpdateOne(
+                    {'symbol': symbol, 'time': ts},
+                    {'$set': doc},
+                    upsert=True
+                ))
+
+            if ops:
+                r = col.bulk_write(ops, ordered=False)
+                result['recordsUpdated'] += (r.upserted_count + r.modified_count)
+                result['contractsProcessed'] += 1
+
+        except Exception as e:
+            result['errors'].append({'symbol': symbol, 'error': str(e)[:200]})
+            log('backfill_bidask_err', f'{symbol}: {str(e)[:150]}')
+
+    log('backfill_bidask_done',
+        f"updated={result['recordsUpdated']} skipped={result['recordsSkipped']}",
+        result)
+
+    return result
+
+
+def _safe_num(v):
+    try:
+        import pandas as pd
+        if v is None or pd.isna(v):
+            return None
+        f = float(v)
+        return f if f != 0 else None
+    except (TypeError, ValueError):
+        return None
+
 @app.post('/migrate-options')
 def migrate_options(p: MigrateOptionsIn):
     """Migrate option_daily_algotik → option_history with IV/Greeks."""

@@ -1152,17 +1152,34 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     }
     if (!candidateRows.length) return null;
 
+    // 🆕 delta: از deltaApi، یا محاسبه با BS (bid/ask هر دو اجباری هستن قبل از این تابع)
+    const RISK_FREE_LOCAL = getRiskFree();
+    function getDelta(row) {
+        if (row.deltaApi !== null && row.deltaApi !== undefined && Number.isFinite(row.deltaApi)) {
+            return row.deltaApi;
+        }
+        // fallback: BS delta با S/strike/IV
+        if (!row.S || !row.strike) return null;
+        const T = Math.max((row.daysLeft || 30), 0.5) / 365;
+        let iv = row.ivApi;
+        if (!iv || !Number.isFinite(iv) || iv < 0.05 || iv > 5.0) iv = 0.6;
+        try {
+            const bs = bsCall(row.S, row.strike, T, RISK_FREE_LOCAL, iv);
+            return bs.delta;
+        } catch (_) { return null; }
+    }
+
     const targetDelta = 0.55;
     const valid = candidateRows.filter(c => {
-        const d = c.deltaApi;
+        const d = getDelta(c);
         if (d === null || d === undefined) return false;
         return d >= p.deltaMin && d <= p.deltaMax;
     });
     if (!valid.length) return null;
 
     valid.sort((a, b) => {
-        const da = Math.abs((a.deltaApi || 0) - targetDelta);
-        const db = Math.abs((b.deltaApi || 0) - targetDelta);
+        const da = Math.abs((getDelta(a) || 0) - targetDelta);
+        const db = Math.abs((getDelta(b) || 0) - targetDelta);
         if (Math.abs(da - db) > 0.01) return da - db;
         const secA = Math.floor(new Date(a.time).getTime() / 1000);
         const secB = Math.floor(new Date(b.time).getTime() / 1000);

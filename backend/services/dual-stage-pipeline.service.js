@@ -946,6 +946,36 @@ async function runDualStage(jobId, opts = {}) {
         deps.logger && deps.logger.info(`[dual-stage ${jobId}] stage4: ${stage4.plans.length} plans`);
 
         // STAGE 5
+        // ============ STAGE 5 ============
+        // 🆕 قبل از Stage 5: اطمینان از bid/ask در option_history
+        await _setStage(jobId, 5, {
+            stage5: { phase: 'bidask-backfill', started: true }
+        });
+        try {
+            const bf = await deps.algotik.backfillOptionBidAsk({
+                underlyings: null,      // همه monitored
+                contractLimit: 200,
+                includeToday: true,
+            });
+            deps.logger && deps.logger.info(
+                `[dual-stage ${jobId}] bidask backfill: contracts=${bf.contractsFound} updated=${bf.recordsUpdated} skipped=${bf.recordsSkipped}`
+            );
+            await _setStage(jobId, 5, {
+                stage5: {
+                    bidaskBackfill: {
+                        contractsFound: bf.contractsFound,
+                        recordsUpdated: bf.recordsUpdated,
+                        recordsSkipped: bf.recordsSkipped,
+                    }
+                }
+            });
+        } catch (e) {
+            deps.logger && deps.logger.warn(`[dual-stage] bidask backfill failed: ${e.message}`);
+            await _setStage(jobId, 5, {
+                stage5: { bidaskBackfill: { error: e.message } }
+            });
+        }
+
         await _setStage(jobId, 5);
         const stage5 = await _stage5_optionBacktest(jobId, stage4.plans, ranges.test, merged);
         await _setStage(jobId, 5, { stage5: { pairCount: stage5.results.length } });

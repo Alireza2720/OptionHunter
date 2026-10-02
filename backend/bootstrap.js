@@ -422,6 +422,7 @@ async function bootstrap() {
         signalFilterService,
         configService,
         settings: settingsModule,
+        algotik,   // 🆕 برای backfill option bid/ask
         notify: telegram.notify
     });
 

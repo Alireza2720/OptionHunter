@@ -89,6 +89,11 @@ async function controlTicker(action, intervalSec) {
     return apiCall('POST', '/ticker', { action, intervalSec });
 }
 
+// 🆕 Backfill option bid/ask (long-running — timeout 30min)
+async function backfillOptionBidAsk(payload) {
+    return apiCall('POST', '/backfill-option-bidask', payload, 30 * 60 * 1000);
+}
+
 module.exports = {
     setBaseUrl,
     isOnline, getStatus,
@@ -97,5 +102,6 @@ module.exports = {
     getCoverage, getRiskFree, controlTicker,
     getLiveMarket, getLogs, getSymbols,
     getCoverage, auditAll, auditOne,
-    getDataRange, getSymbolDataRange,   // 🆕
+    getDataRange, getSymbolDataRange,
+    backfillOptionBidAsk,   // 🆕
 };
