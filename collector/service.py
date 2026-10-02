@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """AlgoTik Collector — Unified Data Pipeline"""
 import os, sys, threading, signal, time, re
+import pandas as pd
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
@@ -629,6 +630,18 @@ class BackfillBidAskIn(BaseModel):
     includeToday: bool = True
 
 
+def _safe_float(v):
+    """None-safe float برای فیلدهای ممکنه NaN/None."""
+    try:
+        import pandas as pd
+        if v is None or pd.isna(v):
+            return None
+        f = float(v)
+        return f if f != 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 @app.post('/backfill-option-bidask')
 def backfill_option_bidask(p: BackfillBidAskIn):
     """
@@ -698,20 +711,45 @@ def backfill_option_bidask(p: BackfillBidAskIn):
                     if not symbol:
                         continue
 
+                    # 🆕 strike / expiry / daysLeft
+                    strike_v = _safe_float(row.get('Strike'))
+                    expiry_v = row.get('EndDate')
+                    if expiry_v is not None and pd.notna(expiry_v):
+                        expiry_v = str(expiry_v)[:10]
+                    else:
+                        expiry_v = None
+
+                    days_left = None
+                    if expiry_v:
+                        try:
+                            from datetime import datetime as dt
+                            y, m, d = map(int, expiry_v.split('-'))
+                            days_left = (dt(y, m, d) - now.replace(tzinfo=None)).days
+                        except Exception:
+                            pass
+
                     doc = {
                         'symbol': symbol,
                         'underlying': sym,
                         'time': now,
                         'bid': bid,
                         'ask': ask,
-                        'bidVol': float(row.get('BidVolume') or 0) or None,
-                        'askVol': float(row.get('AskVolume') or 0) or None,
-                        'last': float(row.get('Last') or 0) or None,
-                        'close': float(row.get('Close') or 0) or None,
+                        'bidVol': _safe_float(row.get('BidVolume')),
+                        'askVol': _safe_float(row.get('AskVolume')),
+                        'last': _safe_float(row.get('Last')),
+                        'close': _safe_float(row.get('Close')),
                         'volume': float(row.get('Volume') or 0),
-                        'oi': float(row.get('OpenInterest') or 0) if row.get('OpenInterest') else None,
-                        'strike': float(row.get('Strike')) if row.get('Strike') else None,
+                        'oi': _safe_float(row.get('OpenInterest')),
+                        'strike': strike_v,
+                        'expiry': expiry_v,
+                        'daysLeft': days_left,
                         'size': int(row.get('ContractSize') or 1000),
+                        'S': _safe_float(row.get('UnderlyingLast')) or _safe_float(row.get('UnderlyingClose')),
+                        'ivApi': _safe_float(row.get('ImpliedVolatilityMid')) or _safe_float(row.get('ImpliedVolatility')),
+                        'deltaApi': _safe_float(row.get('Delta')),
+                        'gammaApi': _safe_float(row.get('Gamma')),
+                        'thetaApi': _safe_float(row.get('ThetaPerDay')),
+                        'vegaApi': _safe_float(row.get('Vega')),
                         'isCall': (row.get('OptionType') or '').lower() == 'call',
                         'source': 'algotik_snapshot',
                         'computedAt': now,
@@ -737,149 +775,7 @@ def backfill_option_bidask(p: BackfillBidAskIn):
         {k: v for k, v in result.items() if k != 'errors'})
 
     return result
-    """
-    Re-fetch option_history از algotik-tse server-side با bid/ask واقعی.
-    برای هر قرارداد که bid/ask در DB نداره، get_option_history صدا می‌زنه.
-    """
-    import algotik_tse as att
-    import pandas as pd
-    from pymongo import UpdateOne
-    from datetime import datetime, timezone
 
-    db = get_db()
-    col = db[COL_OPTION_HISTORY]
-
-    # پیدا کردن قراردادهای فاقد bid/ask
-    match_q = {}
-    if p.underlyings:
-        match_q['underlying'] = {'$in': p.underlyings}
-
-    pipeline = [
-        {'$match': match_q},
-        {'$group': {
-            '_id': '$symbol',
-            'underlying': {'$first': '$underlying'},
-            'has_bidask': {'$max': {'$cond': [
-                {'$and': [
-                    {'$gt': [{'$ifNull': ['$bid', 0]}, 0]},
-                    {'$gt': [{'$ifNull': ['$ask', 0]}, 0]}
-                ]}, 1, 0
-            ]}},
-            'records': {'$sum': 1}
-        }},
-        {'$match': {'has_bidask': 0}},
-        {'$sort': {'records': -1}},
-        {'$limit': max(1, min(p.contractLimit, 500))}
-    ]
-    contracts = list(col.aggregate(pipeline))
-
-    log('backfill_bidask_start',
-        f'{len(contracts)} contracts to backfill',
-        {'count': len(contracts)})
-
-    result = {
-        'contractsFound': len(contracts),
-        'contractsProcessed': 0,
-        'recordsUpdated': 0,
-        'recordsSkipped': 0,
-        'errors': [],
-    }
-
-    for item in contracts:
-        symbol = item['_id']
-        underlying = item['underlying']
-        try:
-            kwargs = {'progress': False, 'include_today': p.includeToday}
-            if p.fromDate:
-                kwargs['start'] = _clean_date(p.fromDate)
-            if p.toDate:
-                kwargs['end'] = _clean_date(p.toDate)
-
-            df = att.get_option_history(symbol, **kwargs)
-            if df is None or len(df) == 0:
-                result['recordsSkipped'] += 1
-                continue
-
-            df = df.reset_index()
-
-            ops = []
-            for _, row in df.iterrows():
-                # Timestamp
-                ts = row.get('Timestamp') if 'Timestamp' in row else row.get('index')
-                if ts is None:
-                    continue
-                if hasattr(ts, 'to_pydatetime'):
-                    ts = ts.to_pydatetime()
-                elif isinstance(ts, str):
-                    ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-
-                # bid/ask اجباری
-                try:
-                    bid = float(row['BidPrice']) if pd.notna(row.get('BidPrice')) else 0
-                    ask = float(row['AskPrice']) if pd.notna(row.get('AskPrice')) else 0
-                except (TypeError, ValueError):
-                    continue
-                if bid <= 0 or ask <= 0:
-                    result['recordsSkipped'] += 1
-                    continue
-
-                expiry = row.get('EndDate')
-                if expiry is not None and pd.notna(expiry):
-                    expiry = str(expiry)[:10]
-                else:
-                    expiry = None
-
-                doc = {
-                    'symbol': symbol,
-                    'underlying': underlying,
-                    'time': ts,
-                    'bid': bid,
-                    'ask': ask,
-                    'bidVol': _safe_num(row.get('BidVolume')),
-                    'askVol': _safe_num(row.get('AskVolume')),
-                    'last': _safe_num(row.get('Last')),
-                    'close': _safe_num(row.get('Close')),
-                    'volume': _safe_num(row.get('Volume')),
-                    'oi': _safe_num(row.get('OpenInterest')),
-                    'strike': _safe_num(row.get('Strike')),
-                    'expiry': expiry,
-                    'size': int(_safe_num(row.get('ContractSize')) or 1000),
-                    'source': 'algotik_serverside',
-                    'updatedAt': datetime.now(timezone.utc),
-                }
-                ops.append(UpdateOne(
-                    {'symbol': symbol, 'time': ts},
-                    {'$set': doc},
-                    upsert=True
-                ))
-
-            if ops:
-                r = col.bulk_write(ops, ordered=False)
-                result['recordsUpdated'] += (r.upserted_count + r.modified_count)
-                result['contractsProcessed'] += 1
-
-        except Exception as e:
-            result['errors'].append({'symbol': symbol, 'error': str(e)[:200]})
-            log('backfill_bidask_err', f'{symbol}: {str(e)[:150]}')
-
-    log('backfill_bidask_done',
-        f"updated={result['recordsUpdated']} skipped={result['recordsSkipped']}",
-        result)
-
-    return result
-
-
-def _safe_num(v):
-    try:
-        import pandas as pd
-        if v is None or pd.isna(v):
-            return None
-        f = float(v)
-        return f if f != 0 else None
-    except (TypeError, ValueError):
-        return None
 
 @app.post('/migrate-options')
 def migrate_options(p: MigrateOptionsIn):

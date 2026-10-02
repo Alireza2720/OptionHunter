@@ -367,13 +367,38 @@ def write_history(docs):
     return res.upserted_count + res.modified_count
 
 
-def migrate_snapshots_to_history(underlyings=None, days=120, dry_run=False, log_fn=None):
+def migrate_snapshots_to_history(underlyings=None, days=180, dry_run=False, log_fn=None):
     """
-    🆕 Migrate option_snapshots (live tick با bid/ask واقعی) → option_history.
-    این تنها منبع bid/ask واقعی تاریخی ماست.
+    🆕 Migrate option_snapshots → option_history با enrichment از option_daily_algotik.
     """
+    import algotik_tse as att
     from datetime import timedelta
     db = get_db()
+
+    # Preload metadata
+    log_fn and log_fn('preloading metadata...')
+    meta_by_symbol = {}
+    meta_q = {}
+    if underlyings:
+        meta_q['underlying'] = {'$in': underlyings}
+    for doc in db['option_daily_algotik'].find(meta_q):
+        sym = doc.get('symbol')
+        if not sym:
+            continue
+        meta_by_symbol.setdefault(sym, []).append({
+            'date': doc.get('date'),
+            'strike': doc.get('strike'),
+            'expiry': doc.get('end_date'),
+        })
+    log_fn and log_fn(f'preloaded {len(meta_by_symbol)} symbols')
+
+    rf = 0.42
+    try:
+        rf_doc = db['risk_free_cache'].find_one({}, sort=[('date', -1)])
+        if rf_doc:
+            rf = float(rf_doc.get('rate', 0.42))
+    except Exception:
+        pass
 
     q = {}
     if underlyings:
@@ -381,30 +406,78 @@ def migrate_snapshots_to_history(underlyings=None, days=120, dry_run=False, log_
     since = datetime.now(timezone.utc) - timedelta(days=days)
     q['timestamp'] = {'$gte': since}
 
-    total = 0
-    written = 0
-    skipped_no_bidask = 0
+    total = written = skipped_no_bidask = enriched_count = no_meta_count = 0
     ops = []
 
-    snapshots = db[COL_OPTION_SNAPSHOTS].find(q)
-    for snap in snapshots:
+    for snap in db[COL_OPTION_SNAPSHOTS].find(q):
         total += 1
         bid = snap.get('bid') or 0
         ask = snap.get('ask') or 0
-
-        # ⛔ بدون bid/ask → skip
         if not (bid > 0 and ask > 0):
             skipped_no_bidask += 1
             continue
 
         ts = snap.get('timestamp')
         symbol = snap.get('symbol')
+        underlying = snap.get('underlying')
         if not ts or not symbol:
             continue
 
+        strike = snap.get('strike')
+        expiry = None
+        days_left = None
+        iv = None
+
+        metas = meta_by_symbol.get(symbol, [])
+        if metas:
+            ts_str = ts.strftime('%Y-%m-%d') if hasattr(ts, 'strftime') else str(ts)[:10]
+            best = min(metas, key=lambda m: abs(_date_diff_days(m['date'], ts_str)))
+            strike = strike or best.get('strike')
+            expiry = best.get('expiry')
+            if expiry and ts_str:
+                try:
+                    from datetime import datetime as dt
+                    y1, m1, d1 = map(int, ts_str.split('-'))
+                    y2, m2, d2 = map(int, expiry.split('-'))
+                    days_left = (dt(y2, m2, d2) - dt(y1, m1, d1)).days
+                except Exception:
+                    days_left = None
+            enriched_count += 1
+        else:
+            no_meta_count += 1
+
+        if days_left is not None and days_left <= 0:
+            continue
+
+        S = snap.get('underlying_close')
+        if not S:
+            try:
+                cd = db['candles_daily'].find_one(
+                    {'symbol': underlying, 'time': {'$lte': ts}},
+                    sort=[('time', -1)]
+                )
+                if cd:
+                    S = cd.get('close')
+            except Exception:
+                pass
+
+        delta = gamma = theta = vega = None
+        if S and S > 0 and strike and days_left and days_left > 0:
+            try:
+                T = days_left / 365.0
+                sig = iv if (iv and iv > 0.05) else 0.60
+                g = att.black_scholes_greeks(float(S), float(strike), T, rf, sig, 'call')
+                if isinstance(g, dict):
+                    delta = g.get('Delta')
+                    gamma = g.get('Gamma')
+                    theta = g.get('ThetaPerDay')
+                    vega = g.get('Vega')
+            except Exception:
+                pass
+
         doc = {
             'symbol': symbol,
-            'underlying': snap.get('underlying'),
+            'underlying': underlying,
             'time': ts,
             'bid': float(bid),
             'ask': float(ask),
@@ -414,10 +487,18 @@ def migrate_snapshots_to_history(underlyings=None, days=120, dry_run=False, log_
             'close': None,
             'volume': float(snap.get('volume') or 0),
             'oi': float(snap.get('oi') or 0) if snap.get('oi') else None,
-            'strike': float(snap.get('strike')) if snap.get('strike') else None,
-            'expiry': None,
-            'size': None,
+            'strike': float(strike) if strike else None,
+            'expiry': expiry,
+            'daysLeft': days_left,
+            'size': 1000,
             'isCall': (snap.get('option_type') or '').lower() == 'call',
+            'S': float(S) if S else None,
+            'ivApi': iv,
+            'deltaApi': delta,
+            'gammaApi': gamma,
+            'thetaApi': theta,
+            'vegaApi': vega,
+            'riskFreeRate': rf,
             'source': 'live_snapshot',
             'computedAt': datetime.now(timezone.utc),
         }
@@ -448,8 +529,20 @@ def migrate_snapshots_to_history(underlyings=None, days=120, dry_run=False, log_
         'total_processed': total,
         'written': written,
         'skipped_no_bidask': skipped_no_bidask,
+        'enriched': enriched_count,
+        'no_meta': no_meta_count,
         'dry_run': dry_run,
     }
+
+
+def _date_diff_days(d1, d2):
+    from datetime import datetime as dt
+    try:
+        a = dt.strptime(str(d1)[:10], '%Y-%m-%d')
+        b = dt.strptime(str(d2)[:10], '%Y-%m-%d')
+        return (a - b).days
+    except Exception:
+        return 999999
 
 def write_snapshot_ticks(underlying, records):
     """Raw ticks → option_snapshots (for live ticker)."""
