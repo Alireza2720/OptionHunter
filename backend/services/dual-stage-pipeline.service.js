@@ -109,31 +109,39 @@ async function _isCancelled(jobId) {
 // ============================================================
 // Helper: بازه‌ها
 // ============================================================
+// 🆕 helper: هر ورودی رو به Unix seconds تبدیل کن
+function _toUnixSec(v) {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'number') {
+        if (!Number.isFinite(v)) return null;
+        // اگر میلی‌ثانیه بود (بزرگتر از 1e12) → به ثانیه
+        return v > 1e12 ? Math.floor(v / 1000) : Math.floor(v);
+    }
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : Math.floor(d.getTime() / 1000);
+}
+
 async function _resolveDateRanges(opts) {
     const db = deps.getDB();
     const CUTOFF = OPTION_DATA_CUTOFF || new Date('2026-06-09T00:00:00Z');
 
-    let testFrom = opts.testFrom;
-    let testTo = opts.testTo;
+    let testFrom = _toUnixSec(opts.testFrom);
+    let testTo = _toUnixSec(opts.testTo);
     if (!testFrom) testFrom = Math.floor(CUTOFF.getTime() / 1000);
-    else testFrom = Math.floor(new Date(testFrom).getTime() / 1000);
     if (!testTo) testTo = Math.floor(Date.now() / 1000);
-    else testTo = Math.floor(new Date(testTo).getTime() / 1000);
 
-    let valFrom = opts.validationFrom;
-    let valTo = opts.validationTo;
+    let valFrom = _toUnixSec(opts.validationFrom);
+    let valTo = _toUnixSec(opts.validationTo);
     if (!valTo) valTo = testFrom - 86400;
-    else valTo = Math.floor(new Date(valTo).getTime() / 1000);
     if (!valFrom) {
         const days = opts.validationsDays || 60;
         valFrom = valTo - days * 86400;
-    } else valFrom = Math.floor(new Date(valFrom).getTime() / 1000);
+    }
 
-    let trainTo = opts.trainTo;
+    let trainTo = _toUnixSec(opts.trainTo);
     if (!trainTo) trainTo = valFrom - 86400;
-    else trainTo = Math.floor(new Date(trainTo).getTime() / 1000);
 
-    let trainFrom = opts.trainFrom;
+    let trainFrom = _toUnixSec(opts.trainFrom);
     if (!trainFrom) {
         try {
             const r = await db.collection(COLLECTIONS.CANDLES_BASE)
@@ -142,7 +150,7 @@ async function _resolveDateRanges(opts) {
         } catch (_) {
             trainFrom = trainTo - 3 * 365 * 86400;
         }
-    } else trainFrom = Math.floor(new Date(trainFrom).getTime() / 1000);
+    }
 
     return {
         train: { from: trainFrom, to: trainTo, days: Math.round((trainTo - trainFrom) / 86400) },
@@ -252,7 +260,7 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
                 mode: 'stock',
                 lightMode: true   // 🆕 skip MC/robustness
             });
-            const fullTrades = r.trades || [];
+            const fullTrades = r.stockTrades || r.trades || [];
             results.push({
                 symbol: cfg.symbol,
                 strategyId: cfg.strategyId,
@@ -1102,7 +1110,17 @@ async function runDualStage(jobId, opts = {}) {
 
         // Done
         const elapsed = Math.round((Date.now() - t0) / 1000);
-        await _setStage(jobId, 99);
+        // 🆕 به‌جای _setStage(99) که current=99/total=7 می‌کرد، مستقیم مقدار درست ست کن
+        await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+            { _id: new ObjectId(jobId) },
+            { $set: {
+                pipelineStage: 99,
+                'progress.current': 7,
+                'progress.total': 7,
+                'progress.message': STAGE_LABELS[99],
+                updatedAt: new Date()
+            } }
+        );
 
         const finalResult = {
             ranges,

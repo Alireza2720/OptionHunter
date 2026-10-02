@@ -70,7 +70,10 @@ function expectedBarsFor(bucketStartMin, tfMin) {
 
 function isCandleClosed(timeSec, tfMin, now = new Date()) {
     const t = getTehranParts(new Date(timeSec * 1000));
-    const sessionEnd = tehranPartsToUTCDate(t.year, t.month, t.day, 12, 31);
+    // 🆕 هم‌راست با SESSION_END_MIN (12:35) در constants.js
+    const endHour = Math.floor(SESSION_END_MIN / 60);
+    const endMin = SESSION_END_MIN % 60;
+    const sessionEnd = tehranPartsToUTCDate(t.year, t.month, t.day, endHour, endMin);
     if (tfMin >= 1440 || (tfMin === 60 && t.hour === 11)) return now >= sessionEnd;
     const natural = new Date(timeSec * 1000 + tfMin * 60000);
     return now >= (natural < sessionEnd ? natural : sessionEnd);

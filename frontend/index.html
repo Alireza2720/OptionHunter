@@ -650,7 +650,11 @@ const pct = v => typeof v === 'number' ? `<span class="${v>=0?'pos':'neg'}">${v>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtN = n => n === null || n === undefined ? '-' : Math.round(n).toLocaleString();
 const fmtIv = v => v ? (v*100).toFixed(0)+'%' : '-';
-const fmtPF = v => v === null || v === undefined ? '-' : (v === Infinity ? '∞' : (typeof v === 'number' && !isNaN(v) ? v.toFixed(2) : '-'));
+const fmtPF = v => {
+    if (v === null || v === undefined) return '∞';
+    if (v === Infinity) return '∞';
+    return typeof v === 'number' && !isNaN(v) ? v.toFixed(2) : '-';
+};
 const trendBadge = t => { if (!t) return '<span class="badge none">-</span>'; const up = /up|bull|صعود/i.test(t), dn = /down|bear|نزول/i.test(t); return `<span class="badge ${up?'long':dn?'short':'none'}">${esc(t)}</span>`; };
 
 function getToken() { return localStorage.getItem('adminToken') || ''; }
@@ -778,11 +782,10 @@ async function refreshMenuStatus(btn) {
     }
 }
 
+// 🆕 حذف شد — همه‌ی polling در startUnifiedPolling انجام می‌شه
 function startSystemPolling() {
-    if (systemStatsTimer) clearInterval(systemStatsTimer);
-    if (activeJobsTimer) clearInterval(activeJobsTimer);
-    systemStatsTimer = setInterval(() => { const p = document.getElementById('menuPanel'); if (p && p.classList.contains('open') && document.getElementById('menuTab-status').style.display !== 'none') loadSystemStats().catch(() => {}); }, 8000);
-    activeJobsTimer = setInterval(() => { const p = document.getElementById('menuPanel'); if (p && p.classList.contains('open') && document.getElementById('menuTab-status').style.display !== 'none') loadActiveJobs().catch(() => {}); }, 5000);
+    if (systemStatsTimer) { clearInterval(systemStatsTimer); systemStatsTimer = null; }
+    if (activeJobsTimer) { clearInterval(activeJobsTimer); activeJobsTimer = null; }
 }
 
 let searchTimeout = null, selectedSymbol = null;
@@ -3165,7 +3168,8 @@ function renderBtCompareResult(r) {
     <button class="btn success" onclick="autoConfigureFromBacktest()">تنظیم خودکار روی انتخاب‌شده‌ها</button>
 </div>` : '';
 
-    const sorted = [...all].sort((a, b) => ((b.option && b.option.profitFactor) || -1) - ((a.option && a.option.profitFactor) || -1));
+    const _pfVal = v => (v === null || v === undefined || !Number.isFinite(v)) ? Number.POSITIVE_INFINITY : v;
+    const sorted = [...all].sort((a, b) => _pfVal(b.option && b.option.profitFactor) - _pfVal(a.option && a.option.profitFactor));
     const detailRows = sorted.map((x, i) => {
         if (x.insufficientData) return `<tr style="background:rgba(201,151,61,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--warn);">${esc(x.error)}</td></tr>`;
         if (x.error) return `<tr style="background:rgba(217,83,79,.08);"><td>${i+1}</td><td><b>${esc(x.symbol)}</b></td><td>${esc(x.strategyName)}</td><td colspan="9" style="color:var(--bad);">${esc(x.error)}</td></tr>`;
@@ -3298,7 +3302,7 @@ function downloadCompareDetail(jobId, symbol, strategyId) {
 }
 
 let optPositionsLimit = 5, optPositionsCache = null;
-async function loadOptionPositions() { try { const r = await apiFetch(`${BACKEND_URL}/api/options/positions`, {}, 0), s = r.stats; optPositionsCache = r.positions; optPositionsLimit = 5; document.getElementById('optStats').innerHTML = (s.open + s.closed) ? `<div class="stat"><small>باز / بسته</small><b>${s.open} / ${s.closed}</b></div><div class="stat"><small>وین</small><b>${s.winRate.toFixed(0)}%</b></div><div class="stat"><small>بازده</small><b>${pct(s.totalPnl)}</b></div><div class="stat"><small>میانگین</small><b>${pct(s.avgPnl)}</b></div><div class="stat"><small>PF</small><b>${fmtPF(s.profitFactor)}</b></div>` : '<div class="empty-note">موقعیتی نیست</div>'; renderOptPositions(); } catch (e) {} }
+async function loadOptionPositions() { try { const r = await apiFetch(`${BACKEND_URL}/api/options/positions`, {}, 0), s = r.stats; const _isFirst = optPositionsCache === null; optPositionsCache = r.positions; if (_isFirst) optPositionsLimit = 5; document.getElementById('optStats').innerHTML = (s.open + s.closed) ? `<div class="stat"><small>باز / بسته</small><b>${s.open} / ${s.closed}</b></div><div class="stat"><small>وین</small><b>${s.winRate.toFixed(0)}%</b></div><div class="stat"><small>بازده</small><b>${pct(s.totalPnl)}</b></div><div class="stat"><small>میانگین</small><b>${pct(s.avgPnl)}</b></div><div class="stat"><small>PF</small><b>${fmtPF(s.profitFactor)}</b></div>` : '<div class="empty-note">موقعیتی نیست</div>'; renderOptPositions(); } catch (e) {} }
 function renderOptPositions() { const tb = document.getElementById('optBody'); const list = optPositionsCache || []; if (!list.length) return tb.innerHTML = '<tr class="empty-row"><td colspan="14">موقعیتی ثبت نشده</td></tr>'; const shown = list.slice(0, optPositionsLimit); tb.innerHTML = shown.map(p => { const cur = p.status==='closed' ? p.exitBid : p.lastBid, curS = p.status==='closed' ? p.exitS : p.lastS, pnl = p.status==='closed' ? p.pnlPct : p.lastPnlPct; const size = p.positionSize || 1; const level = p.level || '-'; return `<tr><td>${esc(p.underlying)}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry}</td><td>${new Date(p.entryTime).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td>${fmtN(p.entryAsk)}</td><td><b>${size}</b></td><td>${level}</td><td>${fmtN(cur)}</td><td>${pct(pnl)}</td><td>${fmtN(p.entryS)} → ${fmtN(curS)}</td><td>${fmtIv(p.entryIv)} → ${fmtIv(p.lastIv)}</td><td style="font-size:11px;">${esc(p.exitReason||'-')}</td><td><button class="btn tiny danger" onclick="deleteOptionPosition('${p._id}')">حذف</button></td></tr>`; }).join(''); if (list.length > optPositionsLimit) tb.innerHTML += `<tr><td colspan="14" style="padding:0;"><button class="show-more-btn" onclick="optPositionsLimit += 5; renderOptPositions();">بیشتر (${list.length - optPositionsLimit})</button></td></tr>`; }
 async function deleteOptionPosition(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/options/positions/${id}`, { method:'DELETE' }); await loadOptionPositions(); } catch (e) { showAlert('خطا: ' + e.message); } }
 
@@ -3941,7 +3945,8 @@ function renderBacktestResults(result) {
             const scored = rows.map(d => {
                 const t = d[targetKey] || d.stockStats || {};
                 let pf = t.profitFactor;
-                if (pf === null || pf === undefined || !Number.isFinite(pf)) pf = 0;
+                if (pf === null || pf === undefined) pf = (t.totalPnl > 0 ? 99 : 0);
+                else if (!Number.isFinite(pf)) pf = 0;
                 const wr = t.winRate || 0;
                 const n = t.count || 0;
                 // 🆕 Score محافظه‌کارانه برای N کم
@@ -4358,7 +4363,10 @@ const _pollTasks = [
     { fn: loadSignalHistory,        every: 300000, last: 0, critical: false },  // 2min → 5min
     { fn: loadOptionPositions,      every: 300000, last: 0, critical: false },  // 2min → 5min
     { fn: loadLiveDashboard,        every: 180000, last: 0, critical: false },  // 90s → 3min
-    { fn: loadRegimeMap,            every: 900000, last: 0, critical: false },  // 10min → 15min
+    { fn: loadRegimeMap,            every: 900000, last: 0, critical: false },  // 15min
+    // 🆕 ادغام از startSystemPolling (فقط وقتی منو بازه)
+    { fn: () => { const p = document.getElementById('menuPanel'); if (p && p.classList.contains('open') && document.getElementById('menuTab-status').style.display !== 'none') return loadSystemStats(); }, every: 8000, last: 0, critical: false },
+    { fn: () => { const p = document.getElementById('menuPanel'); if (p && p.classList.contains('open') && document.getElementById('menuTab-status').style.display !== 'none') return loadActiveJobs(); }, every: 5000, last: 0, critical: false },
 ];
 
 function startUnifiedPolling() {

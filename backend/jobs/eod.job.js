@@ -55,8 +55,14 @@ async function eodEvaluation() {
         const monitored = await deps.getDB().collection(COLLECTIONS.MONITORED_SYMBOLS)
             .find({}).toArray();
         const mset = new Set(monitored.map(m => deps.options.norm(m.symbol)));
+        // (اگر optionsChain به‌عنوان deps تزریق شده، این متغیر در دسترس است)
 
-        const chain = await deps.options.fetchChain ? await deps.options.fetchChain(0) : null;
+        let chain = null;
+        if (typeof deps.options.fetchChain === 'function') {
+            chain = await deps.options.fetchChain(0);
+        } else if (deps.optionsChain && typeof deps.optionsChain.fetchChain === 'function') {
+            chain = await deps.optionsChain.fetchChain(0);
+        }
         if (chain) {
             await deps.options.storeEOD(chain, mset);
             await deps.options.managePositions(chain);

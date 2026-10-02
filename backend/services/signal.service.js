@@ -107,6 +107,7 @@ async function buildMarketInfo(monitored) {
     const bucket1 = deps.dataService.getBucketTime(tehran, 1);
     const dayTime = deps.dataService.dayStartUTC(tehran);
     const marketInfo = new Map();
+    let totalVolDelta = 0;   // 🆕 جمع دلتای حجم همه‌ی نمادها
 
     for (const m of monitored) {
         const s = rawMap.get(m.symbol);
@@ -138,9 +139,10 @@ async function buildMarketInfo(monitored) {
         await deps.dataService.upsertLiveCandle(m.symbol, bucket1, price, volDelta);
         await deps.dataService.upsertDailyCandle(m.symbol, dayTime, s);
         _markUpdated(m.symbol);   // 🆕 علامت‌گذاری برای invalidate
+        totalVolDelta += volDelta;
     }
 
-    return { marketInfo, activeCount: raw.filter(s => +s.tno > 0).length };
+    return { marketInfo, activeCount: raw.filter(s => +s.tno > 0).length, totalVolDelta };
 }
 
 // ============================================================
@@ -179,7 +181,7 @@ async function tick() {
             return;
         }
 
-        const { marketInfo, activeCount } = result;
+        const { marketInfo, activeCount, totalVolDelta = 0 } = result;
 
         // 🆕 Invalidate candle cache BEFORE evaluateAll
         // (candles just got written; must read fresh)
@@ -230,17 +232,11 @@ async function tick() {
         }
 
         // 🆕 لاگ مخصوص tick log (با فرمت regex قابل پارس)
-        let volDelta = 0;
-        for (const [sym, q] of lastQuotes) {
-            const s = lastSnap.get(sym);
-            if (s) volDelta += s.tvol || 0;
-        }
-
         try {
             const dayStats = await deps.getDB().collection(COLLECTIONS.META)
                 .findOne({ _id: `daystats_${todayDateStr(tehran)}` }) || {};
             deps.logger && deps.logger.info(
-                `tick | ${monitored.length} symbols | ticks=${dayStats.ticksOk || 0} | volDelta=${volDelta}`
+                `tick | ${monitored.length} symbols | ticks=${dayStats.ticksOk || 0} | volDelta=${totalVolDelta}`
             );
         } catch (_) {}
 

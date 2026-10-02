@@ -841,8 +841,8 @@ function round2(v) {
 // ============================================================
 async function runBacktest(cfg, from, to, opts = {}) {
     const isStockOnly = opts.mode === 'stock';
-    // 🆕 cache mode = real/hybrid (برای تمایز cache) — ولی فقط stock trades ذخیره می‌شن
-    const cacheMode = opts.useRealOption ? 'real' : 'hybrid';
+    // 🆕 فقط معاملات سهام کش می‌شن → mode یکسان کافیه (جلوگیری از کش تکراری)
+    const cacheMode = 'stock';
 
     const computeFn = async (c, f, t) => {
         const r = await computeStockTrades(c, f, t);
@@ -950,6 +950,8 @@ async function runBacktest(cfg, from, to, opts = {}) {
         stockStats,
         optionStats,
         advanced,
+        // 🆕 معاملات سهام همیشه برگردونده می‌شه
+        stockTrades: tradeRes.trades,
         // 🆕 PIT
         trainingMeta: { trainedFrom, trainedTo },
         overlapWarning: overlapCheck.overlap ? overlapCheck.message : null,

@@ -612,10 +612,8 @@ async function bootstrap() {
         autoConfigJob,
         riskFreeJob,
         healthJob,
-        correlationJob,
-        regimeJob,
         driftJob,
-        sectorRankJob,   // 🆕
+        sectorRankJob,
         dailyBackfillJob,
         gapDetectorJob,
         monthlyReportJob,

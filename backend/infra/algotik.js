@@ -101,7 +101,7 @@ module.exports = {
     startFullBackfill, getJob, listJobs, cancelJob,
     getCoverage, getRiskFree, controlTicker,
     getLiveMarket, getLogs, getSymbols,
-    getCoverage, auditAll, auditOne,
+    auditAll, auditOne,
     getDataRange, getSymbolDataRange,
-    backfillOptionBidAsk,   // 🆕
+    backfillOptionBidAsk,
 };

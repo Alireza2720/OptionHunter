@@ -102,23 +102,24 @@ async function checkBackendMemory() {
     } catch (_) {}
 }
 
-let task = null;
+let tasks = [];
 function start() {
-    if (task) return;
+    if (tasks.length) return;
     const marketHours = require('../infra/market-hours');
     const healthSchedule = () => {
         // 🆕 تو ساعات بازار skip (tick خودش freshness رو چک می‌کنه)
         if (marketHours.isMarketOpen()) return;
         return checkHealth();
     };
-    task = cron.schedule('*/2 * * * *', healthSchedule);
-    cron.schedule('0 */2 * * *', checkBackendMemory);       // هر 2 ساعت
-    cron.schedule('*/5 * * * *', checkTickFreshness);       // tick freshness بمونه
+    tasks.push(cron.schedule('*/2 * * * *', healthSchedule));
+    tasks.push(cron.schedule('0 */2 * * *', checkBackendMemory));
+    tasks.push(cron.schedule('*/5 * * * *', checkTickFreshness));
     deps.logger && deps.logger.info('health.job started');
 }
 
 function stop() {
-    if (task) { task.stop(); task = null; }
+    for (const t of tasks) t.stop();
+    tasks = [];
 }
 
 module.exports = { init, start, stop, checkHealth, checkTickFreshness };

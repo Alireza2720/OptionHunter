@@ -250,6 +250,8 @@ async function sendBacktestNotification(job, result, elapsed) {
         return;
     }
     _markNotified(jobId);
+    // 🆕 TTL تمیزکاری: بعد از ۱ ساعت حذف کن که حافظه نشتی نداشته باشیم
+    setTimeout(() => _notifiedJobs.delete(jobId), 60 * 60 * 1000).unref?.();
 
     const mode = (job.payload && job.payload.mode) || 'option';
     const modeLabel = mode === 'stock' ? '📊 سهم پایه' : '🎯 آپشن';

@@ -967,13 +967,14 @@ async function managePositions(chain) {
             upd.timeWarned = true;
         }
 
+        let _unsetFields = null;
         if (reason) {
             Object.assign(upd, {
                 status: 'closed', exitTime: new Date(),
                 exitBid: exitPx, exitS: c.S, pnlPct, exitReason: reason
             });
             // 🆕 پاک کردن stagedExits قدیمی
-            upd.$unset = { stagedExits: '' };
+            _unsetFields = { stagedExits: '' };
 
             let roll = '';
             if (longIds.has(p.configId) && c.daysLeft <= s.closeDaysBefore && p.scenario) {
@@ -990,7 +991,9 @@ async function managePositions(chain) {
             await requireDep('notify')(`${p.symbol} (${p.underlying}) | بازده ${pc(pnlPct)}\n${warns.join('\n')}`);
         }
 
-        await db.collection('option_positions').updateOne({ _id: p._id }, { $set: upd });
+        const _updateDoc = { $set: upd };
+        if (_unsetFields) _updateDoc.$unset = _unsetFields;
+        await db.collection('option_positions').updateOne({ _id: p._id }, _updateDoc);
     }
 }
 
@@ -1285,7 +1288,8 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     // ---- 🆕 Intraday theta decay ----
     const heldDays = (exitSec - entrySec) / 86400;
     let thetaDecay = 0;
-    if (!entry.isReal && best.thetaApi && heldDays < 1) {
+    // theta فقط برای نگه‌داری کوتاه‌مدت (<1 روز) و وقتی thetaApi موجوده
+    if (best.thetaApi && heldDays > 0 && heldDays < 1) {
         const thetaPct = Math.abs(best.thetaApi) / Math.max(entry.price, 1);
         const intradayFraction = Math.min(1, heldDays / 1);
         thetaDecay = entry.price * thetaPct * intradayFraction * 0.5;
