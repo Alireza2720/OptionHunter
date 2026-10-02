@@ -46,7 +46,7 @@ const lastSnap = new Map();
 const lastQuotes = new Map();
 let inactiveTicks = 0;
 let holidayDate = null;
-const _lastSkipLog = new Map();   // 🆕 throttle برای skip logs
+// (حذف شد — بدون استفاده)
 
 // 🆕 track symbols updated this tick → for cache invalidation
 const _updatedThisTick = new Set();
@@ -192,9 +192,11 @@ async function tick() {
         }
         _updatedThisTick.clear();
 
-        // تشخیص تعطیلی: فقط در ساعت بازار
+        // تشخیص تعطیلی: فقط در ساعت بازار — نسبت به تعداد کل
         if (isWithinMarketWindow) {
-            if (activeCount < 20) {
+            const totalSymbols = monitored.length || 1;
+            const activeRatio = activeCount / totalSymbols;
+            if (activeRatio < 0.3) {
                 if (++inactiveTicks >= 12) {
                     await markHoliday(tehran);
                     return;
@@ -205,6 +207,7 @@ async function tick() {
         }
 
         const n = await deps.signals.evaluateAll(marketInfo);
+        deps.logger && deps.logger.info(`evaluateAll: ${JSON.stringify(n)}`);
 
         // مدیریت آپشن‌ها
         try {

@@ -82,10 +82,61 @@ function register(app, deps) {
     });
 
     // ------------------------------------------------------------
+    // GET /api/pipeline/dual-stage/list — لیست jobهای اخیر
+    // ------------------------------------------------------------
+    app.get('/api/pipeline/dual-stage/list', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const limit = Math.min(+(req.query.limit || 20), 50);
+            const jobs = await db.collection(COLLECTIONS.BACKTEST_JOBS)
+                .find({ type: 'dual-stage' })
+                .sort({ createdAt: -1 })
+                .limit(limit)
+                .project({
+                    _id: 1, status: 1, pipelineStage: 1,
+                    progress: 1, createdAt: 1, startedAt: 1, finishedAt: 1,
+                    'pipelineState.totalConfigs': 1,
+                    'pipelineState.symbols': 1,
+                    'pipelineState.strategies': 1,
+                    'pipelineState.stage2.fdrMeta': 1,
+                    'pipelineState.stage2.candidateCount': 1,
+                    'pipelineState.stage3.validatedCount': 1,
+                    'pipelineState.stage4.planCount': 1,
+                    'pipelineState.stage6': 1,
+                    'result.summary': 1,
+                    'result.elapsed': 1
+                })
+                .toArray();
+
+            res.json({
+                jobs: jobs.map(j => ({
+                    _id: String(j._id),
+                    status: j.status,
+                    pipelineStage: j.pipelineStage,
+                    message: j.progress?.message,
+                    createdAt: j.createdAt,
+                    startedAt: j.startedAt,
+                    finishedAt: j.finishedAt,
+                    elapsed: j.result?.elapsed,
+                    totalConfigs: j.pipelineState?.totalConfigs,
+                    symbolCount: (j.pipelineState?.symbols || []).length,
+                    strategyCount: (j.pipelineState?.strategies || []).length,
+                    summary: j.result?.summary || null,
+                    stage6: j.pipelineState?.stage6 || null,
+                }))
+            });
+        } catch (e) { next(e); }
+    });
+
+    // ------------------------------------------------------------
     // GET /api/pipeline/dual-stage/:jobId
     // ------------------------------------------------------------
     app.get('/api/pipeline/dual-stage/:jobId', async (req, res, next) => {
         try {
+            // 🆕 validation قبل از ObjectId
+            if (!/^[a-f0-9]{24}$/i.test(req.params.jobId)) {
+                return res.status(400).json({ error: 'jobId فرمت نامعتبر' });
+            }
             const db = getDB();
             const job = await db.collection(COLLECTIONS.BACKTEST_JOBS)
                 .findOne({ _id: new ObjectId(req.params.jobId) });
@@ -144,6 +195,9 @@ function register(app, deps) {
     // ------------------------------------------------------------
     app.post('/api/pipeline/dual-stage/:jobId/cancel', async (req, res, next) => {
         try {
+            if (!/^[a-f0-9]{24}$/i.test(req.params.jobId)) {
+                return res.status(400).json({ error: 'jobId فرمت نامعتبر' });
+            }
             const db = getDB();
             await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
                 { _id: new ObjectId(req.params.jobId), status: { $in: ['QUEUED', 'RUNNING'] } },

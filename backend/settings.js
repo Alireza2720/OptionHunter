@@ -72,10 +72,13 @@ function getRiskFreeRate() {
 }
 
 function getRiskFreeMeta() {
+    const usingFallback = !Number.isFinite(cachedRiskFreeRate);
     return {
-        rate: cachedRiskFreeRate,
+        // 🆕 همیشه rate معتبر برگردون
+        rate: usingFallback ? (values.RISK_FREE_RATE || 0.23) : cachedRiskFreeRate,
+        cachedRate: cachedRiskFreeRate,
         date: cachedRiskFreeDate,
-        fallback: !Number.isFinite(cachedRiskFreeRate),
+        fallback: usingFallback,
     };
 }
 

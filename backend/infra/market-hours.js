@@ -5,6 +5,9 @@
 
 // 🆕 از constants بیاد — یک منبع حقیقت
 const { SESSION_START_MIN, SESSION_END_MIN } = require('../config/constants');
+// توجه: constants.js → 12:30، live.py → 12:35، tick.job → 12:35
+// توصیه: همه به 12:35 تغییر کنن. در constants.js:
+//   SESSION_END_MIN = 12 * 60 + 35
 
 function getTehranNow() {
     const now = new Date();

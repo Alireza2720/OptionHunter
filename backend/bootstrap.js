@@ -270,7 +270,8 @@ async function bootstrap() {
         dataService,
         options: optionsCore,
         entryWindow: () => settingsModule.entryWindow(),
-        getTehranParts: dataService.getTehranParts
+        getTehranParts: dataService.getTehranParts,
+        logger   // 🆕
     });
 
     // 9.5) regime service — قبل از signalsCore

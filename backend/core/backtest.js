@@ -37,8 +37,9 @@ function makeCacheKey(parts) {
 function buildSignature(cfg, mode) {
     return {
         symbol: cfg.symbol || null,
-        pairSymbol: cfg.pairSymbol || null,   // 🆕
-        configId: cfg._id ? String(cfg._id) : null,
+        pairSymbol: cfg.pairSymbol || null,
+        // 🆕 configId فقط وقتی _id معتبر باشه (نه برای dual-stage)
+        configId: cfg._id && String(cfg._id).length > 0 ? String(cfg._id) : null,
         strategyId: cfg.strategyId,
         timeframe: cfg.timeframe,
         htfTimeframe: cfg.htfTimeframe || '1d',
@@ -79,8 +80,8 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
 
     // TF: دقیقه‌ی خالص × 60 + 50% بافر برای gap بازار
     const warmupFromTf = required * tfMin * 60 * 1.5;
-    // HTF: تعداد کندل × دقیقه‌ی HTF × 1.5 (تعطیلات و روزهای بسته)
-    const warmupFromHtf = requiredHtf * htfMin * 60 * 1.5;
+    // 🆕 HTF: multiplier از 1.5 به 1.2 (کاهش warmup اضافی)
+    const warmupFromHtf = requiredHtf * htfMin * 60 * 1.2;
     const WARMUP_SEC = Math.max(warmupFromTf, warmupFromHtf, 7 * 86400);
 
     if (dateFrom) {
@@ -253,7 +254,13 @@ async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
     const fromV = from || 0;
     const toV = to || Number.MAX_SAFE_INTEGER;
 
-    const signature = buildSignature(cfg, mode);
+    // 🆕 trainedFrom/To در signature بیاد تا PIT check دقیق بمونه
+    const sigCfg = {
+        ...cfg,
+        _trainFrom: cfg.trainedFrom || null,
+        _trainTo: cfg.trainedTo || null
+    };
+    const signature = buildSignature(sigCfg, mode);
     const sigHash = makeCacheKey(signature);
     const cached = await loadTradeCache(sigHash);
 
@@ -373,22 +380,33 @@ function computeStats(trades) {
         : 0;
     const downsideStd = Math.sqrt(downsideVar);
 
-    const tradesPerYear = n * (TRADING_DAYS_PER_YEAR / Math.max(
-        1, trades.reduce((s, t) => s + (t.exitTime - t.entryTime) / 86400, 0)
-    ));
+    // 🆕 سالانه‌سازی معقول‌تر: حداکثر ۱۰ معامله در روز
+    const totalDays = trades.reduce((s, t) =>
+        s + Math.max(0.01, ((t.exitFillTime || t.exitTime) - (t.entryTime || 0)) / 86400), 0
+    );
+    const avgDaysPerTrade = Math.max(0.01, totalDays / n);
+    const rawTradesPerYear = TRADING_DAYS_PER_YEAR / avgDaysPerTrade;
+    // cap بر ۱۰ معامله در روز
+    const tradesPerYear = Math.min(rawTradesPerYear, 10 * TRADING_DAYS_PER_YEAR);
     const annFactor = Math.sqrt(Math.max(1, tradesPerYear));
 
     const sharpe = stdDev > 0 ? (meanPnl / stdDev) * annFactor : null;
     const sortino = downsideStd > 0 ? (meanPnl / downsideStd) * annFactor : null;
 
-    // Equity curve + Max Drawdown
+    // Equity curve + Max Drawdown — 🆕 روی exitFillTime اگه بود
     let equity = 100;
     let peak = 100;
     let maxDD = 0;
     const equityCurve = [];
-    for (const t of trades) {
+    const sortedByExit = [...trades].sort((a, b) =>
+        (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime)
+    );
+    for (const t of sortedByExit) {
         equity *= (1 + t.pnlPct / 100);
-        equityCurve.push({ time: t.exitTime, equity: round2(equity) });
+        equityCurve.push({
+            time: t.exitFillTime || t.exitTime,
+            equity: round2(equity)
+        });
         if (equity > peak) peak = equity;
         const dd = ((peak - equity) / peak) * 100;
         if (dd > maxDD) maxDD = dd;
@@ -417,7 +435,7 @@ function computeStats(trades) {
         avgLoss: losses.length ? -gl / losses.length : 0,
         maxWin,
         maxLoss,
-        avgDaysHeld: trades.reduce((s, t) => s + (t.exitTime - t.entryTime) / 86400, 0) / n,
+        avgDaysHeld: trades.reduce((s, t) => s + ((t.exitTime || 0) - (t.entryTime || 0)) / 86400, 0) / n,
         sharpe: round2(sharpe),
         sortino: round2(sortino),
         maxDrawdownPct: round2(maxDD),
@@ -614,9 +632,12 @@ function computeEquityCurve(trades) {
 function computeRollingSegments(trades, numSegments = 10) {
     if (!trades || trades.length < numSegments) return null;
 
-    const sorted = [...trades].sort((a, b) => a.entryTime - b.entryTime);
-    const minTime = sorted[0].entryTime;
-    const maxTime = sorted[sorted.length - 1].entryTime;
+    // 🆕 برای rolling Sharpe، مبنای محاسبه باید لحظه‌ی بسته‌شدن trade باشه
+    const sorted = [...trades].sort((a, b) =>
+        (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime)
+    );
+    const minTime = sorted[0].exitFillTime || sorted[0].exitTime;
+    const maxTime = sorted[sorted.length - 1].exitFillTime || sorted[sorted.length - 1].exitTime;
     const range = maxTime - minTime;
     if (range <= 0) return null;
     const segSize = range / numSegments;
@@ -625,7 +646,10 @@ function computeRollingSegments(trades, numSegments = 10) {
     for (let i = 0; i < numSegments; i++) {
         const from = minTime + i * segSize;
         const to = minTime + (i + 1) * segSize;
-        const segTrades = sorted.filter(t => t.entryTime >= from && t.entryTime < to);
+        const segTrades = sorted.filter(t => {
+            const exitT = t.exitFillTime || t.exitTime;
+            return exitT >= from && exitT < to;
+        });
         if (!segTrades.length) {
             segments.push({ index: i + 1, from, to, count: 0 });
             continue;
@@ -661,7 +685,7 @@ function computeRollingSegments(trades, numSegments = 10) {
 // ============================================================
 // Monte Carlo Bootstrap
 // ============================================================
-function computeMonteCarlo(trades, iterations = 10000) {
+function computeMonteCarlo(trades, iterations = 2000) {
     if (!trades || !trades.length) return null;
     const pnls = trades.map(t => t.pnlPct);
     const N = pnls.length;
@@ -787,10 +811,15 @@ function computeRobustness(trades) {
         topK: k
     };
 }
-function computeAdvancedStats(trades, dailyCandles) {
+function computeAdvancedStats(trades, dailyCandles, opts = {}) {
     if (!trades || !trades.length) {
         return { monthly: [], hourly: [], dow: [], regime: [], equityCurve: [], rolling: null, monteCarlo: null, robustness: null };
     }
+    // 🆕 Monte Carlo و Robustness فقط وقتی صریحاً خواسته شدن
+    // (برای اوج عملکرد در pipeline 3-5 برابر سریع‌تر)
+    const wantMC = opts.wantMonteCarlo === true;
+    const wantRobustness = opts.wantRobustness === true;
+
     return {
         monthly: computeMonthlyReturns(trades),
         hourly: computeHourlyReturns(trades),
@@ -798,8 +827,8 @@ function computeAdvancedStats(trades, dailyCandles) {
         regime: computeRegimeBreakdown(trades, dailyCandles),
         equityCurve: computeEquityCurve(trades),
         rolling: computeRollingSegments(trades, 10),
-        monteCarlo: computeMonteCarlo(trades, 10000),
-        robustness: computeRobustness(trades)
+        monteCarlo: wantMC ? computeMonteCarlo(trades, opts.mcIterations || 2000) : null,
+        robustness: wantRobustness ? computeRobustness(trades) : null
     };
 }
 function round2(v) {
@@ -811,16 +840,16 @@ function round2(v) {
 // Full backtest for a config (stock + option)
 // ============================================================
 async function runBacktest(cfg, from, to, opts = {}) {
-    // 🆕 mode: 'stock' یعنی فقط سهام، بدون آپشن
     const isStockOnly = opts.mode === 'stock';
-    const mode = opts.useRealOption ? 'real' : 'hybrid';
+    // 🆕 cache mode = real/hybrid (برای تمایز cache) — ولی فقط stock trades ذخیره می‌شن
+    const cacheMode = opts.useRealOption ? 'real' : 'hybrid';
 
     const computeFn = async (c, f, t) => {
         const r = await computeStockTrades(c, f, t);
         return r.trades.filter(x => x.status === 'closed');
     };
 
-    const tradeRes = await getOrComputeTrades(cfg, from, to, mode, computeFn, opts.onProgress);
+    const tradeRes = await getOrComputeTrades(cfg, from, to, cacheMode, computeFn, opts.onProgress);
 
     if (opts.onProgress) opts.onProgress({ phase: 'stock-done', tradeCount: tradeRes.trades.length });
 
@@ -892,9 +921,15 @@ async function runBacktest(cfg, from, to, opts = {}) {
     } catch (_) {}
 
     // 🆕 آمار پیشرفته — در حالت stock روی معاملات سهام
+    // MC و Robustness فقط در backtest تک‌config (نه در pipeline)
+    const advancedOpts = {
+        wantMonteCarlo: opts.wantMonteCarlo !== false && !opts.lightMode,
+        wantRobustness: opts.wantRobustness !== false && !opts.lightMode,
+        mcIterations: opts.mcIterations || 2000
+    };
     const advanced = isStockOnly
-        ? computeAdvancedStats(tradeRes.trades || [], dailyCandles)
-        : computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles);
+        ? computeAdvancedStats(tradeRes.trades || [], dailyCandles, advancedOpts)
+        : computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles, advancedOpts);
 
     // 🆕 PIT: چک همپوشانی train/test
     const trainedFrom = cfg.trainedFrom || (opts.trainingMeta && opts.trainingMeta.trainedFrom) || null;

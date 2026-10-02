@@ -13,7 +13,7 @@ const cache = require('./cache');
 let OPTIONS_URL = 'https://s3.optionschool24.com/last?type=3';
 let cacheTtlMs = CACHE_TTL.OPTION_CHAIN;
 
-const chainCache = cache.memory(1, cacheTtlMs);
+const chainCache = cache.memory(10, cacheTtlMs);
 const CACHE_KEY = 'chain';
 
 function setUrl(url) { if (url) OPTIONS_URL = url; }

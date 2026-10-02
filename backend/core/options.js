@@ -41,7 +41,7 @@ function requireDep(name) {
 // Constants
 // ============================================================
 const DEFAULT_SETTINGS = {
-    minDays: 15, maxDays: 45,
+    minDays: 7, maxDays: 60,
     maxSpreadPct: 7,
     minOI: 200, minTrades: 1,
     minPremium: 200,
@@ -51,7 +51,8 @@ const DEFAULT_SETTINGS = {
     topN: 3,
     optionStopPct: 20,
     take2Pct: 100,
-    closeDaysBefore: 5
+    closeDaysBefore: 5,
+    maxHoldDays: 20
 };
 
 const OPT_BT_DEFAULTS = {
@@ -72,8 +73,8 @@ const OPT_BT_DEFAULTS = {
     timeWindowDays: 1,
     dynSlipBase: 0.001,
     dynSlipImpactCoef: 0.5,
-    minFillRatio: 0.05,
-    maxParticipation: 0.2,
+    minFillRatio: 0.02,
+    maxParticipation: 0.4,
     latencySec: 1
 };
 
@@ -714,7 +715,9 @@ function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title 
         t += `   خرید: ${f0(p.ask)} | فروش: ${f0(p.bid)} | اسپرد ${p.spreadPct.toFixed(1)}%\n`;
         t += `   حجم سرخط خرید: ${(p.askVol || 0).toLocaleString()} سهم\n`;
         t += `   دلتا ${p.delta.toFixed(2)} | گاما ${p.gamma ? p.gamma.toFixed(4) : '-'} | تتا/روز ${f0(p.thetaDay)} | وگا ${p.vega ? p.vega.toFixed(2) : '-'}\n`;
-        t += `   IV ${p.iv ? (p.iv * 100).toFixed(0) + '%' : '-'}${p.ivHv ? ` (${p.ivHv.toFixed(2)}xHV)` : ''} | OI ${p.oi}${p.oiChange ? ` (${p.oiChange > 0 ? '+' : ''}${p.oiChange})` : ''} | حجم ${p.volume}\n`;
+        const ivHvStr = (p.ivHv && Number.isFinite(p.ivHv) && p.ivHv > 0)
+            ? ` (${p.ivHv.toFixed(2)}xHV)` : '';
+        t += `   IV ${p.iv ? (p.iv * 100).toFixed(0) + '%' : '-'}${ivHvStr} | OI ${p.oi}${p.oiChange ? ` (${p.oiChange > 0 ? '+' : ''}${p.oiChange})` : ''} | حجم ${p.volume}\n`;
         t += `   پرمیوم: ${f0(p.ask)} | ارزش ذاتی: ${f0(p.intrinsic)} | ارزش زمانی: ${f0(p.timeValue)} | اهرم: ${p.leverage ? p.leverage.toFixed(2) : '-'}\n`;
         t += `   هدف آپشن: ${pc(p.profitPct)} | حد ضرر: ${pc(p.lossPct)} | RR ${p.rr.toFixed(2)}\n`;
         if (p.bePct !== null && p.bePct !== undefined) t += `   سربه سر: حرکت ${p.bePct.toFixed(1)}% سهم\n`;
@@ -751,12 +754,23 @@ function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title 
 // ============================================================
 async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [], signalScore = null, regimeFactor = 1.0, regimeReason = null, targetMultiplier = null }) {
     const s = await getSettings();
-    const chain = await requireDep('getChain')();
+    let chain;
+    try {
+        chain = await requireDep('getChain')();
+    } catch (e) {
+        deps.logger && deps.logger.warn(`onBuySignal: getChain failed for ${config.symbol}: ${e.message}`);
+        return { picks: [], error: 'chain_fetch_failed' };
+    }
+    if (!Array.isArray(chain)) {
+        deps.logger && deps.logger.warn(`onBuySignal: chain is not array (${typeof chain})`);
+        return { picks: [], error: 'chain_invalid' };
+    }
     const sc = await buildScenario(config, price, liveS, indicators, s, targetMultiplier);
     const names = getNames(config.symbol);
     const res = selectCalls(chain, names, sc, s);
     const portfolio = await getPortfolioState();
     const signalStrength = { confluence, confirmers, signalScore, regimeFactor, regimeReason };
+    const askedAt = new Date();   // 🆕 زمان recommendation
 
     for (const p of res.picks) {
         try {
@@ -780,11 +794,32 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
             configId: config._id.toString(), status: 'open'
         });
         if (existing) {
+            // 🆕 محاسبه‌ی PnL قبل از بستن
+            let exitBid = null;
+            try {
+                const liveContract = chain.find(c => c.symbol === existing.symbol);
+                if (liveContract && liveContract.bid > 0) exitBid = liveContract.bid;
+            } catch (_) {}
+
+            const exitCost = (existing.entryAsk || 0) * (1 + getFeeBuy());
+            const exitProceeds = exitBid ? exitBid * (1 - getFeeSell()) : null;
+            const pnlPct = (exitProceeds && exitCost > 0)
+                ? (exitProceeds / exitCost - 1) * 100
+                : null;
+
             await db.collection('option_positions').updateOne(
                 { _id: existing._id },
-                { $set: { status: 'closed', exitTime: new Date(), exitReason: 'رول به قرارداد جدید' } }
+                { $set: {
+                    status: 'closed',
+                    exitTime: new Date(),
+                    exitBid: exitBid,
+                    pnlPct: pnlPct,
+                    exitReason: 'رول به قرارداد جدید'
+                } }
             );
         }
+
+        const isPaperMode = process.env.TRADING_MODE !== 'live';
 
         await db.collection('option_positions').insertOne({
             configId: config._id.toString(),
@@ -793,7 +828,9 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
             underlyingNames: names,
             symbol: p.symbol, fullName: p.fullName,
             strike: p.strike, expiry: p.expiry,
-            entryTime: new Date(),
+            entryTime: askedAt,
+            entrySignalAt: askedAt,
+            entryFilledAt: new Date(),
             entryAsk: p.ask, entryBid: p.bid, entryLast: p.last,
             entryS: p.S, entryIv: p.iv, entryDelta: p.delta,
             entryGamma: p.gamma, entryTheta: p.thetaDay, entryVega: p.vega,
@@ -801,10 +838,11 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
             entryDaysLeft: p.daysLeft,
             size: p.size,
             positionSize: p.positionSize,
-            entryValue: p.ask * p.positionSize * (p.size || 1000),
+            entryValue: (p.ask || 0) * (p.positionSize || 0) * (p.size || 1000),
             level: p.level,
             scenario: sc,
-            paper: true,
+            paper: isPaperMode,
+            tradingMode: isPaperMode ? 'paper' : 'live',
             status: 'open',
             confluence
         });
@@ -847,7 +885,7 @@ async function managePositions(chain) {
     }
 
     const now = new Date();
-    const tehranMin = now.getUTCHours() * 60 + now.getUTCMinutes() + 210;
+    const tehranMin = (now.getUTCHours() * 60 + now.getUTCMinutes() + 210) % 1440;
     const isLast30Min = tehranMin >= 720 && tehranMin <= 750;
 
     for (const p of open) {
@@ -862,7 +900,20 @@ async function managePositions(chain) {
             continue;
         }
 
-        const exitPx = c.bid > 0 ? c.bid : c.last;
+        // 🆕 اگه هیچ قیمت خرید معتبری نیست، از پوزیشن صرف‌نظر کن
+        const exitPx = c.bid > 0 ? c.bid : (c.last > 0 ? c.last : 0);
+        if (exitPx <= 0) {
+            // فقط upd رو انجام بده، ولی close نکن
+            await db.collection('option_positions').updateOne(
+                { _id: p._id },
+                { $set: {
+                    lastBid: c.bid, lastAsk: c.ask, lastS: c.S,
+                    lastCheck: new Date(),
+                    missingPriceWarned: true
+                } }
+            );
+            continue;
+        }
         const cost = p.entryAsk * (1 + FEE_BUY);
         const pnlPct = (exitPx * (1 - FEE_SELL) / cost - 1) * 100;
         const T = Math.max(c.daysLeft, 0.5) / 365;
@@ -891,13 +942,15 @@ async function managePositions(chain) {
         const thetaPerDayPct = (p.entryTheta && p.entryAsk && p.entryAsk > 0)
             ? Math.abs(p.entryTheta) / p.entryAsk * 100 : 0;
 
-        // Exit logic ساده: فقط TP/SL کامل
+        // Exit logic ساده: TP/SL + time-based
+        const maxHoldDays = s.maxHoldDays || 20;   // 🆕
         if (!longIds.has(p.configId)) reason = 'سیگنال خروج یا لغو روی سهم پایه';
         else if (c.daysLeft <= s.closeDaysBefore) reason = `${c.daysLeft} روز تا سررسید`;
         else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}%)`;
         else if (pnlPct >= s.take2Pct) reason = `حد سود کامل (${pnlPct.toFixed(0)}%)`;
         else if (ivDrop < -0.30) reason = `IV سقوط شدید (${(ivDrop*100).toFixed(0)}%)`;
         else if (thetaPerDayPct > 2.5 && heldDays >= 2 && pnlPct < 10) reason = `تتا سنگین (${thetaPerDayPct.toFixed(1)}%/روز)`;
+        else if (heldDays >= maxHoldDays && pnlPct < 20) reason = `سقف زمان (${heldDays.toFixed(0)} روز)`;
 
         const warns = [];
         if (sellQueueSet.has(p.underlying)) warns.push(`نماد پایه در صف فروش است - برای بستن آپشن باید منتظر باز شدن صف بمانی`);
@@ -1171,13 +1224,19 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         } catch (_) { return null; }
     }
 
-    const targetDelta = 0.55;
     const valid = candidateRows.filter(c => {
         const d = getDelta(c);
         if (d === null || d === undefined) return false;
         return d >= p.deltaMin && d <= p.deltaMax;
     });
     if (!valid.length) return null;
+
+    // 🆕 target delta انعطاف‌پذیر — مرکز بازه‌ی موجود
+    let targetDelta = 0.55;
+    if (valid.length >= 3) {
+        const avgDelta = valid.reduce((s, r) => s + (getDelta(r) || 0), 0) / valid.length;
+        targetDelta = Math.max(0.4, Math.min(0.7, avgDelta));
+    }
 
     valid.sort((a, b) => {
         const da = Math.abs((getDelta(a) || 0) - targetDelta);
@@ -1415,14 +1474,24 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             const minTime = new Date(Math.min(...allSec) * 1000 - WINDOW_MS);
             const maxTime = new Date(Math.max(...allSec) * 1000 + WINDOW_MS);
 
-            // 🆕 bid/ask اجباری + daysLeft منعطف‌تر
-            const bulkRows = await db.collection('option_history').find({
-                underlying: norm(symbol),
-                time: { $gte: minTime, $lte: maxTime },
-                daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 90) },
-                bid: { $gt: 0 },
-                ask: { $gt: 0 }
-            }).toArray();
+            // 🆕 bid/ask اجباری + daysLeft منعطف‌تر + projection برای کاهش حافظه
+            const bulkRows = await db.collection('option_history').find(
+                {
+                    underlying: norm(symbol),
+                    time: { $gte: minTime, $lte: maxTime },
+                    daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 90) },
+                    bid: { $gt: 0 },
+                    ask: { $gt: 0 }
+                },
+                {
+                    projection: {
+                        symbol: 1, time: 1, bid: 1, ask: 1, close: 1, last: 1,
+                        volume: 1, S: 1, strike: 1, expiry: 1, daysLeft: 1,
+                        ivApi: 1, deltaApi: 1, gammaApi: 1, thetaApi: 1, vegaApi: 1,
+                        hvApi: 1, size: 1, oi: 1, isCall: 1
+                    }
+                }
+            ).toArray();
 
             // group by symbol
             for (const r of bulkRows) {
@@ -1501,9 +1570,39 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
 function positionStats(list) {
     const closed = list.filter(p => p.status === 'closed' && typeof p.pnlPct === 'number');
     const wins = closed.filter(p => p.pnlPct > 0);
+    const losses = closed.filter(p => p.pnlPct <= 0);
     const sum = a => a.reduce((x, p) => x + p.pnlPct, 0);
-    const gp = sum(wins), gl = -sum(closed.filter(p => p.pnlPct <= 0));
+    const gp = sum(wins), gl = -sum(losses);
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
+
+    // 🆕 Sharpe / Sortino / MaxDD
+    let sharpe = null, sortino = null, maxDD = 0, totalReturnPct = 0;
+    if (closed.length >= 3) {
+        const pnls = closed.map(p => p.pnlPct);
+        const mean = pnls.reduce((s, x) => s + x, 0) / pnls.length;
+        const variance = pnls.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, pnls.length - 1);
+        const sd = Math.sqrt(variance);
+        if (sd > 0) {
+            const annFactor = Math.sqrt(Math.max(1, pnls.length));
+            sharpe = Math.round((mean / sd) * annFactor * 100) / 100;
+        }
+        const downside = pnls.filter(x => x < 0);
+        if (downside.length > 0) {
+            const dsd = Math.sqrt(downside.reduce((s, x) => s + x * x, 0) / downside.length);
+            if (dsd > 0) {
+                sortino = Math.round((mean / dsd) * Math.sqrt(pnls.length) * 100) / 100;
+            }
+        }
+        // Equity curve → MaxDD
+        let eq = 100, peak = 100;
+        for (const x of pnls) {
+            eq *= (1 + x / 100);
+            if (eq > peak) peak = eq;
+            const dd = ((peak - eq) / peak) * 100;
+            if (dd > maxDD) maxDD = dd;
+        }
+        totalReturnPct = eq - 100;
+    }
 
     return {
         open: list.length - closed.length,
@@ -1513,7 +1612,11 @@ function positionStats(list) {
         totalPnl: sum(closed),
         profitFactor: pf,
         avgWin: wins.length ? gp / wins.length : 0,
-        avgLoss: closed.length - wins.length ? -gl / (closed.length - wins.length) : 0
+        avgLoss: losses.length ? -gl / losses.length : 0,
+        sharpe: sharpe,
+        sortino: sortino,
+        maxDrawdownPct: Math.round(maxDD * 100) / 100,
+        totalReturnPct: Math.round(totalReturnPct * 100) / 100
     };
 }
 

@@ -22,7 +22,7 @@ const TF_LABELS_FA = {
 
 // ---- ساعات بازار ----
 const SESSION_START_MIN = 9 * 60;          // 09:00
-const SESSION_END_MIN = 12 * 60 + 30;      // 12:30
+const SESSION_END_MIN = 12 * 60 + 35;      // 12:35 — هماهنگ با live.py و tick.job
 const TRADING_DAYS_PER_YEAR = 245;
 
 // ---- تایم‌زون ----

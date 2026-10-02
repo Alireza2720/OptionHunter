@@ -26,6 +26,7 @@ let deps = {
     signalFilterService: null,
     configService: null,
     settings: null,
+    algotik: null,
     notify: null
 };
 function init(d) { deps = { ...deps, ...d }; }
@@ -248,7 +249,8 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
 
         try {
             const r = await deps.backtest.runBacktest(cfg, dateRange.from, dateRange.to, {
-                mode: 'stock'
+                mode: 'stock',
+                lightMode: true   // 🆕 skip MC/robustness
             });
             const fullTrades = r.trades || [];
             results.push({
@@ -261,7 +263,11 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
                 trades: fullTrades
             });
             const key = `${cfg.symbol}::${cfg.strategyId}`;
-            signalTimesBySymbolStrat.set(key, fullTrades.map(t => t.entryTime).filter(Number.isFinite));
+            // 🆕 limit به ۵۰۰۰ تای اول برای جلوگیری از سند بیش‌ازحد بزرگ
+            signalTimesBySymbolStrat.set(
+                key,
+                fullTrades.slice(0, 5000).map(t => t.entryTime).filter(Number.isFinite)
+            );
         } catch (e) {
             deps.logger && deps.logger.warn(`[dual-stage] stage1 ${cfg.symbol}/${cfg.strategyId}: ${e.message}`);
             results.push({
@@ -356,6 +362,7 @@ function _stage2_fdrFilter(stage1Results, opts) {
 // ============================================================
 async function _stage3_validation(jobId, candidates, dateRange, opts) {
     const validated = [];
+    const rejected = [];
     const total = candidates.length;
     const STRATEGIES = require('../strategies').STRATEGIES;
 
@@ -382,7 +389,10 @@ async function _stage3_validation(jobId, candidates, dateRange, opts) {
         };
 
         try {
-            const r = await deps.backtest.runBacktest(cfg, dateRange.from, dateRange.to, { mode: 'stock' });
+            const r = await deps.backtest.runBacktest(cfg, dateRange.from, dateRange.to, {
+                mode: 'stock',
+                lightMode: true
+            });
             const st = r.stockStats || {};
             const n = st.count || 0;
             const pf = st.profitFactor;
@@ -418,6 +428,16 @@ async function _stage3_validation(jobId, candidates, dateRange, opts) {
                     valTrades: r.trades || []
                 });
             } else {
+                rejected.push({
+                    symbol: cand.symbol,
+                    strategyId: cand.strategyId,
+                    strategyName: cand.strategyName,
+                    stockPF: cand.stockPF,
+                    stockN: cand.stockN,
+                    valPF: safePf,
+                    valN: n,
+                    reason: valNote
+                });
                 deps.logger && deps.logger.info(
                     `[dual-stage stage3] ${cand.symbol}/${cand.strategyId} rejected: ${valNote}`
                 );
@@ -440,7 +460,7 @@ async function _stage3_validation(jobId, candidates, dateRange, opts) {
         await new Promise(res => setImmediate(res));
     }
 
-    return { validated, initialCount: total };
+    return { validated, rejected, initialCount: total };
 }
 
 // ============================================================
@@ -593,7 +613,8 @@ async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
         try {
             const r = await deps.backtest.runBacktest(cfg, dateRange.from, dateRange.to, {
                 mode: 'option',
-                useRealOption: true
+                useRealOption: true,
+                lightMode: true
             });
             const optStats = r.optionStats || r.stats || {};
             const realUsed = r.realUsed || 0;
@@ -760,9 +781,18 @@ async function _stage7_apply(verdicts, plans, opts) {
     }
 
     const applied = [];
+    const skippedNoLeader = [];
     for (const [sym, list] of Object.entries(bySymbol)) {
         const hasLeader = list.some(x => x.role === 'leader');
-        if (!hasLeader) continue;
+        if (!hasLeader) {
+            // 🆕 لاگ کن چرا skip شد
+            const confirmerOnly = list.map(x => x.strategyId);
+            skippedNoLeader.push({ symbol: sym, confirmerOnly });
+            deps.logger && deps.logger.info(
+                `[dual-stage stage7] ${sym}: no leader among verdicts (only confirmers: ${confirmerOnly.join(', ')})`
+            );
+            continue;
+        }
 
         const old = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).find({ symbol: sym }).toArray();
         const oldIds = old.map(o => o._id.toString());
@@ -812,7 +842,7 @@ async function _stage7_apply(verdicts, plans, opts) {
         });
     }
 
-    return { applied: applied.length, symbols: applied };
+    return { applied: applied.length, symbols: applied, skippedNoLeader };
 }
 
 // ============================================================
@@ -893,6 +923,22 @@ async function runDualStage(jobId, opts = {}) {
         return { cancelled: true };
     }
 
+    // 🆕 Memory guard داخل runner (نه فقط route)
+    const memCheck = memGuard.canStartHeavyJob();
+    if (!memCheck.ok) {
+        deps.logger && deps.logger.error(`[dual-stage ${jobId}] memory guard: ${memCheck.reason}`);
+        await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+            { _id: new ObjectId(jobId) },
+            { $set: {
+                status: 'FAILED',
+                error: `Memory guard: ${memCheck.reason}`,
+                finishedAt: new Date(),
+                updatedAt: new Date()
+            } }
+        );
+        return { error: memCheck.reason };
+    }
+
     const savedStage = job.pipelineStage || 0;
     const savedState = job.pipelineState || {};
 
@@ -917,27 +963,38 @@ async function runDualStage(jobId, opts = {}) {
         );
 
         // STAGE 1
-        let stage1;
-        if (savedStage >= 1 && savedState.stage1) {
-            stage1 = savedState.stage1;
-            stage1.signalTimesBySymbolStrat = new Map(Object.entries(savedState.stage1.signalTimes || {}));
-        } else {
-            await _setStage(jobId, 1);
-            stage1 = await _stage1_stockBacktest(jobId, configs, ranges.train, savedState);
-            await _setStage(jobId, 1, {
-                stage1: {
-                    done: stage1.done,
-                    resultCount: stage1.results.length,
-                    signalTimes: Object.fromEntries(stage1.signalTimesBySymbolStrat)
-                }
-            });
-        }
+        // 🆕 Resume غیرفعال — چون stage1.results در DB ذخیره نمی‌شه.
+        // اگه job نیمه‌کاره مونده، از صفر شروع می‌کنیم (fail-safe).
+        await _setStage(jobId, 1);
+        const stage1 = await _stage1_stockBacktest(jobId, configs, ranges.train, {});
+        await _setStage(jobId, 1, {
+            stage1: {
+                done: stage1.done,
+                resultCount: stage1.results.length,
+                signalTimes: Object.fromEntries(stage1.signalTimesBySymbolStrat)
+            }
+        });
 
         // STAGE 2
         await _setStage(jobId, 2);
         const stage2 = _stage2_fdrFilter(stage1.results, merged);
         await _setStage(jobId, 2, {
-            stage2: { candidateCount: stage2.candidates.length, fdrMeta: stage2.fdrMeta }
+            stage2: {
+                candidateCount: stage2.candidates.length,
+                fdrMeta: stage2.fdrMeta,
+                candidates: stage2.candidates.map(c => ({
+                    symbol: c.symbol,
+                    strategyId: c.strategyId,
+                    strategyName: c.strategyName,
+                    timeframe: c.timeframe,
+                    htfTimeframe: c.htfTimeframe,
+                    stockPF: c.stockPF,
+                    stockN: c.stockN,
+                    stockWinRate: c.stockWinRate,
+                    stockAvgPnl: c.stockAvgPnl,
+                    pValue: c.pValue
+                }))
+            }
         });
         deps.logger && deps.logger.info(
             `[dual-stage ${jobId}] stage2: ${stage2.candidates.length} candidates (FDR: ${stage2.fdrMeta.passed}/${stage2.fdrMeta.totalTested})`
@@ -949,7 +1006,26 @@ async function runDualStage(jobId, opts = {}) {
         await _setStage(jobId, 3, {
             stage3: {
                 initialCount: stage3.initialCount,
-                validatedCount: stage3.validated.length
+                validatedCount: stage3.validated.length,
+                validated: stage3.validated.map(c => ({
+                    symbol: c.symbol,
+                    strategyId: c.strategyId,
+                    strategyName: c.strategyName,
+                    stockPF: c.stockPF,
+                    stockN: c.stockN,
+                    valPF: c.valPF,
+                    valN: c.valN,
+                    valWinRate: c.valWinRate,
+                    valNote: c.valNote
+                })),
+                rejected: (stage3.rejected || []).map(c => ({
+                    symbol: c.symbol,
+                    strategyId: c.strategyId,
+                    strategyName: c.strategyName,
+                    stockPF: c.stockPF,
+                    stockN: c.stockN,
+                    reason: c.reason || c.valNote || 'rejected'
+                }))
             }
         });
         deps.logger && deps.logger.info(
@@ -1032,8 +1108,45 @@ async function runDualStage(jobId, opts = {}) {
             ranges,
             stages: {
                 1: { totalConfigs: configs.length },
-                2: { candidates: stage2.candidates.length, fdrMeta: stage2.fdrMeta },
-                3: { validated: stage3.validated.length, initial: stage3.initialCount },
+                2: {
+                    candidates: stage2.candidates.map(c => ({
+                        symbol: c.symbol,
+                        strategyId: c.strategyId,
+                        strategyName: c.strategyName,
+                        timeframe: c.timeframe,
+                        htfTimeframe: c.htfTimeframe,
+                        stockPF: c.stockPF,
+                        stockN: c.stockN,
+                        stockWinRate: c.stockWinRate,
+                        stockAvgPnl: c.stockAvgPnl,
+                        pValue: c.pValue
+                    })),
+                    fdrMeta: stage2.fdrMeta
+                },
+                3: {
+                    validated: stage3.validated.map(c => ({
+                        symbol: c.symbol,
+                        strategyId: c.strategyId,
+                        strategyName: c.strategyName,
+                        stockPF: c.stockPF,
+                        stockN: c.stockN,
+                        valPF: c.valPF,
+                        valN: c.valN,
+                        valWinRate: c.valWinRate,
+                        valNote: c.valNote
+                    })),
+                    rejected: (stage3.rejected || []).map(c => ({
+                        symbol: c.symbol,
+                        strategyId: c.strategyId,
+                        strategyName: c.strategyName,
+                        stockPF: c.stockPF,
+                        stockN: c.stockN,
+                        valPF: c.valPF,
+                        valN: c.valN,
+                        reason: c.reason || c.valNote || 'rejected'
+                    })),
+                    initial: stage3.initialCount
+                },
                 4: { plans: stage4.plans, plansCount: stage4.plans.length },
                 5: { results: stage5.results },
                 6: { verdicts: stage6.verdicts, summary: stage6.summary },

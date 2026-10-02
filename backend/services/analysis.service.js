@@ -340,11 +340,27 @@ async function analyzeJob(jobId, opts = {}) {
         .find({ jobId: String(jobId) })
         .toArray();
 
+    // 🆕 cap iterations بر اساس تعداد combos
+    const totalCombos = details.length;
+    let effectiveIterations = opts.iterations || 10000;
+    if (totalCombos > 200) effectiveIterations = 500;
+    else if (totalCombos > 100) effectiveIterations = 1000;
+    else if (totalCombos > 50) effectiveIterations = 2000;
+    else if (totalCombos > 20) effectiveIterations = 5000;
+
+    // 🆕 cap نهایی — کل API رو در محدوده‌ی امن نگه‌دار
+    effectiveIterations = Math.min(effectiveIterations, 50000);
+
+    const effectiveOpts = { ...opts, iterations: effectiveIterations };
+    deps.logger && deps.logger.info(
+        `analyzeJob: ${totalCombos} combos → iterations=${effectiveIterations}`
+    );
+
     const results = [];
     for (const d of details) {
         if (!d.trades || d.trades.length < minTrades) continue;
         try {
-            const r = await analyzeConfig(jobId, d.symbol, d.strategyId, opts);
+            const r = await analyzeConfig(jobId, d.symbol, d.strategyId, effectiveOpts);
             if (!r.error) results.push(r);
         } catch (e) {
             deps.logger && deps.logger.warn(`analyze ${d.symbol}/${d.strategyId}: ${e.message}`);

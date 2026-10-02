@@ -25,8 +25,17 @@ _stats = {
 }
 
 _last_snap = {}
+_last_snap_date = None   # 🆕 تاریخ تهران برای reset خودکار
 
 OPTION_INTERVAL_SEC = 300   # ۵ دقیقه
+
+
+def _check_snap_date(tehran_today):
+    """🆕 هر روز صبح snap رو reset کن."""
+    global _last_snap, _last_snap_date
+    if _last_snap_date != tehran_today:
+        _last_snap = {}
+        _last_snap_date = tehran_today
 
 
 def _is_market_open():
@@ -59,6 +68,11 @@ def _fetch_stocks(symbols):
     ts = datetime.now(timezone.utc)
     now_ts = time.time()
     docs = []
+
+    # 🆕 reset روزانه
+    from datetime import datetime as _dt
+    tehran_today = (_dt.now(timezone.utc) + timedelta(hours=3, minutes=30)).strftime('%Y-%m-%d')
+    _check_snap_date(tehran_today)
 
     for r in records:
         sym = r.get('Symbol')
@@ -187,11 +201,15 @@ def _option_loop(get_symbols):
             time.sleep(1)
 
 
+_ticker_lock = threading.Lock()
+
 def start_ticker(get_symbols, get_rf, interval_sec=10):
     global _stock_thread, _opt_thread, _running
-    if _running:
-        return False
-    _running = True
+    # 🆕 lock برای جلوگیری از race condition
+    with _ticker_lock:
+        if _running:
+            return False
+        _running = True
 
     _stock_thread = threading.Thread(
         target=_stock_loop,

@@ -313,8 +313,9 @@ function canOpen(candidate, portfolio, limits, ctx) {
         const r = ctx.regimeMap[candidate.symbol];
         if (r && r.macro && r.macro !== 'unknown') {
             const rf = regimeCore.regimeSizeFactor(candidate.strategyId, r.macro, r.vol);
-            regimeFactor = rf.factor;
+            regimeFactor = Number(rf.factor) || 0;
             regimeReason = rf.reason;
+            // 🆕 با Number() مقایسه کن
             if (regimeFactor === 0) {
                 return {
                     allowed: false,

@@ -161,6 +161,13 @@ function validate() {
         console.warn('⚠️ ADMIN_TOKEN خالی است — تمام درخواست‌های تغییردهنده بدون احراز هویت قبول می‌شن');
         console.warn('   برای امنیت، یک توکن قوی در .env تنظیم کن');
     }
+    // 🆕 هشدار تلگرام
+    if (!config.TELEGRAM_BOT_TOKEN && isProd()) {
+        console.warn('⚠️ TELEGRAM_BOT_TOKEN خالی است — اعلان‌ها غیرفعال می‌شن');
+    }
+    if (!config.TELEGRAM_CHAT_ID && isProd()) {
+        console.warn('⚠️ TELEGRAM_CHAT_ID خالی است — اعلان‌ها غیرفعال می‌شن');
+    }
     return true;
 }
 

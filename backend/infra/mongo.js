@@ -101,7 +101,12 @@ async function ensureIndexes() {
         { jobId: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS),
         { createdAt: -1 });
-    await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE), { computedAt: 1 });
+    // 🆕 TTL 30 روزه برای trade cache
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE),
+        { computedAt: 1 },
+        { expireAfterSeconds: 30 * 86400 }
+    );
     await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_TRADE_CACHE), { 'signature.symbol': 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.BACKTEST_RESULT_CACHE),
         { createdAt: 1 },

@@ -151,7 +151,19 @@ function buildTfCandles(permanentRows, baseCandles, tfMin) {
             volume: c.volume || 0, complete: c.complete
         }
     ]));
-    for (const c of live) map.set(c.time, c);
+    // 🆕 اگه permanent قبلاً complete=true بوده، live اون رو خراب نکنه
+    for (const c of live) {
+        const existing = map.get(c.time);
+        if (existing && existing.complete === true && c.complete !== true) {
+            // keep existing (complete) با آپدیت close/high/low/volume
+            map.set(c.time, {
+                ...c,
+                complete: true
+            });
+        } else {
+            map.set(c.time, c);
+        }
+    }
     return Array.from(map.values()).sort((a, b) => a.time - b.time);
 }
 
@@ -619,7 +631,7 @@ function clearCache(prefix) {
 // ============================================================
 const _candleCache = new Map();
 const CANDLE_TTL_MS = 3 * 60 * 1000;    // ۳ دقیقه
-const CANDLE_MAX_ENTRIES = 80;           // حداکثر ۸۰ ورودی
+const CANDLE_MAX_ENTRIES = 500;          // ۲۳ نماد × ۸ تایم‌فریم + بافر
 
 function _cacheKey(symbol, tf) { return `${symbol}::${tf}`; }
 

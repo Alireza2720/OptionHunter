@@ -630,14 +630,15 @@ class BackfillBidAskIn(BaseModel):
     includeToday: bool = True
 
 
-def _safe_float(v):
+def _safe_float(v, zero_as_none=True):
     """None-safe float برای فیلدهای ممکنه NaN/None."""
     try:
-        import pandas as pd
         if v is None or pd.isna(v):
             return None
         f = float(v)
-        return f if f != 0 else None
+        if zero_as_none and f == 0:
+            return None
+        return f
     except (TypeError, ValueError):
         return None
 
@@ -685,10 +686,11 @@ def backfill_option_bidask(p: BackfillBidAskIn):
             targets = [s['symbol'] for s in db[COL_MONITORED].find({})]
 
         col = db[COL_OPTION_HISTORY]
-        now = datetime.now(timezone.utc)
 
         for sym in targets:
             try:
+                # 🆕 timestamp جدا برای هر نماد — واقع‌گرایانه‌تر
+                now = datetime.now(timezone.utc)
                 df = att.get_option_market(underlying=sym, progress=False)
                 if df is None or len(df) == 0:
                     continue
@@ -746,10 +748,10 @@ def backfill_option_bidask(p: BackfillBidAskIn):
                         'size': int(row.get('ContractSize') or 1000),
                         'S': _safe_float(row.get('UnderlyingLast')) or _safe_float(row.get('UnderlyingClose')),
                         'ivApi': _safe_float(row.get('ImpliedVolatilityMid')) or _safe_float(row.get('ImpliedVolatility')),
-                        'deltaApi': _safe_float(row.get('Delta')),
-                        'gammaApi': _safe_float(row.get('Gamma')),
-                        'thetaApi': _safe_float(row.get('ThetaPerDay')),
-                        'vegaApi': _safe_float(row.get('Vega')),
+                        'deltaApi': _safe_float(row.get('Delta'), zero_as_none=False),
+                        'gammaApi': _safe_float(row.get('Gamma'), zero_as_none=False),
+                        'thetaApi': _safe_float(row.get('ThetaPerDay'), zero_as_none=False),
+                        'vegaApi': _safe_float(row.get('Vega'), zero_as_none=False),
                         'isCall': (row.get('OptionType') or '').lower() == 'call',
                         'source': 'algotik_snapshot',
                         'computedAt': now,

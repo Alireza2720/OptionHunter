@@ -1341,9 +1341,10 @@
                     peerRets.push(r);
                 }
             }
+            // 🆕 اگه peer کافی نیست، از return خود سهم به‌عنوان fallback استفاده کن
             const peerAvg = peerRets.length >= p.minPeerCount
                 ? peerRets.reduce((s,x)=>s+x,0) / peerRets.length
-                : null;
+                : (peerRets.length > 0 ? peerRets.reduce((s,x)=>s+x,0) / peerRets.length : null);
             let signalType = null, reason = null;
             if (position === 'LONG') {
                 const bars = i - entry.idx; const R = entry.risk;

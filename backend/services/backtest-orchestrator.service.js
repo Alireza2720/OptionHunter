@@ -469,6 +469,52 @@ async function computeFullResult(job, jobId) {
     // ---- Auto-Config Suggestion ----
     result.autoConfigSuggestion = buildAutoConfigSuggestion(result, symbols);
 
+    // 🆕 ذخیره‌ی PF در meta حتی بدون portfolio
+    try {
+        const db = deps.getDB();
+        let pf = null;
+        let maxDD = null;
+        let sharpe = null;
+        let returnPct = null;
+
+        if (result.portfolio && !result.portfolio.error && result.portfolio.stats) {
+            pf = result.portfolio.stats.profitFactor;
+            maxDD = result.portfolio.stats.maxDD;
+            sharpe = result.portfolio.stats.sharpe;
+            returnPct = result.portfolio.stats.totalReturnPct;
+        } else {
+            // aggregate PF از details
+            let gp = 0, gl = 0;
+            for (const d of (result.details || [])) {
+                const t = d.optionStats || d.stockStats || {};
+                const n = t.count || 0;
+                const wr = (t.winRate || 0) / 100;
+                const wins = n * wr;
+                const losses = n - wins;
+                gp += wins * Math.abs(t.avgWin || 0);
+                gl += losses * Math.abs(t.avgLoss || 0);
+            }
+            pf = gl > 0 ? gp / gl : (gp > 0 ? 999 : null);
+        }
+
+        if (pf != null && Number.isFinite(pf)) {
+            await db.collection(COLLECTIONS.META).updateOne(
+                { _id: 'last_backtest_pf' },
+                { $set: {
+                    pf, maxDD, sharpe, returnPct,
+                    jobId: String(jobId),
+                    mode: result.mode || 'option',
+                    totalTrades: (result.details || []).reduce((s, d) => s + ((d.optionStats && d.optionStats.count) || 0), 0),
+                    recordedAt: new Date()
+                } },
+                { upsert: true }
+            );
+            deps.logger && deps.logger.info(`[bt-compute] last_backtest_pf saved: ${pf.toFixed(2)}`);
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn(`[bt-compute] save last_backtest_pf: ${e.message}`);
+    }
+
     deps.logger && deps.logger.info(`[bt-compute] ${jobId} done`);
     return result;
 }

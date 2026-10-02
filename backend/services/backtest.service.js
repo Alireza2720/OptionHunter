@@ -519,9 +519,12 @@ async function applyAutoConfig(plans, trainingMeta = null) {
             .find({ symbol: p.symbol }).toArray();
         const oldIds = old.map(o => o._id.toString());
 
-        await db.collection(COLLECTIONS.STRATEGY_CONFIGS).deleteMany({ symbol: p.symbol });
+        await db.collection(COLLECTIONS.STRATEGY_CONFIGS).deleteMany({ symbol });
         await db.collection(COLLECTIONS.SIGNALS_STATE).deleteMany({ configId: { $in: oldIds } });
-        await deps.backtest.invalidateCacheForConfig(oldIds).catch(() => {});
+        // 🆕 invalidate برای هر config
+        for (const oldId of oldIds) {
+            try { await deps.backtestService.invalidateCacheForConfig(oldId); } catch (_) {}
+        }
 
         const STRATEGIES = deps.strategies.STRATEGIES;
 

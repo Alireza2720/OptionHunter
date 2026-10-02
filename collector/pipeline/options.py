@@ -42,14 +42,17 @@ def analyze_chain(df, risk_free_rate):
     except Exception as e:
         return df, str(e)
 
-def _clean_num(v):
+def _clean_num(v, zero_as_none=False):
     if v is None: return None
     try:
         if pd.isna(v): return None
     except (TypeError, ValueError):
         pass
     try:
-        return float(v)
+        f = float(v)
+        if zero_as_none and f == 0:
+            return None
+        return f
     except (TypeError, ValueError):
         return None
 
@@ -171,10 +174,10 @@ def _row_to_doc(row, rf, time_val=None):
         'volume': _clean_num(row.get('Volume')),
         'trades': _clean_num(row.get('TradeCount')),
         'ivApi': iv, 'ivStatus': iv_status, 'ivRaw': iv_raw,
-        'deltaApi': _clean_num(row.get('Delta')),
-        'gammaApi': _clean_num(row.get('Gamma')),
-        'vegaApi': _clean_num(row.get('Vega')),
-        'thetaApi': _clean_num(row.get('ThetaPerDay')),
+        'deltaApi': _clean_num(row.get('Delta'), zero_as_none=False),
+        'gammaApi': _clean_num(row.get('Gamma'), zero_as_none=False),
+        'vegaApi': _clean_num(row.get('Vega'), zero_as_none=False),
+        'thetaApi': _clean_num(row.get('ThetaPerDay'), zero_as_none=False),
         'thetaApiContract': _clean_num(row.get('ThetaPerDayContract')),
         'rhoApi': _clean_num(row.get('Rho')),
         'spreadPct': _clean_num(row.get('SpreadPct')),
@@ -422,6 +425,12 @@ def migrate_snapshots_to_history(underlyings=None, days=180, dry_run=False, log_
         underlying = snap.get('underlying')
         if not ts or not symbol:
             continue
+
+        # 🆕 round به دقیقه — برای تطابق با entryFillTime در بک‌تست
+        try:
+            ts = ts.replace(second=0, microsecond=0)
+        except Exception:
+            pass
 
         strike = snap.get('strike')
         expiry = None
