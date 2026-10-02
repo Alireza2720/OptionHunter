@@ -272,6 +272,7 @@ table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); 
         <button class="menu-item" onclick="openJournal(); toggleMenu();" title="دفتر معاملات — هر معامله با جزئیات کامل">📓 ژورنال معاملات</button>
         <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();" title="تحلیل خوشه‌ها و ماتریس همبستگی">🔗 تحلیل پرتفولیو</button>
         <button class="menu-item" onclick="openRegimePanel(); toggleMenu();" title="رژیم بازار هر نماد + نگاشت استراتژی">🌡 رژیم بازار</button>
+        <button class="menu-item" onclick="openDualStagePanel(); toggleMenu();" title="Pipeline خودکار دو مرحله‌ای: Stock Backtest → Option Backtest" style="background:linear-gradient(135deg, rgba(61,125,216,.15), rgba(46,168,138,.15)); border:1px solid var(--accent); font-weight:600;">🎯 Pipeline دو مرحله‌ای</button>
     </div>
 
     <div class="menu-tab-content" id="menuTab-status" style="display:none;">
@@ -613,6 +614,11 @@ function closeModal() {
     if (_btPollTimer) {
         clearInterval(_btPollTimer);
         _btPollTimer = null;
+    }
+    // 🆕 اگه dual-stage در حال polling بود، متوقفش کن
+    if (typeof _dsPollTimer !== 'undefined' && _dsPollTimer) {
+        clearInterval(_dsPollTimer);
+        _dsPollTimer = null;
     }
     // 🆕 اگه job tracker فعال بود، پاک کن
     if (typeof jobTrackersTimers !== 'undefined') {
@@ -4725,6 +4731,366 @@ window.toggleMenu = function() {
     }
 };
 window.addEventListener('resize', () => { const pc = document.getElementById('priceChart'); priceChart && pc && priceChart.applyOptions({ width: pc.clientWidth }); });
+// ============================================================
+// Dual-Stage Pipeline UI
+// ============================================================
+let _dsJobId = null;
+let _dsPollTimer = null;
+
+const DS_STAGE_LABELS = {
+    0: 'در صف',
+    1: 'مرحله ۱: بک‌تست سهم روی Train',
+    2: 'مرحله ۲: فیلتر FDR',
+    3: 'مرحله ۳: اعتبارسنجی روی Validation',
+    4: 'مرحله ۴: انتخاب Leader/Confirmer',
+    5: 'مرحله ۵: بک‌تست آپشن روی Test',
+    6: 'مرحله ۶: تصمیم نهایی',
+    7: 'مرحله ۷: اعمال configs',
+    99: 'تکمیل'
+};
+
+async function openDualStagePanel() {
+    // 🆕 چک pre-requisites
+    if (!strategiesInfo || !strategiesInfo.length) {
+        showAlert('ابتدا استراتژی‌ها بارگذاری شوند — صبر کن و دوباره بزن', 'warn', 5000);
+        return;
+    }
+    if (!monitoredSymbols || !monitoredSymbols.length) {
+        showAlert('ابتدا نماد به لیست پایش اضافه کن', 'warn', 5000);
+        return;
+    }
+
+    // پیش‌نمایش بازه‌ها
+    let preview = null;
+    try {
+        preview = await apiFetch(`${BACKEND_URL}/api/pipeline/dual-stage/preview`, {}, 0);
+    } catch (e) {
+        preview = { error: e.message };
+    }
+
+    const info = preview && !preview.error ? `
+        <div class="hint" style="padding:8px 12px;background:var(--bg-input);border-radius:6px;margin-bottom:12px;">
+            📊 <b>پیش‌نمایش:</b>
+            ${preview.symbols} نماد × ${preview.strategies} استراتژی = <b>${preview.totalConfigs}</b> ترکیب
+            · تخمین زمان: <b>${preview.estimatedMinutes} دقیقه</b>
+        </div>
+        <div class="hint" style="font-size:11px;color:var(--text-dim);margin-bottom:12px;">
+            Train: ${preview.ranges.train.days} روز ·
+            Validation: ${preview.ranges.validation.days} روز ·
+            Test: ${preview.ranges.test.days} روز
+        </div>
+    ` : '';
+
+    const symsHtml = monitoredSymbols.length
+        ? monitoredSymbols.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">
+            <input type="checkbox" class="ds-sym" value="${esc(s.symbol)}"> ${esc(s.symbol)}
+        </label>`).join('')
+        : '<div class="empty-note">نمادی نیست</div>';
+
+    const stratsHtml = strategiesInfo.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">
+        <input type="checkbox" class="ds-strat" value="${esc(s.id)}" ${['ensemble','pairs_spread','sector_momentum'].includes(s.id) ? '' : 'checked'}> ${esc(s.name)}
+    </label>`).join('');
+
+    openModal('🎯 Pipeline دو مرحله‌ای', `
+        <div class="hint" style="margin-bottom:10px;">
+            مکانیزم خودکار: Stock Backtest روی Train → FDR Filter → Validation → Leader/Confirmer → Option Backtest روی Test → Verdict
+        </div>
+        ${info}
+
+        <div class="adv-accordion open" id="ds_syms_acc">
+            <div class="adv-header" onclick="this.parentNode.classList.toggle('open')">
+                <span><b>نمادها</b> — <span id="ds_sym_count">۰</span> انتخاب‌شده</span>
+                <span class="chev">▼</span>
+            </div>
+            <div class="adv-body">
+                <div style="margin-bottom:8px;">
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.ds-sym').forEach(c=>c.checked=true);dsUpdateCounts();">همه</button>
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.ds-sym').forEach(c=>c.checked=false);dsUpdateCounts();">هیچ</button>
+                </div>
+                <div id="ds_syms_list">${symsHtml}</div>
+            </div>
+        </div>
+
+        <div class="adv-accordion open" id="ds_strats_acc" style="margin-top:8px;">
+            <div class="adv-header" onclick="this.parentNode.classList.toggle('open')">
+                <span><b>استراتژی‌ها</b> — <span id="ds_strat_count">۰</span> انتخاب‌شده</span>
+                <span class="chev">▼</span>
+            </div>
+            <div class="adv-body">
+                <div style="margin-bottom:8px;">
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.ds-strat').forEach(c=>c.checked=true);dsUpdateCounts();">همه</button>
+                    <button class="btn tiny outline" onclick="document.querySelectorAll('.ds-strat').forEach(c=>c.checked=false);dsUpdateCounts();">هیچ</button>
+                </div>
+                <div id="ds_strats_list">${stratsHtml}</div>
+            </div>
+        </div>
+
+        <div class="adv-accordion" id="ds_settings_acc" style="margin-top:8px;">
+            <div class="adv-header" onclick="this.parentNode.classList.toggle('open')">
+                <span><b>⚙️ آستانه‌ها</b></span>
+                <span class="chev">▼</span>
+            </div>
+            <div class="adv-body">
+                <div class="form-row">
+                    <div class="field"><label>Min Stock Trades</label><input type="number" id="ds_minTrades" value="30"></div>
+                    <div class="field"><label>Min Stock PF</label><input type="number" id="ds_minStockPF" value="1.3" step="0.1"></div>
+                    <div class="field"><label>FDR q</label><input type="number" id="ds_fdrQ" value="0.05" step="0.01"></div>
+                    <div class="field"><label>Min Validation PF</label><input type="number" id="ds_minValPF" value="0.8" step="0.1"></div>
+                    <div class="field"><label>Max Confirmers</label><input type="number" id="ds_maxConf" value="2" min="0" max="5"></div>
+                    <div class="field"><label>Signal Corr Threshold</label><input type="number" id="ds_corrThr" value="0.5" step="0.1"></div>
+                    <div class="field"><label>Min Option Trades</label><input type="number" id="ds_minOptTrades" value="5"></div>
+                    <div class="field"><label>GO Threshold</label><input type="number" id="ds_goThr" value="0.7" step="0.05"></div>
+                    <div class="field"><label>MAYBE Threshold</label><input type="number" id="ds_maybeThr" value="0.5" step="0.05"></div>
+                </div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:8px;">
+                    <input type="checkbox" id="ds_dryRun" checked> Dry Run (بدون اعمال config)
+                </label>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:14px;">
+            <button class="btn success" id="ds_run_btn" onclick="runDualStagePipeline()" style="flex:1;font-weight:600;">🚀 شروع Pipeline</button>
+            <button class="btn danger" id="ds_cancel_btn" style="display:none;" onclick="cancelDualStage()">لغو</button>
+        </div>
+
+        <div id="ds_progress" style="margin-top:14px;"></div>
+        <div id="ds_results" style="margin-top:14px;"></div>
+    `, false);
+
+    // update counts
+    setTimeout(() => {
+        dsUpdateCounts();
+        document.querySelectorAll('.ds-sym, .ds-strat').forEach(c => c.addEventListener('change', dsUpdateCounts));
+    }, 100);
+}
+
+function dsUpdateCounts() {
+    const symCount = document.querySelectorAll('.ds-sym:checked').length;
+    const stratCount = document.querySelectorAll('.ds-strat:checked').length;
+    const sc = document.getElementById('ds_sym_count');
+    const tc = document.getElementById('ds_strat_count');
+    if (sc) sc.textContent = toFa(symCount);
+    if (tc) tc.textContent = toFa(stratCount);
+}
+
+function toFa(n) {
+    return String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
+}
+
+async function runDualStagePipeline() {
+    const symbols = Array.from(document.querySelectorAll('.ds-sym:checked')).map(c => c.value);
+    const strategies = Array.from(document.querySelectorAll('.ds-strat:checked')).map(c => c.value);
+
+    if (!symbols.length) return showAlert('حداقل یک نماد انتخاب کن', 'warn');
+    if (!strategies.length) return showAlert('حداقل یک استراتژی انتخاب کن', 'warn');
+
+    const body = {
+        symbols,
+        strategies,
+        dryRun: document.getElementById('ds_dryRun').checked,
+        minStockTrades: +document.getElementById('ds_minTrades').value || 30,
+        minStockPF: +document.getElementById('ds_minStockPF').value || 1.3,
+        fdrQ: +document.getElementById('ds_fdrQ').value || 0.05,
+        minValidationPF: +document.getElementById('ds_minValPF').value || 0.8,
+        maxConfirmers: +document.getElementById('ds_maxConf').value || 2,
+        signalCorrThreshold: +document.getElementById('ds_corrThr').value || 0.5,
+        minOptionTrades: +document.getElementById('ds_minOptTrades').value || 5,
+        goThreshold: +document.getElementById('ds_goThr').value || 0.7,
+        maybeThreshold: +document.getElementById('ds_maybeThr').value || 0.5,
+    };
+
+    const btn = document.getElementById('ds_run_btn');
+    const cancelBtn = document.getElementById('ds_cancel_btn');
+    const prog = document.getElementById('ds_progress');
+    const res = document.getElementById('ds_results');
+
+    btn.disabled = true;
+    btn.textContent = '⏳ در حال اجرا...';
+    cancelBtn.style.display = 'inline-block';
+    res.innerHTML = '';
+
+    try {
+        const r = await apiFetch(`${BACKEND_URL}/api/pipeline/dual-stage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }, 0);
+        _dsJobId = r.jobId;
+        prog.innerHTML = `<div class="hint">Job: <code>${r.jobId}</code></div>`;
+
+        if (_dsPollTimer) clearInterval(_dsPollTimer);
+        _dsPollTimer = setInterval(pollDualStage, 4000);
+        pollDualStage();
+    } catch (e) {
+        prog.innerHTML = `<div class="empty-note" style="color:var(--bad);">خطا: ${esc(e.message)}</div>`;
+        btn.disabled = false;
+        btn.textContent = '🚀 شروع Pipeline';
+        cancelBtn.style.display = 'none';
+    }
+}
+
+async function pollDualStage() {
+    if (!_dsJobId) return;
+    try {
+        const d = await apiFetch(`${BACKEND_URL}/api/pipeline/dual-stage/${_dsJobId}`, {}, 0);
+        const prog = document.getElementById('ds_progress');
+        const res = document.getElementById('ds_results');
+        const btn = document.getElementById('ds_run_btn');
+        const cancelBtn = document.getElementById('ds_cancel_btn');
+
+        if (!prog) {
+            if (_dsPollTimer) clearInterval(_dsPollTimer);
+            return;
+        }
+
+        // پاک‌سازی برای نمایش
+        const stageNum = d.pipelineStage || 0;
+        const stageLabel = DS_STAGE_LABELS[stageNum] || `stage ${stageNum}`;
+        const pct = Math.round((stageNum / 7) * 100);
+
+        prog.innerHTML = `
+            <div class="job-card">
+                <div class="job-header">
+                    <span class="job-type" style="background:rgba(61,125,216,.15);color:var(--accent);">Dual-Stage</span>
+                    <span class="job-status ${d.status}">${d.status}</span>
+                </div>
+                <div class="job-msg">${esc(d.progress?.message || stageLabel)}</div>
+                <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+                <div class="job-msg" style="font-size:11px;">مرحله ${stageNum}/7</div>
+                ${d.pipelineState?.stage2 ? `<div class="hint" style="margin-top:6px;">FDR: ${d.pipelineState.stage2.candidateCount || 0} کاندید از ${d.pipelineState.totalConfigs || 0}</div>` : ''}
+                ${d.pipelineState?.stage3 ? `<div class="hint">Validation: ${d.pipelineState.stage3.validatedCount || 0}/${d.pipelineState.stage3.initialCount || 0}</div>` : ''}
+                ${d.pipelineState?.stage4 ? `<div class="hint">Plans: ${d.pipelineState.stage4.planCount || 0} نماد</div>` : ''}
+                ${d.pipelineState?.stage5 ? `<div class="hint">Option: ${d.pipelineState.stage5.pairCount || 0} pair${d.pipelineState.stage5.bidaskBackfill ? ` — bf: ${d.pipelineState.stage5.bidaskBackfill.recordsUpdated || 0}` : ''}</div>` : ''}
+                ${d.pipelineState?.stage6 ? `<div class="hint">Verdict: GO=${d.pipelineState.stage6.go||0} MAYBE=${d.pipelineState.stage6.maybe||0} SKIP=${d.pipelineState.stage6.skip||0}</div>` : ''}
+            </div>
+        `;
+
+        if (['DONE', 'FAILED', 'CANCELLED'].includes(d.status)) {
+            if (_dsPollTimer) clearInterval(_dsPollTimer);
+            _dsPollTimer = null;
+            btn.disabled = false;
+            btn.textContent = '🚀 اجرای مجدد';
+            cancelBtn.style.display = 'none';
+
+            if (d.status === 'DONE' && d.result) {
+                renderDualStageResult(d.result);
+            } else if (d.status === 'FAILED') {
+                res.innerHTML = `<div class="empty-note" style="color:var(--bad);">خطا: ${esc(d.error || '')}</div>`;
+            }
+        }
+    } catch (e) {
+        console.error('poll dual-stage:', e);
+    }
+}
+
+async function cancelDualStage() {
+    if (!_dsJobId) return;
+    if (!confirm('اجرا رو کنسل کنم؟')) return;
+    try {
+        await apiFetch(`${BACKEND_URL}/api/pipeline/dual-stage/${_dsJobId}/cancel`, { method: 'POST' }, 0);
+        showAlert('درخواست لغو فرستاد شد', 'info', 4000);
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
+
+function renderDualStageResult(result) {
+    const res = document.getElementById('ds_results');
+    if (!res) return;
+
+    const s = result.summary || {};
+    const stages = result.stages || {};
+
+    const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;
+
+    // خلاصه
+    let html = `
+        <h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📊 خلاصه</h4>
+        <div class="stats-grid">
+            ${statBox('کل ترکیب', s.totalCombos || 0)}
+            ${statBox('کاندید FDR', s.candidates || 0)}
+            ${statBox('تایید‌شده', s.validated || 0)}
+            ${statBox('پلن', s.plans || 0)}
+            ${statBox('GO', s.go || 0, s.go > 0 ? 'highlight-good' : '')}
+            ${statBox('MAYBE', s.maybe || 0, '')}
+            ${statBox('SKIP', s.skip || 0, s.skip > 0 ? 'highlight-bad' : '')}
+            ${statBox('اعمال‌شده', s.applied || 0)}
+        </div>
+        <div class="hint">زمان کل: ${result.elapsed} ثانیه</div>
+    `;
+
+    // Verdicts
+    const verdicts = stages[6]?.verdicts || [];
+    if (verdicts.length) {
+        html += `<h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">🎯 تصمیم‌ها (${verdicts.length})</h4>`;
+        html += `<div class="table-responsive" style="max-height:400px;overflow-y:auto;"><table class="data-table">
+            <thead><tr>
+                <th>نماد</th><th>استراتژی</th><th>نقش</th>
+                <th>Stock PF</th><th>Option PF</th><th>Ratio</th>
+                <th>N option</th><th>Real%</th>
+                <th>Verdict</th><th>دلیل</th>
+            </tr></thead>
+            <tbody>`;
+
+        const sorted = [...verdicts].sort((a, b) => {
+            const ord = { GO: 0, MAYBE: 1, SKIP: 2 };
+            return (ord[a.verdict] || 3) - (ord[b.verdict] || 3);
+        });
+
+        for (const v of sorted) {
+            const badge = v.verdict === 'GO' ? '<span class="badge long">GO</span>'
+                       : v.verdict === 'MAYBE' ? '<span class="badge warn">MAYBE</span>'
+                       : '<span class="badge short">SKIP</span>';
+            const role = v.role === 'leader' ? '<span class="role-badge leader">لیدر</span>'
+                       : '<span class="role-badge confirmer">تایید</span>';
+            html += `<tr>
+                <td><b>${esc(v.symbol)}</b></td>
+                <td>${esc(v.strategyName || v.strategyId)}</td>
+                <td>${role}</td>
+                <td>${(v.stockPF || 0).toFixed(2)}</td>
+                <td>${(v.optionPF || 0).toFixed(2)}</td>
+                <td>${(v.ratio || 0).toFixed(2)}</td>
+                <td>${v.optionN || 0}</td>
+                <td>${v.realRatio || 0}%</td>
+                <td>${badge}</td>
+                <td style="font-size:10.5px;">${esc(v.verdictReason || '')}</td>
+            </tr>`;
+        }
+        html += `</tbody></table></div>`;
+    }
+
+    // Plans (leader/confirmer)
+    const plans = stages[4]?.plans || [];
+    if (plans.length) {
+        html += `<h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">📋 پلن‌ها (${plans.length} نماد)</h4>`;
+        for (const p of plans) {
+            html += `
+                <div class="auto-plan-card">
+                    <h5>${esc(p.symbol)}</h5>
+                    <div class="auto-role-row">
+                        <span class="role-badge leader">لیدر</span>
+                        <b>${esc(p.leader.strategyName)}</b>
+                        <span class="auto-score">PF=${(p.leader.stockPF||0).toFixed(2)} → ${(p.leader.valPF||0).toFixed(2)}</span>
+                    </div>
+                    ${(p.confirmers || []).map(c => `
+                        <div class="auto-role-row">
+                            <span class="role-badge confirmer">تایید</span>
+                            <b>${esc(c.strategyName)}</b>
+                            <span class="auto-score">PF=${(c.stockPF||0).toFixed(2)} → ${(c.valPF||0).toFixed(2)}</span>
+                        </div>
+                    `).join('')}
+                    ${p.regime?.distribution ? `<div class="hint" style="font-size:11px;">رژیم: bull=${p.regime.distribution.bull?.pct||0}% bear=${p.regime.distribution.bear?.pct||0}% range=${p.regime.distribution.range?.pct||0}%</div>` : ''}
+                </div>
+            `;
+        }
+    }
+
+    if (!verdicts.length && !plans.length) {
+        html += `<div class="empty-note">هیچ verdict یا plan‌ای تولید نشد</div>`;
+    }
+
+    res.innerHTML = html;
+}
 </script>
 </body>
 </html>

@@ -945,41 +945,42 @@ async function runDualStage(jobId, opts = {}) {
         });
         deps.logger && deps.logger.info(`[dual-stage ${jobId}] stage4: ${stage4.plans.length} plans`);
 
-        // STAGE 5
         // ============ STAGE 5 ============
         // 🆕 قبل از Stage 5: اطمینان از bid/ask در option_history
-        await _setStage(jobId, 5, {
-            stage5: { phase: 'bidask-backfill', started: true }
-        });
+        await _setStage(jobId, 5);
+        let bidaskInfo = null;
         try {
             const bf = await deps.algotik.backfillOptionBidAsk({
-                underlyings: null,      // همه monitored
+                underlyings: null,
                 contractLimit: 200,
                 includeToday: true,
             });
+            bidaskInfo = {
+                contractsFound: bf.contractsFound,
+                recordsUpdated: bf.recordsUpdated,
+                recordsSkipped: bf.recordsSkipped,
+                snapshotsMigration: bf.snapshotsMigration ? {
+                    total: bf.snapshotsMigration.total_processed,
+                    written: bf.snapshotsMigration.written,
+                } : null,
+            };
             deps.logger && deps.logger.info(
-                `[dual-stage ${jobId}] bidask backfill: contracts=${bf.contractsFound} updated=${bf.recordsUpdated} skipped=${bf.recordsSkipped}`
+                `[dual-stage ${jobId}] bidask backfill: contracts=${bf.contractsFound} updated=${bf.recordsUpdated}`
             );
-            await _setStage(jobId, 5, {
-                stage5: {
-                    bidaskBackfill: {
-                        contractsFound: bf.contractsFound,
-                        recordsUpdated: bf.recordsUpdated,
-                        recordsSkipped: bf.recordsSkipped,
-                    }
-                }
-            });
         } catch (e) {
             deps.logger && deps.logger.warn(`[dual-stage] bidask backfill failed: ${e.message}`);
-            await _setStage(jobId, 5, {
-                stage5: { bidaskBackfill: { error: e.message } }
-            });
+            bidaskInfo = { error: e.message };
         }
 
-        await _setStage(jobId, 5);
         const stage5 = await _stage5_optionBacktest(jobId, stage4.plans, ranges.test, merged);
-        await _setStage(jobId, 5, { stage5: { pairCount: stage5.results.length } });
-        deps.logger && deps.logger.info(`[dual-stage ${jobId}] stage5: ${stage5.results.length} option results`);
+
+        // 🆕 یک patch واحد → هیچ overwrite نمی‌شه
+        await _setStage(jobId, 5, {
+            stage5: {
+                pairCount: stage5.results.length,
+                bidaskBackfill: bidaskInfo,
+            }
+        });
 
         // STAGE 6
         await _setStage(jobId, 6);
