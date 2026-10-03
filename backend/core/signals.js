@@ -521,10 +521,13 @@ async function evaluateConfig(config, marketInfo) {
         `دلیل: ${short(last.reason || '-', 200)}` +
         `${confluenceTag}${confirmersTag}${queueTag}${windowTag}${incompleteTag}`;
 
+    // 🆕 regimeResult رو از قبل اعلام کن — جلوگیری از out-of-scope
+    let regimeResult = { allowed: true, factor: 1.0, reason: 'not-checked' };
+
     // 🆕 اگه BUY هست، guardهای مختلف رو چک کن
     if (last.signalType === 'BUY') {
         // ۱. Regime guard (soft — فقط خیلی خطرناک رو رد می‌کنه)
-        const regimeResult = await checkRegimeGuard(config);
+        regimeResult = await checkRegimeGuard(config);
         if (!regimeResult.allowed) {
             const reasonText = `⛔ سیگنال ${config.symbol} رد شد (Regime خطرناک)\n${def.name}\nرژیم: ${regimeResult.regime}\nدلیل: ${regimeResult.reason}`;
             await deps.notify(reasonText);
