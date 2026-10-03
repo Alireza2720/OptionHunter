@@ -37,6 +37,3 @@ coverage/
 
 # Sync backups
 .sync-backup-*
-
-# Sync backups
-.sync-backup-*
