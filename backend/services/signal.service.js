@@ -142,7 +142,13 @@ async function buildMarketInfo(monitored) {
         totalVolDelta += volDelta;
     }
 
-    return { marketInfo, activeCount: raw.filter(s => +s.tno > 0).length, totalVolDelta };
+    // 🆕 activeCount فقط از monitored — با TradeCount/tno/Volume
+    const _activeCount = monitored.filter(m => {
+        const s = rawMap.get(m.symbol);
+        if (!s) return false;
+        return +(s.TradeCount || s.tno || s.Volume || 0) > 0;
+    }).length;
+    return { marketInfo, activeCount: _activeCount, totalVolDelta };
 }
 
 // ============================================================
@@ -152,9 +158,9 @@ async function tick() {
     if (tickRunning) {
         // 🆕 فقط لاگ کن اگه کند شده — force reset نکن (باعث تیک موازی می‌شه)
         const elapsed = Date.now() - tickStartTime;
-        if (elapsed > 30000) {
-            deps.logger && deps.logger.warn(
-                `tick still running (${Math.round(elapsed/1000)}s) — skip`
+        if (elapsed > 90000) {
+            deps.logger && deps.logger.error(
+                `🚨 tick ${Math.round(elapsed/1000)}s هنوز اجرا`
             );
         }
         return;
@@ -241,7 +247,7 @@ async function tick() {
         } catch (_) {}
 
         deps.logger && deps.logger.info(
-            `${tehran.hour}:${String(tehran.minute).padStart(2, '0')} | ${monitored.length} نماد | ${n} استراتژی | فعال: ${activeCount}`
+            `${tehran.hour}:${String(tehran.minute).padStart(2, '0')} | ${monitored.length} نماد | ${n && n.evaluated !== undefined ? n.evaluated + '/' + n.total : n} استراتژی | فعال: ${activeCount}`
         );
 
         await recordTickSuccess();

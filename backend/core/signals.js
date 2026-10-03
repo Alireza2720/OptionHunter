@@ -198,12 +198,14 @@ async function evaluateConfig(config, marketInfo) {
     const configId = config._id.toString();
 
     const htfTf = config.htfTimeframe || def.htfTimeframe || '1d';
+    // 🆕 برای live eval، فقط 1000 کندل آخر کافیه — نه کل تاریخچه
+    const LIVE_CANDLE_LIMIT = 1000;
     const candles = deps.dataService.closedOnly(
-        await deps.dataService.getCandles(config.symbol, config.timeframe),
+        await deps.dataService.getCandles(config.symbol, config.timeframe, { limit: LIVE_CANDLE_LIMIT }),
         config.timeframe
     );
     const htfCandles = deps.dataService.closedOnly(
-        await deps.dataService.getCandles(config.symbol, htfTf),
+        await deps.dataService.getCandles(config.symbol, htfTf, { limit: 500 }),
         htfTf
     );
 
@@ -657,6 +659,13 @@ async function evaluateAll(marketInfo) {
 
     let skipped = 0, evaluated = 0;
 
+    // 🆕 rotation: ترکیب confirmers + leaders و اجرای همشون
+    const _confirmersList = [...confirmers];
+    const _leadersList = [...leaders];
+    const _all = [..._confirmersList, ..._leadersList];
+
+    // 🆕 timing per config
+    const _configTimings = [];
     const evaluateOne = async (c, roleLabel) => {
         const cid = c._id.toString();
         const st = stateMap.get(cid);
@@ -674,16 +683,46 @@ async function evaluateAll(marketInfo) {
             }
         }
 
+        const _t0 = Date.now();
         try {
             await evaluateConfig(c, marketInfo);
             evaluated++;
+            _configTimings.push({ sym: c.symbol, sid: c.strategyId, ms: Date.now() - _t0 });
         } catch (e) {
             deps.notify && deps.notify(`eval ${roleLabel} ${c.symbol}: ${e.message}`).catch(() => {});
         }
     };
 
-    for (const c of confirmers) await evaluateOne(c, 'confirmer');
-    for (const c of leaders) await evaluateOne(c, 'leader');
+    // 🆕 بودجه + rotation
+    const TOTAL_BUDGET_MS = 20000;
+    // rotation pointer در حافظه‌ی پروسه
+    if (!global.__evalAllPointer) global.__evalAllPointer = 0;
+    const startedAt = Date.now();
+    let budgetExceeded = false;
+    // 🆕 rotation درست — pointer رو ثابت نگه‌دار و i رو اضافه کن
+    const N = _all.length;
+    let processed = 0;
+    const startPointer = global.__evalAllPointer % N;
+    for (let i = 0; i < N; i++) {
+        const idx = (startPointer + i) % N;
+        const c = _all[idx];
+        if (Date.now() - startedAt > TOTAL_BUDGET_MS) { budgetExceeded = true; break; }
+        await evaluateOne(c, c.role === 'confirmer' ? 'confirmer' : 'leader');
+        processed++;
+    }
+    // pointer یک‌بار در انتها آپدیت می‌شه
+    global.__evalAllPointer = (startPointer + processed) % N;
+    if (budgetExceeded && deps.logger) {
+        deps.logger.warn(`evaluateAll: budget — processed=${processed}/${N}, next=${global.__evalAllPointer}`);
+    }
+    // 🆕 لاگ کندترین config ها
+    if (_configTimings.length && deps.logger) {
+        const sorted = [..._configTimings].sort((a,b) => b.ms - a.ms);
+        const top = sorted.slice(0, 3);
+        if (top[0].ms > 1500) {
+            deps.logger.info(`slow configs: ${top.map(t => `${t.sym}/${t.sid}=${t.ms}ms`).join(', ')}`);
+        }
+    }
 
     if (skipped > 0 && deps.logger) {
         deps.logger.info(`signal eval: ${evaluated} evaluated, ${skipped} skipped (no change)`);

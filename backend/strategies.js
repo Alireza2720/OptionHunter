@@ -3,9 +3,10 @@
     else root.TradingStrategies = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
 
+    // 🆕 singleton
+    const _TEHRAN_FMT = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     function getTehranParts(date) {
-        const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-        const map = {}; fmt.formatToParts(date).forEach(p => { map[p.type] = p.value; });
+        const map = {}; _TEHRAN_FMT.formatToParts(date).forEach(p => { map[p.type] = p.value; });
         return { year: +map.year, month: +map.month, day: +map.day, hour: (+map.hour) % 24, minute: +map.minute, second: +map.second };
     }
     function tehranPartsToUTC(y, mo, d, h, mi, s) { return new Date(Date.UTC(y, mo - 1, d, h, mi, s || 0) - 3.5 * 3600 * 1000); }

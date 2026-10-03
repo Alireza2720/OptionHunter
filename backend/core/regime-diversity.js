@@ -75,7 +75,7 @@ function computeRegimeDistribution(trades, dailyCandles, emaPeriod = 200) {
 
     // بیشترین تراکم در یک رژیم
     const nonUnknown = ['bull', 'bear', 'range'].map(k => ({ k, pct: dist[k].pct }));
-    const maxPct = Math.max(...nonUnknown.map(x => x.pct), 0);
+    let maxPct = 0; for (const x of nonUnknown) { if (x.pct > maxPct) maxPct = x.pct; }
     const dominant = nonUnknown.find(x => x.pct === maxPct);
 
     return {

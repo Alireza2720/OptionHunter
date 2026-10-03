@@ -29,15 +29,17 @@ function init(d) {
 // ============================================================
 // Time helpers (Tehran)
 // ============================================================
+// 🆕 singleton — به‌جای ساخت Intl.DateTimeFormat برای هر کندل
+const _TEHRAN_FMT = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tehran',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false, weekday: 'short'
+});
+
 function getTehranParts(date = new Date()) {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Asia/Tehran',
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false, weekday: 'short'
-    });
     const map = {};
-    fmt.formatToParts(date).forEach(p => { map[p.type] = p.value; });
+    _TEHRAN_FMT.formatToParts(date).forEach(p => { map[p.type] = p.value; });
     return {
         year: +map.year, month: +map.month, day: +map.day,
         hour: (+map.hour) % 24, minute: +map.minute, second: +map.second,
@@ -195,11 +197,17 @@ function aggregateDailyForChart(rows, tf) {
     const result = [];
     for (const arr of groups.values()) {
         const first = arr[0], last = arr[arr.length - 1];
+        // 🆕 loop به‌جای spread (جلوگیری از stack overflow روی آرایه‌های بزرگ)
+        let _hi = -Infinity, _lo = Infinity;
+        for (const x of arr) {
+            if (x.high > _hi) _hi = x.high;
+            if (x.low < _lo) _lo = x.low;
+        }
         result.push({
             time: first.time,
             open: first.open,
-            high: Math.max(...arr.map(x => x.high)),
-            low: Math.min(...arr.map(x => x.low)),
+            high: _hi,
+            low: _lo,
             close: last.close,
             volume: arr.reduce((s, x) => s + (x.volume || 0), 0)
         });
@@ -210,11 +218,14 @@ function aggregateDailyForChart(rows, tf) {
 // ============================================================
 // Read candles
 // ============================================================
-async function getBaseCandles(symbol) {
+async function getBaseCandles(symbol, opts = {}) {
     const db = deps.getDB();
-    // نکته: فیلتر flat حذف شد — کندل‌های صف خرید/فروش داده واقعی بازارن
+    // 🆕 برای live، فقط 60 روز؛ برای backtest می‌تونه بیشتر بخواد
+    const days = opts.days || 60;
+    const q = { symbol };
+    if (days < 3650) q.time = { $gte: new Date(Date.now() - days * 86400 * 1000) };
     const base = await db.collection(COLLECTIONS.CANDLES_BASE)
-        .find({ symbol })
+        .find(q)
         .sort({ time: 1 }).toArray();
     return base.map(c => ({
         time: Math.floor(c.time.getTime() / 1000),
@@ -223,12 +234,24 @@ async function getBaseCandles(symbol) {
     }));
 }
 
-async function getCandles(symbol, tf) {
+async function getCandles(symbol, tf, opts = {}) {
     const db = deps.getDB();
+    // 🆕 limit — برای live eval، 2000 کندل آخر کافیه
+    const limit = opts.limit || 0;
 
     if (tf === '1d') {
-        const d = await db.collection(COLLECTIONS.CANDLES_DAILY)
-            .find({ symbol }).sort({ time: 1 }).toArray();
+        let q = db.collection(COLLECTIONS.CANDLES_DAILY)
+            .find({ symbol });
+        if (limit) {
+            const d = await db.collection(COLLECTIONS.CANDLES_DAILY)
+                .find({ symbol }).sort({ time: -1 }).limit(limit).toArray();
+            return d.reverse().map(c => ({
+                time: Math.floor(c.time.getTime() / 1000),
+                open: c.open, high: c.high, low: c.low, close: c.close,
+                volume: c.volume || 0
+            }));
+        }
+        const d = await q.sort({ time: 1 }).toArray();
         return d.map(c => ({
             time: Math.floor(c.time.getTime() / 1000),
             open: c.open, high: c.high, low: c.low, close: c.close,
@@ -236,14 +259,31 @@ async function getCandles(symbol, tf) {
         }));
     }
 
+    // 🆕 TF از permanent (که پیش-محاسبه‌شده) — اگه limit داریم و از permanent کافیه، aggregation لازم نیست
+    if (limit) {
+        const perm = await db.collection(COLLECTIONS.CANDLES_TF)
+            .find({ symbol, tf }).sort({ time: -1 }).limit(limit).toArray();
+        if (perm.length >= limit) {
+            return perm.reverse().map(c => ({
+                time: Math.floor(c.time.getTime() / 1000),
+                open: c.open, high: c.high, low: c.low, close: c.close,
+                volume: c.volume || 0, complete: c.complete
+            }));
+        }
+    }
+
     const permanent = await db.collection(COLLECTIONS.CANDLES_TF)
         .find({ symbol, tf }).sort({ time: 1 }).toArray();
-    const base = await getBaseCandles(symbol);
-    return buildTfCandles(permanent, base, TIMEFRAME_MINUTES[tf]);
+    // 🆕 اگه limit داریم، base رو هم محدود کن — فقط 5 روز آخر
+    const baseOpts = limit ? { days: 5 } : {};
+    const base = await getBaseCandles(symbol, baseOpts);
+    let result = buildTfCandles(permanent, base, TIMEFRAME_MINUTES[tf]);
+    if (limit && result.length > limit) result = result.slice(-limit);
+    return result;
 }
 
-async function getCandlesFull(symbol, tf) {
-    return getCandles(symbol, tf);
+async function getCandlesFull(symbol, tf, opts = {}) {
+    return getCandles(symbol, tf, opts);
 }
 
 // ============================================================
@@ -636,7 +676,7 @@ function clearCache(prefix) {
 // 🆕 Candle cache — با eviction خودکار (رفع memory leak)
 // ============================================================
 const _candleCache = new Map();
-const CANDLE_TTL_MS = 3 * 60 * 1000;    // ۳ دقیقه
+const CANDLE_TTL_MS = 30 * 60 * 1000;  // 🆕 30 دقیقه    // ۳ دقیقه
 const CANDLE_MAX_ENTRIES = 500;          // ۲۳ نماد × ۸ تایم‌فریم + بافر
 
 function _cacheKey(symbol, tf) { return `${symbol}::${tf}`; }

@@ -37,6 +37,12 @@ function isMarketOpen(t) {
 }
 
 async function runTick() {
+    // 🆕 اگه backfill در جریانه، این tick رو skip کن
+    if (await isBackfillRunning()) {
+        deps.logger && deps.logger.info('tick skipped: backfill در جریان است');
+        return;
+    }
+
     const t = deps.dataService.getTehranParts();
     const holiday = deps.signalService.getHoliday();
     const today = deps.signalService.todayDateStr(t);
@@ -65,6 +71,27 @@ async function runTick() {
 }
 
 let _lastTickerCheck = 0;
+
+// 🆕 cache وضعیت backfill (۲۰ ثانیه)
+let _backfillStatusCache = null;
+let _backfillStatusAt = 0;
+const BACKFILL_CACHE_MS = 20000;
+
+async function isBackfillRunning() {
+    const now = Date.now();
+    if (_backfillStatusCache !== null && (now - _backfillStatusAt) < BACKFILL_CACHE_MS) {
+        return _backfillStatusCache;
+    }
+    try {
+        const s = await deps.algotik.getStatus();
+        const running = !!(s && s.backfill_running);
+        _backfillStatusCache = running;
+        _backfillStatusAt = now;
+        return running;
+    } catch (_) {
+        return false;
+    }
+}
 
 async function ensureCollectorTickerRunning() {
     // حداکثر هر ۵ دقیقه چک کن (نه هر ۱۰ ثانیه)
@@ -95,7 +122,7 @@ function start() {
     );
 
     // هر ۱۰ ثانیه
-    task = cron.schedule('*/10 * * * * *', async () => {
+    task = cron.schedule('0 */2 * * * *', async () => {
         try {
             const t = deps.dataService.getTehranParts();
             if (!isMarketOpen(t)) return;
