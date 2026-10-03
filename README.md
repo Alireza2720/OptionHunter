@@ -195,3 +195,33 @@ git log -1 --oneline
 
 text
 abc1234 docs: rewrite README with setup guide + lessons
+
+
+
+---
+
+## 🖥 ۱۵. اجرا با PowerShell 7
+
+### چرا PowerShell 7 و نه 5.1؟
+
+ویندوز پیش‌فرض PowerShell 5.1 دارد که از 2016 دیگر آپدیت نشده:
+
+- ❌ با UTF-8 مشکل دارد — فارسی خراب نشان می‌دهد
+- ❌ here-string را با ANSI ذخیره می‌کند
+- ❌ سرعت پایین‌تر
+
+**PowerShell 7** (نسخه 7.6.5):
+
+- ✅ UTF-8 پیش‌فرض
+- ✅ فارسی بدون مشکل
+- ✅ کراس‌پلتفرم
+- ✅ سریع‌تر
+
+### نصب
+
+روش ۱ — Microsoft Store:
+1. Microsoft Store
+2. `PowerShell` جستجو
+3. PowerShell 7 نصب
+
+روش ۲ — winget:
