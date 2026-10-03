@@ -198,14 +198,20 @@ async function evaluateConfig(config, marketInfo) {
     const configId = config._id.toString();
 
     const htfTf = config.htfTimeframe || def.htfTimeframe || '1d';
-    // 🆕 برای live eval، فقط 1000 کندل آخر کافیه — نه کل تاریخچه
-    const LIVE_CANDLE_LIMIT = 1000;
+    // 🆕 هماهنگ با بک‌تست — از getRequiredCandles برای تعیین حد لازم
+    const _required = deps.strategies.getRequiredCandles(config.strategyId, config.params) || 100;
+    const _requiredHtf = deps.strategies.getRequiredHtfCandles
+        ? (deps.strategies.getRequiredHtfCandles(config.strategyId, config.params) || 50)
+        : 50;
+    // 3 برابر بافر برای امنیت
+    const LIVE_CANDLE_LIMIT = Math.max(1000, _required * 3);
+    const LIVE_HTF_LIMIT = Math.max(500, _requiredHtf * 3);
     const candles = deps.dataService.closedOnly(
         await deps.dataService.getCandles(config.symbol, config.timeframe, { limit: LIVE_CANDLE_LIMIT }),
         config.timeframe
     );
     const htfCandles = deps.dataService.closedOnly(
-        await deps.dataService.getCandles(config.symbol, htfTf, { limit: 500 }),
+        await deps.dataService.getCandles(config.symbol, htfTf, { limit: LIVE_HTF_LIMIT }),
         htfTf
     );
 
@@ -699,21 +705,34 @@ async function evaluateAll(marketInfo) {
     if (!global.__evalAllPointer) global.__evalAllPointer = 0;
     const startedAt = Date.now();
     let budgetExceeded = false;
-    // 🆕 rotation درست — pointer رو ثابت نگه‌دار و i رو اضافه کن
+    // 🆕 زمان‌بندی هوشمند بر اساس تایم‌فریم استراتژی
+    // به‌جای rotation، هر config فقط وقتی تایم‌فریمش تمام شده ارزیابی می‌شه
     const N = _all.length;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!global.__lastEvalByConfig) global.__lastEvalByConfig = new Map();
+
     let processed = 0;
-    const startPointer = global.__evalAllPointer % N;
-    for (let i = 0; i < N; i++) {
-        const idx = (startPointer + i) % N;
-        const c = _all[idx];
+    let skippedByTime = 0;
+    for (const c of _all) {
+        const cfgId = String(c._id);
+        const lastEval = global.__lastEvalByConfig.get(cfgId) || 0;
+        const tfMin = (TIMEFRAME_MINUTES && TIMEFRAME_MINUTES[c.timeframe]) || 30;
+        // 60% از تایم‌فریم یا حداقل ۲ دقیقه
+        const minIntervalSec = Math.max(120, Math.floor(tfMin * 60 * 0.6));
+
+        if (nowSec - lastEval < minIntervalSec) {
+            skippedByTime++;
+            continue;
+        }
+
         if (Date.now() - startedAt > TOTAL_BUDGET_MS) { budgetExceeded = true; break; }
         await evaluateOne(c, c.role === 'confirmer' ? 'confirmer' : 'leader');
+        global.__lastEvalByConfig.set(cfgId, nowSec);
         processed++;
     }
-    // pointer یک‌بار در انتها آپدیت می‌شه
-    global.__evalAllPointer = (startPointer + processed) % N;
-    if (budgetExceeded && deps.logger) {
-        deps.logger.warn(`evaluateAll: budget — processed=${processed}/${N}, next=${global.__evalAllPointer}`);
+
+    if (deps.logger) {
+        deps.logger.info(`evaluateAll-schedule: processed=${processed}, skippedByTime=${skippedByTime}/${N}`);
     }
     // 🆕 لاگ کندترین config ها
     if (_configTimings.length && deps.logger) {

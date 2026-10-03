@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // ============================================================
 // options.js — منطق آپشن (خالص)
 // ============================================================
@@ -1626,12 +1626,12 @@ function positionStats(list) {
             const annFactor = Math.sqrt(Math.max(1, pnls.length));
             sharpe = Math.round((mean / sd) * annFactor * 100) / 100;
         }
-        const downside = pnls.filter(x => x < 0);
-        if (downside.length > 0) {
-            const dsd = Math.sqrt(downside.reduce((s, x) => s + x * x, 0) / downside.length);
-            if (dsd > 0) {
-                sortino = Math.round((mean / dsd) * Math.sqrt(pnls.length) * 100) / 100;
-            }
+        // 🆕 Sortino صحیح: downside deviation روی همه‌ی معاملات (0 برای مثبت‌ها)
+        const target = 0;
+        const downsideDiffSq = pnls.map(x => Math.min(0, x - target) ** 2);
+        const dsd = Math.sqrt(downsideDiffSq.reduce((s, x) => s + x, 0) / pnls.length);
+        if (dsd > 0) {
+            sortino = Math.round(((mean - target) / dsd) * Math.sqrt(pnls.length) * 100) / 100;
         }
         // Equity curve → MaxDD
         let eq = 100, peak = 100;
