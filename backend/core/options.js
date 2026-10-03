@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 // ============================================================
 // options.js — منطق آپشن (خالص)
 // ============================================================
@@ -1354,7 +1354,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         pnlPct: (exitProceeds / entryCost - 1) * 100,
         exitReason: t.exitReason,
         // 🆕 option-exit classification
-        optionExit: classifyOptionExit(best, exitRow, (exitSec - entrySec) / 86400),
+        optionExitInfo: classifyOptionExit(best, exitRow, (exitSec - entrySec) / 86400),
         entryIvAtEntry: best.ivApi || null,
         entryDeltaAtEntry: best.deltaApi || null,
         entryThetaAtEntry: best.thetaApi || null,
@@ -1450,7 +1450,7 @@ function tryGetApproxTradeData(t, closes, times, p) {
         pnlPct,
         exitReason: t.exitReason,
         // 🆕 option-exit classification
-        optionExit: {
+        optionExitInfo: {
             tag: approxTag,
             note: approxNote,
             thetaPerDayPct: thetaPerDayPctApprox != null ? Math.round(thetaPerDayPctApprox * 100) / 100 : null,
