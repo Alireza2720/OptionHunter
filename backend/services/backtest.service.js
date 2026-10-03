@@ -370,6 +370,7 @@ async function runBacktestCompareJob(job) {
                                 optionStats: result.stats,
                                 advanced: result.advanced,
                                 trades: result.trades,
+                                stockTrades: result.stockTrades || [],
                                 stockTradesCount: result.stockTradesCount,
                                 stockClosedCount: result.stockClosedCount,
                                 realUsed: result.realUsed || 0,
