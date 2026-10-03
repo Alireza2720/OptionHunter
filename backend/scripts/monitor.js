@@ -274,7 +274,7 @@ function w(l = '') { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(
 function wc(l, c) { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(c + l + C.reset); }
 function bar() { w('═'.repeat(78)); }
 // 🆕 کل بخش‌ها — برای گزارش progress به backend
-const TOTAL_SECTIONS = 34;
+const TOTAL_SECTIONS = 35;
 const _jobId = (() => {
     const a = ARGV.find((x) => x.startsWith('--job-id='));
     return a ? a.split('=')[1] : null;
@@ -2211,10 +2211,156 @@ async function s33_positions() {
     }
 }
 
+
 // ============================================================
-// S34 — FINAL REPORT (renamed from 24)
+// S34 — ENRICHMENT STATUS
 // ============================================================
-async function s34_report() {
+async function s34_enrichment() {
+    section(34, 'ENRICHMENT STATUS');
+    if (CONF.skipHeavy) return info('skip-heavy');
+
+    const uri = ENV.MONGO_URI;
+    if (!uri) return fail('MONGO_URI missing');
+
+    let MongoClient;
+    try { MongoClient = require(path.join(ROOT, 'node_modules', 'mongodb')).MongoClient; }
+    catch (_) { try { MongoClient = require('mongodb').MongoClient; } catch (e) { return fail('mongodb driver missing'); } }
+
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 8000, maxPoolSize: 4 });
+    let db;
+    try { await client.connect(); db = client.db('trading_bot'); }
+    catch (e) { return fail('Mongo: ' + e.message); }
+
+    try {
+        const now = new Date();
+        const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+        const histMissing = await db.collection('option_history').countDocuments({
+            close: { $gt: 1 },
+            time: { $lt: todayStart },
+            $or: [{ bid: null }, { bid: { $lte: 0 } }],
+            source: { $nin: ['live_snapshot', 'algotik_snapshot'] },
+        });
+
+        const liveMissing = await db.collection('option_history').countDocuments({
+            close: { $gt: 1 },
+            time: { $gte: todayStart },
+            $or: [{ bid: null }, { bid: { $lte: 0 } }],
+        });
+
+        const synthCount = await db.collection('option_history').countDocuments({ source: 'synthetic_daily' });
+        const liveCount = await db.collection('option_history').countDocuments({ source: 'live_snapshot' });
+        const algotikSnapCount = await db.collection('option_history').countDocuments({ source: 'algotik_snapshot' });
+
+        sub('Counts');
+        kv('synthetic_daily rows', synthCount.toLocaleString());
+        kv('live_snapshot rows', liveCount.toLocaleString());
+        kv('algotik_snapshot rows', algotikSnapCount.toLocaleString());
+
+        sub('Coverage gaps');
+        kv('Historical missing bid/ask', histMissing.toLocaleString(), histMissing > 0 ? C.yellow : C.green);
+        kv('Live missing bid/ask', liveMissing.toLocaleString(), liveMissing > 100 ? C.yellow : '');
+
+        if (histMissing > 0) {
+            warn(histMissing.toLocaleString() + ' historical rows without bid/ask');
+            info('To fix: node backend/scripts/enrich-options.js --apply');
+        } else {
+            ok('Historical: all rows have bid/ask');
+        }
+
+        if (liveMissing > 500) {
+            warn(liveMissing.toLocaleString() + ' live rows without bid/ask - check collector');
+        } else {
+            ok('Live gaps: ' + liveMissing.toLocaleString() + ' (normal)');
+        }
+
+        const lastSynth = await db.collection('option_history')
+            .findOne({ source: 'synthetic_daily' }, { sort: { time: -1 }, projection: { time: 1 } });
+        if (lastSynth) {
+            sub('Last synthetic');
+            kv('Latest synthetic date', lastSynth.time.toISOString().slice(0, 10));
+        }
+    } finally {
+        try { await client.close(); } catch (_) {}
+    }
+}
+
+// ============================================================
+// S34 — ENRICHMENT STATUS
+// ============================================================
+async function s34_enrichment() {
+    section(34, 'ENRICHMENT STATUS');
+    if (CONF.skipHeavy) return info('skip-heavy');
+
+    const uri = ENV.MONGO_URI;
+    if (!uri) return fail('MONGO_URI missing');
+
+    let MongoClient;
+    try { MongoClient = require(path.join(ROOT, 'node_modules', 'mongodb')).MongoClient; }
+    catch (_) { try { MongoClient = require('mongodb').MongoClient; } catch (e) { return fail('mongodb driver missing'); } }
+
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 8000, maxPoolSize: 4 });
+    let db;
+    try { await client.connect(); db = client.db('trading_bot'); }
+    catch (e) { return fail('Mongo: ' + e.message); }
+
+    try {
+        const now = new Date();
+        const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+        const histMissing = await db.collection('option_history').countDocuments({
+            close: { $gt: 1 },
+            time: { $lt: todayStart },
+            $or: [{ bid: null }, { bid: { $lte: 0 } }],
+            source: { $nin: ['live_snapshot', 'algotik_snapshot'] },
+        });
+
+        const liveMissing = await db.collection('option_history').countDocuments({
+            close: { $gt: 1 },
+            time: { $gte: todayStart },
+            $or: [{ bid: null }, { bid: { $lte: 0 } }],
+        });
+
+        const synthCount = await db.collection('option_history').countDocuments({ source: 'synthetic_daily' });
+        const liveCount = await db.collection('option_history').countDocuments({ source: 'live_snapshot' });
+        const algotikSnapCount = await db.collection('option_history').countDocuments({ source: 'algotik_snapshot' });
+
+        sub('Counts');
+        kv('synthetic_daily rows', synthCount.toLocaleString());
+        kv('live_snapshot rows', liveCount.toLocaleString());
+        kv('algotik_snapshot rows', algotikSnapCount.toLocaleString());
+
+        sub('Coverage gaps');
+        kv('Historical missing bid/ask', histMissing.toLocaleString(), histMissing > 0 ? C.yellow : C.green);
+        kv('Live missing bid/ask', liveMissing.toLocaleString(), liveMissing > 100 ? C.yellow : '');
+
+        if (histMissing > 0) {
+            warn(histMissing.toLocaleString() + ' historical rows without bid/ask');
+            info('To fix: node backend/scripts/enrich-options.js --apply');
+        } else {
+            ok('Historical: all rows have bid/ask');
+        }
+
+        if (liveMissing > 500) {
+            warn(liveMissing.toLocaleString() + ' live rows without bid/ask - check collector');
+        } else {
+            ok('Live gaps: ' + liveMissing.toLocaleString() + ' (normal)');
+        }
+
+        const lastSynth = await db.collection('option_history')
+            .findOne({ source: 'synthetic_daily' }, { sort: { time: -1 }, projection: { time: 1 } });
+        if (lastSynth) {
+            sub('Last synthetic');
+            kv('Latest synthetic date', lastSynth.time.toISOString().slice(0, 10));
+        }
+    } finally {
+        try { await client.close(); } catch (_) {}
+    }
+}
+// ============================================================
+// S35 — FINAL REPORT
+// ============================================================
+async function s35_report() {
     section(34, 'FINAL REPORT');
 
     const elapsed = ((Date.now() - R.startedAt.getTime()) / 1000).toFixed(1);
@@ -2429,7 +2575,8 @@ async function runDoctor() {
     await run(31, 'FAILED-JOBS', s31_failed_jobs, true);
     await run(32, 'NETWORK', s32_network, true);
     await run(33, 'POSITIONS', s33_positions, true);
-    await run(34, 'REPORT', s34_report, true);
+    await run(34, 'ENRICHMENT', s34_enrichment, true);
+    await run(35, 'REPORT', s35_report, true);
     stopSafetyWatchdog();
 
     if (CONF.jsonOut) {

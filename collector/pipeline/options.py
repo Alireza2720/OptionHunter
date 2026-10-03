@@ -310,9 +310,7 @@ def migrate_from_daily_algotik(underlyings=None, dry_run=False, log_fn=None):
             'size': int(doc.get('contract_size') or 1000),
             'isCall': option_type == 'call',
             'S': float(S),
-            'bid': None,
-            'ask': None,
-            'last': float(doc.get('last') or 0) or None,
+                    'last': float(doc.get('last') or 0) or None,
             'close': float(close_px),
             'oi': None,
             'volume': float(doc.get('volume') or 0),
@@ -323,13 +321,12 @@ def migrate_from_daily_algotik(underlyings=None, dry_run=False, log_fn=None):
             'thetaApi': theta,
             'vegaApi': vega,
             'riskFreeRate': rf,
-            'source': 'migrated_daily',
-            'migratedAt': datetime.now(timezone.utc),
+                'migratedAt': datetime.now(timezone.utc),
         }
 
         ops.append(UpdateOne(
             {'symbol': rec['symbol'], 'time': time_val},
-            {'$set': rec},
+            {'$set': rec, '$setOnInsert': {'bid': None, 'ask': None, 'source': 'migrated_daily'}},
             upsert=True,
         ))
 
