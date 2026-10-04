@@ -54,7 +54,7 @@ async function start() {
             journalService: deps.journalService,
             backtestOrchestrator: deps.backtestOrchestrator, // 🆕
             dualStageService: deps.dualStageService,   // 🆕
-            paperTradingService: deps.paperTradingService,   // 🆕
+            paperTradingService: deps.paperTradingService || deps.paperTrading,   // 🆕 fallback
 
             // config
             adminToken: env.ADMIN_TOKEN,

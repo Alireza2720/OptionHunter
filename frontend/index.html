@@ -128,6 +128,23 @@ table.data-table { width:100%; border-collapse:collapse; font-size:12px; min-wid
 table.data-table th, table.data-table td { padding:5px 8px; text-align:center; border-bottom:1px solid var(--border); white-space:nowrap; vertical-align:middle; }
 table.data-table th { color:var(--text-dim); font-weight:500; font-size:11px; }
 table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); }
+/* 🆕 Sticky symbol column */
+table.data-table thead th:first-child,
+table.data-table tbody td:first-child {
+    position: sticky;
+    right: 0;
+    background: var(--bg-card);
+    z-index: 3;
+    border-right: 1px solid var(--border);
+}
+table.data-table td.symbol-sticky {
+    position: sticky;
+    right: 30px;
+    background: var(--bg-input);
+    z-index: 2;
+    border-right: 1px solid var(--border-light);
+    font-weight: 600;
+}
 .badge { padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600; display:inline-block; }
 .badge.long { background:rgba(46,168,138,.15); color:var(--good); }
 .badge.short { background:rgba(217,83,79,.15); color:var(--bad); }
@@ -909,7 +926,9 @@ function renderMonitoredSymbols() {
     const covMap = {};
     for (const c of (window._coverageData || [])) covMap[c.symbol] = c;
 
-    g.innerHTML = monitoredSymbols.map(s => {
+    // 🆕 slice for limit
+    const _shownSymbols = monitoredSymbols.slice(0, symbolsLimit);
+    g.innerHTML = _shownSymbols.map(s => {
         const initial = (s.symbol || '?').trim().charAt(0);
         const q = window._symbolQuotes && window._symbolQuotes[s.symbol];
         const collectOn = s.collectEnabled !== false;
@@ -965,6 +984,14 @@ function renderMonitoredSymbols() {
             </div>
         </div>`;
     }).join('');
+
+    // 🆕 show more button
+    if (monitoredSymbols.length > symbolsLimit) {
+        const _remain = monitoredSymbols.length - symbolsLimit;
+        g.innerHTML += `<button class="show-more-btn" onclick="symbolsLimit += 10; renderMonitoredSymbols();">نمایش بیشتر (${_remain} نماد باقی‌مانده)</button>`;
+    } else if (symbolsLimit > 5) {
+        g.innerHTML += `<button class="show-more-btn" onclick="symbolsLimit = 5; renderMonitoredSymbols();">بستن</button>`;
+    }
 }
 async function toggleMonitoredCollect(id, enabled) { try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collectEnabled: enabled }) }); const sym = monitoredSymbols.find(x => x._id === id); if (sym) sym.collectEnabled = enabled; renderMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function syncSymbolsFromConfigs(btn) {
@@ -1457,7 +1484,7 @@ function onStrategyChange() {
     if (!s) return;
     const c = document.getElementById('paramsContainer');
     const fields = Object.entries(s.defaultParams).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" id="param_${k}" value="${v}"></div>`).join('');
-    c.innerHTML = `<div class="adv-accordion" id="advAccordion"><div class="adv-header" onclick="document.getElementById('advAccordion').classList.toggle('open')"><span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length})</span><span class="chev">▼</span></div><div class="adv-body"><div class="form-row">${fields}</div></div></div>`;
+    c.innerHTML = `<div class="adv-accordion" id="advAccordion"><div class="adv-header" onclick="event.stopPropagation(); document.getElementById('advAccordion').classList.toggle('open');"><span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length})</span><span class="chev">▼</span></div><div class="adv-body" onclick="event.stopPropagation();"><div class="form-row">${fields}</div></div></div>`;
     document.getElementById('timeframeSelect').value = s.defaultTimeframe;
     document.getElementById('htfSelect').value = s.htfTimeframe || '1d';
     // 🆕 نمایش فیلد pairSymbol فقط برای pairs_spread
@@ -1540,7 +1567,10 @@ function renderConfigs() {
     const groups = {}; configs.forEach(c => { if (!groups[c.symbol]) groups[c.symbol] = []; groups[c.symbol].push(c); });
     const validIds = new Set(configs.map(c => c._id)); for (const id of Array.from(selectedConfigs)) if (!validIds.has(id)) selectedConfigs.delete(id);
     let html = '';
-    for (const symbol of Object.keys(groups)) {
+    // 🆕 limit symbols shown
+    const _allSymbols = Object.keys(groups);
+    const _shownSymbols = _allSymbols.slice(0, configsSymbolLimit);
+    for (const symbol of _shownSymbols) {
         const items = groups[symbol];
         items.forEach((it, idx) => {
             const id = it._id; const st = statusMap[id]; const s = strategiesInfo.find(x => x.id === it.strategyId);
@@ -1628,8 +1658,8 @@ function editConfig(id) {
                 </select>
             </div>
         </div>
-        <div class="adv-accordion open" id="editParamsAcc" style="margin-top:8px;">
-            <div class="adv-header" onclick="document.getElementById('editParamsAcc').classList.toggle('open')">
+        <div class="adv-accordion" id="editParamsAcc" style="margin-top:8px;">
+            <div class="adv-header" onclick="event.stopPropagation(); document.getElementById('editParamsAcc').classList.toggle('open')">
                 <span>پارامترها (${Object.keys(currentParams).length})</span>
                 <span class="chev">▼</span>
             </div>
@@ -1764,6 +1794,9 @@ function renderBtResult(r) {
 function switchBtTab(which, btn) { ['overview','rolling','mc','robust','monthly','hourly','dow','regime','trades'].forEach(w => { const el = document.getElementById('btTab-' + w); if (el) el.style.display = w === which ? 'block' : 'none'; }); document.querySelectorAll('#btResultArea .tabs .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
 
 let signalHistoryLimit = 5, signalHistoryCache = null;
+// 🆕 limit lists
+let symbolsLimit = 5;
+let configsSymbolLimit = 5;
 async function loadSignalHistory() {
     try {
         const _isFirst = signalHistoryCache === null;
