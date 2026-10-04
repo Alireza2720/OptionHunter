@@ -265,7 +265,10 @@ async function analyzeConfig(jobId, symbol, strategyId, opts = {}) {
     if (!detail) {
         throw Object.assign(new Error('جزئیات یافت نشد'), { status: 404 });
     }
-    const trades = detail.trades || [];
+    // 🆕 fallback to stockTrades for mode=stock
+const isStockMode = (!detail.trades || detail.trades.length === 0) && detail.stockTrades && detail.stockTrades.length > 0;
+const trades = isStockMode ? detail.stockTrades : (detail.trades || []);
+const statsKey = isStockMode ? 'stockStats' : 'optionStats';
     if (trades.length < 3) {
         return {
             jobId, symbol, strategyId,
@@ -358,7 +361,8 @@ async function analyzeJob(jobId, opts = {}) {
 
     const results = [];
     for (const d of details) {
-        if (!d.trades || d.trades.length < minTrades) continue;
+        const _tradesForCheck = (d.trades && d.trades.length > 0) ? d.trades : (d.stockTrades || []);
+        if (_tradesForCheck.length < minTrades) continue;
         try {
             const r = await analyzeConfig(jobId, d.symbol, d.strategyId, effectiveOpts);
             if (!r.error) results.push(r);

@@ -175,7 +175,9 @@
     }
     function inEntryWindow(timeSec, w) {
         if (!w) return true;
-        const m = minuteOfDay(timeSec); if (m === 0) return true;
+        const m = minuteOfDay(timeSec);
+        // 🆕 کندل روزانه — همیشه مجاز
+        if (m === 0 || m === 210) return true;
         return m >= w.start && m <= w.end;
     }
     const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
@@ -1006,7 +1008,7 @@
     // ==================== ۱۲. RSI Oversold Bounce (Mean Reversion) ====================
     const RSI_BOUNCE_DEFAULTS = {
         htfEma: 20, htfRsiPeriod: 14,
-        rsiPeriod: 14, rsiThreshold: 30,
+        rsiPeriod: 14, rsiThreshold: 35,
         bbPeriod: 20, bbStd: 2.0, nearBBPct: 1.0,
         atrPeriod: 14, atrMult: 1.0,
         maxHoldBars: 10, cooldownBars: 3,
@@ -1073,8 +1075,8 @@
     // ==================== ۱۳. Gap Fill ====================
     const GAP_DEFAULTS = {
         htfEma: 20, htfRsiPeriod: 14,
-        minGapPct: 1.5,
-        rangeWindowMin: 30,
+        minGapPct: 1.0,
+        rangeWindowMin: 60,
         maxRangePct: 1.2,
         atrPeriod: 14, atrMult: 1.0,
         maxHoldBars: 15, cooldownBars: 2,
@@ -1144,7 +1146,7 @@
     // ==================== ۱۴. ATR Expansion ====================
     const ATR_EXP_DEFAULTS = {
         htfEma: 20, htfRsiPeriod: 14,
-        atrPeriod: 14, atrLookback: 20, atrMult: 1.5,
+        atrPeriod: 14, atrLookback: 15, atrMult: 1.2,
         maxHoldBars: 15, cooldownBars: 2,
         tp1R: 1.5, tp2R: 3.0
     };
@@ -1392,7 +1394,7 @@
         atrPeriod: 14, atrMult: 1.5,
         maxHoldBars: 25, cooldownBars: 2,
         tp1R: 1.5, tp2R: 3.0,
-        minSqueezeBars: 3
+        minSqueezeBars: 2
     };
     function runBollingerSqueeze(candles, params, ctx) {
         const p = { ...BBSQ_DEFAULTS, ...(params || {}) };
@@ -1535,6 +1537,319 @@
         return { ha, signals, trades, htfTrend: lastTrend };
     }
 
+        // ==================== استراتژی‌های جدید (علمی) ====================
+
+    // ۱. Momentum 12-1 (Jegadeesh & Titman)
+    const MOM12_1_DEFAULTS = {
+        htfEma: 50, htfRsiPeriod: 14,
+        lookbackMonths: 12, skipMonths: 1,
+        topPct: 0.1, atrPeriod: 14, atrMult: 2,
+        maxHoldBars: 60, cooldownBars: 5, tp1R: 2, tp2R: 4
+    };
+    function runMomentum121(candles, params, ctx) {
+        const p = { ...MOM12_1_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const closes = candles.map(c => c.close);
+        const atr = calculateATR(candles, p.atrPeriod);
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0;
+        const LOOKBACK_BARS = p.lookbackMonths * 21;
+        const SKIP_BARS = p.skipMonths * 21;
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < LOOKBACK_BARS + SKIP_BARS + 5 || atr[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const past = candles[i - SKIP_BARS].close;
+            const older = candles[i - SKIP_BARS - LOOKBACK_BARS].close;
+            const momReturn = (past / older - 1) * 100;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (momReturn < 0) reason = 'معکوس مومنتوم';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (momReturn > 5 && h.bullish && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const entryPrice = c.close;
+                    const stopPrice = c.close - p.atrMult * atr[i];
+                    const risk = entryPrice - stopPrice;
+                    if (risk > 0) {
+                        position = 'LONG'; signalType = 'BUY';
+                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                        ind.stop = round(stopPrice);
+                        reason = `Momentum 12-1 (${momReturn.toFixed(1)}%)`;
+                        trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: null };
+    }
+
+    // ۲. Short-Term Reversal (5-day)
+    const STR5_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        lookbackDays: 5, dropPct: -7,
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 10, cooldownBars: 2, tp1R: 1.5, tp2R: 3
+    };
+    function runShortTermReversal(candles, params, ctx) {
+        const p = { ...STR5_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const atr = calculateATR(candles, p.atrPeriod);
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0;
+        const LOOKBACK = p.lookbackDays * 7;
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < LOOKBACK + 5 || atr[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const past = candles[i - LOOKBACK].close;
+            const ret = (c.close / past - 1) * 100;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (ret < p.dropPct && h.bullish && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const entryPrice = c.close;
+                    const stopPrice = c.low - p.atrMult * atr[i];
+                    const risk = entryPrice - stopPrice;
+                    if (risk > 0) {
+                        position = 'LONG'; signalType = 'BUY';
+                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                        ind.stop = round(stopPrice);
+                        reason = `Reversal 5d (${ret.toFixed(1)}%)`;
+                        trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: null };
+    }
+
+    // ۳. OU Mean Reversion
+    const OU_MR_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        ouWindow: 60, zThreshold: 2.0, zExit: 0.5,
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 15, cooldownBars: 3, tp1R: 1.5, tp2R: 2.5
+    };
+    function runOUMeanReversion(candles, params, ctx) {
+        const p = { ...OU_MR_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const closes = candles.map(c => c.close);
+        const atr = calculateATR(candles, p.atrPeriod);
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0;
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < p.ouWindow + 5 || atr[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const slice = closes.slice(i - p.ouWindow, i + 1);
+            const mean = slice.reduce((a,b) => a+b, 0) / slice.length;
+            const variance = slice.reduce((a,b) => a + (b-mean)**2, 0) / slice.length;
+            const sd = Math.sqrt(variance);
+            const z = sd > 0 ? (c.close - mean) / sd : 0;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (Math.abs(z) < p.zExit) reason = 'بازگشت z';
+                else if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (z < -p.zThreshold && h.bullish && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const entryPrice = c.close;
+                    const stopPrice = c.close - p.atrMult * atr[i];
+                    const risk = entryPrice - stopPrice;
+                    if (risk > 0) {
+                        position = 'LONG'; signalType = 'BUY';
+                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                        ind.stop = round(stopPrice);
+                        reason = `OU MR (z=${z.toFixed(2)})`;
+                        trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: null };
+    }
+
+    // ۴. Volatility Regime Breakout
+    const VOL_BREAK_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        atrPeriod: 14, atrLookback: 20, atrMult: 2.0,
+        bbPeriod: 20, bbStd: 2.0,
+        maxHoldBars: 20, cooldownBars: 2, tp1R: 2, tp2R: 4
+    };
+    function runVolatilityBreakout(candles, params, ctx) {
+        const p = { ...VOL_BREAK_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const closes = candles.map(c => c.close);
+        const atr = calculateATR(candles, p.atrPeriod);
+        const bb = calculateBollingerBands(closes, p.bbPeriod, p.bbStd);
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0;
+        const atrMed = [];
+        for (let i = 0; i < candles.length; i++) {
+            const slice = atr.slice(Math.max(0, i - p.atrLookback), i).filter(x => x !== null);
+            if (slice.length >= 10) {
+                const sorted = [...slice].sort((a,b) => a-b);
+                atrMed.push(sorted[Math.floor(sorted.length/2)]);
+            } else atrMed.push(null);
+        }
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < Math.max(p.atrLookback, p.bbPeriod) + 5 || atr[i] === null || atrMed[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const volExpanded = atr[i] > atrMed[i] * 1.3;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (!volExpanded) reason = 'نوسان افت کرد';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (volExpanded && c.close > bb.upper[i] && h.bullish && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const entryPrice = c.close;
+                    const stopPrice = bb.middle[i] - p.atrMult * atr[i];
+                    const risk = entryPrice - stopPrice;
+                    if (risk > 0) {
+                        position = 'LONG'; signalType = 'BUY';
+                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                        ind.stop = round(stopPrice);
+                        reason = `Vol Breakout (ATR ${(atr[i]/atrMed[i]).toFixed(2)}x)`;
+                        trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: null };
+    }
+
+    // ۵. Low Volatility Anomaly
+    const LOW_VOL_DEFAULTS = {
+        htfEma: 20, htfRsiPeriod: 14,
+        volWindow: 60, volPct: 0.3,
+        atrPeriod: 14, atrMult: 1.5,
+        maxHoldBars: 40, cooldownBars: 5, tp1R: 2, tp2R: 3
+    };
+    function runLowVolAnomaly(candles, params, ctx) {
+        const p = { ...LOW_VOL_DEFAULTS, ...(params || {}) };
+        const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+        const closes = candles.map(c => c.close);
+        const atr = calculateATR(candles, p.atrPeriod);
+        const signals = [], trades = [];
+        let position = null, entry = null, cooldown = 0;
+        // rolling volatility
+        const volSeries = [];
+        for (let i = 0; i < candles.length; i++) {
+            if (i < 21) { volSeries.push(null); continue; }
+            const slice = closes.slice(i-20, i+1);
+            const rets = [];
+            for (let j = 1; j < slice.length; j++) rets.push(Math.log(slice[j]/slice[j-1]));
+            const m = rets.reduce((a,b)=>a+b,0)/rets.length;
+            const v = rets.reduce((a,b)=>a+(b-m)**2,0)/rets.length;
+            volSeries.push(Math.sqrt(v * 245));
+        }
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i], h = ha[i];
+            const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+            if (i < p.volWindow + 5 || atr[i] === null || volSeries[i] === null) {
+                signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null });
+                continue;
+            }
+            const volSlice = volSeries.slice(i - p.volWindow, i).filter(x => x !== null);
+            const sorted = [...volSlice].sort((a,b) => a-b);
+            const threshold = sorted[Math.floor(sorted.length * p.volPct)];
+            const isLowVol = volSeries[i] <= threshold;
+            let signalType = null, reason = null;
+            if (position === 'LONG') {
+                const bars = i - entry.idx; const R = entry.risk;
+                if (c.close < entry.stop) reason = 'حد ضرر';
+                else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+                else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+                else if (!isLowVol) reason = 'نوسان بالا رفت';
+                else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+                if (reason) {
+                    position = null; signalType = 'EXIT_LONG';
+                    const tr = trades[trades.length - 1];
+                    if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                    entry = null; cooldown = p.cooldownBars;
+                }
+            } else {
+                if (cooldown > 0) cooldown--;
+                else if (isLowVol && h.bullish && c.close > c.open && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+                    const entryPrice = c.close;
+                    const stopPrice = c.close - p.atrMult * atr[i];
+                    const risk = entryPrice - stopPrice;
+                    if (risk > 0) {
+                        position = 'LONG'; signalType = 'BUY';
+                        entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                        ind.stop = round(stopPrice);
+                        reason = `Low Vol Anomaly (vol=${(volSeries[i]*100).toFixed(1)}%)`;
+                        trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+                    }
+                }
+            }
+            signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+        }
+        return { ha, signals, trades, htfTrend: null };
+    }
+
     // ==================== رجیستری ====================
     // 🆕 فیلدهای nameFa / category / regime برای auto-derive در
     //     monthly-report.job.js و core/regime.js استفاده می‌شن.
@@ -1589,6 +1904,7 @@
             run: runOBAfterSweep
         },
         orb: {
+            disabled: true,
             id: 'orb',
             name: 'Opening Range Breakout',
             nameFa: 'شکست بازه آغازین',
@@ -1627,6 +1943,7 @@
             run: runMacdTrend
         },
         ichimoku_cloud: {
+            disabled: true,
             id: 'ichimoku_cloud',
             name: 'Ichimoku Cloud',
             nameFa: 'ابر ایچیموکو',
@@ -1639,6 +1956,7 @@
             run: runIchimokuCloud
         },
         ema_stack: {
+            disabled: true,
             id: 'ema_stack',
             name: 'EMA Stack',
             nameFa: 'چیدمان EMA',
@@ -1702,7 +2020,68 @@
             indicators: ['atr', 'squeeze'],
             run: runBollingerSqueeze
         },
-        donchian: {
+        // ───── استراتژی‌های جدید (علمی) ─────
+        momentum_12_1: {
+            id: 'momentum_12_1',
+            name: 'Momentum 12-1',
+            nameFa: 'مومنتوم ۱۲-۱',
+            category: 'momentum',
+            regime: { macro: ['bull'], vol: ['normal', 'high'] },
+            defaultTimeframe: '1d',
+            htfTimeframe: '1d',
+            defaultParams: MOM12_1_DEFAULTS,
+            indicators: ['atr'],
+            run: runMomentum121
+        },
+        short_term_reversal: {
+            id: 'short_term_reversal',
+            name: 'Short-Term Reversal',
+            nameFa: 'بازگشت کوتاه‌مدت',
+            category: 'meanrev',
+            regime: { macro: ['range', 'bear'], vol: ['high', 'normal'] },
+            defaultTimeframe: '1d',
+            htfTimeframe: '1d',
+            defaultParams: STR5_DEFAULTS,
+            indicators: ['atr'],
+            run: runShortTermReversal
+        },
+        ou_mean_reversion: {
+            id: 'ou_mean_reversion',
+            name: 'OU Mean Reversion',
+            nameFa: 'بازگشت OU',
+            category: 'meanrev',
+            regime: { macro: ['range'], vol: ['normal', 'low'] },
+            defaultTimeframe: '30m',
+            htfTimeframe: '1d',
+            defaultParams: OU_MR_DEFAULTS,
+            indicators: ['atr'],
+            run: runOUMeanReversion
+        },
+        volatility_breakout: {
+            id: 'volatility_breakout',
+            name: 'Volatility Regime Breakout',
+            nameFa: 'شکست رژیم نوسان',
+            category: 'volatility',
+            regime: { macro: ['bull', 'range'], vol: ['high', 'normal'] },
+            defaultTimeframe: '30m',
+            htfTimeframe: '1d',
+            defaultParams: VOL_BREAK_DEFAULTS,
+            indicators: ['atr'],
+            run: runVolatilityBreakout
+        },
+        low_vol_anomaly: {
+            id: 'low_vol_anomaly',
+            name: 'Low Volatility Anomaly',
+            nameFa: 'آنومالی نوسان کم',
+            category: 'momentum',
+            regime: { macro: ['bull'], vol: ['low'] },
+            defaultTimeframe: '1d',
+            htfTimeframe: '1d',
+            defaultParams: LOW_VOL_DEFAULTS,
+            indicators: ['atr'],
+            run: runLowVolAnomaly
+        },
+                donchian: {
             id: 'donchian',
             name: 'Donchian Breakout',
             nameFa: 'شکست دانچیان',
@@ -1743,6 +2122,7 @@
 
         // ───── ترکیبی ─────
         ensemble: {
+            disabled: true,
             id: 'ensemble',
             name: 'Ensemble',
             nameFa: 'کمیته',
@@ -1775,6 +2155,12 @@
         if (id === 'atr_expansion') return Math.max(p.atrPeriod, p.atrLookback) + 15;
         if (id === 'pairs_spread') return Math.max(p.zLookback, p.atrPeriod) + 10;
         if (id === 'sector_momentum') return Math.max(p.momentumLookback, p.atrPeriod) + 10;
+        // 🆕 New scientific strategies
+        if (id === 'momentum_12_1') return (p.lookbackMonths || 12) * 21 + (p.skipMonths || 1) * 21 + 20;
+        if (id === 'short_term_reversal') return (p.lookbackDays || 5) * 7 + 20;
+        if (id === 'ou_mean_reversion') return (p.ouWindow || 60) + 20;
+        if (id === 'volatility_breakout') return Math.max(p.atrLookback || 20, p.bbPeriod || 20) + 20;
+        if (id === 'low_vol_anomaly') return (p.volWindow || 60) + 25;
         if (id === 'ensemble') {
             const subIds = ['smc_unicorn', 'ob_sweep', 'ob_after_sweep', 'supply_demand', 'bb_squeeze', 'donchian', 'rsi_pullback', 'macd_trend', 'ichimoku_cloud', 'ema_stack', 'rsi_oversold_bounce', 'atr_expansion'];
             return Math.max(...subIds.map(sid => getRequiredCandles(sid, p)));

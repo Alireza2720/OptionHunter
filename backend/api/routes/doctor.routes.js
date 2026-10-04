@@ -21,7 +21,6 @@ const OHDOCTOR_SECTIONS = [
     // 🆕 ۱۰ بخش جدید
     'BACKUP', 'CRON', 'SSL/TLS', 'DISK', 'MEMORY LEAK',
     'DATA INTEGRITY', 'SIGNAL QUALITY', 'FAILED JOBS', 'NETWORK', 'OPEN POSITIONS',
-    'ENRICHMENT',
     // FINAL
     'FINAL REPORT',
 ];

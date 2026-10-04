@@ -36,6 +36,7 @@ const tearsheetRoutes = require('./routes/tearsheet.routes');
 const backtestRoutes = require('./routes/backtest.routes');
 const journalRoutes = require('./routes/journal.routes');
 const doctorRoutes = require('./routes/doctor.routes');
+const paperTradingRoutes = require('./routes/paper-trading.routes');
 
 function createApp(deps) {
     const app = express();
@@ -75,6 +76,7 @@ function createApp(deps) {
     backtestRoutes.register(app, deps);
     journalRoutes.register(app, deps);
     doctorRoutes.register(app, deps);
+    paperTradingRoutes.register(app, deps);
 
     // ---- 404 + error ----
     app.use(errorMw.notFoundHandler);

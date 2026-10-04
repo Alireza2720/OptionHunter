@@ -42,6 +42,7 @@ const executionGuard = require('./core/execution-guard');
 const pipelineService = require('./services/pipeline.service');
 const backtestOrchestrator = require('./services/backtest-orchestrator.service');
 const dualStageService = require('./services/dual-stage-pipeline.service');
+const paperTradingService = require('./services/paper-trading.service');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -255,6 +256,13 @@ async function bootstrap() {
         getChain: async () => optionsChain.fetchChain(60000)
     });
 
+    // 7.5) paper trading service
+    paperTradingService.init({
+        getDB: mongo.getDB,
+        logger,
+        options: optionsCore
+    });
+
     // 8) strategies bundle
     const strategiesBundle = {
         STRATEGIES: strategiesModule.STRATEGIES,
@@ -296,7 +304,8 @@ async function bootstrap() {
         executionGuard,
         signalFilterService,
         correlationService,
-        regimeService   // 🆕 Phase 6
+        regimeService,   // 🆕 Phase 6
+        paperTrading: paperTradingService   // 🆕
     });
 
     // 11) services
@@ -475,7 +484,8 @@ async function bootstrap() {
         correlationService,
         analysisService,
         signalFilterService,
-        regimeService   // 🆕 Phase 6
+        regimeService,   // 🆕 Phase 6
+        paperTrading: paperTradingService   // 🆕
     });
 
     // 11.8) correlation job

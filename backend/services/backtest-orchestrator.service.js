@@ -437,12 +437,40 @@ async function computeFullResult(job, jobId) {
     if (panels.regime && panels.regime.enabled) {
         deps.logger && deps.logger.info(`[bt-compute] ${jobId} regime...`);
         try {
-            await deps.regimeService.refreshAll();
-            const all = await deps.regimeService.getAllCached();
-            result.regimes = all.map(r => ({
-                symbol: r.symbol, macro: r.macro, vol: r.vol,
-                slopePct: r.macroSlopePct || null, close: r.close || null
-            }));
+            // 🆕 Historical regime distribution (per-symbol، نه رژیم امروز)
+            const { computeHistoricalRegimeDistribution } = require('../core/regime-history');
+            const allTrades = details.flatMap(d => (d.stockTrades || d.trades || []).map(t => ({ ...t, symbol: d.symbol })));
+            const _bySym = {};
+            for (const t of allTrades) {
+                if (!_bySym[t.symbol]) _bySym[t.symbol] = [];
+                _bySym[t.symbol].push(t);
+            }
+            const symbolRegimes = {};
+            for (const [sym, trs] of Object.entries(_bySym)) {
+                const dc = await deps.dataService.getCandles(sym, '1d').catch(() => []);
+                if (dc && dc.length >= 50) {
+                    symbolRegimes[sym] = computeHistoricalRegimeDistribution(trs, dc);
+                }
+            }
+            const _aggCounts = { bull: 0, bear: 0, range: 0, unknown: 0 };
+            let _aggTotal = 0;
+            for (const r of Object.values(symbolRegimes)) {
+                if (!r || !r.distribution) continue;
+                for (const [k, v] of Object.entries(r.distribution)) {
+                    _aggCounts[k] = (_aggCounts[k] || 0) + (v.count || 0);
+                }
+                _aggTotal += r.totalTrades || 0;
+            }
+            const _aggDist = {};
+            for (const [k, v] of Object.entries(_aggCounts)) {
+                _aggDist[k] = { count: v, pct: _aggTotal > 0 ? Math.round(v / _aggTotal * 1000) / 10 : 0 };
+            }
+            result.regimes = {
+                distribution: _aggDist,
+                totalTrades: _aggTotal,
+                dominantRegime: Object.entries(_aggCounts).sort((a,b) => b[1]-a[1])[0][0],
+                perSymbol: symbolRegimes
+            };
         } catch (e) {
             result.regimes = [];
         }

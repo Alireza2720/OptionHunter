@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -2817,7 +2817,7 @@ async function viewJobDetail(id) {
         hideLoader();
 
         // 🆕 برای backtest-compare و pipeline → همون نمای فرش
-        if (job.type === 'backtest-compare' || job.type === 'pipeline') {
+        if (job.type === 'backtest-compare' || job.type === 'pipeline' || job.type === 'dual-stage') {
             openBacktestResultView(id);
             return;
         }
@@ -2865,6 +2865,12 @@ async function openBacktestResultView(jobId) {
 
         const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleString('fa-IR') : '';
         const modeLabel = _btMode === 'stock' ? '📊 سهم پایه' : '🎯 آپشن';
+
+        // 🆕 dual-stage result
+        if (r.result && r.result.stages) {
+            renderDualStageResult(r.result);
+            return;
+        }
 
         // 🆕 همون ساختار DOM که openBacktestPanel می‌سازه
         openModal(`نتیجه بک تست — ${dateStr}`, `

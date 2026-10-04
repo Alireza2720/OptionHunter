@@ -55,14 +55,14 @@ const DEFAULTS = {
     testTo: null,
 
     // Stage 1 gates
-    minStockTrades: 30,
-    minStockPF: 1.3,
+    minStockTrades: 15,
+    minStockPF: 1.1,
     minLB: 1.0,
     fdrQ: 0.05,
-    useFDR: true,
+    useFDR: false,
 
     // Stage 3 — 🆕 منعطف‌تر
-    minValidationPF: 0.8,
+    minValidationPF: 0.7,
     validationMinTrades: 0,
 
     // Stage 4
@@ -71,13 +71,13 @@ const DEFAULTS = {
     signalCorrToleranceSec: 300,
 
     // Stage 5 gates
-    minOptionTrades: 5,
+    minOptionTrades: 3,
     minRealRatio: 0.5,
     minOptionPF: 1.2,
 
     // Verdict
-    goThreshold: 0.7,
-    maybeThreshold: 0.5,
+    goThreshold: 0.6,
+    maybeThreshold: 0.4,
     minAvgPnl: 0,
 
     // Capital

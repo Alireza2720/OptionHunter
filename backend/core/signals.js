@@ -30,7 +30,8 @@ let deps = {
     executionGuard: null,
     signalFilterService: null,
     correlationService: null,
-    regimeService: null   // 🆕 Phase 6
+    regimeService: null,  // 🆕 Phase 6
+    paperTrading: null    // 🆕
 };
 
 function init(d) {
@@ -594,6 +595,21 @@ async function evaluateConfig(config, marketInfo) {
         createdAt: new Date()
     });
 
+    // 🆕 Paper Trading — ثبت EXIT
+    if (last.signalType === 'EXIT_LONG' && deps.paperTrading && deps.paperTrading.recordSignal) {
+        try {
+            await deps.paperTrading.recordSignal({
+                symbol: config.symbol,
+                strategyId: config.strategyId,
+                signalType: 'EXIT_LONG',
+                price: lastPrice,
+                time: last.time,
+                reason: last.reason,
+                timeframe: config.timeframe
+            });
+        } catch (pe) { deps.logger && deps.logger.warn('paper EXIT: ' + pe.message); }
+    }
+
     // ---- پیشنهاد قرارداد ----
     if (last.signalType === 'BUY') {
         if (!inWindow || (info && info.queue === 'buy')) {
@@ -640,6 +656,24 @@ async function evaluateConfig(config, marketInfo) {
                 regimeReason: regimeResult.reason,
                 targetMultiplier   // 🆕
             });
+
+            // 🆕 Paper Trading — ثبت خودکار سیگنال
+            if (deps.paperTrading && deps.paperTrading.recordSignal) {
+                try {
+                    await deps.paperTrading.recordSignal({
+                        symbol: config.symbol,
+                        strategyId: config.strategyId,
+                        signalType: 'BUY',
+                        price: lastPrice,
+                        time: last.time,
+                        reason: last.reason,
+                        indicators: last.indicators,
+                        htfTrend: result.htfTrend || null,
+                        regime: regimeResult,
+                        timeframe: config.timeframe
+                    });
+                } catch (pe) { deps.logger && deps.logger.warn('paper BUY: ' + pe.message); }
+            }
         } catch (e) {
             await deps.notify(`انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`);
         }
