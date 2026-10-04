@@ -610,7 +610,7 @@ async function autoConfigureSingle(symbol, maxConfirmers, dateFrom, dateTo, jobI
 
     const STRATEGIES = deps.strategies.STRATEGIES;
     // ⛔ حذف ensemble + pairs_spread + sector_momentum (بدون context → N=0)
-    const EXCLUDED = new Set(['ensemble', 'pairs_spread', 'sector_momentum']);
+    const EXCLUDED = new Set(['sector_momentum']);
     const strategies = Object.values(STRATEGIES).filter(s => !EXCLUDED.has(s.id));
     const results = [];
 

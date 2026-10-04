@@ -43,7 +43,7 @@ const STAGE_LABELS = {
     99: 'تکمیل'
 };
 
-const EXCLUDED_STRATEGIES = new Set(['ensemble', 'pairs_spread', 'sector_momentum']);
+const EXCLUDED_STRATEGIES = new Set(['sector_momentum']);
 
 const DEFAULTS = {
     // بازه‌ها — اگه null، خودکار محاسبه می‌شن

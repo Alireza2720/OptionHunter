@@ -33,7 +33,7 @@ function register(app, deps) {
 
             // 🆕 استراتژی‌های نیازمند context خاص رو exclude کن
             const { STRATEGIES } = require('../../strategies');
-            const EXCLUDED = new Set(['ensemble', 'pairs_spread', 'sector_momentum']);
+            const EXCLUDED = new Set(['sector_momentum']);
             const strategies = opts.strategies && opts.strategies.length
                 ? opts.strategies
                 : Object.values(STRATEGIES)

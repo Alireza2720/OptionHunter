@@ -1318,7 +1318,7 @@
         if (id === 'short_term_reversal') return (p.lookbackDays || 5) * 7 + 20;
         if (id === 'low_vol_anomaly') return (p.volWindow || 60) + 25;
         if (id === 'ensemble') {
-            const subIds = ['smc_unicorn', 'ob_sweep', 'ob_after_sweep', 'supply_demand', 'bb_squeeze', 'donchian', 'rsi_pullback', 'macd_trend', 'ichimoku_cloud', 'ema_stack', 'rsi_oversold_bounce', 'atr_expansion'];
+            const subIds = ['smc_unicorn', 'ob_sweep', 'ob_after_sweep', 'donchian', 'atr_expansion'];
             return Math.max(...subIds.map(sid => getRequiredCandles(sid, p)));
         }
         if (id === 'tsmom') return Math.max(p.lookbackDays || 252, p.volLookbackDays || 60, p.atrPeriod) + 10;
