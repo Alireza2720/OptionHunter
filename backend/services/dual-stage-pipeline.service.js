@@ -190,6 +190,14 @@ async function _buildConfigs(opts) {
             .map(s => s.id);
     } else {
         strategyIds = strategyIds.filter(id => STRATEGIES[id] && !EXCLUDED_STRATEGIES.has(id));
+        if (!strategyIds.length) {
+            deps.logger && deps.logger.warn(
+                '[dual-stage] all strategies excluded — fallback to defaults'
+            );
+            strategyIds = Object.values(STRATEGIES)
+                .filter(s => !EXCLUDED_STRATEGIES.has(s.id))
+                .map(s => s.id);
+        }
     }
 
     const configs = [];
@@ -934,7 +942,11 @@ async function runDualStage(jobId, opts = {}) {
     // 🆕 Memory guard داخل runner (نه فقط route)
     const memCheck = memGuard.canStartHeavyJob();
     if (!memCheck.ok) {
-        deps.logger && deps.logger.error(`[dual-stage ${jobId}] memory guard: ${memCheck.reason}`);
+        deps.logger && deps.logger.error(
+            `[dual-stage ${jobId}] memory guard: ${memCheck.reason} ` +
+            `(free=${memCheck.status && memCheck.status.systemFreeMB}MB, ` +
+            `rss=${memCheck.status && memCheck.status.processRssMB}MB)`
+        );
         await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
             { _id: new ObjectId(jobId) },
             { $set: {

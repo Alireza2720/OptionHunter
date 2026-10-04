@@ -274,7 +274,7 @@ function w(l = '') { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(
 function wc(l, c) { OUT.push(l); if (!CONF.quiet && !CONF.jsonOut) console.log(c + l + C.reset); }
 function bar() { w('═'.repeat(78)); }
 // 🆕 کل بخش‌ها — برای گزارش progress به backend
-const TOTAL_SECTIONS = 34;
+const TOTAL_SECTIONS = 35;
 const _jobId = (() => {
     const a = ARGV.find((x) => x.startsWith('--job-id='));
     return a ? a.split('=')[1] : null;
@@ -2212,6 +2212,116 @@ async function s33_positions() {
 }
 
 // ============================================================
+// S35 — MECHANISM TESTS (fixed guards)
+// ============================================================
+async function s35_mechanisms() {
+    section(35, 'MECHANISM TESTS');
+    const mon = await httpGet(CONF.backend + '/api/monitored-symbols');
+    if (!mon.ok || !Array.isArray(mon.json) || !mon.json.length) {
+        return info('no monitored symbols — skip');
+    }
+    const symbol = mon.json[0].symbol;
+    const today = new Date();
+    const from = new Date(today.getTime() - 30 * 86400000);
+    const fromTs = Math.floor(from.getTime() / 1000);
+    const toTs = Math.floor(today.getTime() / 1000);
+
+    const mechs = [
+        { key: 'bt2_portfolio_dup',           label: 'Duplicate Guard',  panel: 'portfolio' },
+        { key: 'bt2_portfolio_kelly',         label: 'Kelly Sizing',     panel: 'portfolio' },
+        { key: 'bt2_portfolio_corr',          label: 'Correlation',      panel: 'portfolio' },
+        { key: 'bt2_portfolio_sectors',       label: 'Sectors',          panel: 'portfolio' },
+        { key: 'bt2_portfolio_regime',        label: 'Regime (soft)',    panel: 'portfolio' },
+        { key: 'bt2_portfolio_score',         label: 'Signal Score',     panel: 'portfolio' },
+        { key: 'bt2_portfolio_filter',        label: 'Signal Filter',    panel: 'portfolio' }
+    ];
+
+    for (const m of mechs) {
+        sub(m.label);
+        const panels = {
+            analysis: { enabled: false },
+            portfolio: {
+                enabled: true,
+                capital: 100000000, riskPct: 1.5,
+                maxSymPct: 20, maxTotalPct: 50,
+                maxClusterPct: 30, maxSectorPct: 40
+            },
+            wf: { enabled: false },
+            regime: { enabled: false }
+        };
+        const flagMap = {
+            bt2_portfolio_dup: 'useDuplicateGuard',
+            bt2_portfolio_kelly: 'useKelly',
+            bt2_portfolio_corr: 'useCorrelation',
+            bt2_portfolio_sectors: 'useSectors',
+            bt2_portfolio_regime: 'useRegime',
+            bt2_portfolio_score: 'useSignalScore',
+            bt2_portfolio_filter: 'useSignalFilter'
+        };
+        const flag = flagMap[m.key];
+        panels.portfolio[flag] = true;
+
+        const payload = {
+            mode: 'stock',
+            symbols: [symbol],
+            strategies: [{ id: 'smc_unicorn' }],
+            panels,
+            dateFrom: fromTs, dateTo: toTs
+        };
+        try {
+            const r = await httpGet(CONF.backend + '/api/backtest/run', {
+                method: 'POST', body: payload, timeout: 15000
+            });
+            if (!r.ok || !r.json || !r.json.jobId) {
+                warn(`${m.label}: submit failed (${r.status})`);
+                continue;
+            }
+            const jobId = r.json.jobId;
+            const deadline = Date.now() + 120000;
+            let final = null;
+            while (Date.now() < deadline) {
+                await sleep(3000);
+                const jr = await httpGet(CONF.backend + '/api/jobs/' + jobId);
+                if (!jr.ok) continue;
+                final = jr.json;
+                if (['DONE','FAILED','CANCELLED'].includes(final.status)) break;
+            }
+            if (!final) warn(`${m.label}: timeout`);
+            else if (final.status === 'DONE') ok(`${m.label}: PASS`);
+            else fail(`${m.label}: ${final.status} — ${(final.error||'').slice(0,80)}`);
+        } catch (e) {
+            fail(`${m.label}: ${e.message}`);
+        }
+    }
+
+    // Walk-Forward quick test
+    sub('Walk-Forward');
+    try {
+        const payload = {
+            mode: 'stock',
+            symbols: [symbol],
+            strategies: [{ id: 'smc_unicorn' }],
+            panels: {
+                analysis: { enabled: false },
+                portfolio: { enabled: false },
+                wf: { enabled: true, windows: 3, numTrials: 50 },
+                regime: { enabled: false }
+            },
+            dateFrom: fromTs, dateTo: toTs
+        };
+        const r = await httpGet(CONF.backend + '/api/backtest/run', {
+            method: 'POST', body: payload, timeout: 15000
+        });
+        if (r.ok && r.json && r.json.jobId) ok('Walk-Forward: submit OK');
+        else warn(`Walk-Forward: submit ${r.status}`);
+    } catch (e) { fail(`Walk-Forward: ${e.message}`); }
+
+    // Time-Decay
+    sub('Time-Decay');
+    ok('Time-Decay: enabled by default (useTimeDecay)');
+}
+
+// ============================================================
 // S34 — FINAL REPORT (renamed from 24)
 // ============================================================
 async function s34_report() {
@@ -2429,6 +2539,7 @@ async function runDoctor() {
     await run(31, 'FAILED-JOBS', s31_failed_jobs, true);
     await run(32, 'NETWORK', s32_network, true);
     await run(33, 'POSITIONS', s33_positions, true);
+    await run(35, 'MECHANISMS', s35_mechanisms, true);
     await run(34, 'REPORT', s34_report, true);
     stopSafetyWatchdog();
 

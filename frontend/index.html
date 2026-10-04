@@ -1358,6 +1358,21 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
   font-size: 12.5px;
 }
 
+.bt-opt-lbl {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 10px; border-radius: var(--r-sm);
+  background: var(--bg-elev-3); border: 1px solid var(--border-subtle);
+  transition: all var(--t-fast) var(--ease);
+}
+.bt-opt-lbl:hover { border-color: var(--accent); background: var(--bg-hover); }
+.bt-opt-info {
+  margin-right: auto; color: var(--text-muted); font-size: 11px;
+  cursor: help; padding: 0 4px; border-radius: 50%;
+  background: var(--bg-elev-2); width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.bt-opt-lbl:hover .bt-opt-info { background: var(--accent); color: white; }
+
 .bulk-toolbar {
   display: none;
   gap: 6px;
@@ -2378,15 +2393,19 @@ async function saveEditConfig(id) {
     showAlert('خطا: ' + e.message);
   }
 }
-async function fetchFullDataRange() {
+async function fetchFullDataRange(mode) {
+  const _mode = mode || 'option';
+  const _url = (_mode === 'stock')
+    ? `${BACKEND_URL}/api/algotik/data-range-stock`
+    : `${BACKEND_URL}/api/algotik/data-range`;
   try {
-    const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
+    const r = await apiFetch(_url, {}, 0);
     if (!r.from || !r.to) return null;
     return { from: r.from, to: r.to, days: r.days };
   } catch (e) { return null; }
 }
 async function setBtRangeAll() {
-  const r = await fetchFullDataRange();
+  const r = await fetchFullDataRange('option');
   if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
   const today = new Date().toISOString().slice(0, 10);
   document.getElementById('btFrom').value = r.from;
@@ -2394,7 +2413,7 @@ async function setBtRangeAll() {
   showAlert(`بازه: ${r.from}  ${today}`, 'success', 4000);
 }
 async function setBtcRangeAll() {
-  const r = await fetchFullDataRange();
+  const r = await fetchFullDataRange('option');
   if (!r) return showAlert('بازه دیتا پیدا نشد — ابتدا Backfill کنید', 'warn');
   const today = new Date().toISOString().slice(0, 10);
   document.getElementById('btcFrom').value = r.from;
@@ -2723,7 +2742,7 @@ async function openWfPanel() {
       return `<option value="${j._id}">${date} — ${(j.payload?.symbols || []).length} نماد</option>`;
     }).join('');
     const html = `
-      <div class="hint"> تقسیم بازه به N پنجره‌ی زمانی. اگر edge واقعی باشد، در همه‌ی پنجره‌ها پایدار می‌ماند.
+      <div class="hint"> اعتبارسنجی زمانی: بازه به N پنجره تقسیم می‌شود. اگر edge واقعی باشد، در همه‌ی پنجره‌ها پایدار می‌ماند.
         اگر overfit باشد، در test پنجره‌ها محو می‌شود.
       </div> <div class="form-row" style="align-items:end;"> <div class="field" style="flex:1; min-width:240px;"> <label>Job مقایسه‌ای</label> <select id="wfJobId">${jobOpts}</select> </div> <div class="field"><label>تعداد پنجره</label><input type="number" id="wfWindows" value="4" min="2" max="8"></div> <div class="field"><label>حداقل معامله</label><input type="number" id="wfMinTrades" value="5" min="3" max="50"></div> <div class="field"><label>numTrials (Deflated)</label><input type="number" id="wfTrials" value="234" min="10" max="10000"></div> <button class="btn" id="wfRunBtn" onclick="runWf()">تحلیل</button> </div> <div id="wfResults" style="margin-top:16px;"></div> `;
     openModal('Walk-Forward (فاز ۵)', html);
@@ -3605,8 +3624,12 @@ function openBacktestPanel(mode) {
     ? monitoredSymbols.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;"> <input type="checkbox" class="bt2-sym" value="${esc(s.symbol)}"> ${esc(s.symbol)}
         </label>`).join('')
     : '<div class="empty-note">نمادی نیست</div>';
-  const stratsHtml = strategiesInfo.map(s => `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;"> <input type="checkbox" class="bt2-strat" value="${esc(s.id)}" ${s.id === 'ensemble' ? '' : 'checked'}> ${esc(s.name)}
-    </label>`).join('');
+  const _EXCLUDED_FROM_BT = new Set(['pairs_spread', 'ensemble']);
+  const stratsHtml = strategiesInfo.map(s => {
+    const _ex = _EXCLUDED_FROM_BT.has(s.id);
+    const _checked = _ex ? '' : 'checked';
+    return `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;"><input type="checkbox" class="bt2-strat" value="${esc(s.id)}" ${_checked} ${_ex ? 'disabled' : ''}> ${esc(s.name)}</label>`;
+  }).join('');
   const today = new Date().toISOString().slice(0, 10);
   const optFrom = '2026-06-09';
   const stockFrom = '2024-01-01';
@@ -3623,16 +3646,27 @@ function openBacktestPanel(mode) {
         </div> <div id="bt2RangeInfo" class="hint" style="display:none; margin-top:-4px;"></div> ${mode === 'option' ? `
           <div class="form-row" style="margin-top:8px;"> <div class="field"><label>نوع آپشن</label> <select id="bt2OptionType"> <option value="call" selected>فقط کال</option> <option value="put" disabled>فقط پوت (به‌زودی)</option> <option value="both" disabled>هر دو (به‌زودی)</option> </select> </div> </div> <div class="hint"> تیک «فقط کال» = در رژیم bear هیچ خریدی انجام نمی‌شود.</div> ` : ''}
       </div> </div> <div class="adv-accordion open" id="btSectionPanels"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"><span> پنل‌های اختیاری</span><span class="chev">▼</span></div> <div class="adv-body"> <div class="adv-accordion open" id="btPanel_analysis"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_analysis_on" checked> <b>تحلیل آماری</b> (Bootstrap CI + t-test)
-            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>حداقل معامله</label><input type="number" id="bt2_analysis_minTrades" value="5" min="3" max="50"></div> <div class="field"><label>تعداد Bootstrap</label><input type="number" id="bt2_analysis_iterations" value="10000" min="1000" max="50000" step="1000"></div> </div> </div> </div> <div class="adv-accordion open" id="btPanel_portfolio"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_portfolio_on" checked> <b>شبیه‌سازی چند-نمادی</b> </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>سرمایه</label><input type="number" id="bt2_portfolio_capital" value="100000000"></div> <div class="field"><label>ریسک %</label><input type="number" id="bt2_portfolio_riskPct" value="1.5" step="0.1"></div> <div class="field"><label>سقف نماد %</label><input type="number" id="bt2_portfolio_maxSymPct" value="20"></div> <div class="field"><label>سقف کل %</label><input type="number" id="bt2_portfolio_maxTotalPct" value="50"></div> <div class="field"><label>سقف خوشه %</label><input type="number" id="bt2_portfolio_maxClusterPct" value="30"></div> <div class="field"><label>سقف صنعت %</label><input type="number" id="bt2_portfolio_maxSectorPct" value="40"></div> </div> <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin-top:6px;"> <label><input type="checkbox" id="bt2_portfolio_dup" checked> Duplicate Guard</label> <label><input type="checkbox" id="bt2_portfolio_kelly" checked> Kelly</label> <label><input type="checkbox" id="bt2_portfolio_corr" checked> Correlation</label> <label><input type="checkbox" id="bt2_portfolio_sectors" checked> Sectors</label> <label><input type="checkbox" id="bt2_portfolio_regime" checked> Regime (soft)</label> <label><input type="checkbox" id="bt2_portfolio_score" checked> Signal Score</label> <label><input type="checkbox" id="bt2_portfolio_filter" checked> Signal Filter</label> </div> </div> </div> <div class="adv-accordion" id="btPanel_wf"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_wf_on"> <b>Walk-Forward</b> (اعتبارسنجی زمانی)
-            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>تعداد پنجره</label><input type="number" id="bt2_wf_windows" value="4" min="2" max="8"></div> <div class="field"><label>numTrials</label><input type="number" id="bt2_wf_numTrials" value="234" min="10" max="10000"></div> </div> </div> </div> <div class="adv-accordion open" id="btPanel_regime"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_regime_on" checked> <b>وضعیت بازار</b> (نمایشی + فیلتر bear)
+            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>حداقل معامله</label><input type="number" id="bt2_analysis_minTrades" value="5" min="3" max="50"></div> <div class="field"><label>تعداد Bootstrap</label><input type="number" id="bt2_analysis_iterations" value="10000" min="1000" max="50000" step="1000"></div> </div> </div> </div> <div class="adv-accordion open" id="btPanel_portfolio"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_portfolio_on" checked> <b>شبیه‌سازی چند-نمادی</b> </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>سرمایه</label><input type="number" id="bt2_portfolio_capital" value="100000000"></div> <div class="field"><label>ریسک %</label><input type="number" id="bt2_portfolio_riskPct" value="1.5" step="0.1"></div> <div class="field"><label>سقف نماد %</label><input type="number" id="bt2_portfolio_maxSymPct" value="20"></div> <div class="field"><label>سقف کل %</label><input type="number" id="bt2_portfolio_maxTotalPct" value="50"></div> <div class="field"><label>سقف خوشه %</label><input type="number" id="bt2_portfolio_maxClusterPct" value="30"></div> <div class="field"><label>سقف صنعت %</label><input type="number" id="bt2_portfolio_maxSectorPct" value="40"></div> </div> <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;font-size:12.5px;margin-top:8px;">
+              <label class="bt-opt-lbl" title="جلوگیری از چند پوزیشن هم‌زمان روی یک نماد"><input type="checkbox" id="bt2_portfolio_dup" checked><span>گارد تکراری</span><span class="bt-opt-info">?</span></label>
+              <label class="bt-opt-lbl" title="تعیین حجم بر اساس معیار Kelly (نصف Kelly) — N>=30"><input type="checkbox" id="bt2_portfolio_kelly" checked><span>سایزینگ کِلی</span><span class="bt-opt-info">?</span></label>
+              <label class="bt-opt-lbl" title="محدودسازی درگیری در خوشه‌های همبسته (corr > 0.85)"><input type="checkbox" id="bt2_portfolio_corr" checked><span>همبستگی</span><span class="bt-opt-info">?</span></label>
+              <label class="bt-opt-lbl" title="حداکثر ۴۰٪ سرمایه در هر صنعت"><input type="checkbox" id="bt2_portfolio_sectors" checked><span>صنایع</span><span class="bt-opt-info">?</span></label>
+              <label class="bt-opt-lbl" title="کاهش حجم در رژیم نامناسب؛ رژیم خطرناک = رد"><input type="checkbox" id="bt2_portfolio_regime" checked><span>رژیم (ملایم)</span><span class="bt-opt-info">?</span></label>
+              <label class="bt-opt-lbl" title="امتیاز 0..1 بر اساس confluence + HTF + ATR + RSI + IV + رژیم"><input type="checkbox" id="bt2_portfolio_score" checked><span>امتیاز سیگنال</span><span class="bt-opt-info">?</span></label>
+              <label class="bt-opt-lbl" title="فقط pairهای تأییدشده توسط whitelist"><input type="checkbox" id="bt2_portfolio_filter" checked><span>فیلتر سیگنال</span><span class="bt-opt-info">?</span></label>
+            </div> </div> </div> <div class="adv-accordion" id="btPanel_wf"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_wf_on" checked> <b>اعتبارسنجی زمانی</b> (اعتبارسنجی زمانی)
+            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>تعداد پنجره</label><input type="number" id="bt2_wf_windows" value="8" min="2" max="12"></div> <div class="field"><label>numTrials</label><input type="number" id="bt2_wf_numTrials" value="234" min="10" max="10000"></div> </div> </div> </div> <div class="adv-accordion open" id="btPanel_regime"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_regime_on" checked> <b>وضعیت بازار</b> (نمایشی + فیلتر bear)
             </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint">پس از اتمام، رژیم هر نماد در نتایج نمایش داده می‌شود. اگر «فقط کال» انتخاب شود، سیگنال‌های bear رد می‌شوند.</div> </div> </div> </div> </div> <button class="btn success" id="bt2RunBtn" onclick="runBacktestOrchestrator()" style="width:100%;margin-top:14px;"> اجرای بک‌تست کامل</button> <div id="bt2Progress" style="margin-top:12px;"></div> <div id="bt2ResultsArea" style="margin-top:14px;"></div> `);
 }
 async function bt2UseAllData(btn) {
   const orig = btn ? btn.textContent : null;
-  if (btn) { btn.disabled = true; btn.textContent = ''; }
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
   const infoEl = document.getElementById('bt2RangeInfo');
+  const _url = (_btMode === 'stock')
+    ? `${BACKEND_URL}/api/algotik/data-range-stock`
+    : `${BACKEND_URL}/api/algotik/data-range`;
   try {
-    const r = await apiFetch(`${BACKEND_URL}/api/algotik/data-range`, {}, 0);
+    const r = await apiFetch(_url, {}, 0);
     if (!r || !r.from) {
       if (infoEl) {
         infoEl.style.display = 'block';
@@ -3884,12 +3918,22 @@ function renderBacktestResults(result) {
   }).join('');
   const allTrades = [];
   for (const d of details) {
-    for (const t of (d.trades || [])) {
+    const _tradeSrc = (mode === 'stock') ? (d.stockTrades || []) : (d.trades || []);
+    for (const t of _tradeSrc) {
       allTrades.push({ ...t, symbol: d.symbol, strategyName: d.strategyName, strategyId: d.strategyId });
     }
   }
   allTrades.sort((a, b) => (b.entryTime || 0) - (a.entryTime || 0));
-  const tradesRows = allTrades.slice(0, 300).map(t => `<tr> <td>${t.entryTime ? new Date(t.entryTime*1000).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-'}</td> <td><b>${esc(t.symbol)}</b></td> <td>${esc(t.strategyName||t.strategyId)}</td> <td>${fmtN(t.stockEntry)}  ${fmtN(t.stockExit)}</td> <td>${fmtN(t.optionEntry)}  ${fmtN(t.optionExit)}</td> <td>${t.delta ? t.delta.toFixed(2) : '-'}</td> <td>${pct(t.pnlPct)}</td> <td>${t.source === 'real' ? 'واقعی' : 'تقریبی'}</td> </tr>`).join('');
+  const tradesRows = allTrades.slice(0, 300).map(t => {
+    const eTime = t.entryTime ? new Date(t.entryTime*1000).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+    const entry = (mode === 'stock') ? (t.entryPrice || t.stockEntry) : t.stockEntry;
+    const exit  = (mode === 'stock') ? (t.exitPrice  || t.stockExit)  : t.stockExit;
+    const optIn = (mode === 'stock') ? '-' : fmtN(t.optionEntry);
+    const optOut = (mode === 'stock') ? '-' : fmtN(t.optionExit);
+    const deltaTxt = (mode === 'stock') ? '-' : (t.delta ? t.delta.toFixed(2) : '-');
+    const srcTxt = (mode === 'stock') ? 'سهم' : (t.source === 'real' ? 'واقعی' : 'تقریبی');
+    return `<tr><td>${eTime}</td><td><b>${esc(t.symbol)}</b></td><td>${esc(t.strategyName||t.strategyId)}</td><td>${fmtN(entry)} → ${fmtN(exit)}</td><td>${optIn} → ${optOut}</td><td>${deltaTxt}</td><td>${pct(t.pnlPct)}</td><td>${srcTxt}</td></tr>`;
+  }).join('');
   let suggestHtml = '';
   if (result.autoConfigSuggestion && result.autoConfigSuggestion.length) {
     suggestHtml = `

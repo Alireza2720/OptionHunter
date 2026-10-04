@@ -365,7 +365,11 @@ async function computeFullResult(job, jobId) {
             'trades.entryTime': 1, 'trades.exitTime': 1, 'trades.pnlPct': 1,
             'trades.stockEntry': 1, 'trades.stockExit': 1,
             'trades.optionEntry': 1, 'trades.optionExit': 1,
-            'trades.delta': 1, 'trades.iv': 1, 'trades.source': 1, 'trades.exitReason': 1
+            'trades.delta': 1, 'trades.iv': 1, 'trades.source': 1, 'trades.exitReason': 1,
+            'stockTrades.entryTime': 1, 'stockTrades.exitTime': 1, 'stockTrades.pnlPct': 1,
+            'stockTrades.entryPrice': 1, 'stockTrades.exitPrice': 1,
+            'stockTrades.entryFillTime': 1, 'stockTrades.exitFillTime': 1,
+            'stockTrades.exitReason': 1, 'stockTrades.status': 1
         })
         .toArray();
 
@@ -384,7 +388,8 @@ async function computeFullResult(job, jobId) {
             tradesCount: (d.trades || []).length,
             realUsed: d.realUsed || 0,
             approxUsed: d.approxUsed || 0,
-            trades: (d.trades || []).slice(0, 200)
+            trades: (d.trades || []).slice(0, 200),
+            stockTrades: (d.stockTrades || []).slice(0, 200)
         }))
     };
 
@@ -505,6 +510,26 @@ async function computeFullResult(job, jobId) {
         }
     }
 
+    // ---- Losing strategies (aggregate) ----
+    try {
+        const _losers = computeLosingStrategies(details, mode);
+        result._losingStrategies = _losers.losers;
+        result._strategyAgg = _losers.agg;
+    } catch (_) {
+        result._losingStrategies = new Set();
+        result._strategyAgg = {};
+    }
+
+    // ---- Date range days (for dynamic min trades) ----
+    try {
+        const p = job.payload || {};
+        const _from = p.dateFrom ? parseInt(p.dateFrom) : null;
+        const _to   = p.dateTo   ? parseInt(p.dateTo)   : null;
+        result._dateRangeDays = (_from && _to) ? Math.round((_to - _from) / 86400) : 180;
+    } catch (_) {
+        result._dateRangeDays = 180;
+    }
+
     // ---- Auto-Config Suggestion ----
     result.autoConfigSuggestion = buildAutoConfigSuggestion(result, symbols);
 
@@ -561,6 +586,35 @@ async function computeFullResult(job, jobId) {
 // ------------------------------------------------------------
 // Auto-Config Suggestion (فقط پیشنهاد، بدون ذخیره در DB)
 // ------------------------------------------------------------
+function getDynamicMinTrades(days) {
+    const d = Number.isFinite(days) ? days : 180;
+    if (d < 90)  return 3;
+    if (d < 180) return 5;
+    if (d < 365) return 10;
+    if (d < 730) return 20;
+    return 30;
+}
+
+function computeLosingStrategies(details, mode) {
+    const LOSS_THRESHOLD_N = 50;
+    const agg = {};
+    for (const d of details) {
+        const t = (mode === 'stock') ? (d.stockStats || {}) : (d.optionStats || d.stockStats || {});
+        const sid = d.strategyId;
+        if (!sid) continue;
+        if (!agg[sid]) agg[sid] = { totalPnl: 0, totalN: 0 };
+        agg[sid].totalPnl += t.totalPnl || 0;
+        agg[sid].totalN += t.count || 0;
+    }
+    const losers = new Set();
+    for (const [sid, a] of Object.entries(agg)) {
+        if (a.totalN >= LOSS_THRESHOLD_N && a.totalPnl < 0) {
+            losers.add(sid);
+        }
+    }
+    return { losers, agg };
+}
+
 function buildAutoConfigSuggestion(result, symbolsInput) {
     const symbols = symbolsInput && symbolsInput.length
         ? symbolsInput
@@ -573,19 +627,22 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
         const rows = (result.details || []).filter(d => d.symbol === sym);
         if (!rows.length) continue;
 
+        const dynMin = getDynamicMinTrades(result._dateRangeDays || 180);
+        const losingSet = result._losingStrategies instanceof Set ? result._losingStrategies : new Set();
         const scored = rows.map(d => {
-            const target = mode === 'stock'
-                ? (d.stockStats || {})
-                : (d.optionStats || d.stockStats || {});
+            const target = mode === 'stock' ? (d.stockStats || {}) : (d.optionStats || d.stockStats || {});
             let pf = target.profitFactor;
             if (pf === null || pf === undefined || !Number.isFinite(pf)) pf = 0;
             const wr = target.winRate || 0;
             const n = target.count || 0;
-            const score = pf * 0.4 + (wr / 100) * 0.3 + Math.min(n, 20) / 20 * 0.3;
-            // 🆕 pairs_spread بدون pairSymbol قابل apply نیست
+            const nScore = Math.min(Math.log10(Math.max(n, 1)) / Math.log10(200), 1.2);
+            const pfScore = Math.min(pf, 5) / 5;
+            const wrScore = wr / 100;
+            const score = nScore * 0.55 + pfScore * 0.30 + wrScore * 0.15;
             const applicable = d.strategyId !== 'pairs_spread' || !!d.pairSymbol;
-            return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _applicable: applicable };
-        }).filter(d => d._n >= 10 && d._applicable)   // 🆕 حداقل 10 معامله
+            const isLoser = losingSet.has(d.strategyId);
+            return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _applicable: applicable, _loser: isLoser };
+        }).filter(d => d._n >= dynMin && d._applicable && !d._loser)
           .sort((a, b) => b._score - a._score);
 
         if (!scored.length) {
