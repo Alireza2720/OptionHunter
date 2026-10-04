@@ -128,23 +128,6 @@ table.data-table { width:100%; border-collapse:collapse; font-size:12px; min-wid
 table.data-table th, table.data-table td { padding:5px 8px; text-align:center; border-bottom:1px solid var(--border); white-space:nowrap; vertical-align:middle; }
 table.data-table th { color:var(--text-dim); font-weight:500; font-size:11px; }
 table.data-table tr.symbol-start td { border-top:1px solid var(--border-light); }
-/* 🆕 Sticky symbol column */
-table.data-table thead th:first-child,
-table.data-table tbody td:first-child {
-    position: sticky;
-    right: 0;
-    background: var(--bg-card);
-    z-index: 3;
-    border-right: 1px solid var(--border);
-}
-table.data-table td.symbol-sticky {
-    position: sticky;
-    right: 30px;
-    background: var(--bg-input);
-    z-index: 2;
-    border-right: 1px solid var(--border-light);
-    font-weight: 600;
-}
 .badge { padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600; display:inline-block; }
 .badge.long { background:rgba(46,168,138,.15); color:var(--good); }
 .badge.short { background:rgba(217,83,79,.15); color:var(--bad); }
