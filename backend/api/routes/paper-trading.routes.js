@@ -1,50 +1,43 @@
 'use strict';
 // ============================================================
 // paper-trading.routes.js — API endpoints
-// Always register (route returns error if service unavailable)
+// Requires service directly (not via deps) — robust against wiring
 // ============================================================
 
+const paperTradingService = require('../../services/paper-trading.service');
+
 function register(app, deps) {
-    // 🆕 diagnostic — describe what deps has
+
     app.get('/api/paper-trading/debug', (req, res) => {
-        const keys = Object.keys(deps || {});
-        const hasService = !!(deps && (deps.paperTradingService || deps.paperTrading));
         res.json({
-            deps_keys: keys,
-            has_paper_trading_service: hasService,
-            service_type: typeof (deps && (deps.paperTradingService || deps.paperTrading))
+            has_getReport: typeof paperTradingService.getReport === 'function',
+            has_dailySync: typeof paperTradingService.dailySync === 'function',
+            has_recordSignal: typeof paperTradingService.recordSignal === 'function'
         });
     });
 
     app.get('/api/paper-trading/report', async (req, res, next) => {
         try {
-            const svc = deps && (deps.paperTradingService || deps.paperTrading);
-            if (!svc || typeof svc.getReport !== 'function') {
-                return res.status(503).json({
-                    error: 'paperTradingService not wired',
-                    deps_keys: Object.keys(deps || {})
-                });
+            if (typeof paperTradingService.getReport !== 'function') {
+                return res.status(503).json({ error: 'service not initialized' });
             }
-            res.json(await svc.getReport());
+            res.json(await paperTradingService.getReport());
         } catch (e) { next(e); }
     });
 
     app.post('/api/paper-trading/sync', async (req, res, next) => {
         try {
-            const svc = deps && (deps.paperTradingService || deps.paperTrading);
-            if (!svc || typeof svc.dailySync !== 'function') {
-                return res.status(503).json({
-                    error: 'paperTradingService not wired',
-                    deps_keys: Object.keys(deps || {})
-                });
+            if (typeof paperTradingService.dailySync !== 'function') {
+                return res.status(503).json({ error: 'service not initialized' });
             }
-            res.json(await svc.dailySync());
+            res.json(await paperTradingService.dailySync());
         } catch (e) { next(e); }
     });
 
     app.get('/api/paper-trading/trades', async (req, res, next) => {
         try {
-            const list = await deps.getDB().collection('option_positions')
+            const db = deps.getDB();
+            const list = await db.collection('option_positions')
                 .find({ paper: true }).sort({ createdAt: -1 }).limit(200).toArray();
             res.json({ trades: list });
         } catch (e) { next(e); }
