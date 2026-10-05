@@ -2424,7 +2424,8 @@ async function runOptionBacktest(id) {
   const it = configs.find(c => c._id === id); if (!it) return;
   const today = new Date(); const six = new Date(); six.setUTCMonth(six.getUTCMonth() - 6);
   const toStr = today.toISOString().slice(0, 10); const fromStr = six.toISOString().slice(0, 10);
-  openModal(`بک‌تست ${it.symbol}`, `<div class="date-range-row"><label>از: <input type="date" id="btFrom" value="${fromStr}"></label><label>تا: <input type="date" id="btTo" value="${toStr}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtRange(12)">1 سال</button><button class="btn tiny outline" onclick="setBtRangeAll()">کل دیتا</button></div></div><div style="display:flex; gap:16px; margin:10px 0; font-size:13px; flex-wrap:wrap;"><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btForceRecompute"> محاسبه مجدد</label></div><button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button><div id="btJobArea" style="margin-top:14px;"></div><div id="btResultArea"></div>`);
+  openModal(`بک‌تست ${it.symbol}`, `<div class="form-row" style="margin-top:8px;"><div class="field" style="min-width:200px;"><label>جهت معامله</label><select id="bt2_optionSide"><option value="call" selected>فقط کال (Long Call)</option><option value="put">فقط پوت (Long Put)</option><option value="both">هر دو (Call + Put)</option></select></div></div>
+        <div class="date-range-row"><label>از: <input type="date" id="btFrom" value="${fromStr}"></label><label>تا: <input type="date" id="btTo" value="${toStr}"></label><div class="range-presets"><button class="btn tiny outline" onclick="setBtRange(1)">1 ماه</button><button class="btn tiny outline" onclick="setBtRange(3)">3 ماه</button><button class="btn tiny outline" onclick="setBtRange(6)">6 ماه</button><button class="btn tiny outline" onclick="setBtRange(12)">1 سال</button><button class="btn tiny outline" onclick="setBtRangeAll()">کل دیتا</button></div></div><div style="display:flex; gap:16px; margin:10px 0; font-size:13px; flex-wrap:wrap;"><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btRealOption" checked> دیتای واقعی آپشن</label><label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="btForceRecompute"> محاسبه مجدد</label></div><button class="btn" id="btRunOne" onclick="execBtSingle('${id}')">اجرا</button><div id="btJobArea" style="margin-top:14px;"></div><div id="btResultArea"></div>`);
 }
 function setBtRange(months) { const to = new Date(); const from = new Date(); from.setUTCMonth(from.getUTCMonth() - months); document.getElementById('btTo').value = to.toISOString().slice(0, 10); document.getElementById('btFrom').value = from.toISOString().slice(0, 10); }
 async function execBtSingle(id) {
@@ -3758,6 +3759,7 @@ async function runBacktestOrchestrator() {
       body: JSON.stringify({
         mode: _btMode,
         symbols, strategies, panels,
+        optionSide: (document.getElementById('bt2_optionSide') || {}).value || 'call',
         dateFrom: from, dateTo: to,
         optionType
       })

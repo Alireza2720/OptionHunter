@@ -19,6 +19,19 @@ function init(d) { deps = { ...deps, ...d }; }
 // ------------------------------------------------------------
 // Run — فقط job می‌سازه، processQueue در پس‌زمینه
 // ------------------------------------------------------------
+function __filterBySide(strategies, ALL, side) {
+    const s = side || "call";
+    if (s === "both") return strategies;
+    return strategies.filter(x => {
+        const def = ALL[x.id];
+        if (!def) return false;
+        const dir = def.direction || "long";
+        if (s === "call") return dir === "long";
+        if (s === "put") return dir === "put";
+        return false;
+    });
+}
+
 async function runBacktest(params) {
     const {
         mode = 'option',
@@ -35,6 +48,11 @@ async function runBacktest(params) {
         throw Object.assign(new Error('strategies لازم است'), { status: 400 });
     }
 
+    const __side = (params && params.optionSide) || "call";
+    if (__side !== "both") {
+        const __ALL = require("../strategies").STRATEGIES;
+        strategies = __filterBySide(strategies, __ALL, __side);
+    }
     const chunks = symbols.map(s => ({ label: s, items: [s] }));
     const payload = {
         mode, symbols, strategies,

@@ -3,6 +3,8 @@
     else root.TradingStrategies = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
 
+    let __extra = null;
+    try { __extra = require('./strategies-extra'); } catch (_e) { __extra = null; }
     // 🆕 singleton
     const _TEHRAN_FMT = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     function getTehranParts(date) {
@@ -1341,6 +1343,21 @@
     function getRequiredHtfCandles(id, params) {
         const p = { ...(STRATEGIES[id] ? STRATEGIES[id].defaultParams : {}), ...(params || {}) };
         return Math.max(p.htfEma || 20, p.htfRsiPeriod || 14) + 2;
+    }
+
+    // __merge-extra
+    if (__extra && __extra.STRATEGIES) {
+        for (const [__id, __def] of Object.entries(__extra.STRATEGIES)) {
+            STRATEGIES[__id] = __def;
+        }
+    }
+    if (__extra && typeof __extra.getRequiredCandles === "function") {
+        const __origReq = getRequiredCandles;
+        getRequiredCandles = function(id, params) {
+            const r = __extra.getRequiredCandles(id, params);
+            if (r !== null && r !== undefined) return r;
+            return __origReq(id, params);
+        };
     }
 
     return {
