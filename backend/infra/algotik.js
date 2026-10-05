@@ -89,6 +89,13 @@ async function controlTicker(action, intervalSec) {
     return apiCall('POST', '/ticker', { action, intervalSec });
 }
 
+// 🆕 Enrichment
+async function enrichNow(payload) {
+    return apiCall('POST', '/enrich-now', payload, 30000);
+}
+async function enrichStatus() {
+    return apiCall('GET', '/enrich-status', null, 10000);
+}
 // 🆕 Backfill option bid/ask (long-running — timeout 30min)
 async function backfillOptionBidAsk(payload) {
     return apiCall('POST', '/backfill-option-bidask', payload, 30 * 60 * 1000);
@@ -104,4 +111,5 @@ module.exports = {
     auditAll, auditOne,
     getDataRange, getSymbolDataRange,
     backfillOptionBidAsk,
+    enrichNow, enrichStatus,
 };

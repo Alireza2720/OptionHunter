@@ -527,6 +527,34 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
                 })
 
         # ============================================================
+        # Phase 4.7: Auto-enrichment (if not skipped)
+        # ============================================================
+        _skip_enrich = os.getenv("SKIP_AUTO_ENRICH", "").lower() in ("1", "true", "yes")
+        if not _skip_enrich and payload.get('includeOptionMigration'):
+            job_mod.set_phase(job_id, 'enrichment', {
+                'current': 0, 'total': 1,
+                'status': 'RUNNING',
+                'stats': {'msg': 'enriching options...'},
+            })
+            try:
+                from option_reconstruction.spread_model import load_spread_model, build_spread_model
+                from option_reconstruction.enricher import enrich_collection
+                db_local = get_db()
+                if not load_spread_model(db_local):
+                    build_spread_model(db_local, log_fn=lambda m: log('enrich_model', m))
+                estats = enrich_collection(db_local, log_fn=lambda m: log('enrich', m))
+                job_mod.set_phase(job_id, 'enrichment', {
+                    'current': 1, 'total': 1,
+                    'status': 'DONE',
+                    'stats': estats,
+                })
+            except Exception as _e:
+                job_mod.set_phase(job_id, 'enrichment', {
+                    'current': 0, 'total': 1,
+                    'status': 'FAILED',
+                    'stats': {'error': str(_e)[:200]},
+                })
+        # ============================================================
         # Phase 5: aggregate (TF candles)
         # ============================================================
         if payload.get('includeAggregate'):
@@ -781,6 +809,57 @@ def backfill_option_bidask(p: BackfillBidAskIn):
     return result
 
 
+# 🆕 ---------- Enrichment endpoint ----------
+class EnrichIn(BaseModel):
+    symbol: Optional[str] = None
+    build_model_first: bool = True
+
+_enrich_lock = threading.Lock()
+
+def _run_enrichment(symbol, build_model_first):
+    """Run in background thread."""
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(__file__))
+        from option_reconstruction.spread_model import load_spread_model, build_spread_model
+        from option_reconstruction.enricher import enrich_collection
+
+        db = get_db()
+        if build_model_first and not load_spread_model(db):
+            log('enrich_start', 'building spread model first')
+            build_spread_model(db, log_fn=lambda m: log('enrich_model', m))
+
+        log('enrich_start', f'symbol={symbol or "all"}')
+        stats = enrich_collection(db, symbol=symbol, log_fn=lambda m: log('enrich', m))
+        log('enrich_done', f'stats={stats}')
+    except Exception as e:
+        import traceback
+        log('enrich_error', str(e)[:300])
+        log('enrich_trace', traceback.format_exc()[:1000])
+
+
+@app.post('/enrich-now')
+def enrich_now(p: EnrichIn):
+    """Manually trigger enrichment (async)."""
+    if _enrich_lock.locked():
+        return {'ok': False, 'error': 'enrichment already running'}
+
+    def _wrapper():
+        with _enrich_lock:
+            _run_enrichment(p.symbol, p.build_model_first)
+
+    t = threading.Thread(target=_wrapper, daemon=True)
+    t.start()
+    return {'ok': True, 'status': 'started', 'symbol': p.symbol or 'all'}
+
+
+@app.get('/enrich-status')
+def enrich_status():
+    """Check enrichment status."""
+    return {
+        'running': _enrich_lock.locked(),
+    }
+
 @app.post('/migrate-options')
 def migrate_options(p: MigrateOptionsIn):
     """Migrate option_daily_algotik → option_history with IV/Greeks."""
@@ -934,3 +1013,4 @@ if __name__ == '__main__':
     host = os.getenv('HOST', '127.0.0.1')
     print(f'🚀 Collector starting on {host}:{port}')
     uvicorn.run(app, host=host, port=port)
+

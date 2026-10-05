@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -1483,7 +1483,8 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
 </div> <div id="globalLoader"><div class="loader-spinner"></div><div class="loader-text" id="loaderText"></div><div class="loader-sub" id="loaderSub"></div></div>
 <div id="alertContainer"></div> <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()" aria-label="منو"><span></span><span></span><span></span></button>
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
-<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('forest')">جنگل</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel('option'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست آپشن</button> <button class="menu-item" onclick="openBacktestPanel('stock'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--success); font-weight:600;">بک‌تست سهم پایه</button> <button class="menu-item" onclick="openDualStagePanel(); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست دو مرحله‌ای</button> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();" style="background:linear-gradient(135deg, var(--danger-subtle), var(--warn-subtle)); border:1px solid var(--warn-border); font-weight:600;">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="promptToken(); toggleMenu();">توکن ادمین</button> <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
+<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('forest')">جنگل</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel('option'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست آپشن</button> <button class="menu-item" onclick="openBacktestPanel('stock'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--success); font-weight:600;">بک‌تست سهم پایه</button> <button class="menu-item" onclick="openDualStagePanel(); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست دو مرحله‌ای</button> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();" style="background:linear-gradient(135deg, var(--danger-subtle), var(--warn-subtle)); border:1px solid var(--warn-border); font-weight:600;">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
+        <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();" style="background:linear-gradient(135deg,var(--success-subtle),var(--accent-subtle)); border:1px solid var(--success-border); font-weight:600;">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="promptToken(); toggleMenu();">توکن ادمین</button> <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
 </div> <div class="modal-bg" id="modalBg"
      onclick="if(event.target===this) closeModal()"
      onmousedown="if(document.querySelector('.jobs-panel-container')) _jobsPanelUserActive=true;"
@@ -5195,6 +5196,85 @@ async function loadDoctorFile(name) {
     el.textContent = 'خطا: ' + e.message;
   }
 }
-</script>
+async function openEnrichmentPanel() {
+    openModal('غنی‌سازی دیتای آپشن', '<div style="text-align:center;padding:30px;">در حال دریافت وضعیت...</div>');
+    try {
+        const status = await apiFetch(BACKEND_URL + '/api/algotik/enrich-status', {}, 0).catch(() => ({ running: false }));
+        const isRunning = status && status.running;
+        const html = `
+            <div class="hint" style="margin-bottom:12px;">
+                این ابزار bid/ask گم‌شده را بر اساس مدل اسپرد (بدبینانه) پر می‌کند.
+                هیچ آپشن مصنوعی ساخته نمی‌شود — فقط bid/ask حول قیمت واقعی.
+            </div>
+            <div class="menu-status-row" style="margin-bottom:12px;">
+                <span>وضعیت سرور</span>
+                <b style="color:${isRunning ? 'var(--warn)' : 'var(--success)'};">
+                    ${isRunning ? 'در حال اجرا' : 'آماده'}
+                </b>
+            </div>
+            <div class="form-row">
+                <div class="field" style="flex:1;min-width:200px;">
+                    <label>نماد (خالی = همه)</label>
+                    <input type="text" id="enrichSymbol" placeholder="مثلا اهرم — خالی بگذار برای همه" />
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <button class="btn success" id="enrichStartBtn" onclick="startEnrichment()" ${isRunning ? 'disabled' : ''}>
+                    ${isRunning ? 'در حال اجرا...' : '🚀 شروع غنی‌سازی'}
+                </button>
+                <button class="btn outline" onclick="checkEnrichStatus()">🔄 رفرش وضعیت</button>
+                <button class="btn outline" onclick="closeModal()">بستن</button>
+            </div>
+            <div id="enrichLog" style="margin-top:14px;font-family:var(--font-mono);font-size:11px;direction:ltr;text-align:left;background:var(--bg-elev-3);padding:10px;border-radius:var(--r-md);max-height:300px;overflow-y:auto;"></div>
+        `;
+        openModal('غنی‌سازی دیتای آپشن', html);
+    } catch (e) {
+        openModal('خطا', '<div class="empty-note">' + esc(e.message) + '</div>');
+    }
+}
+
+async function startEnrichment() {
+    const symbolEl = document.getElementById('enrichSymbol');
+    const symbol = symbolEl ? symbolEl.value.trim() : '';
+    const btn = document.getElementById('enrichStartBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'در حال شروع...'; }
+    try {
+        const r = await apiFetch(BACKEND_URL + '/api/algotik/enrich-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol: symbol || null, buildModelFirst: true }),
+        }, 0);
+        if (r.ok) {
+            showAlert('غنی‌سازی در پس‌زمینه شروع شد', 'success', 5000);
+            const log = document.getElementById('enrichLog');
+            if (log) log.textContent = 'شروع شد — هر ۳ ثانیه وضعیت به‌روز می‌شود\n';
+            setTimeout(checkEnrichStatus, 3000);
+        } else {
+            showAlert('خطا: ' + (r.error || 'ناشناخته'), 'error', 5000);
+            if (btn) { btn.disabled = false; btn.textContent = '🚀 شروع غنی‌سازی'; }
+        }
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error', 5000);
+        if (btn) { btn.disabled = false; btn.textContent = '🚀 شروع غنی‌سازی'; }
+    }
+}
+
+async function checkEnrichStatus() {
+    try {
+        const s = await apiFetch(BACKEND_URL + '/api/algotik/enrich-status', {}, 0);
+        const log = document.getElementById('enrichLog');
+        if (!log) return;
+        const line = new Date().toLocaleTimeString('fa-IR') + ' — ' + (s.running ? 'در حال اجرا' : 'متوقف') + '\n';
+        log.textContent = line + log.textContent;
+        if (s.running) {
+            setTimeout(checkEnrichStatus, 3000);
+        } else {
+            const btn = document.getElementById('enrichStartBtn');
+            if (btn) { btn.disabled = false; btn.textContent = '🚀 شروع غنی‌سازی'; }
+            showAlert('غنی‌سازی تمام شد', 'success', 5000);
+        }
+    } catch (e) {}
+}</script>
 </body>
 </html>
+

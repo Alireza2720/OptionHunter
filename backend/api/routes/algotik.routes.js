@@ -276,6 +276,28 @@ function register(app, deps) {
         };
     }
 
+    // ---- Enrichment proxy ----
+    app.post('/api/algotik/enrich-now', async (req, res, next) => {
+        try {
+            const body = req.body || {};
+            const r = await algotik.enrichNow({
+                symbol: body.symbol || null,
+                buildModelFirst: body.buildModelFirst !== false,
+            });
+            res.json(r);
+        } catch (e) {
+            res.status(400).json({ error: e.message });
+        }
+    });
+
+    app.get('/api/algotik/enrich-status', async (req, res, next) => {
+        try {
+            const r = await algotik.enrichStatus();
+            res.json(r);
+        } catch (e) {
+            res.status(400).json({ error: e.message });
+        }
+    });
     // ---- Fix gaps for single symbol ----
     app.post('/api/algotik/fix-gaps/:symbol', async (req, res, next) => {
         try {
@@ -411,3 +433,4 @@ function register(app, deps) {
 }
 
 module.exports = { register };
+
