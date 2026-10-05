@@ -556,13 +556,10 @@ async function bootstrap() {
     // 13) symbols cache
     await loadSymbolsCache();
 
-    // 🆕 Warm-up coverage cache — جلوگیری از timeout اولین درخواست
-    try {
-        await dataService.cachedSWR('coverage', 15 * 60 * 1000, () => algotik.getCoverage());
-        logger.info('✅ coverage warmed at startup');
-    } catch (e) {
-        logger.warn('coverage warm-up: ' + e.message);
-    }
+    // 🆕 Warm-up coverage cache — non-blocking (fire-and-forget)
+    dataService.cachedSWR('coverage', 15 * 60 * 1000, () => algotik.getCoverage())
+        .then(() => logger.info('✅ coverage warmed at startup'))
+        .catch((e) => logger.warn('coverage warm-up: ' + e.message));
 
     // 14) بازیابی state
     // holiday

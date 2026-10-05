@@ -49,13 +49,14 @@ async function runBacktest(params) {
     }
 
     const __side = (params && params.optionSide) || "call";
+    let __strategiesList = strategies;
     if (__side !== "both") {
         const __ALL = require("../strategies").STRATEGIES;
-        strategies = __filterBySide(strategies, __ALL, __side);
+        __strategiesList = __filterBySide(strategies, __ALL, __side);
     }
     const chunks = symbols.map(s => ({ label: s, items: [s] }));
     const payload = {
-        mode, symbols, strategies,
+        mode, symbols, strategies: __strategiesList,
         useRealOption: mode === 'option',
         dateFrom: dateFrom ? parseInt(dateFrom) : null,
         dateTo: dateTo ? parseInt(dateTo) : null,
