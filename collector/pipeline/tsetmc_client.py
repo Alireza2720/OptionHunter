@@ -15,6 +15,7 @@ import json
 import ssl
 import urllib.request
 import urllib.error
+import urllib.parse
 
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -81,8 +82,13 @@ class TSETMCClient:
 
     # ─── Search / metadata ───
     def search(self, query):
-        """Search instruments by ticker (exact or partial)."""
-        d = self._json("{}/Instrument/GetInstrumentSearch/{}".format(CDN, query))
+        """Search instruments by ticker (exact or partial).
+
+        NOTE: query is URL-encoded — TSETMC requires %-escaped path for
+        non-ASCII (Persian) strings.
+        """
+        q = urllib.parse.quote(str(query or ""), safe="")
+        d = self._json("{}/Instrument/GetInstrumentSearch/{}".format(CDN, q))
         return d.get("instrumentSearch", []) or []
 
     def instrument_info(self, ins_code):
@@ -214,3 +220,4 @@ def get_client():
     if _client is None:
         _client = TSETMCClient()
     return _client
+

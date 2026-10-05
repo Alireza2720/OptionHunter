@@ -37,13 +37,14 @@ SOURCE_DAILY = os.getenv("CANDLE_DAILY_SOURCE", "tsetmc_ohlcv")
 _insCode_cache = {}
 
 
-def resolve_insCode(symbol):
+def resolve_insCode(symbol, logger=None):
     """Resolve stock ticker to TSETMC insCode.
 
     Order:
         1. In-memory cache
-        2. meta.symbols_cache (from DB)
-        3. TSETMC search (and persist to meta.symbols_cache)
+        2. monitored_symbols.insCode (DB)
+        3. meta.symbols_cache (DB, only entries with insCode)
+        4. TSETMC search (persist to BOTH monitored_symbols + meta.symbols_cache)
 
     Returns insCode string or None.
     """
@@ -56,31 +57,64 @@ def resolve_insCode(symbol):
     if sym_norm in _insCode_cache:
         return _insCode_cache[sym_norm]
 
-    # 2) from DB
+    db = None
     try:
         db = get_db()
-        meta = db["meta"].find_one({"_id": "symbols_cache"})
-        if meta and meta.get("symbols"):
-            for s in meta["symbols"]:
-                s_sym = normalize_fa(s.get("symbol", ""))
-                if s_sym == sym_norm and s.get("insCode"):
-                    _insCode_cache[sym_norm] = s["insCode"]
-                    return s["insCode"]
     except Exception:
         pass
 
-    # 3) from TSETMC
+    # 2) monitored_symbols (fastest)
+    if db is not None:
+        try:
+            doc = db["monitored_symbols"].find_one({"symbol": symbol})
+            if doc and doc.get("insCode"):
+                code = str(doc["insCode"])
+                _insCode_cache[sym_norm] = code
+                return code
+        except Exception:
+            pass
+
+    # 3) meta.symbols_cache (only entries with insCode)
+    if db is not None:
+        try:
+            meta = db["meta"].find_one({"_id": "symbols_cache"})
+            if meta and meta.get("symbols"):
+                for s in meta["symbols"]:
+                    if not isinstance(s, dict):
+                        continue
+                    if not s.get("insCode"):
+                        continue
+                    if normalize_fa(s.get("symbol", "")) == sym_norm:
+                        code = str(s["insCode"])
+                        _insCode_cache[sym_norm] = code
+                        return code
+        except Exception:
+            pass
+
+    # 4) TSETMC search
     try:
         client = get_client()
         results = client.search(sym_norm)
         for r in results:
             if normalize_fa(r.get("lVal18AFC", "")) == sym_norm:
                 code = r.get("insCode")
-                if code:
-                    _insCode_cache[sym_norm] = code
-                    # Persist for future runs
+                if not code:
+                    continue
+                code = str(code)
+                _insCode_cache[sym_norm] = code
+
+                # Persist to monitored_symbols (primary)
+                if db is not None:
                     try:
-                        db = get_db()
+                        db["monitored_symbols"].updateOne(
+                            {"symbol": symbol},
+                            {"$set": {"insCode": code}},
+                        )
+                    except Exception:
+                        pass
+
+                    # Also to meta cache (secondary)
+                    try:
                         db["meta"].updateOne(
                             {"_id": "symbols_cache"},
                             {"$addToSet": {"symbols": {
@@ -91,9 +125,13 @@ def resolve_insCode(symbol):
                         )
                     except Exception:
                         pass
-                    return code
-    except TSETMCError:
-        pass
+                return code
+    except TSETMCError as e:
+        if logger:
+            logger.warn("resolve_insCode({}): {}".format(symbol, str(e)[:150]))
+    except Exception as e:
+        if logger:
+            logger.warn("resolve_insCode({}): unexpected {}".format(symbol, str(e)[:150]))
 
     return None
 
@@ -314,3 +352,4 @@ def write_base(records):
 def write_daily(records):
     """Write daily candles to candles_daily."""
     return _bulk_write(COL_CANDLES_DAILY, records)
+
