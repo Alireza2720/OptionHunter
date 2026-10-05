@@ -260,7 +260,10 @@ async function bootstrap() {
     paperTradingService.init({
         getDB: mongo.getDB,
         logger,
-        options: optionsCore
+        options: {
+            ...optionsCore,
+            fetchChain: optionsChain.fetchChain
+        }
     });
 
     // 8) strategies bundle
