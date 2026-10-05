@@ -19,11 +19,14 @@ if [ "$FAIL" = "1" ]; then
 fi
 echo "  OK"
 
-echo "=== [3/6] Sync collector ==="
-sudo mkdir -p /opt/collector/option_reconstruction
-sudo cp -r collector/option_reconstruction/* /opt/collector/option_reconstruction/
+echo "=== [3/6] Sync collector (service.py + pipeline + option_reconstruction + scripts) ==="
+sudo mkdir -p /opt/collector/option_reconstruction /opt/collector/scripts
+sudo cp collector/service.py /opt/collector/service.py
+sudo cp -r collector/pipeline/*.py /opt/collector/pipeline/ 2>/dev/null || true
+sudo cp -r collector/option_reconstruction/*.py /opt/collector/option_reconstruction/
 sudo cp collector/scripts/enrich_options.py /opt/collector/scripts/
-echo "  OK"
+sudo cp collector/scripts/backfill_tsetmc.py /opt/collector/scripts/ 2>/dev/null || true
+echo "  OK: synced service.py + pipeline + recon + scripts"
 
 echo "=== [4/6] Restart backend (PM2) ==="
 pm2 restart OptionHunter
