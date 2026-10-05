@@ -202,6 +202,16 @@ async function processQueue() {
     try {
         const db = deps.getDB();
         while (true) {
+            // job queue limit: max 2 concurrent RUNNING
+            const MAX_CONCURRENT = 2;
+            const _runningCount = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).countDocuments({
+                status: JOB_STATUS.RUNNING
+            });
+            if (_runningCount >= MAX_CONCURRENT) {
+                deps.logger && deps.logger.info('queue paused: ' + _runningCount + ' running (max ' + MAX_CONCURRENT + ')');
+                break;
+            }
+
             const j = await db.collection(COLLECTIONS.BACKTEST_JOBS).findOneAndUpdate(
                 { status: JOB_STATUS.QUEUED },
                 { $set: {
@@ -501,6 +511,40 @@ async function computeDataDays(db, symbol) {
 }
 
 async function applyAutoConfig(plans, trainingMeta = null) {
+    // archive current configs before overwriting
+    try {
+        const _arcDb = deps.getDB();
+        const _cur = await _arcDb.collection(COLLECTIONS.STRATEGY_CONFIGS).find({}).toArray();
+        if (_cur.length) {
+            await _arcDb.collection('strategy_configs_archive').insertOne({
+                archivedAt: new Date(),
+                reason: 'apply-auto-config',
+                count: _cur.length,
+                configs: _cur
+            });
+            deps.logger && deps.logger.info('archived ' + _cur.length + ' configs');
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('archive failed: ' + e.message);
+    }
+
+    // 🆕 Archive current configs
+    try {
+        const _col = db.collection(COLLECTIONS.STRATEGY_CONFIGS);
+        const _current = await _col.find({}).toArray();
+        if (_current.length) {
+            await db.collection('strategy_configs_archive').insertOne({
+                archivedAt: new Date(),
+                reason: 'apply-auto-config',
+                count: _current.length,
+                configs: _current
+            });
+            deps.logger && deps.logger.info('archived ' + _current.length + ' configs before applyAutoConfig');
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('archive failed: ' + e.message);
+    }
+
     const db = deps.getDB();
     const applied = [];
     const trainedFrom = trainingMeta ? trainingMeta.from : null;

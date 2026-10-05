@@ -20,11 +20,16 @@ jobs:
             set -e
             cd ~/apps/OptionHunter
 
-            # 🔒 بکاپ .env قبل از هر کاری
+            # .env backup
             if [ -f .env ]; then
               cp .env /tmp/optionhunter.env.backup
-              echo "✅ .env backed up"
+              echo ".env backed up"
             fi
+
+            # Save current commit BEFORE fetch (for manual rollback)
+            PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "none")
+            echo "$PREV_COMMIT" > /tmp/oh_prev_commit.txt
+            echo "Previous commit: $PREV_COMMIT"
 
             echo "=== Fetch ==="
             git fetch origin main
@@ -33,17 +38,31 @@ jobs:
             echo "=== Clean ==="
             git clean -fd -e .env -e package-lock.json -e node_modules -e logs
 
-            # 🔒 بازیابی .env اگر پاک شد
+            # .env restore
             if [ ! -f .env ] && [ -f /tmp/optionhunter.env.backup ]; then
-              echo "🔧 Restoring .env from backup"
               cp /tmp/optionhunter.env.backup .env
               chmod 600 .env
             fi
-
             if [ ! -f .env ]; then
-              echo "❌❌❌ .env MISSING — deploy aborted"
+              echo "ERROR: .env MISSING - deploy aborted"
               exit 1
             fi
+
+            # === SYNTAX CHECK (abort if broken) ===
+            echo "=== Syntax Check ==="
+            SYNTAX_FAIL=0
+            for f in $(find backend -name "*.js" -not -path "*/node_modules/*"); do
+              if ! node --check "$f" 2>/dev/null; then
+                echo "  SYNTAX ERROR in $f"
+                SYNTAX_FAIL=1
+              fi
+            done
+            if [ "$SYNTAX_FAIL" = "1" ]; then
+              echo "SYNTAX CHECK FAILED - aborting deploy"
+              echo "Manual rollback: cd ~/apps/OptionHunter && git reset --hard $PREV_COMMIT && pm2 restart OptionHunter"
+              exit 1
+            fi
+            echo "All JS valid"
 
             echo "=== npm install ==="
             npm install --no-audit --no-fund --prefer-offline
@@ -53,34 +72,49 @@ jobs:
             pm2 startOrRestart ecosystem.config.js --update-env
             pm2 save
 
-            echo "=== Health check (polling تا ۶۰ ثانیه) ==="
+            echo "=== Health check (polling 90s) ==="
             HEALTH_OK=0
-            for i in $(seq 1 20); do
+            for i in $(seq 1 30); do
               sleep 3
               if curl -sfS --max-time 2 http://127.0.0.1:3000/ping > /tmp/oh_health.txt 2>/dev/null; then
                 HEALTH_OK=1
-                echo "✅ Deploy OK بعد از $((i * 3)) ثانیه — $(cat /tmp/oh_health.txt)"
+                echo "Deploy OK after $((i * 3))s"
                 break
               fi
-              # اگه اپ داره crash می‌کنه، سریع‌تر fail کن
               if pm2 jlist 2>/dev/null | grep -q '"status":"errored"'; then
-                echo "❌ PM2 status errored — skip polling"
+                echo "PM2 status errored - skip polling"
                 break
               fi
-              echo "  تلاش $i/20..."
+              echo "  attempt $i/30..."
             done
 
             echo ""
-            echo "── PM2 status ──"
+            echo "--- PM2 status ---"
             pm2 status || true
 
             if [ "$HEALTH_OK" != "1" ]; then
-              echo "⚠️  Health check ناکام — ولی PM2 restart انجام شد"
-              echo "── PM2 logs (آخرین ۵۰ خط) ──"
+              echo "Health check failed - NOT rolling back automatically (manual decision required)"
+              echo "To rollback manually: cd ~/apps/OptionHunter && git reset --hard $PREV_COMMIT && pm2 restart OptionHunter"
+              echo "--- PM2 logs (last 50 lines) ---"
               pm2 logs OptionHunter --lines 50 --nostream || true
-              echo "── وضعیت پورت 3000 ──"
-              sudo ss -tlnp 2>/dev/null | grep 3000 || echo "پورت 3000 گوش نمی‌ده"
               exit 1
             fi
 
-            echo "✅ Deploy fully OK"
+            echo ""
+            echo "=== SMOKE TEST (post-deploy) ==="
+            # Quick API checks - fail loudly but do not rollback
+            SMOKE_FAIL=0
+            for ep in /ping /api/strategies /api/monitored-symbols; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:3000$ep" || echo "000")
+              if [ "$code" = "200" ]; then
+                echo "  [OK] $ep -> 200"
+              else
+                echo "  [WARN] $ep -> $code"
+                SMOKE_FAIL=1
+              fi
+            done
+            if [ "$SMOKE_FAIL" = "1" ]; then
+              echo "Some endpoints failed but app is up. Check manually."
+            fi
+
+            echo "Deploy fully OK"

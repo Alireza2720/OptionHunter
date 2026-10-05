@@ -19,18 +19,7 @@ function init(d) { deps = { ...deps, ...d }; }
 // ------------------------------------------------------------
 // Run — فقط job می‌سازه، processQueue در پس‌زمینه
 // ------------------------------------------------------------
-function __filterBySide(strategies, ALL, side) {
-    const s = side || "call";
-    if (s === "both") return strategies;
-    return strategies.filter(x => {
-        const def = ALL[x.id];
-        if (!def) return false;
-        const dir = def.direction || "long";
-        if (s === "call") return dir === "long";
-        if (s === "put") return dir === "put";
-        return false;
-    });
-}
+
 
 async function runBacktest(params) {
     const {
@@ -552,6 +541,24 @@ async function computeFullResult(job, jobId) {
     // ---- Auto-Config Suggestion ----
     result.autoConfigSuggestion = buildAutoConfigSuggestion(result, symbols);
 
+
+    // 🆕 Compare to previous PF and alert on drop
+    try {
+        const _prevDoc = await deps.getDB().collection(COLLECTIONS.META).findOne({ _id: 'last_backtest_pf' });
+        if (_prevDoc && Number.isFinite(_prevDoc.pf) && _prevDoc.pf > 0) {
+            const _newPf = (result.portfolio && result.portfolio.stats && result.portfolio.stats.profitFactor) || null;
+            if (_newPf != null && _newPf < _prevDoc.pf * 0.7) {
+                const _drop = ((1 - _newPf / _prevDoc.pf) * 100).toFixed(0);
+                if (deps.notify) {
+                    await deps.notify('هشدار افت عملکرد بک‌تست\nPF قبلی: ' + _prevDoc.pf.toFixed(2) + '\nPF جدید: ' + _newPf.toFixed(2) + '\nافت: ' + _drop + '%\nJob: ' + jobId).catch(() => {});
+                }
+                deps.logger && deps.logger.warn('backtest PF dropped by ' + _drop + '%');
+            }
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('pf drop alert: ' + e.message);
+    }
+
     // 🆕 ذخیره‌ی PF در meta حتی بدون portfolio
     try {
         const db = deps.getDB();
@@ -673,7 +680,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
         }
 
         const leader = scored[0];
-        const confirmers = scored.slice(1, 3).filter(c => c._pf >= 1.0);
+        const confirmers = scored.slice(1, 1 + (result._maxConfirmers || 2)).filter(c => c._pf >= 1.0);
 
         suggestions.push({
             symbol: sym,
@@ -724,6 +731,24 @@ function round2(v) {
 // Apply — کاربر انتخاب‌های خودش رو اعمال می‌کنه
 // ------------------------------------------------------------
 async function applySelections(jobId, selections) {
+    // 🆕 Archive current configs before overwriting
+    try {
+        const _archiveCol = 'strategy_configs_archive';
+        const _currentConfigs = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).find({}).toArray();
+        if (_currentConfigs.length) {
+            await db.collection(_archiveCol).insertOne({
+                archivedAt: new Date(),
+                reason: 'apply-selections',
+                jobId: String(jobId),
+                count: _currentConfigs.length,
+                configs: _currentConfigs
+            });
+            deps.logger && deps.logger.info('archived ' + _currentConfigs.length + ' configs before apply-selections');
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('config archive failed: ' + e.message);
+    }
+
     const db = deps.getDB();
     const applied = [];
 

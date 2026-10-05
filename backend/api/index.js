@@ -16,6 +16,7 @@ const { LIMITS } = require('../config/constants');
 const authMw = require('./middleware/auth');
 const errorMw = require('./middleware/error');
 const timeoutMw = require('./middleware/timeout');
+const rateLimit = require('./middleware/rate-limit');
 
 // Route modules
 const authRoutes = require('./routes/auth.routes');
@@ -37,6 +38,7 @@ const backtestRoutes = require('./routes/backtest.routes');
 const journalRoutes = require('./routes/journal.routes');
 const doctorRoutes = require('./routes/doctor.routes');
 const paperTradingRoutes = require('./routes/paper-trading.routes');
+const rollbackRoutes = require('./routes/rollback.routes');
 
 function createApp(deps) {
     const app = express();
@@ -48,6 +50,12 @@ function createApp(deps) {
 
     // ---- Long timeout for heavy routes ----
     app.use(timeoutMw.longTimeoutMiddleware);
+
+    // ---- Rate limiters ----
+    app.use('/api/backtest', rateLimit.heavyLimiter);
+    app.use('/api/jobs', rateLimit.heavyLimiter);
+    app.use('/api/pipeline', rateLimit.heavyLimiter);
+    app.use('/api/doctor/run', rateLimit.heavyLimiter);
 
     // ---- Auth ----
     app.use(authMw.makeAuth(deps.adminToken));
@@ -77,6 +85,7 @@ function createApp(deps) {
     journalRoutes.register(app, deps);
     doctorRoutes.register(app, deps);
     paperTradingRoutes.register(app, deps);
+    rollbackRoutes.register(app, deps);
 
     // ---- 404 + error ----
     app.use(errorMw.notFoundHandler);

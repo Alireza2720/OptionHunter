@@ -35,3 +35,17 @@ dist/
 build/
 coverage/
 Add-Content -Path .gitignore -Value "`n# Sync backups`n.sync-backup-*"
+# OptionHunter temp files
+_bak-*
+_*bk-*
+_phase*
+_fix*
+_clean-*
+*.bak-bomfix
+_bigfix-bk-*
+_p1v3-bk-*
+_extra-bk-*
+_p1fix-bk-*
+fix-*.js
+big-fix*.js
+patch-*.js
