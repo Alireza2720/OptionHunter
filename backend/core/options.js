@@ -14,6 +14,7 @@
 // ============================================================
 
 const { TRADING_DAYS_PER_YEAR } = require('../config/constants');
+const { calcUnifiedSize } = require('./sizing-unified');
 
 // ============================================================
 // Dependencies (تزریق می‌شن)
@@ -555,111 +556,56 @@ async function getPortfolioState() {
 async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStrength, config) {
     const settings = deps.settings.get();
     const capital = deps.settings.capital();
-    const riskAmt = deps.settings.riskAmount();
-    const maxSymbol = deps.settings.maxSymbolExposure();
-    const maxTotal = deps.settings.maxTotalExposure();
-
-    const contractValue = pick.ask * (pick.size || 1000);
-    if (!(contractValue > 0)) return { size: 0, reason: 'قیمت قرارداد نامعتبر', baseSize: 0 };
-
-    // 🆕 Market Impact: اگه حجم سفارش بزرگ‌تر از حجم سرخط باشه
-    const askVol = pick.askVol || 0;
-    const requestedShares = 1 * (pick.size || 1000);
-    const liquidityRatio = askVol > 0 ? requestedShares / askVol : 0;
-
-    const impactPct = Math.min(0.05, liquidityRatio * 0.02);
-    const effectiveContractValue = contractValue * (1 + impactPct);
-
-    const baseSize = riskAmt / effectiveContractValue;
-    const confluence = (signalStrength && signalStrength.confluence) || 1;
-    const scoreMod = require('./signal-score');
-
-    // ۱. Confluence factor (موجود)
-    let signalFac = deps.settings.signalFactor(confluence);
-
-    // ۲. Signal Score factor (Phase 4)
-    let scoreFac = 1.0;
-    if (signalStrength && signalStrength.signalScore && typeof signalStrength.signalScore.score === 'number') {
-        scoreFac = scoreMod.scoreToSizeFactor(signalStrength.signalScore.score);
-    }
-
-    // ۳. Regime factor (Phase 6)
-    const regimeFac = (signalStrength && signalStrength.regimeFactor) || 1.0;
-
-    // 🆕 ترکیب نهایی: میانگین هندسی برای حفظ توازن
-    const combinedFac = Math.pow(signalFac * scoreFac * regimeFac, 1/3);
-    signalFac = combinedFac;
     const level = pick.level || 'A+';
     const levelFac = deps.settings.levelFactor(level);
     const ivFac = deps.settings.ivFactor(pick.ivHv);
-
-    // 🆕 ضریب عمق دیتا — نمادهای با دیتای کمتر، وزن کمتر
     const dataDays = (config && Number.isFinite(config.dataDays)) ? config.dataDays : 90;
     const dataFac = deps.settings.dataDepthFactor(dataDays);
 
-    // 🆕 محدودیت نقدینگی
-    const maxFromLiquidity = askVol > 0
-        ? Math.floor((askVol * 0.2) / (pick.size || 1000))
-        : 999;
-
-    // 🆕 sizeMultiplier از dual-stage (MAYBE = 0.5)
-    const sizeMult = (config && Number.isFinite(config.sizeMultiplier))
-        ? config.sizeMultiplier
-        : 1.0;
-
-    const adjusted = Math.round(baseSize * signalFac * levelFac * ivFac * dataFac * sizeMult);
-
-    const currentSymbolExposure = (currentPortfolio && currentPortfolio.bySymbol && currentPortfolio.bySymbol[pick.underlying]) || 0;
-    const remainingSymbol = Math.max(0, maxSymbol - currentSymbolExposure);
-    const bySymbol = Math.floor(remainingSymbol / effectiveContractValue);
-
-    const currentTotal = (currentPortfolio && currentPortfolio.totalExposure) || 0;
-    const remainingTotal = Math.max(0, maxTotal - currentTotal);
-    const byTotal = Math.floor(remainingTotal / effectiveContractValue);
-
-    const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byTotal, maxFromLiquidity));
-
-    let limitReason = null;
-    if (finalSize < adjusted) {
-        if (maxFromLiquidity < adjusted && maxFromLiquidity <= bySymbol && maxFromLiquidity <= byTotal)
-            limitReason = 'نقدینگی سرخط کافی نیست (impact)';
-        else if (bySymbol < adjusted && bySymbol <= byTotal) limitReason = 'سقف درگیری این نماد پر شده';
-        else if (byTotal < adjusted) limitReason = 'سقف کل درگیری پر شده';
-    }
-    if (finalSize === 0) {
-        if (maxFromLiquidity === 0) limitReason = 'نقدینگی سرخط صفر است';
-        else if (bySymbol === 0) limitReason = 'سقف درگیری این نماد پر شده';
-        else if (byTotal === 0) limitReason = 'سقف کل درگیری پر شده';
-        else if (baseSize < 0.5) limitReason = 'سرمایه برای این قرارداد کافی نیست';
+    let scoreFac = 1.0;
+    if (deps.settings.scoreSizeFactor && signalStrength && signalStrength.signalScore) {
+        scoreFac = deps.settings.scoreSizeFactor(signalStrength.signalScore.score);
     }
 
-    const maxSizeByTotal = Math.floor(maxTotal / effectiveContractValue);
-    const maxSizeBySymbol = Math.floor(maxSymbol / effectiveContractValue);
-    const maxSize = Math.min(maxSizeByTotal, maxSizeBySymbol);
+    const sizeMult = (config && Number.isFinite(config.sizeMultiplier)) ? config.sizeMultiplier : 1.0;
+    const portfolio = currentPortfolio || { totalExposure: 0, exposureBySymbol: {} };
+
+    const res = calcUnifiedSize(
+        {
+            symbol: pick.underlying || (scenario && scenario.symbol) || 'unknown',
+            optionEntry: pick.ask,
+            size: pick.size || 1000
+        },
+        portfolio,
+        {
+            capital,
+            riskPct: settings.RISK_PER_TRADE_PCT || 1.5,
+            maxSymPct: settings.MAX_SYMBOL_EXPOSURE_PCT || 20
+        },
+        {
+            scoreFactor: scoreFac,
+            levelFactor: levelFac,
+            ivFactor: ivFac,
+            dataFactor: dataFac * sizeMult
+        }
+    );
 
     return {
-        size: finalSize,
-        baseSize: Math.floor(baseSize),
-        signalFactor: round(signalFac),
-        levelFactor: round(levelFac),
-        ivFactor: round(ivFac),
-        dataFactor: round(dataFac),
-        dataDays,
-        level, confluence, adjusted,
-        bySymbol, byTotal, maxSize,
-        maxFromLiquidity,
-        impactPct: round(impactPct * 100),
-        liquidityRatio: round(liquidityRatio * 100),
-        contractValue,
-        effectiveContractValue: round(effectiveContractValue),
-        limitReason,
-        limits: {
-            riskAmount: riskAmt,
-            maxSymbolExposure: maxSymbol,
-            maxTotalExposure: maxTotal,
-            currentSymbolExposure,
-            currentTotalExposure: currentTotal
-        }
+        size: res.size,
+        baseSize: res.baseSize,
+        adjusted: res.adjusted,
+        combinedFactor: res.combinedFactor,
+        levelFactor: levelFac,
+        ivFactor: ivFac,
+        dataFactor: dataFac,
+        scoreFactor: scoreFac,
+        level,
+        confluence: (signalStrength && signalStrength.confluence) || 1,
+        bySymbol: res.limits.bySymbol,
+        byCash: res.limits.byCash,
+        contractValue: res.limits.contractValue,
+        limitReason: res.limitReason,
+        _unified: true
     };
 }
 

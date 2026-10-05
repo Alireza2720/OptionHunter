@@ -123,6 +123,7 @@ async function load() {
 async function save(partial) {
     const clean = {};
     for (const k of Object.keys(DEFAULTS)) {
+        if (k === "SCORE_SIZE_MAP" || k === "SCORE_SIZE_ENABLED") continue;
         if (partial[k] === undefined || partial[k] === null || partial[k] === '') continue;
         if (k === 'ENTRY_START' || k === 'ENTRY_END') {
             const s = String(partial[k]).trim();
@@ -134,6 +135,18 @@ async function save(partial) {
             clean[k] = n;
         }
     }
+    // SCORE_SIZE_MAP_SPECIAL
+    if (Array.isArray(partial.SCORE_SIZE_MAP)) {
+        const valid = partial.SCORE_SIZE_MAP
+            .filter(x => x && Number.isFinite(parseFloat(x.min)) && Number.isFinite(parseFloat(x.factor)))
+            .map(x => ({ min: parseFloat(x.min), factor: parseFloat(x.factor) }))
+            .sort((a, b) => b.min - a.min);
+        clean.SCORE_SIZE_MAP = valid;
+    }
+    if (partial.SCORE_SIZE_ENABLED !== undefined) {
+        clean.SCORE_SIZE_ENABLED = partial.SCORE_SIZE_ENABLED ? 1 : 0;
+    }
+
     const merged = { ...values, ...clean };
     await deps.getDB().collection('meta').updateOne(
         { _id: 'trading_settings' },

@@ -42,6 +42,18 @@ function register(app, deps) {
             res.json({ trades: list });
         } catch (e) { next(e); }
     });
+
+    app.get('/api/paper-trading/summary', async (req, res, next) => {
+        try {
+            const r = await paperTradingService.getReport();
+            res.json({
+                total: r.total, open: r.open, closed: r.closed,
+                wins: r.wins, losses: r.losses, winRate: r.winRate,
+                totalPnl: r.totalPnl, profitFactor: r.profitFactor,
+                avgWin: r.avgWin, avgLoss: r.avgLoss
+            });
+        } catch (e) { next(e); }
+    });
 }
 
 module.exports = { register };

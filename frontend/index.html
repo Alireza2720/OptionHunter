@@ -1483,7 +1483,14 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
      onclick="if(event.target===this) closeModal()"
      onmousedown="if(document.querySelector('.jobs-panel-container')) _jobsPanelUserActive=true;"
      onmouseup="setTimeout(()=>{_jobsPanelUserActive=false;}, 2000);"> <div class="modal"> <h3><span id="modalTitle"></span><button class="btn small outline" onclick="closeModal()">بستن</button></h3> <div id="modalBody"></div> </div>
-</div> <div class="container"> <header> <div class="brand">OptionHunter</div> <div class="brand-sub">شکارچی آپشن · بورس تهران</div> </header> <div class="card" id="cardLiveDashboard"> <h2>داشبورد زنده <button class="btn tiny outline" onclick="loadLiveDashboard(this)">رفرش</button></h2> <div id="dashboardContent"><div class="empty-note">در حال بارگذاری...</div></div> </div> <div class="card collapsible open" id="cardPipeline"> <h2 onclick="toggleCard('cardPipeline')"><span class="h2-title">خط لوله داده</span><span class="chev">▼</span></h2> <div class="card-body"> <div class="hint" style="margin-bottom:10px;">Backfill  نمادها + پوشش دیتا در یک نگاه</div> <div id="ptab-backfill"> <div class="pipeline-block"> <h3>Backfill کامل</h3> <div class="form-row" style="align-items:end; margin-bottom:8px;"> <div class="field" style="min-width:150px;"> <label>از تاریخ</label> <input type="text" id="algotikFromDate" placeholder="1405/01/01" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div class="field" style="min-width:150px;"> <label>تا تاریخ</label> <input type="text" id="algotikToDate" placeholder="1405/06/30" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <button class="btn outline" onclick="algotikUseAllData()">کل دیتا</button> <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button> </div> <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div> <div id="algotikBackfillJobArea" style="margin-top:10px;"></div> </div> <div class="pipeline-block" id="tickerInMenuSource" style="display:none;"> <input type="number" id="tickerInterval" value="10" min="1" max="300"> <div id="tickerStatus"></div> <div id="tickLiveLog"></div> </div> <div class="adv-accordion" id="dataGuideAccordion" style="margin-top:12px;"> <div class="adv-header" onclick="document.getElementById('dataGuideAccordion').classList.toggle('open')"> <span>راهنمای مفاهیم دیتا</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="guide-block"><div class="g-name">کندل 1m</div><div class="g-desc">کندل یک‌دقیقه‌ای سهام. پایه aggregation به 15m/30m/1h و منبع چارت و backtest.</div></div> <div class="guide-block"><div class="g-name">کندل روزانه</div><div class="g-desc">یک کندل در هر روز معاملاتی. برای تشخیص روند بلندمدت.</div></div> <div class="guide-block"><div class="g-name">آپشن (Option History)</div><div class="g-desc">داده IV/Greeks تاریخی. برای backtest واقعی آپشن.</div></div> <div class="guide-block"><div class="g-name">Ticks</div><div class="g-desc">نوسان زنده سهام (هر ۱۰ ثانیه). برای سیگنال‌های لحظه‌ای.</div></div> <div class="guide-block"><div class="g-name">Snapshot</div><div class="g-desc">عکس لحظه‌ای chain آپشن (هر ۵ دقیقه). برای مانیتورینگ زنده.</div></div> <div class="guide-block"><div class="g-name">Backfill</div><div class="g-desc">پر کردن داده تاریخی از Algotic.</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">کیفیت دیتا</h4> <div class="guide-block"><div class="g-desc"> آماده بک‌تست آپشن<br> داده متوسط<br> داده ناکافی</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">تعمیر خودکار</h4> <div class="guide-block"><div class="g-desc">هر شب ساعت 13:30، سیستم نمادهای ناقص را پیدا می‌کند و خودکار backfill می‌زند.</div></div> </div> </div> <div id="ptab-symbols" style="margin-top:14px;"> <div id="algotikStats" class="sys-grid" style="margin-bottom:12px;"></div> <div id="autoFixBanner" style="margin-bottom:12px; padding:var(--sp-3) var(--sp-4); background:var(--gradient-card); border:1px solid var(--warn-border); border-radius:var(--r-md); display:none;"> <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"> <div> <b style="font-size:13px;"> نمادهای ناقص شناسایی شد</b> <div class="hint" id="autoFixCount" style="margin:2px 0 0;"></div> </div> <div style="display:flex; gap:6px;"> <button class="btn tiny outline" onclick="openQualitySummary()">مشاهده</button> <button class="btn tiny success" onclick="autoFixAllGaps(this)"> تعمیر خودکار</button> </div> </div> </div> <div class="form-row"> <div class="field" style="flex:1; min-width:180px;"> <label>افزودن نماد جدید</label> <input type="text" id="symbolSearchInput" placeholder="مثلا فملی" autocomplete="off"> <div class="autocomplete-list" id="autocompleteList"></div> </div> <button class="btn" onclick="addMonitoredSymbol()">افزودن</button> <button class="btn outline small" onclick="bulkCollectToggle(true)">فعال همه</button> <button class="btn outline small" onclick="bulkCollectToggle(false)">غیرفعال همه</button> <button class="btn outline small" onclick="syncSymbolsFromConfigs(this)" title="Sync از استراتژی‌ها">Sync</button> </div> <div class="hint">تیک هر نماد = دریافت خودکار دیتا در backfill و ticker</div> <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div> </div> <div id="ptab-coverage" style="margin-top:14px; display:none;"></div> </div> </div> </div> <div class="card collapsible open" id="cardStrategy"> <h2 onclick="toggleCard('cardStrategy')"><span class="h2-title">استراتژی‌ها</span><span class="chev">▼</span><span class="count-pill" id="configsCountLabel">0</span></h2> <div class="card-body"> <div class="hint" style="margin-bottom:10px;">استراتژی‌های فعال</div> <div id="stab-configs"> <div class="adv-accordion" id="createStratAccordion" style="margin-bottom:12px;"> <div class="adv-header" onclick="document.getElementById('createStratAccordion').classList.toggle('open')" style="cursor:pointer;"> <span>ایجاد استراتژی جدید</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>نماد</label><select id="configSymbolSelect" onchange="onMainSymbolChange()"><option value="">-- ابتدا نماد اضافه کنید --</option></select></div> <div class="field" id="pairSymbolField" style="display:none;"> <label>نماد جفت (Pair)</label> <select id="pairSymbolSelect"><option value="">-- انتخاب کنید --</option></select> </div> <div class="field"><label>استراتژی</label><select id="strategySelect"></select></div> <div class="field"><label>تایم فریم ورود</label><select id="timeframeSelect"></select></div> <div class="field"><label>تایم فریم بالا</label><select id="htfSelect"></select></div> <div class="field"><label>نوع کندل</label><select id="candleTypeSelect"><option value="heikin">هیکن آشی</option><option value="simple">ساده</option></select></div> <div class="field"><label>نقش</label><select id="roleSelect"><option value="leader">لیدر</option><option value="confirmer">تاییدکننده</option></select></div> </div> <div id="paramsContainer"></div> <div style="margin-top:10px;"><button class="btn" onclick="addStrategyConfig()"> ایجاد استراتژی</button></div> </div> </div> <div class="bulk-toolbar" id="bulkToolbar"> <span class="sel-count" id="bulkCount">0 مورد انتخاب شده</span> <button class="btn tiny outline" onclick="bulkToggleEnabled(true)">فعال</button> <button class="btn tiny outline" onclick="bulkToggleEnabled(false)">غیرفعال</button> <button class="btn tiny outline" onclick="bulkSetRole('leader')">لیدر کن</button> <button class="btn tiny outline" onclick="bulkSetRole('confirmer')">تاییدکننده کن</button> <button class="btn tiny danger" onclick="bulkDelete()">حذف</button> <button class="btn tiny outline" onclick="clearSelection()">لغو</button> </div> <div class="table-responsive"> <table class="data-table"> <thead><tr><th style="width:30px;"><input type="checkbox" class="config-checkbox" id="selectAllConfigs" onchange="toggleSelectAllConfigs(this.checked)"></th><th>نماد</th><th>استراتژی</th><th>نقش</th><th>تایم فریم</th><th>کندل</th><th>روند</th><th>وضعیت</th><th>فعال</th><th>عملیات</th></tr></thead> <tbody id="configsBody"><tr class="empty-row"><td colspan="10">تنظیمی ایجاد نشده است</td></tr></tbody> </table> </div> </div> </div> </div> <div class="card collapsible" id="cardPositions"> <h2 onclick="toggleCard('cardPositions')"><span class="h2-title">موقعیت‌های آپشن</span><span class="chev">▼</span></h2> <div class="card-body"> <div class="stats-grid" id="optStats"></div> <div class="table-responsive" style="max-height:280px; overflow-y:auto;"><table class="data-table"> <thead><tr><th>پایه</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>ورود</th><th>قیمت ورود</th><th>تعداد</th><th>سطح</th><th>قیمت فعلی/خروج</th><th>بازده</th><th>پایه ورود به فعلی</th><th>IV</th><th>دلیل</th><th></th></tr></thead> <tbody id="optBody"><tr class="empty-row"><td colspan="14">موقعیتی ثبت نشده است</td></tr></tbody> </table></div> </div> </div> <div class="card collapsible" id="cardSignals"> <h2 onclick="toggleCard('cardSignals')"><span class="h2-title">تاریخچه سیگنال‌ها</span><span class="chev">▼</span><button class="btn small danger" onclick="event.stopPropagation(); clearSignalHistory()">پاک کردن</button></h2> <div class="card-body"> <div class="table-responsive" style="max-height:280px; overflow-y:auto;"><table class="data-table"> <thead><tr><th>زمان کندل</th><th>نماد</th><th>استراتژی</th><th>نقش</th><th>سیگنال</th><th>قیمت</th><th>روند بالا</th><th>دلیل</th><th>وضعیت</th></tr></thead> <tbody id="signalHistoryBody"><tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده است</td></tr></tbody> </table></div> </div> </div>
+</div> <div class="container"> <header> <div class="brand">OptionHunter</div> <div class="brand-sub">شکارچی آپشن · بورس تهران</div> </header> <div class="card" id="cardLiveDashboard"> <h2 style="flex-wrap:wrap;">
+    <span style="display:flex; gap:4px;">
+      <button class="btn tiny" id="dashTabLive" onclick="switchDashTab('live')">داشبورد زنده</button>
+      <button class="btn tiny outline" id="dashTabPaper" onclick="switchDashTab('paper')">معاملات دمو</button>
+    </span>
+    <button class="btn tiny outline" onclick="refreshActiveDash(this)" style="margin-right:auto;">رفرش</button>
+  </h2> <div id="dashboardContent"><div class="empty-note">در حال بارگذاری...</div></div>
+  <div id="paperDashboardContent" style="display:none;"><div class="empty-note">برای مشاهده، روی تب «معاملات دمو» کلیک کن</div></div> </div> <div class="card collapsible open" id="cardPipeline"> <h2 onclick="toggleCard('cardPipeline')"><span class="h2-title">خط لوله داده</span><span class="chev">▼</span></h2> <div class="card-body"> <div class="hint" style="margin-bottom:10px;">Backfill  نمادها + پوشش دیتا در یک نگاه</div> <div id="ptab-backfill"> <div class="pipeline-block"> <h3>Backfill کامل</h3> <div class="form-row" style="align-items:end; margin-bottom:8px;"> <div class="field" style="min-width:150px;"> <label>از تاریخ</label> <input type="text" id="algotikFromDate" placeholder="1405/01/01" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div class="field" style="min-width:150px;"> <label>تا تاریخ</label> <input type="text" id="algotikToDate" placeholder="1405/06/30" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <button class="btn outline" onclick="algotikUseAllData()">کل دیتا</button> <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button> </div> <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div> <div id="algotikBackfillJobArea" style="margin-top:10px;"></div> </div> <div class="pipeline-block" id="tickerInMenuSource" style="display:none;"> <input type="number" id="tickerInterval" value="10" min="1" max="300"> <div id="tickerStatus"></div> <div id="tickLiveLog"></div> </div> <div class="adv-accordion" id="dataGuideAccordion" style="margin-top:12px;"> <div class="adv-header" onclick="document.getElementById('dataGuideAccordion').classList.toggle('open')"> <span>راهنمای مفاهیم دیتا</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="guide-block"><div class="g-name">کندل 1m</div><div class="g-desc">کندل یک‌دقیقه‌ای سهام. پایه aggregation به 15m/30m/1h و منبع چارت و backtest.</div></div> <div class="guide-block"><div class="g-name">کندل روزانه</div><div class="g-desc">یک کندل در هر روز معاملاتی. برای تشخیص روند بلندمدت.</div></div> <div class="guide-block"><div class="g-name">آپشن (Option History)</div><div class="g-desc">داده IV/Greeks تاریخی. برای backtest واقعی آپشن.</div></div> <div class="guide-block"><div class="g-name">Ticks</div><div class="g-desc">نوسان زنده سهام (هر ۱۰ ثانیه). برای سیگنال‌های لحظه‌ای.</div></div> <div class="guide-block"><div class="g-name">Snapshot</div><div class="g-desc">عکس لحظه‌ای chain آپشن (هر ۵ دقیقه). برای مانیتورینگ زنده.</div></div> <div class="guide-block"><div class="g-name">Backfill</div><div class="g-desc">پر کردن داده تاریخی از Algotic.</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">کیفیت دیتا</h4> <div class="guide-block"><div class="g-desc"> آماده بک‌تست آپشن<br> داده متوسط<br> داده ناکافی</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">تعمیر خودکار</h4> <div class="guide-block"><div class="g-desc">هر شب ساعت 13:30، سیستم نمادهای ناقص را پیدا می‌کند و خودکار backfill می‌زند.</div></div> </div> </div> <div id="ptab-symbols" style="margin-top:14px;"> <div id="algotikStats" class="sys-grid" style="margin-bottom:12px;"></div> <div id="autoFixBanner" style="margin-bottom:12px; padding:var(--sp-3) var(--sp-4); background:var(--gradient-card); border:1px solid var(--warn-border); border-radius:var(--r-md); display:none;"> <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"> <div> <b style="font-size:13px;"> نمادهای ناقص شناسایی شد</b> <div class="hint" id="autoFixCount" style="margin:2px 0 0;"></div> </div> <div style="display:flex; gap:6px;"> <button class="btn tiny outline" onclick="openQualitySummary()">مشاهده</button> <button class="btn tiny success" onclick="autoFixAllGaps(this)"> تعمیر خودکار</button> </div> </div> </div> <div class="form-row"> <div class="field" style="flex:1; min-width:180px;"> <label>افزودن نماد جدید</label> <input type="text" id="symbolSearchInput" placeholder="مثلا فملی" autocomplete="off"> <div class="autocomplete-list" id="autocompleteList"></div> </div> <button class="btn" onclick="addMonitoredSymbol()">افزودن</button> <button class="btn outline small" onclick="bulkCollectToggle(true)">فعال همه</button> <button class="btn outline small" onclick="bulkCollectToggle(false)">غیرفعال همه</button> <button class="btn outline small" onclick="syncSymbolsFromConfigs(this)" title="Sync از استراتژی‌ها">Sync</button> </div> <div class="hint">تیک هر نماد = دریافت خودکار دیتا در backfill و ticker</div> <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div> </div> <div id="ptab-coverage" style="margin-top:14px; display:none;"></div> </div> </div> </div> <div class="card collapsible open" id="cardStrategy"> <h2 onclick="toggleCard('cardStrategy')"><span class="h2-title">استراتژی‌ها</span><span class="chev">▼</span><span class="count-pill" id="configsCountLabel">0</span></h2> <div class="card-body"> <div class="hint" style="margin-bottom:10px;">استراتژی‌های فعال</div> <div id="stab-configs"> <div class="adv-accordion" id="createStratAccordion" style="margin-bottom:12px;"> <div class="adv-header" onclick="document.getElementById('createStratAccordion').classList.toggle('open')" style="cursor:pointer;"> <span>ایجاد استراتژی جدید</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>نماد</label><select id="configSymbolSelect" onchange="onMainSymbolChange()"><option value="">-- ابتدا نماد اضافه کنید --</option></select></div> <div class="field" id="pairSymbolField" style="display:none;"> <label>نماد جفت (Pair)</label> <select id="pairSymbolSelect"><option value="">-- انتخاب کنید --</option></select> </div> <div class="field"><label>استراتژی</label><select id="strategySelect"></select></div> <div class="field"><label>تایم فریم ورود</label><select id="timeframeSelect"></select></div> <div class="field"><label>تایم فریم بالا</label><select id="htfSelect"></select></div> <div class="field"><label>نوع کندل</label><select id="candleTypeSelect"><option value="heikin">هیکن آشی</option><option value="simple">ساده</option></select></div> <div class="field"><label>نقش</label><select id="roleSelect"><option value="leader">لیدر</option><option value="confirmer">تاییدکننده</option></select></div> </div> <div id="paramsContainer"></div> <div style="margin-top:10px;"><button class="btn" onclick="addStrategyConfig()"> ایجاد استراتژی</button></div> </div> </div> <div class="bulk-toolbar" id="bulkToolbar"> <span class="sel-count" id="bulkCount">0 مورد انتخاب شده</span> <button class="btn tiny outline" onclick="bulkToggleEnabled(true)">فعال</button> <button class="btn tiny outline" onclick="bulkToggleEnabled(false)">غیرفعال</button> <button class="btn tiny outline" onclick="bulkSetRole('leader')">لیدر کن</button> <button class="btn tiny outline" onclick="bulkSetRole('confirmer')">تاییدکننده کن</button> <button class="btn tiny danger" onclick="bulkDelete()">حذف</button> <button class="btn tiny outline" onclick="clearSelection()">لغو</button> </div> <div class="table-responsive"> <table class="data-table"> <thead><tr><th style="width:30px;"><input type="checkbox" class="config-checkbox" id="selectAllConfigs" onchange="toggleSelectAllConfigs(this.checked)"></th><th>نماد</th><th>استراتژی</th><th>نقش</th><th>تایم فریم</th><th>کندل</th><th>روند</th><th>وضعیت</th><th>فعال</th><th>عملیات</th></tr></thead> <tbody id="configsBody"><tr class="empty-row"><td colspan="10">تنظیمی ایجاد نشده است</td></tr></tbody> </table> </div> </div> </div> </div> <div class="card collapsible" id="cardPositions"> <h2 onclick="toggleCard('cardPositions')"><span class="h2-title">موقعیت‌های آپشن</span><span class="chev">▼</span></h2> <div class="card-body"> <div class="stats-grid" id="optStats"></div> <div class="table-responsive" style="max-height:280px; overflow-y:auto;"><table class="data-table"> <thead><tr><th>پایه</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>ورود</th><th>قیمت ورود</th><th>تعداد</th><th>سطح</th><th>قیمت فعلی/خروج</th><th>بازده</th><th>پایه ورود به فعلی</th><th>IV</th><th>دلیل</th><th></th></tr></thead> <tbody id="optBody"><tr class="empty-row"><td colspan="14">موقعیتی ثبت نشده است</td></tr></tbody> </table></div> </div> </div> <div class="card collapsible" id="cardSignals"> <h2 onclick="toggleCard('cardSignals')"><span class="h2-title">تاریخچه سیگنال‌ها</span><span class="chev">▼</span><button class="btn small danger" onclick="event.stopPropagation(); clearSignalHistory()">پاک کردن</button></h2> <div class="card-body"> <div class="table-responsive" style="max-height:280px; overflow-y:auto;"><table class="data-table"> <thead><tr><th>زمان کندل</th><th>نماد</th><th>استراتژی</th><th>نقش</th><th>سیگنال</th><th>قیمت</th><th>روند بالا</th><th>دلیل</th><th>وضعیت</th></tr></thead> <tbody id="signalHistoryBody"><tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده است</td></tr></tbody> </table></div> </div> </div>
 </div> <script>
 const BACKEND_URL = 'https://api.optionhunter.ir';
 const TF_LABELS = { '1m':'1 دقیقه','3m':'3 دقیقه','5m':'5 دقیقه','10m':'10 دقیقه','15m':'15 دقیقه','30m':'30 دقیقه','1h':'1 ساعت','1d':'روزانه','1w':'هفتگی','1M':'ماهانه','1Y':'سالانه' };
@@ -2493,6 +2500,68 @@ function renderSignalHistory() { const tb = document.getElementById('signalHisto
 if (list.length >signalHistoryLimit) tb.innerHTML += `<tr><td colspan="9" style="padding:0;"><button class="show-more-btn" onclick="signalHistoryLimit += 5; renderSignalHistory();">نمایش بیشتر (${list.length - signalHistoryLimit})</button></td></tr>`;
 }
 async function clearSignalHistory() { if (!confirm('کل تاریخچه پاک شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/signal-history`, { method:'DELETE' }); await loadSignalHistory(); } catch (e) { showAlert('خطا: ' + e.message); } }
+let _activeDashTab = 'live';
+function switchDashTab(tab) {
+    _activeDashTab = tab;
+    const liveEl = document.getElementById('dashboardContent');
+    const paperEl = document.getElementById('paperDashboardContent');
+    const liveBtn = document.getElementById('dashTabLive');
+    const paperBtn = document.getElementById('dashTabPaper');
+    if (liveEl) liveEl.style.display = tab === 'live' ? 'block' : 'none';
+    if (paperEl) paperEl.style.display = tab === 'paper' ? 'block' : 'none';
+    if (liveBtn) liveBtn.className = 'btn tiny' + (tab === 'live' ? '' : ' outline');
+    if (paperBtn) paperBtn.className = 'btn tiny' + (tab === 'paper' ? '' : ' outline');
+    if (tab === 'paper') loadPaperDashboard();
+}
+function refreshActiveDash(btn) {
+    if (_activeDashTab === 'live') loadLiveDashboard(btn);
+    else loadPaperDashboard(btn);
+}
+async function loadPaperDashboard(btn) {
+    const el = document.getElementById('paperDashboardContent');
+    if (!el) return;
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    try {
+        const summary = await apiFetch(BACKEND_URL + '/api/paper-trading/summary', {}, 0);
+        const tradesResp = await apiFetch(BACKEND_URL + '/api/paper-trading/trades', {}, 0);
+        const statBox = (label, val, cls) => '<div class="stat ' + (cls||'') + '"><small>' + label + '</small><b>' + val + '</b></div>';
+        const trades = (tradesResp.trades || []).slice(0, 30);
+        const rows = trades.map(t => {
+            const status = t.status === 'open' ? 'باز' : t.status === 'closed' ? 'بسته' : t.status;
+            const pnl = t.pnl && typeof t.pnl.pnlPct === 'number' ? t.pnl.pnlPct : null;
+            const pnlCls = pnl == null ? '' : (pnl >= 0 ? 'pos' : 'neg');
+            const pnlTxt = pnl == null ? '—' : ((pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '%');
+            const contract = t.contract && t.contract.symbol ? t.contract.symbol : '-';
+            const entry = t.entry && t.entry.optionAsk ? Math.round(t.entry.optionAsk).toLocaleString() : '-';
+            const exit = t.exit && typeof t.exit.optionBid === 'number' ? Math.round(t.exit.optionBid).toLocaleString() : '-';
+            const sym = (t.signal && t.signal.symbol) || '-';
+            return '<tr><td>' + esc(sym) + '</td><td>' + esc(contract) + '</td><td>' + esc(status) + '</td><td>' + entry + '</td><td>' + exit + '</td><td class="' + pnlCls + '">' + pnlTxt + '</td><td style="font-size:11px;">' + esc((t.exit && t.exit.reason) || t.skipReason || '-') + '</td></tr>';
+        }).join('');
+        el.innerHTML =
+            '<div class="stats-grid">' +
+                statBox('کل', summary.total || 0) +
+                statBox('باز', summary.open || 0, (summary.open > 0 ? 'highlight-good' : '')) +
+                statBox('بسته', summary.closed || 0) +
+                statBox('برد', summary.wins || 0) +
+                statBox('باخت', summary.losses || 0) +
+                statBox('وین ریت', (summary.winRate || 0).toFixed(1) + '%', summary.winRate >= 50 ? 'highlight-good' : '') +
+                statBox('PF', summary.profitFactor != null ? (Number.isFinite(summary.profitFactor) ? summary.profitFactor.toFixed(2) : 'بی‌نهایت') : '-') +
+                statBox('بازده کل', (summary.totalPnl || 0).toFixed(2) + '%') +
+            '</div>' +
+            '<h4 style="font-size:13px; color:var(--accent); margin:14px 0 6px;">آخرین معاملات دمو (' + trades.length + ')</h4>' +
+            '<div class="table-responsive" style="max-height:400px; overflow-y:auto;">' +
+                '<table class="data-table">' +
+                    '<thead><tr><th>نماد</th><th>قرارداد</th><th>وضعیت</th><th>ورود</th><th>خروج</th><th>بازده</th><th>دلیل</th></tr></thead>' +
+                    '<tbody>' + (rows || '<tr class="empty-row"><td colspan="7">هیچ معامله دمو ثبت نشده</td></tr>') + '</tbody>' +
+                '</table>' +
+            '</div>' +
+            '<div class="hint" style="margin-top:10px;">این معاملات خودکار ثبت می‌شوند و روی حساب واقعی اثری ندارند.</div>';
+    } catch (e) {
+        el.innerHTML = '<div class="empty-note">خطا: ' + esc(e.message) + '</div>';
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'رفرش'; }
+    }
+}
 async function loadLiveDashboard(btn) {
   const el = document.getElementById('dashboardContent');
   if (!el) return;
@@ -2989,6 +3058,30 @@ function switchSettingsTab(which, btn) { ['trading','capital','factors','conflue
 async function saveTradingSettings(keys) { const body = {}; keys.forEach(k => { const el = document.getElementById(`ts_${k}`); if (el) { const v = el.value.trim(); if (v !== '') body[k] = v; } }); try { await apiFetch(`${BACKEND_URL}/api/trading-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); await checkBackendStatus(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function saveOptionSettings() { const body = {}; const defaults = { minDays:15,maxDays:45,maxSpreadPct:7,minOI:200,minTrades:1,minPremium:200,deltaMin:0.4,deltaMax:0.75,maxIvHv:1.5,rewardRisk:3,topN:3,optionStopPct:20,take2Pct:100,closeDaysBefore:5 }; for (const k of Object.keys(defaults)) { const el = document.getElementById(`opt_${k}`); if (el) body[k] = parseFloat(el.value); } try { await apiFetch(`${BACKEND_URL}/api/options/settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); showAlert('ذخیره شد.', 'success', 3000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function openStrategyDefaults() { openModal('پیش‌فرض استراتژی‌ها', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>'); try { const d = await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, {}, 0); const defaults = d.defaults, overrides = d.overrides; let html = `<div class="hint">مقادیر پایه‌ای که همه جا استفاده می‌شوند.</div>`; for (const s of strategiesInfo) { const values = defaults[s.id] || s.defaultParams; const hasOv = overrides[s.id] && Object.keys(overrides[s.id]).length >0; const fields = Object.entries(values).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" data-sid="${s.id}" data-param="${k}" value="${v}"></div>`).join(''); html += `<div class="adv-accordion ${hasOv ? 'open' : ''}" id="sd-${s.id}"><div class="adv-header" onclick="document.getElementById('sd-${s.id}').classList.toggle('open')"><span>${esc(s.name)} ${hasOv ? '<span class="badge warn">ویرایش شده</span>' : ''}</span><span class="chev">▼</span></div><div class="adv-body"><div class="form-row">${fields}</div><button class="btn tiny outline" onclick="resetStrategyDefault('${s.id}')">بازگردانی</button></div></div>`; } html += `<div style="margin-top:16px; display:flex; gap:8px;"><button class="btn" onclick="saveStrategyDefaults()">ذخیره</button><button class="btn outline" onclick="resetAllStrategyDefaults()">بازگردانی همه</button></div>`; openModal('پیش‌فرض استراتژی‌ها', html); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
+async function saveScoreSizeMap() {
+    const map = [];
+    for (let i = 1; i <= 6; i++) {
+        const minEl = document.getElementById('ssm_min_' + i);
+        const facEl = document.getElementById('ssm_fac_' + i);
+        if (!minEl || !facEl) continue;
+        const min = parseFloat(minEl.value);
+        const factor = parseFloat(facEl.value);
+        if (Number.isFinite(min) && Number.isFinite(factor)) {
+            map.push({ min, factor });
+        }
+    }
+    const enabled = (document.getElementById('ssm_enabled') || {}).checked !== false;
+    try {
+        await apiFetch(BACKEND_URL + '/api/trading-settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ SCORE_SIZE_MAP: map, SCORE_SIZE_ENABLED: enabled ? 1 : 0 })
+        });
+        showAlert('ذخیره شد', 'success', 3000);
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+    }
+}
 async function saveStrategyDefaults() { const overrides = {}; document.querySelectorAll('[data-sid][data-param]').forEach(inp => { const sid = inp.dataset.sid, k = inp.dataset.param; if (!overrides[sid]) overrides[sid] = {}; const v = parseFloat(inp.value); if (Number.isFinite(v)) overrides[sid][k] = v; }); try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ overrides }) }); showAlert('ذخیره شد.', 'success', 3000); await loadStrategies(); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function resetStrategyDefault(sid) { if (!confirm(`بازگردانی ${sid}؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults/${sid}`, { method: 'DELETE' }); showAlert('بازگشت.', 'success', 3000); await openStrategyDefaults(); await loadStrategies(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function resetAllStrategyDefaults() { if (!confirm('بازگردانی همه؟')) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-defaults`, { method: 'DELETE' }); showAlert('بازگشت همه.', 'success', 3000); await openStrategyDefaults(); await loadStrategies(); } catch (e) { showAlert('خطا: ' + e.message); } }
@@ -3941,12 +4034,35 @@ function renderBacktestResults(result) {
   if (result.autoConfigSuggestion && result.autoConfigSuggestion.length) {
     suggestHtml = `
       <div class="adv-accordion open" style="margin-top:14px;"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <span> <b>تنظیم خودکار (پیشنهادی)</b> — قابل اعمال</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint" style="margin-bottom:8px;">پیشنهاد بر اساس best score هر نماد. می‌توانی leader/confirmer را دستی تغییر بدهی.</div> ${result.autoConfigSuggestion.map(sug => {
-            if (sug.error) return `<div class="hint">${esc(sug.symbol)}: ${esc(sug.error)}</div>`;
-            return `
-              <div class="auto-plan-card"> <h5>${esc(sug.symbol)}</h5> <div class="auto-role-row"> <span class="role-badge leader">لیدر</span> <b>${esc(sug.leader.strategyName)}</b> <span class="auto-score">PF=${sug.leader.pf} N=${sug.leader.n}</span> </div> ${sug.confirmers.map(c => `
-                  <div class="auto-role-row"> <span class="role-badge confirmer">تایید</span> <b>${esc(c.strategyName)}</b> <span class="auto-score">PF=${c.pf} N=${c.n}</span> </div> `).join('')}
-              </div> `;
-          }).join('')}
+            if (sug.error) return '<div class="hint">' + esc(sug.symbol) + ': ' + esc(sug.error) + '</div>';
+            const leaderRow =
+                '<div class="auto-role-row" data-sym="' + esc(sug.symbol) + '" data-sid="' + esc(sug.leader.strategyId) + '">' +
+                    '<input type="checkbox" class="ac-sel" checked onchange="onAcSel(this)">' +
+                    '<select class="ac-role" onchange="onAcRole(this)">' +
+                        '<option value="leader" selected>لیدر</option>' +
+                        '<option value="confirmer">تایید</option>' +
+                        '<option value="skip">حذف</option>' +
+                    '</select>' +
+                    '<b>' + esc(sug.leader.strategyName) + '</b>' +
+                    '<span class="auto-score">PF=' + sug.leader.pf + ' N=' + sug.leader.n + '</span>' +
+                '</div>';
+            const confRows = sug.confirmers.map(c =>
+                '<div class="auto-role-row" data-sym="' + esc(sug.symbol) + '" data-sid="' + esc(c.strategyId) + '">' +
+                    '<input type="checkbox" class="ac-sel" checked onchange="onAcSel(this)">' +
+                    '<select class="ac-role" onchange="onAcRole(this)">' +
+                        '<option value="confirmer" selected>تایید</option>' +
+                        '<option value="leader">لیدر</option>' +
+                        '<option value="skip">حذف</option>' +
+                    '</select>' +
+                    '<b>' + esc(c.strategyName) + '</b>' +
+                    '<span class="auto-score">PF=' + c.pf + ' N=' + c.n + '</span>' +
+                '</div>'
+            ).join('');
+            return '<div class="auto-plan-card" data-symbol="' + esc(sug.symbol) + '">' +
+                '<h5>' + esc(sug.symbol) + '</h5>' +
+                leaderRow + confRows +
+            '</div>';
+        }).join('')}
           <button class="btn success" onclick="applyBacktestSelections(true)" style="width:100%;margin-top:10px;"> اعمال تنظیم خودکار</button> </div> </div> `;
   }
   el.innerHTML = `
@@ -3963,6 +4079,65 @@ function switchBt3Tab(which, btn) {
   });
   document.querySelectorAll('#bt2ResultsArea >.tabs >.tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
+}
+function onAcSel(cb) {
+    const row = cb.closest('.auto-role-row');
+    if (!row) return;
+    const sel = row.querySelector('.ac-role');
+    if (sel) sel.disabled = !cb.checked;
+    row.style.opacity = cb.checked ? '1' : '0.4';
+}
+function onAcRole(sel) {
+    const row = sel.closest('.auto-role-row');
+    if (!row) return;
+    row.style.border = sel.value === 'leader' ? '1px solid var(--accent)' : '';
+}
+async function applySelectedSuggestions() {
+    if (!_btJobId) return showAlert('نتیجه‌ای وجود ندارد', 'warn');
+    const bySymbol = {};
+    document.querySelectorAll('.auto-plan-card').forEach(card => {
+        const sym = card.dataset.symbol;
+        const rows = card.querySelectorAll('.auto-role-row');
+        const list = [];
+        rows.forEach(row => {
+            const cb = row.querySelector('.ac-sel');
+            const sel = row.querySelector('.ac-role');
+            if (!cb || !cb.checked || !sel) return;
+            const role = sel.value;
+            if (role === 'skip') return;
+            const sid = row.dataset.sid;
+            if (sid) list.push({ strategyId: sid, role });
+        });
+        // ensure exactly one leader
+        const leaders = list.filter(x => x.role === 'leader');
+        if (leaders.length > 1) {
+            // demote extra leaders to confirmer
+            let first = true;
+            for (const x of list) {
+                if (x.role === 'leader') {
+                    if (first) { first = false; } else { x.role = 'confirmer'; }
+                }
+            }
+        }
+        if (list.length) bySymbol[sym] = list;
+    });
+    const selections = Object.entries(bySymbol).map(([symbol, pairs]) => ({ symbol, pairs }));
+    if (!selections.length) return showAlert('هیچ موردی انتخاب نشده', 'warn');
+    if (!confirm('اعمال ' + selections.length + ' نماد؟ configهای قبلی این نمادها جایگزین می‌شوند.')) return;
+    showLoader('در حال اعمال...');
+    try {
+        const r = await apiFetch(BACKEND_URL + '/api/backtest/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId: _btJobId, selections })
+        }, 0);
+        showAlert('اعمال شد: ' + r.applied.length + ' نماد', 'success', 6000);
+        await loadConfigs();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+    } finally {
+        hideLoader();
+    }
 }
 async function applyBacktestSelections(fromSuggestion) {
   if (!_btJobId || !_btLastResult) {
@@ -4024,7 +4199,33 @@ async function openAdvancedSettings() {
     const factorFields = factorKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     const confFields = confKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     openModal('تنظیمات پیشرفته', `
-      <div class="hint">تنظیمات معاملات، سرمایه و آپشن در صفحه‌ی بک‌تست قرار دارند.</div> <h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">ضرایب سیگنال</h4> <div class="form-row">${factorFields}</div> <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره ضرایب</button> <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">هم‌گرایی</h4> <div class="form-row">${confFields}</div> <button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره هم‌گرایی</button> `);
+      <div class="hint">تنظیمات معاملات، سرمایه و آپشن در صفحه‌ی بک‌تست قرار دارند.</div> <h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">ضرایب سیگنال</h4> <div class="form-row">${factorFields}</div> <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره ضرایب</button> <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">ضرایب امتیاز سیگنال به حجم</h4>
+      <div class="hint" style="margin-bottom:6px;">
+        هر ردیف: حداقل امتیاز → ضریب حجم. سیستم اولین ردیف رو که امتیاز ≥ min باشه انتخاب می‌کنه.
+      </div>
+      <div id="scoreSizeRows">
+        <div class="form-row">
+          <div class="field"><label>حداقل امتیاز ۱</label><input type="number" step="0.05" id="ssm_min_1" value="0.80"></div>
+          <div class="field"><label>ضریب ۱</label><input type="number" step="0.1" id="ssm_fac_1" value="1.3"></div>
+          <div class="field"><label>حداقل امتیاز ۲</label><input type="number" step="0.05" id="ssm_min_2" value="0.65"></div>
+          <div class="field"><label>ضریب ۲</label><input type="number" step="0.1" id="ssm_fac_2" value="1.1"></div>
+          <div class="field"><label>حداقل امتیاز ۳</label><input type="number" step="0.05" id="ssm_min_3" value="0.55"></div>
+          <div class="field"><label>ضریب ۳</label><input type="number" step="0.1" id="ssm_fac_3" value="1.0"></div>
+          <div class="field"><label>حداقل امتیاز ۴</label><input type="number" step="0.05" id="ssm_min_4" value="0.45"></div>
+          <div class="field"><label>ضریب ۴</label><input type="number" step="0.1" id="ssm_fac_4" value="0.8"></div>
+          <div class="field"><label>حداقل امتیاز ۵</label><input type="number" step="0.05" id="ssm_min_5" value="0.30"></div>
+          <div class="field"><label>ضریب ۵</label><input type="number" step="0.1" id="ssm_fac_5" value="0.5"></div>
+          <div class="field"><label>حداقل امتیاز ۶</label><input type="number" step="0.05" id="ssm_min_6" value="0"></div>
+          <div class="field"><label>ضریب ۶ (پیش‌فرض)</label><input type="number" step="0.1" id="ssm_fac_6" value="0.3"></div>
+        </div>
+      </div>
+      <div style="margin-top:6px; display:flex; gap:8px; align-items:center;">
+        <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="ssm_enabled" checked> فعال
+        </label>
+        <button class="btn" onclick="saveScoreSizeMap()">ذخیره ضرایب</button>
+      </div>
+      <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">هم‌گرایی</h4> <div class="form-row">${confFields}</div> <button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره هم‌گرایی</button> `);
   } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
 async function openQualityDetail(symbol) {

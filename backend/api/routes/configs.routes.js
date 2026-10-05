@@ -235,6 +235,18 @@ function register(app, deps) {
             });
         } catch (e) { next(e); }
     });
+
+    app.get('/api/signal-history/rejected', async (req, res, next) => {
+        try {
+            const limit = Math.min(+(req.query.limit || 100), 500);
+            const list = await getDB().collection(COLLECTIONS.SIGNAL_HISTORY)
+                .find({ rejected: true })
+                .sort({ createdAt: -1 })
+                .limit(limit)
+                .toArray();
+            res.json({ count: list.length, signals: list });
+        } catch (e) { next(e); }
+    });
 }
 
 module.exports = { register };
