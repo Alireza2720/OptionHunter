@@ -89,6 +89,7 @@ async function recordSignal(signalData) {
         const open = await db.collection(COLLECTIONS.OPTION_POSITIONS).findOne({
             underlying: signalData.symbol,
             status: 'open',
+        autoOpened: true,
             paper: true
         });
         if (open) {

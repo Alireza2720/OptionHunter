@@ -174,11 +174,7 @@
         };
     }
     function inEntryWindow(timeSec, w) {
-        if (!w) return true;
-        const m = minuteOfDay(timeSec);
-        // 🆕 کندل روزانه — همیشه مجاز
-        if (m === 0 || m === 210) return true;
-        return m >= w.start && m <= w.end;
+        return true; // entry window removed globally (per-strategy opt-in)
     }
     const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
 

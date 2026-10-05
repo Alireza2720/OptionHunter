@@ -106,76 +106,27 @@ async function checkRegimeGuard(config) {
 }
 
 async function checkSignalGuard(config, last, lastPrice, info) {
+    // Guard disabled: no whitelist, no exposure hard-check.
+    // Only logs a warning if exposure is high — signal is NOT rejected.
     try {
         const db = deps.getDB();
-        const configId = config._id.toString();
-
-        // 1) whitelist (اگه فعال باشه)
-        const whitelist = deps.signalFilterService
-            ? await deps.signalFilterService.getWhitelist()
-            : null;
-
-        if (whitelist && whitelist.pairs instanceof Set) {
-            const key = `${config.symbol}::${config.strategyId}`;
-            if (!whitelist.pairs.has(key)) {
-                return {
-                    allowed: false,
-                    reason: `pair ${key} در whitelist نیست`,
-                    violations: [{ rule: 'signalWhitelist', message: `pair در whitelist نیست` }]
-                };
-            }
-        }
-
-        // 2) duplicate — پوزیشن باز روی همین نماد
-        const openPos = await db.collection(COLLECTIONS.OPTION_POSITIONS)
-            .findOne({ underlying: config.symbol, status: 'open' });
-        if (openPos) {
-            return {
-                allowed: false,
-                reason: `پوزیشن باز روی ${config.symbol} وجود دارد`,
-                violations: [{ rule: 'duplicate', message: 'پوزیشن باز' }]
-            };
-        }
-
-        // 🆕 3) چک exposure کل و سرمایه
         const settings = deps.settings.get();
         const capital = deps.settings.capital();
         const maxTotalExposure = capital * (settings.MAX_TOTAL_EXPOSURE_PCT / 100);
-        const minCashReserve = capital * (settings.MIN_CASH_RESERVE_PCT / 100);
 
-        const openAll = await db.collection(COLLECTIONS.OPTION_POSITIONS)
-            .find({ status: 'open' }).toArray();
+        const openAll = await db.collection('option_positions').find({ status: 'open' }).toArray();
         let totalExposure = 0;
-        for (const p of openAll) {
-            totalExposure += (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
-        }
+        for (const p of openAll) totalExposure += (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
 
-        if (totalExposure >= maxTotalExposure) {
-            return {
-                allowed: false,
-                reason: `سقف کل درگیری پر شده (${(totalExposure/capital*100).toFixed(1)}% از ${settings.MAX_TOTAL_EXPOSURE_PCT}%)`,
-                violations: [{ rule: 'exposure', message: 'سقف کل درگیری' }]
-            };
+        const exposurePct = capital > 0 ? (totalExposure / capital * 100) : 0;
+        let warning = null;
+        if (totalExposure >= maxTotalExposure * 0.9) {
+            warning = 'درگیری کل نزدیک سقف (' + exposurePct.toFixed(1) + '%) — هشدار فقط';
         }
-
-        if (capital - totalExposure < minCashReserve) {
-            return {
-                allowed: false,
-                reason: `نقد ذخیره زیر حد مجاز (${(minCashReserve/capital*100).toFixed(0)}%)`,
-                violations: [{ rule: 'cash', message: 'نقد کم' }]
-            };
-        }
-
-        // ✅ اجازه بده — سایز دقیق در options layer محاسبه می‌شه
-        return {
-            allowed: true,
-            reason: `whitelist + duplicate + exposure ok (${(totalExposure/capital*100).toFixed(1)}% درگیری)`,
-            size: 1,
-            sizing: { size: 1, limitReason: 'deferred to options layer' }
-        };
+        return { allowed: true, warning, exposurePct };
     } catch (e) {
         deps.logger && deps.logger.warn('checkSignalGuard: ' + e.message);
-        return { allowed: true, error: e.message };   // fail-open
+        return { allowed: true };
     }
 }
 
@@ -542,6 +493,7 @@ async function evaluateConfig(config, marketInfo) {
                 price: lastPrice, time: last.time,
                 reason: last.reason || null,
                 rejected: true,
+                rejectionDetail: 'signal rejected by filter',
                 rejectionReason: `Regime خطرناک: ${regimeResult.reason}`,
                 regime: regimeResult.regime,
                 createdAt: new Date()
@@ -564,6 +516,7 @@ async function evaluateConfig(config, marketInfo) {
                 price: lastPrice, time: last.time,
                 reason: last.reason || null,
                 rejected: true,
+                rejectionDetail: 'signal rejected by filter',
                 rejectionReason: guardResult.reason,
                 violations: guardResult.violations || [],
                 regime: regimeResult.regime,

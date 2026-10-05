@@ -224,9 +224,7 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
         bySector = Math.floor(remainSector / contractValue);
     }
 
-    const finalSize = Math.max(0, Math.min(
-        baseSize, bySymbol, byTotal, byCash, byCluster, bySector
-    ));
+    const finalSize = Math.max(0, Math.min(baseSize, bySymbol, byCash));
 
     let reason = null;
     if (finalSize === 0) {

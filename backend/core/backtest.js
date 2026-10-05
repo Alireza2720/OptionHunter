@@ -21,7 +21,7 @@ let deps = {
     strategies: null,
     dataService: null,
     options: null,
-    entryWindow: () => ({ start: 9 * 60 + 30, end: 12 * 60 }),
+    entryWindow: () => ({ start: 9 * 60, end: 12 * 60 + 35 }),
     getTehranParts: null   // ← اضافه
 };
 

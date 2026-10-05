@@ -42,76 +42,83 @@ function computeATR(candles, period) {
     }
     return atr;
 }
+function computeADX(candles, period) {
+    if (candles.length <= period + 1) return [];
+    const out = new Array(candles.length).fill(null);
+    const tr = [], plusDM = [], minusDM = [];
+    for (let i = 0; i < candles.length; i++) {
+        if (i === 0) { tr.push(candles[i].high - candles[i].low); plusDM.push(0); minusDM.push(0); continue; }
+        const h = candles[i].high, l = candles[i].low, ph = candles[i-1].high, pl = candles[i-1].low, pc = candles[i-1].close;
+        tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+        const upMove = h - ph, downMove = pl - l;
+        plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+        minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+    }
+    if (tr.length <= period) return out;
+    let trS = 0, pS = 0, mS = 0;
+    for (let i = 1; i <= period; i++) { trS += tr[i]; pS += plusDM[i]; mS += minusDM[i]; }
+    let atrVal = trS / period;
+    let pDI = 100 * (pS / period) / (atrVal || 1);
+    let mDI = 100 * (mS / period) / (atrVal || 1);
+    let dx = 100 * Math.abs(pDI - mDI) / ((pDI + mDI) || 1);
+    out[period] = dx;
+    for (let i = period + 1; i < candles.length; i++) {
+        atrVal = (atrVal * (period - 1) + tr[i]) / period;
+        pS = (pS * (period - 1) + plusDM[i]) / period;
+        mS = (mS * (period - 1) + minusDM[i]) / period;
+        pDI = 100 * pS / (atrVal || 1);
+        mDI = 100 * mS / (atrVal || 1);
+        dx = 100 * Math.abs(pDI - mDI) / ((pDI + mDI) || 1);
+        const prev = out[i-1];
+        out[i] = prev === null ? dx : (prev * (period - 1) + dx) / period;
+    }
+    return out;
+}
 
 function detectMacroRegime(dailyCandles, opts = {}) {
-    if (!dailyCandles || dailyCandles.length < 50) {
-        return { regime: REGIME.UNKNOWN, reason: `دیتا کم (${dailyCandles?.length || 0} < 50)` };
+    if (!dailyCandles || dailyCandles.length < 30) {
+        return { regime: REGIME.UNKNOWN, reason: 'data < 30' };
     }
-
-    // 🆕 EMA داینامیک
-    let emaPeriod;
-    if (dailyCandles.length >= 200) emaPeriod = 200;
-    else if (dailyCandles.length >= 100) emaPeriod = 100;
-    else if (dailyCandles.length >= 50) emaPeriod = 50;
-    else return { regime: REGIME.UNKNOWN, reason: `دیتای ناکافی (${dailyCandles.length})` };
-
-    // 🆕 slopeBars داینامیک — حداکثر 10، حداقل 3
-    const slopeBars = Math.min(opts.slopeBars || 10, Math.max(3, Math.floor(dailyCandles.length / 8)));
-
-    if (dailyCandles.length < emaPeriod + slopeBars) {
-        return { regime: REGIME.UNKNOWN, reason: `نیاز به ${emaPeriod + slopeBars} کندل (${dailyCandles.length} موجود)` };
-    }
-
+    const emaPeriod = 30;
+    const adxPeriod = 14;
+    const slopeBars = 5;
     const closes = dailyCandles.map(c => c.close);
     const ema = computeEMA(closes, emaPeriod);
+    const adx = computeADX(dailyCandles, adxPeriod);
     const lastIdx = closes.length - 1;
-    const cur = closes[lastIdx];
+    if (ema[lastIdx] === null || ema[lastIdx - slopeBars] === null || adx[lastIdx] === null) {
+        return { regime: REGIME.UNKNOWN, reason: 'indicators null' };
+    }
+    const curClose = closes[lastIdx];
     const curEma = ema[lastIdx];
     const prevEma = ema[lastIdx - slopeBars];
-
-    if (curEma === null || prevEma === null) {
-        return { regime: REGIME.UNKNOWN, reason: 'EMA محاسبه نشد' };
-    }
     const slopePct = ((curEma - prevEma) / prevEma) * 100;
-
+    const adxVal = adx[lastIdx];
     let regime;
-    let reason;
-    if (cur > curEma && slopePct > 0) {
-        regime = REGIME.BULL;
-        reason = `close>EMA${emaPeriod}, slope=+${slopePct.toFixed(2)}%`;
-    } else if (cur < curEma && slopePct < 0) {
-        regime = REGIME.BEAR;
-        reason = `close<EMA${emaPeriod}, slope=${slopePct.toFixed(2)}%`;
+    if (adxVal >= 25) {
+        if (curClose > curEma && slopePct > 0.2) regime = REGIME.BULL;
+        else if (curClose < curEma && slopePct < -0.2) regime = REGIME.BEAR;
+        else regime = REGIME.RANGE;
     } else {
         regime = REGIME.RANGE;
-        reason = `مابین (close/EMA${emaPeriod}=${(cur / curEma).toFixed(3)})`;
     }
-
-    return {
-        regime, reason,
-        close: cur,
-        ema: Math.round(curEma),
-        emaPeriod,
-        slopePct
-    };
+    const reason = 'EMA' + emaPeriod + '/ADX' + adxPeriod + '=' + adxVal.toFixed(1) + ' slope=' + slopePct.toFixed(2) + '%';
+    return { regime, reason, close: curClose, ema: Math.round(curEma), adx: Math.round(adxVal * 10) / 10, slopePct };
 }
 
 function detectVolatilityState(dailyCandles, opts = {}) {
-    const atrPeriod = opts.atrPeriod || 14;
-    const lookback = opts.lookback || 30;   // 🆕 از 60 به 30
-
+    const atrPeriod = opts.atrPeriod || 10;
+    const lookback = opts.lookback || 20;
     if (!dailyCandles || dailyCandles.length < atrPeriod + lookback) {
         return { state: VOL_STATE.UNKNOWN };
     }
     const atr = computeATR(dailyCandles, atrPeriod);
     const recent = atr.slice(-lookback).filter(x => x !== null);
-    if (recent.length < 15) return { state: VOL_STATE.UNKNOWN };   // 🆕 از 20 به 15
-
+    if (recent.length < 10) return { state: VOL_STATE.UNKNOWN };
     const sorted = [...recent].sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];
     const cur = recent[recent.length - 1];
     const ratio = median > 0 ? cur / median : 1;
-
     if (ratio > 1.5) return { state: VOL_STATE.HIGH, ratio: Math.round(ratio * 100) / 100, atr: Math.round(cur) };
     if (ratio < 0.7) return { state: VOL_STATE.LOW, ratio: Math.round(ratio * 100) / 100, atr: Math.round(cur) };
     return { state: VOL_STATE.NORMAL, ratio: Math.round(ratio * 100) / 100, atr: Math.round(cur) };

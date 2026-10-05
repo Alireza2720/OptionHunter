@@ -14,7 +14,6 @@
 
 const { ObjectId } = require('mongodb');
 const { COLLECTIONS, OPTION_DATA_CUTOFF, TIMEFRAME_MINUTES } = require('../config/constants');
-const { benjaminiHochberg } = require('../core/multiple-testing');
 const { buildSignalCorrelationMatrix, selectIndependentConfirmers } = require('../core/signal-correlation');
 const { computeRegimeDistribution } = require('../core/regime-diversity');
 const memGuard = require('../infra/memory-guard');
@@ -55,10 +54,10 @@ const DEFAULTS = {
     testTo: null,
 
     // Stage 1 gates
-    minStockTrades: 15,
-    minStockPF: 1.1,
+    minStockTrades: 20,
+    minStockPF: 1.3,
     minLB: 1.0,
-    fdrQ: 0.05,
+    fdrQ: 0,
     useFDR: false,
 
     // Stage 3 — 🆕 منعطف‌تر
@@ -315,34 +314,18 @@ async function _stage1_stockBacktest(jobId, configs, dateRange, resumeState) {
 // STAGE 2: FDR filter
 // ============================================================
 function _stage2_fdrFilter(stage1Results, opts) {
-    const pvalues = [];
-
-    for (const r of stage1Results) {
-        if (r.error || !r.trades || r.trades.length < 2) continue;
-        const key = `${r.symbol}::${r.strategyId}`;
-        const pnls = r.trades.map(t => t.pnlPct).filter(Number.isFinite);
-        if (pnls.length < 3) continue;
-        const p = _oneSampleTTestPValue(pnls);
-        pvalues.push({ key, p: Number.isFinite(p) ? p : 1 });
-    }
-
-    let fdrResult = { pass: null, threshold: null, n: pvalues.length };
-    if (opts.useFDR && pvalues.length > 0) {
-        fdrResult = benjaminiHochberg(pvalues, opts.fdrQ || 0.05);
-    }
-
+    // Practical confidence — FDR removed
+    // criterion: minTrades + minPF + optional minValidationPF
     const candidates = [];
     for (const r of stage1Results) {
         if (r.error) continue;
-        const key = `${r.symbol}::${r.strategyId}`;
         const st = r.stockStats || {};
         const n = st.count || 0;
         const pf = st.profitFactor;
         const safePf = Number.isFinite(pf) ? pf : (st.totalPnl > 0 ? 999 : 0);
 
-        if (n < (opts.minStockTrades || 30)) continue;
+        if (n < (opts.minStockTrades || 20)) continue;
         if (safePf < (opts.minStockPF || 1.3)) continue;
-        if (opts.useFDR && fdrResult.pass && !fdrResult.pass.has(key)) continue;
 
         candidates.push({
             symbol: r.symbol,
@@ -355,7 +338,7 @@ function _stage2_fdrFilter(stage1Results, opts) {
             stockWinRate: st.winRate || 0,
             stockAvgPnl: st.avgPnl || 0,
             trades: r.trades,
-            pValue: pvalues.find(x => x.key === key)?.p ?? null
+            pValue: null
         });
     }
 
@@ -364,11 +347,12 @@ function _stage2_fdrFilter(stage1Results, opts) {
     return {
         candidates,
         fdrMeta: {
-            applied: !!opts.useFDR,
-            totalTested: pvalues.length,
-            passed: fdrResult.pass ? fdrResult.pass.size : candidates.length,
-            threshold: fdrResult.threshold,
-            q: opts.fdrQ || 0.05
+            applied: false,
+            mode: 'practical-confidence',
+            totalTested: stage1Results.length,
+            passed: candidates.length,
+            threshold: opts.minStockPF || 1.3,
+            q: null
         }
     };
 }

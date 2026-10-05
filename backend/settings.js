@@ -17,9 +17,9 @@ const DEFAULTS = {
     // ---- مدیریت سرمایه — پایه ----
     TOTAL_CAPITAL: 100000000,
     RISK_PER_TRADE_PCT: 1.5,
-    MAX_SYMBOL_EXPOSURE_PCT: 20,
-    MAX_TOTAL_EXPOSURE_PCT: 50,
-    MIN_CASH_RESERVE_PCT: 20,
+    MAX_SYMBOL_EXPOSURE_PCT: 100,
+    MAX_TOTAL_EXPOSURE_PCT: 100,
+    MIN_CASH_RESERVE_PCT: 0,
 
     // ---- لایه ۱: ضریب قدرت سیگنال (بر اساس تعداد تأیید) ----
     SIGNAL_FACTOR_1: 0.7,      // لیدر تنها
@@ -47,7 +47,19 @@ const DEFAULTS = {
     MULTI_CONFIRMER_TIME_WINDOW: 600,  // ۱۰ دقیقه
 
     // ---- فیلتر هدف سهم ----
-    MIN_TARGET_PCT: 4.5  // حداقل درصد هدف سهم برای سیگنال آپشن
+    MIN_TARGET_PCT: 4.5,
+
+    // score -> size factor map (7 buckets)
+    SCORE_SIZE_MAP: [
+        { min: 0.80, factor: 1.3 },
+        { min: 0.65, factor: 1.1 },
+        { min: 0.55, factor: 1.0 },
+        { min: 0.45, factor: 0.8 },
+        { min: 0.30, factor: 0.5 },
+        { min: 0.00, factor: 0.3 }
+    ],
+    SCORE_SIZE_ENABLED: 1,
+  // حداقل درصد هدف سهم برای سیگنال آپشن
 };
 
 let values = { ...DEFAULTS };
@@ -213,6 +225,15 @@ async function resetStrategyDefaults(strategyId) {
     return strategyDefaults;
 }
 
+
+function scoreSizeFactor(score) {
+    if (!values.SCORE_SIZE_ENABLED) return 1.0;
+    if (!Number.isFinite(score)) return 1.0;
+    const map = values.SCORE_SIZE_MAP || [];
+    for (const b of map) if (score >= b.min) return b.factor;
+    return 1.0;
+}
+
 module.exports = {
     init, load, save, get, entryWindow, DEFAULTS,
     capital, riskAmount, maxSymbolExposure, maxTotalExposure, minCashReserve,
@@ -222,4 +243,5 @@ module.exports = {
     getStrategyDefaults, getAllStrategyDefaults, saveStrategyDefaults, resetStrategyDefaults,
     setRiskFreeRate, getRiskFreeRate, getRiskFreeMeta,
     signalFactor, levelFactor, ivFactor, dataDepthFactor,
+    scoreSizeFactor,
 };
