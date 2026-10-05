@@ -184,17 +184,17 @@
 
     // ==================== ۱. SMC Unicorn ====================
     const SMC_DEFAULTS = {
-        swingLength: 5, htfEma: 20, htfRsiPeriod: 14,
-        fvgMinGapPct: 0.3,
-        useOTE: 1, oteLow: 0.5, oteHigh: 0.886,
-        atrPeriod: 14, atrMult: 2.0,
+        swingLength: 4, htfEma: 20, htfRsiPeriod: 14,
+        fvgMinGapPct: 0.05,
+        useOTE: 0, oteLow: 0.5, oteHigh: 0.886,
+        atrPeriod: 14, atrMult: 1.7,
         maxHoldBars: 20, cooldownBars: 3,
         useBreakEven: 1, tp1R: 1.5, tp2R: 3.0, tp3R: 4.5,
-        minLiquiditySweepPct: 0.2,
-        requireVolumeFilter: 1, useKillzone: 1,
+        minLiquiditySweepPct: 0.05,
+        requireVolumeFilter: 1, useKillzone: 0,
         killzone1Start: 9.5, killzone1End: 10.5,
         killzone2Start: 11.5, killzone2End: 12.0,
-        minConfluence: 2
+        minConfluence: 1
     };
     function runSMCUnicorn(candles, params, ctx) {
         const p = { ...SMC_DEFAULTS, ...(params || {}) };
@@ -274,11 +274,11 @@
     // ==================== ۲. OB + Sweep ====================
     const OB_DEFAULTS = {
         swingLength: 5, htfEma: 20, htfRsiPeriod: 14,
-        atrPeriod: 14, atrMult: 2.0,
+        atrPeriod: 14, atrMult: 1.7,
         maxHoldBars: 25, cooldownBars: 3,
-        tp1R: 2.0, tp2R: 4.0,
-        obLookback: 10, minSweepPct: 0.15,
-        minConditions: 2
+        tp1R: 1.5, tp2R: 3.5,
+        obLookback: 7, minSweepPct: 0.05,
+        minConditions: 1
     };
     function runOBSweep(candles, params, ctx) {
         const p = { ...OB_DEFAULTS, ...(params || {}) };

@@ -642,7 +642,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
             const applicable = d.strategyId !== 'pairs_spread' || !!d.pairSymbol;
             const isLoser = losingSet.has(d.strategyId);
             return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _applicable: applicable, _loser: isLoser };
-        }).filter(d => d._n >= dynMin && d._applicable && !d._loser)
+        }).filter(d => d._n >= dynMin && d._applicable && !d._loser && d._pf >= 1.0)
           .sort((a, b) => b._score - a._score);
 
         if (!scored.length) {
