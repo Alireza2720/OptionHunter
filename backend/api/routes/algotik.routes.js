@@ -101,33 +101,6 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // ---- Stock data range (🆕) ----
-    app.get('/api/algotik/data-range-stock', async (req, res, next) => {
-        try {
-            const db = getDB();
-            const { COLLECTIONS } = require('../../config/constants');
-            const earliest = await db.collection(COLLECTIONS.CANDLES_BASE).findOne(
-                { source: 'algotik_intraday' },
-                { sort: { time: 1 }, projection: { time: 1 } }
-            );
-            const latest = await db.collection(COLLECTIONS.CANDLES_BASE).findOne(
-                { source: 'algotik_intraday' },
-                { sort: { time: -1 }, projection: { time: 1 } }
-            );
-            if (!earliest || !latest) {
-                return res.json({ from: null, to: null, days: 0, mode: 'stock' });
-            }
-            const fromDate = new Date(earliest.time).toISOString().slice(0, 10);
-            const toDate   = new Date(latest.time).toISOString().slice(0, 10);
-            const days = Math.floor((new Date(latest.time) - new Date(earliest.time)) / 86400000);
-            res.json({ from: fromDate, to: toDate, days, mode: 'stock' });
-        } catch (e) { next(e); }
-    });
-
-    // ---- Data range ----
-    app.get('/api/algotik/data-range', async (req, res, next) => {
-        try { res.json(await algotik.getDataRange()); } catch (e) { next(e); }
-    });
     app.get('/api/algotik/data-range/:symbol', async (req, res, next) => {
         try {
             res.json(await algotik.getSymbolDataRange(req.params.symbol));
