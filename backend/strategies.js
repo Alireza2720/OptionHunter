@@ -937,7 +937,7 @@
 
     // ==================== ۱۹. RSI-2 Mean Reversion ====================
     const RSI2_MR_DEFAULTS = {
-        rsiPeriod: 3, rsiEntry: 20, rsiExit: 70, smaFilter: 200,
+        rsiPeriod: 2, rsiEntry: 25, rsiExit: 65, smaFilter: 100,
         atrPeriod: 14, atrMult: 1.5, maxHoldBars: 10, cooldownBars: 1,
         tp1R: 1.0, tp2R: 2.0, htfEma: 20, htfRsiPeriod: 14
     };

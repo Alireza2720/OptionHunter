@@ -590,9 +590,9 @@ function getDynamicMinTrades(days) {
     const d = Number.isFinite(days) ? days : 180;
     if (d < 90)  return 3;
     if (d < 180) return 5;
-    if (d < 365) return 10;
-    if (d < 730) return 20;
-    return 30;
+    if (d < 365) return 8;
+    if (d < 730) return 15;
+    return 20;
 }
 
 function computeLosingStrategies(details, mode) {
