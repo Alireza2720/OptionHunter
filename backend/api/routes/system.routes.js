@@ -333,7 +333,7 @@ function register(app, deps) {
     app.get('/api/strategies', (req, res) => {
         const overrides = settings.getAllStrategyDefaults();
         const STRATEGIES = require('../../strategies').STRATEGIES;
-        res.json(Object.values(STRATEGIES).map(s => ({
+        res.json(Object.values(STRATEGIES).filter(s => !s.deprecated).map(s => ({
             id: s.id, name: s.name,
             defaultTimeframe: s.defaultTimeframe,
             htfTimeframe: s.htfTimeframe || '1d',

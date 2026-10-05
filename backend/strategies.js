@@ -184,17 +184,17 @@
 
     // ==================== ۱. SMC Unicorn ====================
     const SMC_DEFAULTS = {
-        swingLength: 3, htfEma: 20, htfRsiPeriod: 14,   // 🆕 2→3
-        fvgMinGapPct: 0.01,
-        useOTE: 0, oteLow: 0.5, oteHigh: 0.886,
-        atrPeriod: 14, atrMult: 1.5,
+        swingLength: 5, htfEma: 20, htfRsiPeriod: 14,
+        fvgMinGapPct: 0.3,
+        useOTE: 1, oteLow: 0.5, oteHigh: 0.886,
+        atrPeriod: 14, atrMult: 2.0,
         maxHoldBars: 20, cooldownBars: 3,
-        useBreakEven: 1, tp1R: 1, tp2R: 2, tp3R: 3,
-        minLiquiditySweepPct: 0.01,
-        requireVolumeFilter: 0, useKillzone: 0,
+        useBreakEven: 1, tp1R: 1.5, tp2R: 3.0, tp3R: 4.5,
+        minLiquiditySweepPct: 0.2,
+        requireVolumeFilter: 1, useKillzone: 1,
         killzone1Start: 9.5, killzone1End: 10.5,
         killzone2Start: 11.5, killzone2End: 12.0,
-        minConfluence: 1
+        minConfluence: 2
     };
     function runSMCUnicorn(candles, params, ctx) {
         const p = { ...SMC_DEFAULTS, ...(params || {}) };
@@ -272,7 +272,14 @@
     }
 
     // ==================== ۲. OB + Sweep ====================
-    const OB_DEFAULTS = { swingLength: 5, htfEma: 20, htfRsiPeriod: 14, atrPeriod: 14, atrMult: 1.5, maxHoldBars: 25, cooldownBars: 3, tp1R: 1.5, tp2R: 3.0, obLookback: 5, minSweepPct: 0.02, minConditions: 1 };
+    const OB_DEFAULTS = {
+        swingLength: 5, htfEma: 20, htfRsiPeriod: 14,
+        atrPeriod: 14, atrMult: 2.0,
+        maxHoldBars: 25, cooldownBars: 3,
+        tp1R: 2.0, tp2R: 4.0,
+        obLookback: 10, minSweepPct: 0.15,
+        minConditions: 2
+    };
     function runOBSweep(candles, params, ctx) {
         const p = { ...OB_DEFAULTS, ...(params || {}) };
         const ha = getDisplayCandles(candles, p.candleType || 'heikin');
@@ -930,7 +937,7 @@
 
     // ==================== ۱۹. RSI-2 Mean Reversion ====================
     const RSI2_MR_DEFAULTS = {
-        rsiPeriod: 2, rsiEntry: 10, rsiExit: 70, smaFilter: 200,
+        rsiPeriod: 3, rsiEntry: 20, rsiExit: 70, smaFilter: 200,
         atrPeriod: 14, atrMult: 1.5, maxHoldBars: 10, cooldownBars: 1,
         tp1R: 1.0, tp2R: 2.0, htfEma: 20, htfRsiPeriod: 14
     };
@@ -1152,6 +1159,7 @@
             run: runTSMOM
         },
         dual_thrust: {
+            deprecated: true,
             id: 'dual_thrust', name: 'Dual Thrust', nameFa: 'دوال تراست',
             category: 'breakout',
             regime: { macro: ['bull','bear','range'], vol: ['normal','high'] },
@@ -1168,6 +1176,7 @@
             run: runRSI2MeanReversion
         },
         orb_pro: {
+            deprecated: true,
             id: 'orb_pro', name: 'ORB Pro', nameFa: 'شکست بازه آغازین حرفه‌ای',
             category: 'breakout',
             regime: { macro: ['bull','range'], vol: ['normal','high'] },
@@ -1176,6 +1185,7 @@
             run: runORBPro
         },
         gap_and_go: {
+            deprecated: true,
             id: 'gap_and_go', name: 'Gap and Go', nameFa: 'گپ و حرکت',
             category: 'momentum',
             regime: { macro: ['bull','range'], vol: ['normal','high'] },

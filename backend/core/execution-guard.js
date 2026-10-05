@@ -27,10 +27,10 @@ const DEFAULT_LIMITS = {
     useDuplicateGuard: true,
     useKelly: true,
     kellyCapPct: 3.0,
-    useCorrelation: true,
+    useCorrelation: false,   // Iran market
     corrThreshold: 0.85,
     maxClusterPct: 30,
-    useSectors: true,
+    useSectors: false,   // Iran market
     maxSectorPct: 40,
 
     // Phase 3.5
