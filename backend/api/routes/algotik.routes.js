@@ -232,8 +232,7 @@ function register(app, deps) {
             const optOk = cOpt >= 50 && cIv >= 20;
             const liveOk = cTicks >= 500;
 
-            const { OPTION_DATA_CUTOFF } = require('../../config/constants');
-            const OPT_CUTOFF_MS = OPTION_DATA_CUTOFF.getTime();
+                        const OPT_CUTOFF_MS = OPTION_DATA_CUTOFF.getTime();
             const optToMs = c.options && c.options.to ? new Date(c.options.to).getTime() : 0;
             const optHasRecent = optToMs >= OPT_CUTOFF_MS;
             const optIsStale = cOpt > 0 && !optHasRecent;

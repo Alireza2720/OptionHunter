@@ -30,8 +30,6 @@ const TEHRAN_TZ = 'Asia/Tehran';
 const TEHRAN_OFFSET_MINUTES = 210;         // UTC+3:30
 
 // ---- دیتای آپشن ----
-// 🆕 اولین تاریخ دیتای معتبر آپشن (1405/03/19)
-const OPTION_DATA_CUTOFF = new Date('2026-06-09T00:00:00Z');
 
 // ---- Job ----
 const JOB_STATUS = {
@@ -114,7 +112,6 @@ module.exports = {
     TRADING_DAYS_PER_YEAR,
     TEHRAN_TZ,
     TEHRAN_OFFSET_MINUTES,
-    OPTION_DATA_CUTOFF,
     JOB_STATUS,
     JOB_TYPE,
     ACTIVE_JOB_STATUSES,

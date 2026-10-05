@@ -13,7 +13,7 @@
 // ============================================================
 
 const { ObjectId } = require('mongodb');
-const { COLLECTIONS, OPTION_DATA_CUTOFF, TIMEFRAME_MINUTES } = require('../config/constants');
+const { COLLECTIONS, TIMEFRAME_MINUTES } = require('../config/constants');
 const { buildSignalCorrelationMatrix, selectIndependentConfirmers } = require('../core/signal-correlation');
 const { computeRegimeDistribution } = require('../core/regime-diversity');
 const memGuard = require('../infra/memory-guard');
@@ -122,11 +122,20 @@ function _toUnixSec(v) {
 
 async function _resolveDateRanges(opts) {
     const db = deps.getDB();
-    const CUTOFF = OPTION_DATA_CUTOFF || new Date('2026-06-09T00:00:00Z');
+    // Dynamic: no fixed cutoff — start from earliest available option data
 
     let testFrom = _toUnixSec(opts.testFrom);
     let testTo = _toUnixSec(opts.testTo);
-    if (!testFrom) testFrom = Math.floor(CUTOFF.getTime() / 1000);
+    if (!testFrom) {
+        // Dynamic: earliest option date in DB
+        try {
+            const earliest = await db.collection(COLLECTIONS.OPTION_HISTORY)
+                .findOne({}, { sort: { time: 1 }, projection: { time: 1 } });
+            testFrom = earliest ? Math.floor(new Date(earliest.time).getTime() / 1000) : (Math.floor(Date.now() / 1000) - 365 * 86400);
+        } catch (_) {
+            testFrom = Math.floor(Date.now() / 1000) - 365 * 86400;
+        }
+    }
     if (!testTo) testTo = Math.floor(Date.now() / 1000);
 
     let valFrom = _toUnixSec(opts.validationFrom);

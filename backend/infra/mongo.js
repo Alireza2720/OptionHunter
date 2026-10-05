@@ -126,6 +126,38 @@ async function ensureIndexes() {
     // --- Telegram ---
     await safeCreateIndex(db.collection(COLLECTIONS.TELEGRAM_OUTBOX), { sentAt: 1, createdAt: 1 });
 
+    // --- option_client_type (new) ---
+    await safeCreateIndex(
+        db.collection('option_client_type'),
+        { symbol: 1, date: 1 },
+        { unique: true }
+    );
+    await safeCreateIndex(
+        db.collection('option_client_type'),
+        { underlying: 1, date: 1 }
+    );
+    await safeCreateIndex(
+        db.collection('option_client_type'),
+        { date: -1 }
+    );
+
+    // --- option_history: dataQuality + source tracking ---
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.OPTION_HISTORY),
+        { underlying: 1, dataQuality: 1, time: -1 }
+    );
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.OPTION_HISTORY),
+        { dataQuality: 1 }
+    );
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.OPTION_HISTORY),
+        { source: 1, underlying: 1, time: -1 }
+    );
+
+    // --- spread_model + iv_surface meta ---
+    // (stored in meta collection, no special index needed beyond _id)
+
     // --- stock ticks (🆕) ---
     await safeCreateIndex(
         db.collection(COLLECTIONS.STOCK_TICKS),

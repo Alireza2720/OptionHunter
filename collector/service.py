@@ -496,7 +496,9 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # ============================================================
         # Phase 4.5: options migration (daily → history)
         # ============================================================
-        if payload.get('includeOptionMigration'):
+        # ⚠️ Skip phase 5 if running via CLI backfill (--full) to avoid double work
+        _skip_phase5 = os.getenv("SKIP_PHASE5_MIGRATION", "").lower() in ("1", "true", "yes")
+        if payload.get('includeOptionMigration') and not _skip_phase5:
             if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                 job_mod.finish_job(job_id, 'CANCELLED')
                 return
