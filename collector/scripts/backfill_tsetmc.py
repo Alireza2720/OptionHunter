@@ -70,6 +70,8 @@ def main():
     p.add_argument("--symbols", type=str)
     p.add_argument("--underlying-only", action="store_true")
     p.add_argument("--options-only", action="store_true")
+    p.add_argument("--auto-enrich", action="store_true",
+                   help="After backfill, run enrichment automatically")
     args = p.parse_args()
 
     db = get_db()
@@ -87,8 +89,25 @@ def main():
     if not args.underlying_only:
         step_options(symbols)
 
+    # Auto-enrichment (optional)
+    if args.auto_enrich:
+        log_fn("=== Auto-enrichment starting ===")
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from option_reconstruction.spread_model import load_spread_model, build_spread_model
+            from option_reconstruction.enricher import enrich_collection
+            if not load_spread_model(db):
+                log_fn("No spread model — building first...")
+                build_spread_model(db, log_fn=log_fn)
+            log_fn("Running enrichment (tags dataQuality=enriched)...")
+            enrich_collection(db, log_fn=log_fn)
+            log_fn("=== Auto-enrichment DONE ===")
+        except Exception as e:
+            log_fn("Auto-enrichment FAILED: {}".format(e))
+
     log_fn("=== DONE in {}s ===".format(int(time.time() - t0)))
 
 
 if __name__ == "__main__":
     main()
+

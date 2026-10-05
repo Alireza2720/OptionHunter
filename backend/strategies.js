@@ -1314,6 +1314,9 @@
 };
 
     function getRequiredCandles(id, params) {
+    if (id && id.indexOf('_pro') === id.length - 4) {
+        return getRequiredCandles(id.slice(0, -4), params);
+    }
         const p = { ...(STRATEGIES[id] ? STRATEGIES[id].defaultParams : {}), ...(params || {}) };
         if (id === 'smc_unicorn') return Math.max(p.swingLength + 5, p.atrPeriod + 3, p.maxHoldBars);
         if (id === 'ob_sweep') return Math.max(p.swingLength + p.obLookback + 5, p.atrPeriod + 3, p.maxHoldBars);
@@ -1336,12 +1339,133 @@
         return 10;
     }
     function getRequiredHtfCandles(id, params) {
+    if (id && id.indexOf('_pro') === id.length - 4) {
+        return getRequiredHtfCandles(id.slice(0, -4), params);
+    }
         const p = { ...(STRATEGIES[id] ? STRATEGIES[id].defaultParams : {}), ...(params || {}) };
         return Math.max(p.htfEma || 20, p.htfRsiPeriod || 14) + 2;
     }
 
 
 
+    // ═══════════════════════════════════════════════════════════
+    // PRO STRATEGIES — base logic + enhancement filtering
+    // ═══════════════════════════════════════════════════════════
+    function _tehranDateKeyForSignal(timeSec) {
+        const t = getTehranParts(new Date(timeSec * 1000));
+        return t.year + '-' + String(t.month).padStart(2, '0') + '-' + String(t.day).padStart(2, '0');
+    }
+
+    function _proScoreForSignal(sig, enh, params) {
+        let score = 1.0;
+        const tags = [];
+        const useCT = Number(params.useClientType) !== 0;
+        const usePC = Number(params.usePutCall) !== 0;
+
+        if (useCT && enh.clientTypeByDate) {
+            const key = _tehranDateKeyForSignal(sig.time);
+            const ct = enh.clientTypeByDate.get(key);
+            if (ct) {
+                const buyI = Number(ct.buy_I_Volume) || 0;
+                const buyN = Number(ct.buy_N_Volume) || 0;
+                const total = buyI + buyN;
+                if (total > 0) {
+                    const ratio = buyI / total;
+                    const pct = Math.round(ratio * 100);
+                    if (ratio > 0.75) { score *= 1.25; tags.push('CT:' + pct + '%'); }
+                    else if (ratio > 0.65) { score *= 1.15; tags.push('CT:' + pct + '%'); }
+                    else if (ratio < 0.30) { score *= 0.50; tags.push('CT-low:' + pct + '%'); }
+                    else if (ratio < 0.45) { score *= 0.75; tags.push('CT-weak:' + pct + '%'); }
+                }
+            }
+        }
+        if (usePC && enh.putCallSignal) {
+            if (enh.putCallSignal === 'bearish') { score *= 0.75; tags.push('PC:bear'); }
+            else if (enh.putCallSignal === 'bullish') { score *= 1.10; tags.push('PC:bull'); }
+        }
+        return { score, tags };
+    }
+
+    function _filterSignalsInPairs(signals, enh, params) {
+        const minScore = Number(params.proMinScore) || 0.60;
+        const result = signals.map(function(s) { return Object.assign({}, s); });
+        const pendingBuys = [];
+        let proKept = 0, proFiltered = 0;
+
+        for (let i = 0; i < result.length; i++) {
+            const s = result[i];
+            if (s.signalType === 'BUY') {
+                const sc = _proScoreForSignal(s, enh, params);
+                s.proScore = Math.round(sc.score * 100) / 100;
+                if (sc.tags.length) s.proTags = sc.tags;
+                pendingBuys.push(i);
+                if (sc.score < minScore) {
+                    s._filtered = true;
+                    s._origSignalType = 'BUY';
+                    s.reason = '[PRO-FILTERED score=' + s.proScore + '] ' + (s.reason || '');
+                    s.signalType = null;
+                    proFiltered++;
+                } else {
+                    proKept++;
+                }
+            } else if (s.signalType === 'EXIT_LONG') {
+                const buyIdx = pendingBuys.shift();
+                if (buyIdx !== undefined && result[buyIdx]._filtered) {
+                    s._filtered = true;
+                    s._origSignalType = 'EXIT_LONG';
+                    s.reason = '[PRO-PAIRED-FILTER] ' + (s.reason || '');
+                    s.signalType = null;
+                }
+            }
+        }
+        return { signals: result, proKept: proKept, proFiltered: proFiltered };
+    }
+
+    function _makeProStrategy(base) {
+        const baseId = base.id;
+        const baseRun = base.run;
+        return {
+            id: baseId + '_pro',
+            name: base.name + ' Pro',
+            nameFa: (base.nameFa || base.name) + ' پرو',
+            category: base.category || 'pro',
+            regime: base.regime,
+            defaultTimeframe: base.defaultTimeframe,
+            htfTimeframe: base.htfTimeframe,
+            defaultParams: Object.assign({}, base.defaultParams, {
+                useClientType: 1,
+                usePutCall: 1,
+                proMinScore: 0.60,
+            }),
+            indicators: (base.indicators || []).concat(['clientType', 'putCall']),
+            baseStrategyId: baseId,
+            isPro: true,
+            run: function(candles, params, ctx) {
+                const baseResult = baseRun(candles, params, ctx);
+                if (!ctx || !ctx.enhancements) return baseResult;
+                const enh = ctx.enhancements;
+                if (!enh.clientTypeByDate && !enh.putCallSignal) return baseResult;
+                const filtered = _filterSignalsInPairs(baseResult.signals, enh, params);
+                return Object.assign({}, baseResult, {
+                    signals: filtered.signals,
+                    proKept: filtered.proKept,
+                    proFiltered: filtered.proFiltered,
+                });
+            }
+        };
+    }
+
+    const PRO_ELIGIBLE = [
+        'smc_unicorn', 'ob_sweep', 'ob_after_sweep',
+        'donchian', 'momentum_12_1', 'short_term_reversal',
+        'low_vol_anomaly', 'tsmom'
+    ];
+    for (let _i = 0; _i < PRO_ELIGIBLE.length; _i++) {
+        const _bid = PRO_ELIGIBLE[_i];
+        if (STRATEGIES[_bid]) {
+            STRATEGIES[_bid + '_pro'] = _makeProStrategy(STRATEGIES[_bid]);
+        }
+    }
     return {
         // === indicators + helpers ===
         calculateHeikinAshi, calculateSimpleCandles, getDisplayCandles,

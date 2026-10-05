@@ -76,8 +76,10 @@ const OPT_BT_DEFAULTS = {
     dynSlipImpactCoef: 0.5,
     minFillRatio: 0.02,
     maxParticipation: 0.4,
-    latencySec: 1
-};
+    latencySec: 1,
+    // Enrichment-aware defaults (pessimistic)
+    spreadPenaltyMult: 0.5,
+    minDataQuality: 'enriched'};
 
 const RELAX_LEVELS = [
     { name: 'A+', tag: null, overrides: {} },
@@ -1674,5 +1676,6 @@ module.exports = {
     // constants
     OPT_BT_DEFAULTS
 };
+
 
 

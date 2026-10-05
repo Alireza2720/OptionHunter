@@ -8,6 +8,30 @@ const { COLLECTIONS, TIMEFRAME_MINUTES } = require('../../config/constants');
 
 function register(app, deps) {
     const { getDB, signalService, dataService } = deps;
+    // ─── ClientType history ───
+    app.get('/api/clienttype/:symbol', async (req, res, next) => {
+        try {
+            const symbol = decodeURIComponent(req.params.symbol);
+            const limit = Math.min(+(req.query.limit || 60), 500);
+            const list = await getDB().collection('option_client_type')
+                .find({ underlying: symbol })
+                .sort({ date: -1 }).limit(limit).toArray();
+            res.json({ symbol, count: list.length, records: list });
+        } catch (e) { next(e); }
+    });
+
+    // ─── Put/Call ratio ───
+    app.get('/api/putcall/:symbol', async (req, res, next) => {
+        try {
+            const symbol = decodeURIComponent(req.params.symbol);
+            const days = Math.min(+(req.query.days || 7), 90);
+            const pc = require('../../core/putcall-ratio');
+            pc.init({ getDB });
+            const r = await pc.computePCRatio(symbol, { windowDays: days });
+            if (!r) return res.status(404).json({ error: 'insufficient data' });
+            res.json(r);
+        } catch (e) { next(e); }
+    });
 
     // ---- Search ----
     app.get('/api/symbols/search', async (req, res, next) => {

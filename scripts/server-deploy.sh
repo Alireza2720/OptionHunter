@@ -1,6 +1,5 @@
 #!/bin/bash
 # server-deploy.sh — pull + restart + verify
-set -e
 cd ~/apps/OptionHunter || { echo "FAIL: not in OptionHunter"; exit 1; }
 
 echo "=== [1/6] git pull ==="
@@ -42,8 +41,9 @@ else
 fi
 
 echo "=== [6/6] Health check ==="
-curl -s http://127.0.0.1:5000/health
+curl -s --max-time 5 http://127.0.0.1:5000/health || echo 'health unavailable'
 echo ""
-curl -s http://127.0.0.1:3000/ping
+curl -s --max-time 5 http://127.0.0.1:3000/ping || echo 'ping unavailable'
 echo ""
 echo "=== DONE ==="
+

@@ -138,6 +138,18 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
         }
     }
 
+    // Load enhancements for Pro strategies
+    let _enhancements = null;
+    if (def.isPro || (cfg.strategyId && cfg.strategyId.endsWith('_pro'))) {
+        try {
+            const _enhMod = require('./enhancements');
+            _enhancements = await _enhMod.loadEnhancements(deps.getDB(), cfg.symbol, dateFrom, dateTo);
+            if (deps.logger) deps.logger.info('[pro] enhancements loaded for ' + cfg.symbol + ' — ct=' + _enhancements.clientCount + ' pc=' + _enhancements.putCallSignal);
+        } catch (_e) {
+            deps.logger && deps.logger.warn('enhancements load: ' + _e.message);
+            _enhancements = null;
+        }
+    }
     const result = def.run(
         candles,
         { ...cfg.params, candleType: cfg.candleType },
@@ -145,9 +157,10 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
             htfCandles: htf,
             htfTimeframe: htfTf,
             entryWindow: deps.entryWindow(),
-            pairCandles,        // 🆕
-            pairSymbol,          // 🆕
-            sectorPeerCandles    // 🆕
+            pairCandles,
+            pairSymbol,
+            sectorPeerCandles,
+            enhancements: _enhancements
         }
     );
 
