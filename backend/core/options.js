@@ -172,6 +172,16 @@ function normCdf(x) {
     return x >= 0 ? 1 - p : p;
 }
 
+// ============================================================
+// BSM Alignment Note
+// ------------------------------------------------------------
+// The Python implementation in collector/option_reconstruction/pricing.py
+// mirrors this function exactly:
+//   - Same normCdf approximation (Abramowitz-Stegun)
+//   - Same call/put formulas
+//   - Same Greeks calculations
+// If you change one, change the other. Version tag: bsm-v2
+// ============================================================
 function bsCall(S, K, T, r, sig) {
     if (T <= 0) {
         const v = Math.max(S - K * Math.exp(-r * Math.max(T, 0)), 0);
@@ -1084,6 +1094,8 @@ async function tryGetRealTradeData(symbol, t, p) {
         optionEntryBid: best.bid, optionExitAsk: exitRow ? exitRow.ask : null,
         optionEntryLast: best.last, optionExitLast: exitRow ? exitRow.last : null,
         oi: best.oi, volume: best.volume, spreadPct,
+        dataQuality: best.dataQuality || 'unknown',
+        enrichedSpreadPct: best.enrichedSpreadPct || null,
         delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
         iv: best.ivApi, hv: best.hvApi,
         ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
@@ -1294,6 +1306,8 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         latencySec: latency,
 
         oi: best.oi, volume: best.volume, spreadPct,
+        dataQuality: best.dataQuality || 'unknown',
+        enrichedSpreadPct: best.enrichedSpreadPct || null,
         delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
         iv: best.ivApi, hv: best.hvApi,
         ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
@@ -1450,16 +1464,28 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             const maxTime = new Date(_maxSec * 1000 + WINDOW_MS);
 
             // 🆕 bid/ask اجباری + daysLeft منعطف‌تر + projection برای کاهش حافظه
+            // Build dataQuality filter based on minDataQuality option
+            const _mq = p.minDataQuality || 'enriched';
+            const _query = {
+                underlying: norm(symbol),
+                time: { $gte: minTime, $lte: maxTime },
+                daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 90) },
+                bid: { $gt: 0 },
+                ask: { $gt: 0 }
+            };
+            if (_mq === 'real') {
+                _query.dataQuality = 'real';
+            } else if (_mq === 'enriched') {
+                _query.$or = [
+                    { dataQuality: { $in: ['real', 'enriched'] } },
+                    { dataQuality: { $exists: false } }
+                ];
+            }
             const bulkRows = await db.collection('option_history').find(
-                {
-                    underlying: norm(symbol),
-                    time: { $gte: minTime, $lte: maxTime },
-                    daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 90) },
-                    bid: { $gt: 0 },
-                    ask: { $gt: 0 }
-                },
+                _query,
                 {
                     projection: {
+                        dataQuality: 1, enrichedSpreadPct: 1,
                         symbol: 1, time: 1, bid: 1, ask: 1, close: 1, last: 1,
                         volume: 1, S: 1, strike: 1, expiry: 1, daysLeft: 1,
                         ivApi: 1, deltaApi: 1, gammaApi: 1, thetaApi: 1, vegaApi: 1,
@@ -1499,6 +1525,13 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         }
         // 🆕 فقط معاملات با bid/ask واقعی پذیرفته می‌شن
         if (result) {
+            // Apply spread penalty to PnL (pessimistic)
+            if (p.spreadPenaltyMult > 0 && result.spreadPct != null && result.spreadPct > 0) {
+                const _sp = (p.spreadPenaltyMult || 0) * (result.spreadPct / 100);
+                result.rawPnlPct = result.pnlPct;
+                result.spreadPenaltyApplied = Math.round(_sp * 10000) / 10000;
+                result.pnlPct = result.pnlPct * (1 - _sp);
+            }
             trades.push(result);
             realUsed++;
         }
@@ -1641,3 +1674,5 @@ module.exports = {
     // constants
     OPT_BT_DEFAULTS
 };
+
+
