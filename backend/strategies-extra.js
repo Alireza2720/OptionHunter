@@ -517,7 +517,7 @@ function runPutBreakdown(candles, params, ctx) {
                 if (tr) {
                     tr.exitDate = c.time; tr.exitPrice = c.close;
                     // پوت: بازده معکوس حرکت سهم
-                    tr.pnlPct = (tr.entryPrice / c.close - 1) * 100;
+                    tr.pnlPct = _simulatePutPnl(tr.entryPrice, c.close, (c.time - tr.entryDate) / 86400);
                     tr.exitReason = reason;
                 }
                 entry = null; cooldown = p.cooldownBars;
@@ -595,7 +595,7 @@ function runPutLowerHigh(candles, params, ctx) {
                 const tr = trades[trades.length - 1];
                 if (tr) {
                     tr.exitDate = c.time; tr.exitPrice = c.close;
-                    tr.pnlPct = (tr.entryPrice / c.close - 1) * 100;
+                    tr.pnlPct = _simulatePutPnl(tr.entryPrice, c.close, (c.time - tr.entryDate) / 86400);
                     tr.exitReason = reason;
                 }
                 entry = null; cooldown = p.cooldownBars;
@@ -663,7 +663,7 @@ function runPutRSIOB(candles, params, ctx) {
                 const tr = trades[trades.length - 1];
                 if (tr) {
                     tr.exitDate = c.time; tr.exitPrice = c.close;
-                    tr.pnlPct = (tr.entryPrice / c.close - 1) * 100;
+                    tr.pnlPct = _simulatePutPnl(tr.entryPrice, c.close, (c.time - tr.entryDate) / 86400);
                     tr.exitReason = reason;
                 }
                 entry = null; cooldown = p.cooldownBars;
@@ -727,7 +727,7 @@ function runPutBearFlag(candles, params, ctx) {
                 const tr = trades[trades.length - 1];
                 if (tr) {
                     tr.exitDate = c.time; tr.exitPrice = c.close;
-                    tr.pnlPct = (tr.entryPrice / c.close - 1) * 100;
+                    tr.pnlPct = _simulatePutPnl(tr.entryPrice, c.close, (c.time - tr.entryDate) / 86400);
                     tr.exitReason = reason;
                 }
                 entry = null; cooldown = p.cooldownBars;
@@ -806,7 +806,7 @@ function runPutVolSpike(candles, params, ctx) {
                 const tr = trades[trades.length - 1];
                 if (tr) {
                     tr.exitDate = c.time; tr.exitPrice = c.close;
-                    tr.pnlPct = (tr.entryPrice / c.close - 1) * 100;
+                    tr.pnlPct = _simulatePutPnl(tr.entryPrice, c.close, (c.time - tr.entryDate) / 86400);
                     tr.exitReason = reason;
                 }
                 entry = null; cooldown = p.cooldownBars;
