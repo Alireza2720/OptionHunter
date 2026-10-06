@@ -52,6 +52,13 @@ def validate(db, holdout_pct=0.20, log_fn=None, seed=42):
         real_ask = _safe_float(row.get("ask"))
         if real_bid <= 0 or real_ask <= 0:
             continue
+        # Skip low-premium outliers (MAPE explodes on tiny bases)
+        MIN_PREMIUM_FOR_MAPE = 10.0
+        MAX_PREMIUM_FOR_MAPE = 1e7
+        if real_bid < MIN_PREMIUM_FOR_MAPE or real_ask < MIN_PREMIUM_FOR_MAPE:
+            continue
+        if real_bid > MAX_PREMIUM_FOR_MAPE or real_ask > MAX_PREMIUM_FOR_MAPE:
+            continue
 
         # Force re-enrichment by treating as if no bid/ask
         test_row = dict(row)
@@ -106,3 +113,4 @@ def validate(db, holdout_pct=0.20, log_fn=None, seed=42):
         log_fn("Validation: n={} bid_MAPE={}% ask_MAPE={}%".format(
             n, result["bid"]["MAPE"], result["ask"]["MAPE"]))
     return result
+

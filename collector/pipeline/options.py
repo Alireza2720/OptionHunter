@@ -29,44 +29,100 @@ SOURCE_SNAPSHOT = os.getenv("OPTION_SNAPSHOT_SOURCE", "tsetmc_snapshot")
 
 
 # ─── Discovery ───
-def discover_contracts_for_underlying(underlying):
-    """Find all option contracts for one underlying via TSETMC search.
+def _learn_option_prefixes(underlying):
+    """Learn existing option prefixes from DB (ضهرم, ضخود, ...).
 
-    Returns list of dicts:
-        {insCode, ticker, name, type, underlying, strike,
-         expiry_jalali, expiry_gregorian}
+    TSETMC uses abbreviated underlying names in option tickers, e.g.
+        اهرم    → ضهرم / طهرم
+        خودرو   → ضخود / طخود
+        فملی    → ضملی / طملی  (sometimes drops first letter)
+    So we cannot naively concat 'ض' + underlying. We learn from DB or
+    try multiple heuristics.
+    """
+    import re
+    prefixes = set()
+    try:
+        from .db import get_db
+        db = get_db()
+        existing = db.option_history.distinct(
+            "symbol", {"underlying": underlying}
+        )
+        for sym in existing:
+            if not sym:
+                continue
+            m = re.match(r"^(ض|ط)([^\d]+)", str(sym))
+            if m:
+                prefixes.add(m.group(0))
+    except Exception:
+        pass
+    return sorted(prefixes)
+
+
+def _heuristic_option_prefixes(underlying):
+    """Try multiple plausible prefixes if DB has no data yet."""
+    candidates = []
+    for kind in ("ض", "ط"):
+        candidates.append(kind + underlying)                    # ضاهرم
+        if len(underlying) > 2:
+            candidates.append(kind + underlying[1:])            # ضهرم
+        if len(underlying) > 3:
+            candidates.append(kind + underlying[2:])            # ضرم
+            candidates.append(kind + underlying[-3:])           # ضهرم
+        if len(underlying) > 4:
+            candidates.append(kind + underlying[1:4])           # ضهر
+    return candidates
+
+
+def discover_contracts_for_underlying(underlying):
+    """Find all option contracts for one underlying.
+
+    Strategy:
+        1. Learn prefixes from DB (authoritative).
+        2. Fallback to heuristics if DB empty.
+        3. Search each prefix, validate via parse_lval30.
     """
     client = get_client()
     found = {}
-    prefixes = ["\u0636", "\u0637"]  # ض (call), ط (put)
+
+    # 1) learn from DB
+    db_prefixes = _learn_option_prefixes(underlying)
+
+    # 2) heuristics
+    heur = _heuristic_option_prefixes(underlying)
+
+    # merge (DB first, then heuristics)
+    seen = set()
+    prefixes = []
+    for p in (db_prefixes + heur):
+        if p not in seen:
+            seen.add(p)
+            prefixes.append(p)
+
+    # 3) search each prefix
     for prefix in prefixes:
-        for i in range(10):
-            query = "{}{}{}".format(prefix, underlying, i)
-            try:
-                results = client.search(query)
-            except TSETMCError:
+        try:
+            results = client.search(prefix)
+        except TSETMCError:
+            continue
+        for r in results:
+            ticker = r.get("lVal18AFC", "")
+            ins = r.get("insCode")
+            name = r.get("lVal30", "")
+            if not (ticker and ins):
                 continue
-            for r in results:
-                ticker = r.get("lVal18AFC", "")
-                ins = r.get("insCode")
-                name = r.get("lVal30", "")
-                if not (ticker and ins):
-                    continue
-                parsed = parse_lval30(name)
-                if not parsed:
-                    continue
-                if normalize_fa(parsed.get("underlying", "")) != normalize_fa(underlying):
-                    continue
-                found[ins] = {
-                    "insCode": ins,
-                    "ticker": ticker,
-                    "name": name,
-                    **parsed,
-                }
+            parsed = parse_lval30(name)
+            if not parsed:
+                continue
+            if normalize_fa(parsed.get("underlying", "")) != normalize_fa(underlying):
+                continue
+            found[str(ins)] = {
+                "insCode": str(ins),
+                "ticker": ticker,
+                "name": name,
+                **parsed,
+            }
+
     return list(found.values())
-
-
-# ─── Risk-free helper ───
 def _get_risk_free(db):
     try:
         doc = db["risk_free_cache"].find_one({}, sort=[("date", -1)])
@@ -377,3 +433,4 @@ def migrate_snapshots_to_history(underlyings=None, days=180, dry_run=False, **kw
 def fetch_contract_history(*args, **kwargs):
     """Deprecated stub."""
     return None, "use migrate_from_tsetmc instead"
+

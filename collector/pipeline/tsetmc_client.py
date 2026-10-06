@@ -13,6 +13,7 @@ Confirmed endpoints (verified Oct 2025):
 import time
 import json
 import ssl
+import gzip
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -53,18 +54,37 @@ class TSETMCClient:
         self._last_request = time.time()
 
     def _get(self, url, timeout=None):
-        """Raw GET returning (status_code, body_text)."""
+        """Raw GET returning (status_code, body_text).
+
+        Handles gzip-compressed responses transparently.
+        TSETMC's old.tsetmc.com endpoints return gzip by default.
+        """
         self._wait()
         req = urllib.request.Request(url, headers={
             "User-Agent": UA,
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "fa-IR,fa;q=0.9",
+            "Accept-Encoding": "gzip, deflate",
         })
         try:
             with urllib.request.urlopen(
                 req, timeout=timeout or self.TIMEOUT, context=self._ctx
             ) as r:
-                body = r.read().decode("utf-8", errors="ignore")
+                raw = r.read()
+                # Detect and decompress gzip (magic bytes 1f 8b)
+                if len(raw) >= 2 and raw[0] == 0x1F and raw[1] == 0x8B:
+                    try:
+                        raw = gzip.decompress(raw)
+                    except Exception as ge:
+                        raise TSETMCError("gzip decompress failed: {}".format(ge)) from ge
+                # Detect zlib/deflate (78 9c / 78 01 / 78 da)
+                elif len(raw) >= 2 and raw[0] == 0x78 and raw[1] in (0x01, 0x9C, 0xDA):
+                    try:
+                        import zlib
+                        raw = zlib.decompress(raw)
+                    except Exception:
+                        pass  # not fatal, try as-is
+                body = raw.decode("utf-8", errors="ignore")
                 return r.status, body
         except urllib.error.HTTPError as e:
             return e.code, ""
@@ -220,4 +240,5 @@ def get_client():
     if _client is None:
         _client = TSETMCClient()
     return _client
+
 

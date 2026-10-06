@@ -28,6 +28,11 @@ SYNTHETIC_SOURCES = {"synthetic_daily"}
 
 def _classify(row):
     src = str(row.get("source") or "").lower()
+
+    # Previously enriched → rebuild with current model (model may improve)
+    if row.get("enrichedMethod"):
+        return "needs_rebuild"
+
     if src in SYNTHETIC_SOURCES:
         return "needs_rebuild"
 
@@ -220,3 +225,4 @@ def enrich_collection(db, symbol=None, dry_run=False, log_fn=None, batch_size=10
         log_fn("Done. {}".format({k: v for k, v in stats.items()
                                   if k not in ("startedAt", "finishedAt")}))
     return stats
+
