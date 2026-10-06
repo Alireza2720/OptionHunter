@@ -977,11 +977,13 @@ async function runBacktest(cfg, from, to, opts = {}) {
         advanced._proInfo = {
             isPro: true,
             strategyId: cfg.strategyId,
-            enhancementsLoaded: !!_enhancements,
-            clientTypeCount: _enhancements ? (_enhancements.clientCount || 0) : 0,
-            putCallSignal: _enhancements ? (_enhancements.putCallSignal || null) : null,
-            proKept: optionResult.proKept || null,
-            proFiltered: optionResult.proFiltered || null,
+            // _enhancements is in computeStockTrades scope; not accessible here.
+            // Track only what's propagated via optionResult.
+            enhancementsLoaded: null,
+            clientTypeCount: null,
+            putCallSignal: null,
+            proKept: (optionResult && optionResult.proKept) || null,
+            proFiltered: (optionResult && optionResult.proFiltered) || null,
         };
     }
 

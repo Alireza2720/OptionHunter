@@ -775,6 +775,8 @@ function round2(v) {
 // Apply — کاربر انتخاب‌های خودش رو اعمال می‌کنه
 // ------------------------------------------------------------
 async function applySelections(jobId, selections) {
+    const db = deps.getDB();
+
     // 🆕 Archive current configs before overwriting
     try {
         const _archiveCol = 'strategy_configs_archive';
@@ -793,7 +795,6 @@ async function applySelections(jobId, selections) {
         deps.logger && deps.logger.warn('config archive failed: ' + e.message);
     }
 
-    const db = deps.getDB();
     const applied = [];
 
     for (const sel of (selections || [])) {

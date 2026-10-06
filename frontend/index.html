@@ -4036,10 +4036,10 @@ function renderBacktestResults(result) {
 
   // ---- Tabs ----
   const tabs = '<div class="tabs" style="margin-top:14px;">'
-    + '<button class="tab active" onclick="switchBt3Tab('summary', this)">خلاصه</button>'
-    + '<button class="tab" onclick="switchBt3Tab('bySymbol', this)">توسط نماد</button>'
-    + '<button class="tab" onclick="switchBt3Tab('byStrategy', this)">توسط استراتژی</button>'
-    + '<button class="tab" onclick="switchBt3Tab('trades', this)">معاملات</button>'
+    + '<button class="tab active" onclick="switchBt3Tab(&apos;summary&apos;, this)">خلاصه</button>'
+    + '<button class="tab" onclick="switchBt3Tab(&apos;bySymbol&apos;, this)">توسط نماد</button>'
+    + '<button class="tab" onclick="switchBt3Tab(&apos;byStrategy&apos;, this)">توسط استراتژی</button>'
+    + '<button class="tab" onclick="switchBt3Tab(&apos;trades&apos;, this)">معاملات</button>'
     + '</div>';
 
   // ---- bySymbol (split stock vs option) ----
@@ -4204,7 +4204,7 @@ function renderBacktestResults(result) {
   let suggestHtml = '';
   if (result.autoConfigSuggestion && result.autoConfigSuggestion.length) {
     suggestHtml = '<div class="adv-accordion open" style="margin-top:14px;">'
-      + '<div class="adv-header" onclick="this.parentNode.classList.toggle('open')"><span><b>تنظیم خودکار (پیشنهادی)</b> — قابل اعمال</span><span class="chev">▼</span></div>'
+      + '<div class="adv-header" onclick="this.parentNode.classList.toggle(&apos;open&apos;)"><span><b>تنظیم خودکار (پیشنهادی)</b> — قابل اعمال</span><span class="chev">▼</span></div>'
       + '<div class="adv-body">'
       + '<div class="hint" style="margin-bottom:8px;">پیشنهاد بر اساس بهترین score هر نماد. می‌توانی leader/confirmer را دستی تغییر بدهی.</div>';
     suggestHtml += result.autoConfigSuggestion.map(sug => {

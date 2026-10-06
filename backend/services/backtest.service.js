@@ -512,41 +512,24 @@ async function computeDataDays(db, symbol) {
 }
 
 async function applyAutoConfig(plans, trainingMeta = null) {
-    // archive current configs before overwriting
+    const db = deps.getDB();
+
+    // Archive current configs before overwriting
     try {
-        const _arcDb = deps.getDB();
-        const _cur = await _arcDb.collection(COLLECTIONS.STRATEGY_CONFIGS).find({}).toArray();
+        const _cur = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).find({}).toArray();
         if (_cur.length) {
-            await _arcDb.collection('strategy_configs_archive').insertOne({
+            await db.collection('strategy_configs_archive').insertOne({
                 archivedAt: new Date(),
                 reason: 'apply-auto-config',
                 count: _cur.length,
                 configs: _cur
             });
-            deps.logger && deps.logger.info('archived ' + _cur.length + ' configs');
+            deps.logger && deps.logger.info('archived ' + _cur.length + ' configs before applyAutoConfig');
         }
     } catch (e) {
         deps.logger && deps.logger.warn('archive failed: ' + e.message);
     }
 
-    // 🆕 Archive current configs
-    try {
-        const _col = db.collection(COLLECTIONS.STRATEGY_CONFIGS);
-        const _current = await _col.find({}).toArray();
-        if (_current.length) {
-            await db.collection('strategy_configs_archive').insertOne({
-                archivedAt: new Date(),
-                reason: 'apply-auto-config',
-                count: _current.length,
-                configs: _current
-            });
-            deps.logger && deps.logger.info('archived ' + _current.length + ' configs before applyAutoConfig');
-        }
-    } catch (e) {
-        deps.logger && deps.logger.warn('archive failed: ' + e.message);
-    }
-
-    const db = deps.getDB();
     const applied = [];
     const trainedFrom = trainingMeta ? trainingMeta.from : null;
     const trainedTo = trainingMeta ? trainingMeta.to : null;
