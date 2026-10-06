@@ -3957,161 +3957,287 @@ function renderBacktestResults(result) {
   const panels = result.panelsUsed || {};
   const details = Array.isArray(result.details) ? result.details : [];
   if (!details.length && !result.portfolio && !result.analysis) {
-    el.innerHTML = `<div class="empty-note" style="padding:20px; text-align:center;"> نتیجه‌ی بک‌تست خالی است — احتمالاً job قبل از تکمیل cancel شده یا خطا داشته. <br><br><button class="btn outline small" onclick="closeModal()">بستن</button></div>`;
+    el.innerHTML = '<div class="empty-note" style="padding:20px;text-align:center;">نتیجه‌ی بک‌تست خالی است — احتمالاً job قبل از تکمیل cancel شده یا خطا داشته.<br><br><button class="btn outline small" onclick="closeModal()">بستن</button></div>';
     return;
   }
-  const statBox = (l, v, cls) => `<div class="stat ${cls||''}"><small>${l}</small><b>${v}</b></div>`;
+  const mode = result.mode || 'option';
+  const modeLabel = mode === 'stock' ? 'سهم پایه' : 'آپشن';
+  const statBox = (l, v, cls) => '<div class="stat ' + (cls||'') + '"><small>' + l + '</small><b>' + v + '</b></div>';
   const validCount = details.filter(d => (d.stockStats && d.stockStats.count) || (d.optionStats && d.optionStats.count)).length;
-  let summaryHtml = `
-    <div class="stats-grid"> ${statBox('کل ترکیب', details.length)}
-      ${statBox('معتبر', validCount, 'highlight-good')}
-      ${statBox('نماد', new Set(details.map(d => d.symbol)).size)}
-      ${statBox('استراتژی', new Set(details.map(d => d.strategyId)).size)}
-    </div> `;
+
+  // ---- Summary ----
+  let summaryHtml = '';
+  summaryHtml += '<div class="hint" style="padding:10px 14px;background:var(--accent-subtle);border-radius:var(--r-md);margin-bottom:12px;line-height:1.9;">';
+  summaryHtml += '<b>حالت بک‌تست:</b> ' + modeLabel;
+  summaryHtml += (mode === 'option')
+    ? ' — تمام آمار زیر مربوط به <b>معاملات آپشن کال</b> است. معاملات سهم پایه فقط برای تولید سیگنال ورود/خروج استفاده شده.'
+    : ' — تمام آمار زیر مربوط به <b>معاملات سهم پایه</b> است (بدون آپشن).';
+  summaryHtml += '</div>';
+  summaryHtml += '<div class="stats-grid">';
+  summaryHtml += statBox('کل ترکیب', details.length);
+  summaryHtml += statBox('معتبر', validCount, 'highlight-good');
+  summaryHtml += statBox('نماد', new Set(details.map(d => d.symbol)).size);
+  summaryHtml += statBox('استراتژی', new Set(details.map(d => d.strategyId)).size);
+  summaryHtml += '</div>';
+
+  // ---- Portfolio ----
   if (result.portfolio && !result.portfolio.error) {
     const p = result.portfolio.stats || {};
-    summaryHtml += `
-      <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">پورتفولیو</h4> <div class="stats-grid"> ${statBox('قبول/کل', (result.portfolio.acceptedTrades||0) + '/' + (result.portfolio.totalTrades||0))}
-        ${statBox('بازده', pct(p.totalReturnPct||0))}
-        ${statBox('MaxDD', (p.maxDD||0).toFixed(1)+'%', (p.maxDD>20?'highlight-bad':'highlight-good'))}
-        ${statBox('PF', p.profitFactor ?? '-')}
-        ${statBox('Sharpe', p.sharpe ?? '-')}
-        ${statBox('Win%', (p.winRate||0).toFixed(1))}
-      </div> `;
+    const total = result.portfolio.totalTrades || 0;
+    const accepted = result.portfolio.acceptedTrades || 0;
+    const rejected = result.portfolio.rejectedTrades != null ? result.portfolio.rejectedTrades : (total - accepted);
+    const portfolioLabel = mode === 'stock' ? 'سهم پایه' : 'آپشن';
+    summaryHtml += '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">شبیه‌سازی پورتفولیو ' + portfolioLabel + '</h4>';
+    summaryHtml += '<div class="hint" style="margin-bottom:8px;">از ' + total + ' سیگنال خام روی معاملات ' + portfolioLabel + '، <b>' + accepted + '</b> قبول و <b>' + rejected + '</b> رد شد. بازده زیر فقط روی معاملات ' + portfolioLabel + ' قبول‌شده محاسبه شده.</div>';
+    summaryHtml += '<div class="stats-grid">';
+    summaryHtml += statBox('معاملات ' + portfolioLabel, accepted + ' از ' + total);
+    summaryHtml += statBox('بازده پورتفولیو ' + portfolioLabel, pct(p.totalReturnPct||0), (p.totalReturnPct||0) > 0 ? 'highlight-good' : 'highlight-bad');
+    summaryHtml += statBox('MaxDD', (p.maxDD||0).toFixed(1)+'%', (p.maxDD>20?'highlight-bad':'highlight-good'));
+    summaryHtml += statBox('PF', p.profitFactor != null ? p.profitFactor : '-');
+    summaryHtml += statBox('Sharpe', p.sharpe != null ? p.sharpe : '-', (p.sharpe>1?'highlight-good':''));
+    summaryHtml += statBox('Win Rate', (p.winRate||0).toFixed(1)+'%');
+    summaryHtml += statBox('میانگین هر معامله', pct(p.avgReturn||0));
+    summaryHtml += '</div>';
   }
+
+  // ---- Analysis ----
   if (result.analysis && !result.analysis.error) {
-    summaryHtml += `
-      <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">تحلیل آماری</h4> <div class="stats-grid"> ${statBox('تحلیل‌شده', result.analysis.totalAnalyzed||0)}
-        ${statBox('PASS', result.analysis.passing||0, 'highlight-good')}
-        ${statBox('rolling skip', result.analysis.rollingInsufficient||0)}
-      </div> `;
+    summaryHtml += '<h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">تحلیل آماری (Bootstrap + t-test)</h4>';
+    summaryHtml += '<div class="stats-grid">';
+    summaryHtml += statBox('تحلیل‌شده', result.analysis.totalAnalyzed||0);
+    summaryHtml += statBox('PASS', result.analysis.passing||0, 'highlight-good');
+    summaryHtml += statBox('rolling skip', result.analysis.rollingInsufficient||0);
+    summaryHtml += '</div>';
   }
+
+  // ---- WF ----
   if (result.wf && !result.wf.error && result.wf.wfWhitelistSaved) {
     const saved = result.wf.wfWhitelistSaved;
-    summaryHtml += `
-      <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">Walk-Forward</h4> <div class="stats-grid"> ${statBox('استراتژی‌های برنده', (saved.passingStrategies||[]).length, 'highlight-good')}
-        ${statBox('کل trade', result.wf.totalTrades||0)}
-      </div> ${(saved.passingStrategies||[]).length ? `<div class="hint">${(saved.passingStrategies||[]).join('، ')}</div>` : ''}
-    `;
-  }
-  if (result.regimes && result.regimes.length) {
-    summaryHtml += `
-      <h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">وضعیت بازار</h4> <div style="display:flex;flex-wrap:wrap;gap:4px;"> ${result.regimes.slice(0, 30).map(r => {
-          const cls = r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none';
-          return `<span class="badge ${cls}" title="${esc(r.symbol)}: ${esc(r.macro||'?')} / ${esc(r.vol||'?')}">${esc(r.symbol)}: ${esc(r.macro||'?')}</span>`;
-        }).join('')}
-      </div> `;
-  }
-  const tabs = `
-    <div class="tabs" style="margin-top:14px;"> <button class="tab active" onclick="switchBt3Tab('summary', this)">خلاصه</button> <button class="tab" onclick="switchBt3Tab('bySymbol', this)">توسط نماد</button> <button class="tab" onclick="switchBt3Tab('byStrategy', this)">توسط استراتژی</button> <button class="tab" onclick="switchBt3Tab('trades', this)">معاملات</button> </div> `;
-  const bySymbolGrouped = {};
-  for (const d of details) {
-    if (!bySymbolGrouped[d.symbol]) bySymbolGrouped[d.symbol] = [];
-    bySymbolGrouped[d.symbol].push(d);
-  }
-  const mode = result.mode || 'option';
-  const targetKey = mode === 'stock' ? 'stockStats' : 'optionStats';
-  let bySymbolHtml = '';
-  for (const [sym, rows] of Object.entries(bySymbolGrouped)) {
-    const scored = rows.map(d => {
-      const t = d[targetKey] || d.stockStats || {};
-      let pf = t.profitFactor;
-      if (pf === null || pf === undefined) pf = (t.totalPnl >0 ? 99 : 0);
-      else if (!Number.isFinite(pf)) pf = 0;
-      const wr = t.winRate || 0;
-      const n = t.count || 0;
-      const nPenalty = n < 20 ? 0.3 : 1.0;
-      const score = (pf * 0.4 + (wr / 100) * 0.3 + Math.min(n, 20) / 20 * 0.3) * nPenalty;
-      const lowN = n < 20;
-      return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _lowN: lowN };
-    }).sort((a, b) => b._score - a._score);
-    const bestStrategy = scored[0];
-    const bestPfShow = bestStrategy._pf === Infinity ? '∞' : bestStrategy._pf.toFixed(2);
-    bySymbolHtml += `
-      <div class="adv-accordion" style="margin-bottom:6px;"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')" style="cursor:pointer;"> <span><b>${esc(sym)}</b> <span class="hint" style="margin-right:8px;">${scored.length} استراتژی · بهترین: ${esc(bestStrategy.strategyName)} (PF=${bestPfShow})</span></span> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint" style="margin-bottom:6px;">تیک بزن تا این pair در Apply لحاظ شود. اولین pair تیک‌دار = leader.</div> <table class="data-table"> <thead><tr><th style="width:30px;"></th><th>استراتژی</th><th>N</th><th>PF</th><th>WR%</th><th>Score</th></tr></thead> <tbody> ${scored.map((s, idx) => {
-                const pfShow = s._pf === Infinity ? '∞' : (Number.isFinite(s._pf) ? s._pf.toFixed(2) : '-');
-                const autoCheck = s._pf >2 && s._n >= 20;
-                const redFlag = s._pf < 1;
-                return `<tr class="${redFlag?'insufficient-row':''}"> <td><input type="checkbox" class="bt3-sel" data-symbol="${esc(sym)}" data-strategy="${esc(s.strategyId)}" ${autoCheck?'checked':''}></td> <td>${idx===0?' ':''}${esc(s.strategyName)}${s._lowN?' <span class="badge warn" style="font-size:9px;" title="نمونه کم">N<20</span>':''}</td> <td>${s._n}</td> <td><b>${pfShow}</b></td> <td>${s._wr.toFixed(1)}</td> <td>${s._score.toFixed(2)}</td> </tr>`;
-              }).join('')}
-            </tbody> </table> </div> </div> `;
-  }
-  const byStrategyGrouped = {};
-  for (const d of details) {
-    if (!byStrategyGrouped[d.strategyId]) byStrategyGrouped[d.strategyId] = [];
-    byStrategyGrouped[d.strategyId].push(d);
-  }
-  const byStrategyRows = Object.entries(byStrategyGrouped).map(([sid, rows]) => {
-    let sumN = 0, sumW = 0, totalPnl = 0, wins = 0;
-    for (const d of rows) {
-      const t = d[targetKey] || d.stockStats || {};
-      sumN += t.count || 0;
-      wins += (t.winRate || 0) * (t.count || 0) / 100;
-      totalPnl += t.totalPnl || 0;
+    summaryHtml += '<h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">Walk-Forward Aggregate</h4>';
+    summaryHtml += '<div class="stats-grid">';
+    summaryHtml += statBox('استراتژی‌های برنده', (saved.passingStrategies||[]).length, 'highlight-good');
+    summaryHtml += statBox('کل trade', result.wf.totalTrades||0);
+    summaryHtml += '</div>';
+    if ((saved.passingStrategies||[]).length) {
+      summaryHtml += '<div class="hint">' + (saved.passingStrategies||[]).join('، ') + '</div>';
     }
-    const wr = sumN ? (wins / sumN * 100) : 0;
-    return `<tr> <td><b>${esc(rows[0].strategyName)}</b></td> <td>${rows.length}</td> <td>${sumN}</td> <td>${wr.toFixed(1)}%</td> <td>${pct(totalPnl / Math.max(1, rows.length))}</td> </tr>`;
+  }
+
+  // ---- Regime ----
+  if (result.regimes && result.regimes.length) {
+    summaryHtml += '<h4 style="font-size:12px;color:var(--accent);margin:12px 0 6px;">وضعیت رژیم بازار</h4>';
+    summaryHtml += '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+    summaryHtml += result.regimes.slice(0, 30).map(r => {
+      const cls = r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none';
+      return '<span class="badge ' + cls + '" title="' + esc(r.symbol) + ': ' + esc(r.macro||'?') + ' / ' + esc(r.vol||'?') + '">' + esc(r.symbol) + ': ' + esc(r.macro||'?') + '</span>';
+    }).join('');
+    summaryHtml += '</div>';
+  }
+
+  // ---- Tabs ----
+  const tabs = '<div class="tabs" style="margin-top:14px;">'
+    + '<button class="tab active" onclick="switchBt3Tab('summary', this)">خلاصه</button>'
+    + '<button class="tab" onclick="switchBt3Tab('bySymbol', this)">توسط نماد</button>'
+    + '<button class="tab" onclick="switchBt3Tab('byStrategy', this)">توسط استراتژی</button>'
+    + '<button class="tab" onclick="switchBt3Tab('trades', this)">معاملات</button>'
+    + '</div>';
+
+  // ---- bySymbol (split stock vs option) ----
+  const symAgg = {};
+  for (const d of details) {
+    const sym = d.symbol;
+    if (!sym) continue;
+    if (!symAgg[sym]) symAgg[sym] = {
+      stk: { count: 0, wins: 0, totalPnl: 0, gp: 0, gl: 0, sumRet: 0 },
+      opt: { count: 0, wins: 0, totalPnl: 0, gp: 0, gl: 0, sumRet: 0 },
+    };
+    const o = d.optionStats || {};
+    const s = d.stockStats || {};
+    const oN = o.count || 0;
+    if (oN) {
+      const oWins = oN * (o.winRate||0) / 100;
+      const oLosses = oN - oWins;
+      symAgg[sym].opt.count += oN;
+      symAgg[sym].opt.wins += oWins;
+      symAgg[sym].opt.totalPnl += o.totalPnl || 0;
+      symAgg[sym].opt.sumRet += (o.totalPnl || 0);
+      symAgg[sym].opt.gp += oWins * Math.abs(o.avgWin || 0);
+      symAgg[sym].opt.gl += oLosses * Math.abs(o.avgLoss || 0);
+    }
+    const sN = s.count || 0;
+    if (sN) {
+      const sWins = sN * (s.winRate||0) / 100;
+      const sLosses = sN - sWins;
+      symAgg[sym].stk.count += sN;
+      symAgg[sym].stk.wins += sWins;
+      symAgg[sym].stk.totalPnl += s.totalPnl || 0;
+      symAgg[sym].stk.sumRet += (s.totalPnl || 0);
+      symAgg[sym].stk.gp += sWins * Math.abs(s.avgWin || 0);
+      symAgg[sym].stk.gl += sLosses * Math.abs(s.avgLoss || 0);
+    }
+  }
+  const symRows = Object.entries(symAgg).sort((a,b) => (b[1].opt.totalPnl||0) - (a[1].opt.totalPnl||0)).map(([sym, a]) => {
+    const optPF = a.opt.gl > 0 ? (a.opt.gp / a.opt.gl).toFixed(2) : (a.opt.gp > 0 ? '∞' : '-');
+    const stkPF = a.stk.gl > 0 ? (a.stk.gp / a.stk.gl).toFixed(2) : (a.stk.gp > 0 ? '∞' : '-');
+    const optWR = a.opt.count ? (a.opt.wins / a.opt.count * 100).toFixed(1) + '%' : '—';
+    const stkWR = a.stk.count ? (a.stk.wins / a.stk.count * 100).toFixed(1) + '%' : '—';
+    const optAvg = a.opt.count ? (a.opt.sumRet / a.opt.count).toFixed(2) + '%' : '—';
+    const stkAvg = a.stk.count ? (a.stk.sumRet / a.stk.count).toFixed(2) + '%' : '—';
+    const optTotal = a.opt.totalPnl ? pct(a.opt.totalPnl) : '—';
+    const stkTotal = a.stk.totalPnl ? pct(a.stk.totalPnl) : '—';
+    return '<tr><td><b>' + esc(sym) + '</b></td>'
+      + '<td>' + a.stk.count + '</td><td>' + stkWR + '</td><td>' + stkAvg + '</td><td>' + stkPF + '</td><td>' + stkTotal + '</td>'
+      + '<td>' + a.opt.count + '</td><td>' + optWR + '</td><td>' + optAvg + '</td><td>' + optPF + '</td><td>' + optTotal + '</td></tr>';
   }).join('');
+  const bySymbolHtml = '<div class="hint">مقایسه‌ی سود/وین‌ریت/PF سهم پایه و آپشن هر نماد.</div>'
+    + '<div class="table-responsive" style="max-height:500px;overflow-y:auto;">'
+    + '<table class="data-table"><thead>'
+    + '<tr><th rowspan="2">نماد</th>'
+    + '<th colspan="5" style="background:var(--bg-elev-3);">سهم پایه</th>'
+    + '<th colspan="5" style="background:var(--accent-subtle);">آپشن</th></tr>'
+    + '<tr><th>N</th><th>Win%</th><th>میانگین</th><th>PF</th><th>سود کل</th>'
+    + '<th>N</th><th>Win%</th><th>میانگین</th><th>PF</th><th>سود کل</th></tr>'
+    + '</thead><tbody>'
+    + (symRows || '<tr class="empty-row"><td colspan="11">داده‌ای نیست</td></tr>')
+    + '</tbody></table></div>';
+
+  // ---- byStrategy ----
+  const stratAgg = {};
+  for (const d of details) {
+    const sid = d.strategyId;
+    if (!sid) continue;
+    if (!stratAgg[sid]) stratAgg[sid] = {
+      name: d.strategyName || sid,
+      stk: { count: 0, wins: 0, totalPnl: 0, gp: 0, gl: 0, sumRet: 0 },
+      opt: { count: 0, wins: 0, totalPnl: 0, gp: 0, gl: 0, sumRet: 0 },
+    };
+    const o = d.optionStats || {};
+    const s = d.stockStats || {};
+    const oN = o.count || 0;
+    if (oN) {
+      const oWins = oN * (o.winRate||0) / 100;
+      const oLosses = oN - oWins;
+      stratAgg[sid].opt.count += oN;
+      stratAgg[sid].opt.wins += oWins;
+      stratAgg[sid].opt.totalPnl += o.totalPnl || 0;
+      stratAgg[sid].opt.sumRet += (o.totalPnl || 0);
+      stratAgg[sid].opt.gp += oWins * Math.abs(o.avgWin || 0);
+      stratAgg[sid].opt.gl += oLosses * Math.abs(o.avgLoss || 0);
+    }
+    const sN = s.count || 0;
+    if (sN) {
+      const sWins = sN * (s.winRate||0) / 100;
+      const sLosses = sN - sWins;
+      stratAgg[sid].stk.count += sN;
+      stratAgg[sid].stk.wins += sWins;
+      stratAgg[sid].stk.totalPnl += s.totalPnl || 0;
+      stratAgg[sid].stk.sumRet += (s.totalPnl || 0);
+      stratAgg[sid].stk.gp += sWins * Math.abs(s.avgWin || 0);
+      stratAgg[sid].stk.gl += sLosses * Math.abs(s.avgLoss || 0);
+    }
+  }
+  const stratRows = Object.entries(stratAgg).sort((a,b) => (b[1].opt.totalPnl||0) - (a[1].opt.totalPnl||0)).map(([sid, a]) => {
+    const optPF = a.opt.gl > 0 ? (a.opt.gp / a.opt.gl).toFixed(2) : (a.opt.gp > 0 ? '∞' : '-');
+    const stkPF = a.stk.gl > 0 ? (a.stk.gp / a.stk.gl).toFixed(2) : (a.stk.gp > 0 ? '∞' : '-');
+    const optWR = a.opt.count ? (a.opt.wins / a.opt.count * 100).toFixed(1) + '%' : '—';
+    const stkWR = a.stk.count ? (a.stk.wins / a.stk.count * 100).toFixed(1) + '%' : '—';
+    const optAvg = a.opt.count ? (a.opt.sumRet / a.opt.count).toFixed(2) + '%' : '—';
+    const stkAvg = a.stk.count ? (a.stk.sumRet / a.stk.count).toFixed(2) + '%' : '—';
+    const optTotal = a.opt.totalPnl ? pct(a.opt.totalPnl) : '—';
+    const stkTotal = a.stk.totalPnl ? pct(a.stk.totalPnl) : '—';
+    return '<tr><td><b>' + esc(a.name) + '</b></td>'
+      + '<td>' + a.stk.count + '</td><td>' + stkWR + '</td><td>' + stkAvg + '</td><td>' + stkPF + '</td><td>' + stkTotal + '</td>'
+      + '<td>' + a.opt.count + '</td><td>' + optWR + '</td><td>' + optAvg + '</td><td>' + optPF + '</td><td>' + optTotal + '</td></tr>';
+  }).join('');
+  const byStrategyHtml = '<div class="hint">مقایسه‌ی عملکرد هر استراتژی روی سهم پایه و آپشن.</div>'
+    + '<div class="table-responsive" style="max-height:500px;overflow-y:auto;">'
+    + '<table class="data-table"><thead>'
+    + '<tr><th rowspan="2">استراتژی</th>'
+    + '<th colspan="5" style="background:var(--bg-elev-3);">سهم پایه</th>'
+    + '<th colspan="5" style="background:var(--accent-subtle);">آپشن</th></tr>'
+    + '<tr><th>N</th><th>Win%</th><th>میانگین</th><th>PF</th><th>سود کل</th>'
+    + '<th>N</th><th>Win%</th><th>میانگین</th><th>PF</th><th>سود کل</th></tr>'
+    + '</thead><tbody>'
+    + (stratRows || '<tr class="empty-row"><td colspan="11">داده‌ای نیست</td></tr>')
+    + '</tbody></table></div>';
+
+  // ---- Trades ----
   const allTrades = [];
   for (const d of details) {
     const _tradeSrc = (mode === 'stock') ? (d.stockTrades || []) : (d.trades || []);
     for (const t of _tradeSrc) {
-      allTrades.push({ ...t, symbol: d.symbol, strategyName: d.strategyName, strategyId: d.strategyId });
+      allTrades.push(Object.assign({}, t, { symbol: d.symbol, strategyName: d.strategyName, strategyId: d.strategyId }));
     }
   }
   allTrades.sort((a, b) => (b.entryTime || 0) - (a.entryTime || 0));
   const tradesRows = allTrades.slice(0, 300).map(t => {
-    const eTime = t.entryTime ? new Date(t.entryTime*1000).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '-';
+    const eTime = t.entryTime ? fmtT(t.entryTime) : '-';
     const entry = (mode === 'stock') ? (t.entryPrice || t.stockEntry) : t.stockEntry;
     const exit  = (mode === 'stock') ? (t.exitPrice  || t.stockExit)  : t.stockExit;
     const optIn = (mode === 'stock') ? '-' : fmtN(t.optionEntry);
     const optOut = (mode === 'stock') ? '-' : fmtN(t.optionExit);
-    const deltaTxt = (mode === 'stock') ? '-' : (t.delta ? t.delta.toFixed(2) : '-');
-    const srcTxt = (mode === 'stock') ? 'سهم' : (t.source === 'real' ? 'واقعی' : 'تقریبی');
-    return `<tr><td>${eTime}</td><td><b>${esc(t.symbol)}</b></td><td>${esc(t.strategyName||t.strategyId)}</td><td>${fmtN(entry)} → ${fmtN(exit)}</td><td>${optIn} → ${optOut}</td><td>${deltaTxt}</td><td>${pct(t.pnlPct)}</td><td>${srcTxt}</td></tr>`;
+    const deltaTxt = (mode === 'stock') ? '-' : (t.delta != null ? t.delta.toFixed(2) : '-');
+    let dqLabel, dqCls;
+    if (mode === 'stock') { dqLabel = 'سهم'; dqCls = 'none'; }
+    else if (t.source === 'real' || t.entryWasReal || t.exitWasReal) { dqLabel = 'واقعی'; dqCls = 'long'; }
+    else if (t.enrichedMethod || t.source === 'approximate') { dqLabel = 'تقریبی'; dqCls = 'warn'; }
+    else { dqLabel = 'نامعلوم'; dqCls = 'none'; }
+    const forcedTag = t.forcedClose ? ' <span class="badge warn" style="font-size:9px;" title="در آخرین کندل بازه بسته شد">پایان بازه</span>' : '';
+    return '<tr><td>' + eTime + '</td>'
+      + '<td><b>' + esc(t.symbol) + '</b></td>'
+      + '<td>' + esc(t.strategyName||t.strategyId) + '</td>'
+      + '<td>' + fmtN(entry) + ' → ' + fmtN(exit) + '</td>'
+      + '<td>' + optIn + ' → ' + optOut + '</td>'
+      + '<td>' + deltaTxt + '</td>'
+      + '<td style="font-weight:600;">' + pct(t.pnlPct) + forcedTag + '</td>'
+      + '<td><span class="badge ' + dqCls + '">' + dqLabel + '</span></td></tr>';
   }).join('');
+  const tradesTable = '<div class="hint" style="margin-bottom:8px;">ستون «بازده ' + modeLabel + '» = سود/زیان معامله‌ی ' + modeLabel + ' در این ردیف. ستون «کیفیت دیتا» نشان می‌دهد bid/ask واقعی بوده یا با مدل اسپرد پر شده.</div>'
+    + '<div class="table-responsive" style="max-height:450px; overflow-y:auto;">'
+    + '<table class="data-table"><thead>'
+    + '<tr><th>ورود</th><th>نماد</th><th>استراتژی</th><th>سهم پایه</th><th>آپشن</th><th>Δ</th><th>بازده ' + modeLabel + '</th><th>کیفیت دیتا</th></tr>'
+    + '</thead><tbody>'
+    + (tradesRows || '<tr class="empty-row"><td colspan="8">معامله‌ای نیست</td></tr>')
+    + '</tbody></table></div>';
+
+  // ---- Auto-config suggestion ----
   let suggestHtml = '';
   if (result.autoConfigSuggestion && result.autoConfigSuggestion.length) {
-    suggestHtml = `
-      <div class="adv-accordion open" style="margin-top:14px;"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <span> <b>تنظیم خودکار (پیشنهادی)</b> — قابل اعمال</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint" style="margin-bottom:8px;">پیشنهاد بر اساس best score هر نماد. می‌توانی leader/confirmer را دستی تغییر بدهی.</div> ${result.autoConfigSuggestion.map(sug => {
-            if (sug.error) return '<div class="hint">' + esc(sug.symbol) + ': ' + esc(sug.error) + '</div>';
-            const leaderRow =
-                '<div class="auto-role-row" data-sym="' + esc(sug.symbol) + '" data-sid="' + esc(sug.leader.strategyId) + '">' +
-                    '<input type="checkbox" class="ac-sel" checked onchange="onAcSel(this)">' +
-                    '<select class="ac-role" onchange="onAcRole(this)">' +
-                        '<option value="leader" selected>لیدر</option>' +
-                        '<option value="confirmer">تایید</option>' +
-                        '<option value="skip">حذف</option>' +
-                    '</select>' +
-                    '<b>' + esc(sug.leader.strategyName) + '</b>' +
-                    '<span class="auto-score">PF=' + sug.leader.pf + ' N=' + sug.leader.n + '</span>' +
-                '</div>';
-            const confRows = sug.confirmers.map(c =>
-                '<div class="auto-role-row" data-sym="' + esc(sug.symbol) + '" data-sid="' + esc(c.strategyId) + '">' +
-                    '<input type="checkbox" class="ac-sel" checked onchange="onAcSel(this)">' +
-                    '<select class="ac-role" onchange="onAcRole(this)">' +
-                        '<option value="confirmer" selected>تایید</option>' +
-                        '<option value="leader">لیدر</option>' +
-                        '<option value="skip">حذف</option>' +
-                    '</select>' +
-                    '<b>' + esc(c.strategyName) + '</b>' +
-                    '<span class="auto-score">PF=' + c.pf + ' N=' + c.n + '</span>' +
-                '</div>'
-            ).join('');
-            return '<div class="auto-plan-card" data-symbol="' + esc(sug.symbol) + '">' +
-                '<h5>' + esc(sug.symbol) + '</h5>' +
-                leaderRow + confRows +
-            '</div>';
-        }).join('')}
-          <button class="btn success" onclick="applyBacktestSelections(true)" style="width:100%;margin-top:10px;"> اعمال تنظیم خودکار</button> </div> </div> `;
+    suggestHtml = '<div class="adv-accordion open" style="margin-top:14px;">'
+      + '<div class="adv-header" onclick="this.parentNode.classList.toggle('open')"><span><b>تنظیم خودکار (پیشنهادی)</b> — قابل اعمال</span><span class="chev">▼</span></div>'
+      + '<div class="adv-body">'
+      + '<div class="hint" style="margin-bottom:8px;">پیشنهاد بر اساس بهترین score هر نماد. می‌توانی leader/confirmer را دستی تغییر بدهی.</div>';
+    suggestHtml += result.autoConfigSuggestion.map(sug => {
+      if (sug.error) {
+        const cands = sug.allCandidates || [];
+        const det = cands.slice(0, 5).map(c => '<div style="font-size:10.5px;color:var(--text-dim);">• ' + esc(c.strategyName||c.strategyId) + ': N=' + c.n + ', PF=' + (c.pf||0).toFixed(2) + ' — ' + ((c.reasons||[]).join(', ')||'قبول') + '</div>').join('');
+        return '<div class="hint" style="padding:8px 10px;background:var(--bg-elev-2);border-radius:var(--r-sm);margin-bottom:4px;"><b>' + esc(sug.symbol) + '</b>: ' + esc(sug.error) + (det ? '<div style="margin-top:4px;">' + det + '</div>' : '') + '</div>';
+      }
+      const leaderRow = '<div class="auto-role-row" data-sym="' + esc(sug.symbol) + '" data-sid="' + esc(sug.leader.strategyId) + '">'
+        + '<input type="checkbox" class="ac-sel" checked onchange="onAcSel(this)">'
+        + '<select class="ac-role" onchange="onAcRole(this)"><option value="leader" selected>لیدر</option><option value="confirmer">تایید</option><option value="skip">حذف</option></select>'
+        + '<b>' + esc(sug.leader.strategyName) + '</b><span class="auto-score">PF=' + sug.leader.pf + ' N=' + sug.leader.n + '</span></div>';
+      const confRows = sug.confirmers.map(c =>
+        '<div class="auto-role-row" data-sym="' + esc(sug.symbol) + '" data-sid="' + esc(c.strategyId) + '">'
+        + '<input type="checkbox" class="ac-sel" checked onchange="onAcSel(this)">'
+        + '<select class="ac-role" onchange="onAcRole(this)"><option value="confirmer" selected>تایید</option><option value="leader">لیدر</option><option value="skip">حذف</option></select>'
+        + '<b>' + esc(c.strategyName) + '</b><span class="auto-score">PF=' + c.pf + ' N=' + c.n + '</span></div>'
+      ).join('');
+      return '<div class="auto-plan-card" data-symbol="' + esc(sug.symbol) + '"><h5>' + esc(sug.symbol) + '</h5>' + leaderRow + confRows + '</div>';
+    }).join('');
+    suggestHtml += '<button class="btn success" onclick="applyBacktestSelections(true)" style="width:100%;margin-top:10px;">اعمال تنظیم خودکار</button>';
+    suggestHtml += '</div></div>';
   }
-  el.innerHTML = `
-    ${summaryHtml}
-    ${tabs}
-    <div id="bt3Tab-summary">${summaryHtml}</div> <div id="bt3Tab-bySymbol" style="display:none;"> <div style="display:flex;gap:8px;margin-bottom:8px;"> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt3-sel').forEach(c=>c.checked=true)">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt3-sel').forEach(c=>c.checked=false)">هیچ</button> <button class="btn tiny outline" onclick="document.querySelectorAll('.bt3-sel').forEach(c=>{ const pf=parseFloat(c.closest('tr').children[3].innerText)||0; c.checked=(pf>2||pf===99); })">فقط PF>2</button> <button class="btn success small" onclick="applyBacktestSelections(false)">اعمال انتخاب‌شده‌ها</button> </div> ${bySymbolHtml}
-    </div> <div id="bt3Tab-byStrategy" style="display:none;"> <div class="table-responsive"><table class="data-table"> <thead><tr><th>استراتژی</th><th>نمادها</th><th>کل N</th><th>WR%</th><th>میانگین PnL</th></tr></thead> <tbody>${byStrategyRows || '<tr class="empty-row"><td colspan="5">-</td></tr>'}</tbody> </table></div> </div> <div id="bt3Tab-trades" style="display:none;"> <div class="table-responsive" style="max-height:450px; overflow-y:auto;"><table class="data-table"> <thead><tr><th>ورود</th><th>نماد</th><th>استراتژی</th><th>سهم</th><th>آپشن</th><th>Δ</th><th>بازده</th><th>منبع</th></tr></thead> <tbody>${tradesRows || '<tr class="empty-row"><td colspan="8">معامله‌ای نیست</td></tr>'}</tbody> </table></div> </div> ${suggestHtml}
-  `;
+
+  el.innerHTML = summaryHtml + tabs
+    + '<div id="bt3Tab-summary">' + summaryHtml + '</div>'
+    + '<div id="bt3Tab-bySymbol" style="display:none;">' + bySymbolHtml + '</div>'
+    + '<div id="bt3Tab-byStrategy" style="display:none;">' + byStrategyHtml + '</div>'
+    + '<div id="bt3Tab-trades" style="display:none;">' + tradesTable + '</div>'
+    + suggestHtml;
 }
+
+
 function switchBt3Tab(which, btn) {
   ['summary','bySymbol','byStrategy','trades'].forEach(k => {
     const el = document.getElementById('bt3Tab-' + k);
