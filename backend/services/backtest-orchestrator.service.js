@@ -635,23 +635,40 @@ function getDynamicMinTrades(days) {
 }
 
 function computeLosingStrategies(details, mode) {
-    const LOSS_THRESHOLD_N = 50;
+    // Per-pair loser detection: a strategy is only marked as loser for
+    // a SPECIFIC symbol if that pair has enough trades and negative PnL.
+    // This avoids nuking a strategy globally because it lost on one symbol.
+    const LOSS_THRESHOLD_N = 30;
     const agg = {};
+    const pairs = {};
+
     for (const d of details) {
         const t = (mode === 'stock') ? (d.stockStats || {}) : (d.optionStats || d.stockStats || {});
         const sid = d.strategyId;
-        if (!sid) continue;
+        const sym = d.symbol;
+        if (!sid || !sym) continue;
+
         if (!agg[sid]) agg[sid] = { totalPnl: 0, totalN: 0 };
         agg[sid].totalPnl += t.totalPnl || 0;
         agg[sid].totalN += t.count || 0;
+
+        const key = sym + '::' + sid;
+        pairs[key] = {
+            totalPnl: t.totalPnl || 0,
+            totalN: t.count || 0,
+            symbol: sym,
+            strategyId: sid,
+            strategyName: d.strategyName,
+        };
     }
+
     const losers = new Set();
-    for (const [sid, a] of Object.entries(agg)) {
+    for (const [key, a] of Object.entries(pairs)) {
         if (a.totalN >= LOSS_THRESHOLD_N && a.totalPnl < 0) {
-            losers.add(sid);
+            losers.add(key);
         }
     }
-    return { losers, agg };
+    return { losers, agg, pairs };
 }
 
 function buildAutoConfigSuggestion(result, symbolsInput) {
@@ -678,16 +695,30 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
             const pfScore = Math.min(pf, 5) / 5;
             const wrScore = wr / 100;
             const score = nScore * 0.55 + pfScore * 0.30 + wrScore * 0.15;
-            const applicable = d.strategyId !== 'pairs_spread' || !!d.pairSymbol;
-            const isLoser = losingSet.has(d.strategyId);
+            // pairs_spread needs explicit pairSymbol; sector_momentum needs peer context
+            const needsContext = (d.strategyId === 'pairs_spread' && !d.pairSymbol);
+            const applicable = !needsContext;
+            // Per-pair loser key
+            const isLoser = losingSet.has(sym + '::' + d.strategyId);
             return { ...d, _pf: pf, _wr: wr, _n: n, _score: score, _applicable: applicable, _loser: isLoser };
         }).filter(d => d._n >= dynMin && d._applicable && !d._loser && d._pf >= 1.0)
           .sort((a, b) => b._score - a._score);
 
         if (!scored.length) {
+            // Provide detailed reason why no candidates passed
+            const all = rows.map(d => {
+                const target = mode === 'stock' ? (d.stockStats || {}) : (d.optionStats || d.stockStats || {});
+                const n = target.count || 0;
+                const pf = Number.isFinite(target.profitFactor) ? target.profitFactor : 0;
+                const reasons = [];
+                if (n < dynMin) reasons.push(`N=${n} < ${dynMin}`);
+                if (pf < 1.0) reasons.push(`PF=${pf.toFixed(2)} < 1`);
+                if (losingSet.has(sym + '::' + d.strategyId)) reasons.push('pair total PnL negative');
+                return { strategyId: d.strategyId, strategyName: d.strategyName, n, pf, reasons };
+            });
             suggestions.push({
-                symbol: sym, error: 'no valid candidates',
-                allCandidates: []
+                symbol: sym, error: `no valid candidates (dynMin=${dynMin})`,
+                allCandidates: all
             });
             continue;
         }

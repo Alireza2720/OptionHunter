@@ -232,7 +232,31 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
             open = null;
         }
     }
-    if (open) trades.push(open);
+    // Force-close any trade still open at end of window.
+    // Without this, open trades silently disappear (filtered out by status='closed').
+    if (open) {
+        const lastCandle = candles[candles.length - 1];
+        if (lastCandle) {
+            const tfMin = TIMEFRAME_MINUTES[cfg.timeframe] || 30;
+            const fillDelaySec = tfMin * 60 + LATENCY_SEC;
+            const slipFactor = 1 - STOCK_SLIPPAGE_PCT - STOCK_HALF_SPREAD_PCT;
+            const fillPrice = lastCandle.close * slipFactor;
+            trades.push({
+                ...open,
+                exitTime: lastCandle.time,
+                exitFillTime: lastCandle.time + fillDelaySec,
+                exitPrice: fillPrice,
+                exitSignalPrice: lastCandle.close,
+                pnlPct: (fillPrice / open.entryPrice - 1) * 100,
+                bars: (candles.length - 1) - open.entryIdx,
+                exitReason: 'پایان بازه بک‌تست',
+                status: 'closed',
+                forcedClose: true
+            });
+        } else {
+            trades.push(open);
+        }
+    }
 
     return { trades, candles, htf };
 }
@@ -947,6 +971,19 @@ async function runBacktest(cfg, from, to, opts = {}) {
     const advanced = isStockOnly
         ? computeAdvancedStats(tradeRes.trades || [], dailyCandles, advancedOpts)
         : computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles, advancedOpts);
+
+    // Pro-strategy enhancements info (only for _pro strategies)
+    if (cfg.strategyId && cfg.strategyId.endsWith('_pro')) {
+        advanced._proInfo = {
+            isPro: true,
+            strategyId: cfg.strategyId,
+            enhancementsLoaded: !!_enhancements,
+            clientTypeCount: _enhancements ? (_enhancements.clientCount || 0) : 0,
+            putCallSignal: _enhancements ? (_enhancements.putCallSignal || null) : null,
+            proKept: optionResult.proKept || null,
+            proFiltered: optionResult.proFiltered || null,
+        };
+    }
 
     // 🆕 PIT: چک همپوشانی train/test
     const trainedFrom = cfg.trainedFrom || (opts.trainingMeta && opts.trainingMeta.trainedFrom) || null;

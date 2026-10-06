@@ -70,6 +70,9 @@ const OPT_BT_DEFAULTS = {
     maxReturnPct: 150,
     minExitDays: 0.5,
     realEnabled: true,
+    // NOTE: spreadPenaltyMult was causing DOUBLE-COUNTING of spread
+    // when applied on top of real bid/ask PnL. Disabled by default.
+    // Set to >0 only if you intentionally want extra pessimism.
     // 🆕 Phase 2: Realism — بدون تخمین
     timeWindowDays: 1,
     dynSlipBase: 0.001,
@@ -78,7 +81,7 @@ const OPT_BT_DEFAULTS = {
     maxParticipation: 0.4,
     latencySec: 1,
     // Enrichment-aware defaults (pessimistic)
-    spreadPenaltyMult: 0.5,
+    spreadPenaltyMult: 0.0,
     minDataQuality: 'enriched'};
 
 const RELAX_LEVELS = [
