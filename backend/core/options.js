@@ -1475,6 +1475,12 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                 bid: { $gt: 0 },
                 ask: { $gt: 0 }
             };
+            // optionType filter: 'call' | 'put' | 'both'
+            if (p.optionType === 'call') {
+                _query.isCall = true;
+            } else if (p.optionType === 'put') {
+                _query.isCall = false;
+            }
             if (_mq === 'real') {
                 _query.dataQuality = 'real';
             } else if (_mq === 'enriched') {

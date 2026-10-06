@@ -490,13 +490,8 @@ def write_snapshot_ticks(underlying, records):
 
 
 # ─── Backward-compat aliases (service.py calls these) ───
-def migrate_from_daily_algotik(underlyings=None, dry_run=False, **kwargs):
-    """Backward-compat alias -> migrate_from_tsetmc."""
-    return migrate_from_tsetmc(
-        underlyings=underlyings,
-        dry_run=dry_run,
-        log_fn=kwargs.get("log_fn"),
-    )
+# Note: legacy alias migrate_from_daily_algotik was removed.
+# All callers must use migrate_from_tsetmc directly.
 
 
 def migrate_snapshots_to_history(underlyings=None, days=180, dry_run=False, **kwargs):

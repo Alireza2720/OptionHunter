@@ -14,7 +14,7 @@
     function hourFloatOfDay(timeSec) { const t = getTehranParts(new Date(timeSec * 1000)); return t.hour + t.minute / 60; }
 
     const TIMEFRAME_MINUTES = { '1m': 1, '3m': 3, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '1h': 60, '1d': 1440 };
-    const SESSION_START_MIN = 9 * 60, SESSION_END_MIN = 12 * 60 + 30;
+    const SESSION_START_MIN = 9 * 60, SESSION_END_MIN = 12 * 60 + 35;
 
     function expectedBarsFor(bucketStartMin, tfMin) {
         const overlap = Math.max(0, Math.min(bucketStartMin + tfMin, SESSION_END_MIN) - Math.max(bucketStartMin, SESSION_START_MIN));

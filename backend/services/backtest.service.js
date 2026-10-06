@@ -288,7 +288,7 @@ async function runBacktestJob(job) {
 }
 
 async function runBacktestCompareJob(job) {
-    const { symbols, strategies, useRealOption, dateFrom, dateTo } = job.payload;
+    const { symbols, strategies, useRealOption, dateFrom, dateTo, optionType } = job.payload;
     const fromTs = dateFrom ? parseInt(dateFrom) : null;
     const toTs = dateTo ? parseInt(dateTo) : null;
 
@@ -339,7 +339,8 @@ async function runBacktestCompareJob(job) {
                 const isStockOnly = (job.payload.mode === 'stock');
                 const result = await deps.backtest.runBacktest(cfg, fromTs, toTs, {
                     useRealOption: !!useRealOption,
-                    mode: isStockOnly ? 'stock' : 'option'
+                    mode: isStockOnly ? 'stock' : 'option',
+                    optionType: optionType || 'call'
                 });
 
                 // 🆕 خلاصه سبک برای لیست اصلی

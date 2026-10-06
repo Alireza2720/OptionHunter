@@ -64,7 +64,9 @@ async function sync() {
             created++;
         } else {
             // update if closed and exit missing/different
-            if (p.status === 'closed' && (!existing.exit || existing.exit.time !== p.exitTime)) {
+            const _sameTime = existing.exit && existing.exit.time && p.exitTime &&
+                new Date(existing.exit.time).getTime() === new Date(p.exitTime).getTime();
+            if (p.status === 'closed' && (!existing.exit || !_sameTime)) {
                 await db.collection('trade_journal').updateOne(
                     { _id: existing._id },
                     { $set: {

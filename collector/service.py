@@ -547,7 +547,7 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
             })
 
             try:
-                result = opt_mod.migrate_from_daily_algotik(
+                result = opt_mod.migrate_from_tsetmc(
                     underlyings=symbols,
                     dry_run=False,
                 )
@@ -565,10 +565,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
                 })
 
         # ============================================================
-        # Phase 4.7: Auto-enrichment (if not skipped)
+        # Phase 4.7: Auto-enrichment (whenever option_history was written)
         # ============================================================
         _skip_enrich = os.getenv("SKIP_AUTO_ENRICH", "").lower() in ("1", "true", "yes")
-        if not _skip_enrich and payload.get('includeOptionMigration'):
+        if not _skip_enrich and payload.get('includeOptionHistory'):
             job_mod.set_phase(job_id, 'enrichment', {
                 'current': 0, 'total': 1,
                 'status': 'RUNNING',

@@ -885,7 +885,10 @@ async function runBacktest(cfg, from, to, opts = {}) {
         optionResult = await deps.options.runHybridOptionBacktest(
             cfg.symbol,
             tradeRes.trades,
-            { realEnabled: !!opts.useRealOption }
+            {
+                realEnabled: !!opts.useRealOption,
+                optionType: opts.optionType || 'call'
+            }
         );
     }
 

@@ -38,8 +38,10 @@ function gregorianToJalali(gy, gm, gd) {
 }
 
 function dateToJalaliStr(d) {
-    const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-    // 🆕 dash format
+    // Convert to Tehran-local y/m/d to avoid TZ drift on non-Iran servers
+    const t = new Date(d.getTime() + 3.5 * 3600 * 1000);
+    const j = gregorianToJalali(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
+    // dash format (algotik_tse compatibility)
     return `${j.jy}-${String(j.jm).padStart(2, '0')}-${String(j.jd).padStart(2, '0')}`;
 }
 

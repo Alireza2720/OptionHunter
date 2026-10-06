@@ -297,8 +297,9 @@ async function upsertLiveCandle(symbol, time, price, volDelta) {
         { symbol, time },
         { projection: { source: 1 } }
     );
-    if (existing && existing.source === 'algotik_intraday') {
-        // دیتای سالم داریم، tick جدید رو نادیده بگیر
+    // Historical sources that must NOT be overwritten by live ticks
+    const HISTORICAL_SOURCES = new Set(['algotik_intraday', 'tsetmc_intraday']);
+    if (existing && HISTORICAL_SOURCES.has(existing.source)) {
         return;
     }
 

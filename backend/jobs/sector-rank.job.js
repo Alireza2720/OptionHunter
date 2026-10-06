@@ -88,8 +88,8 @@ async function compute() {
 let task = null;
 function start() {
     if (task) return;
-    // 🆕 فقط بعد از بازار: ۱۲:۴۰ و ۱۳:۳۰ و ۱۴:۳۰
-    task = cron.schedule('40 12,13,14 * * 6,0,1,2,3', compute, { timezone: 'Asia/Tehran' });
+    // Only outside market window (12:40 is still inside isMarketHourOrNear)
+    task = cron.schedule('40 13,15,17 * * 6,0,1,2,3', compute, { timezone: 'Asia/Tehran' });
     deps.logger && deps.logger.info('sector-rank.job started (post-market only)');
 }
 function stop() { if (task) { task.stop(); task = null; } }

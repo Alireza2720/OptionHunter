@@ -17,6 +17,19 @@ let deps = {
 function init(d) { deps = { ...deps, ...d }; }
 
 // ------------------------------------------------------------
+// Strategy side filter — stock strategies are neutral (no side),
+// so this is a passthrough. Kept as a stub so that callers don't
+// crash when params.optionSide is set.
+// ------------------------------------------------------------
+function __filterBySide(strategies, strategiesAll, side) {
+    if (!Array.isArray(strategies)) return strategies || [];
+    if (!side || side === 'both') return strategies;
+    // Current strategies are stock-level. Future option-side strategies
+    // will carry `side: 'call'|'put'` metadata and be filtered here.
+    return strategies;
+}
+
+// ------------------------------------------------------------
 // Run — فقط job می‌سازه، processQueue در پس‌زمینه
 // ------------------------------------------------------------
 
