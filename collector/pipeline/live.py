@@ -57,7 +57,7 @@ def _is_market_open():
 def _fetch_stocks(symbols):
     try:
         client = get_client()
-        mw = client.market_watch(paper_types=(1, 2, 3))
+        mw = client.market_watch(paper_types=(1, 2, 3), with_best_limits=True)
     except TSETMCError as e:
         log("tick_stock_err", str(e)[:200])
         return 0
@@ -69,12 +69,17 @@ def _fetch_stocks(symbols):
     now_ts = time.time()
     _check_snap_date(_tehran_today())
 
+    symbols_set = set(symbols) if not isinstance(symbols, set) else symbols
     docs = []
     for r in mw:
-        sym = r.get("lva")
-        if not sym or sym not in symbols:
+        sym = r.get("lva") or r.get("lVal18AFC") or r.get("symbol")
+        if not sym or sym not in symbols_set:
             continue
-        price = float(r.get("last") or r.get("pcl") or 0)
+        # TSETMC MarketWatch field names:
+        #   pDrCotVal = last traded price, pClosing/pcl = yesterday close,
+        #   pOpening = open, pmax/pmin = max/min allowed, qTotTran5J = volume,
+        #   zTotTran = trades count, bestLimits = 5-level bid/ask array.
+        price = float(r.get("pDrCotVal") or r.get("last") or r.get("pcl") or 0)
         if price <= 0:
             continue
 
@@ -89,16 +94,31 @@ def _fetch_stocks(symbols):
             vol_delta = 0
         _last_snap[sym] = {"tvol": tvol, "tno": tno, "at": now_ts}
 
+        # Real bid/ask (NOT pmd/pmo — those are min/max allowed price, not quotes)
+        bid_p, ask_p = 0.0, 0.0
+        bl = r.get("bestLimits")
+        if isinstance(bl, list) and bl:
+            lvl0 = bl[0]
+            bid_p = float(lvl0.get("bd") or lvl0.get("bidPrice") or lvl0.get("bid") or 0)
+            ask_p = float(lvl0.get("od") or lvl0.get("askPrice") or lvl0.get("ask") or 0)
+        if bid_p <= 0:
+            bid_p = float(r.get("pd1") or 0)
+        if ask_p <= 0:
+            ask_p = float(r.get("po1") or 0)
+
         docs.append({
             "symbol": sym,
             "time": ts,
             "price": price,
             "close": float(r.get("pcl") or 0),
+            "open": float(r.get("pOpening") or 0),
+            "high": float(r.get("pmax") or 0),
+            "low": float(r.get("pmin") or 0),
             "volume": tvol,
             "volumeDelta": vol_delta,
             "tradeCount": tno,
-            "bidPrice": float(r.get("pmd") or 0),
-            "askPrice": float(r.get("pmo") or 0),
+            "bidPrice": bid_p,
+            "askPrice": ask_p,
             "source": "tsetmc_live_tick",
         })
 

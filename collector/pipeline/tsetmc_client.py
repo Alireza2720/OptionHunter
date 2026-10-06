@@ -215,17 +215,19 @@ class TSETMCClient:
         return rows
 
     # ─── Live market ───
-    def market_watch(self, paper_types=(1, 2, 3, 5, 6)):
+    def market_watch(self, paper_types=(1, 2, 3, 5, 6), with_best_limits=False):
         """Live market snapshot.
 
         paper_types: (1,2,3) = stocks, (5,6) = options
+        with_best_limits: include 5-level best bid/ask (adds bestLimits array)
         """
         parts = "&".join(
             "paperTypes[{}]={}".format(i, pt)
             for i, pt in enumerate(paper_types)
         )
+        bl = "true" if with_best_limits else "false"
         url = ("{}/ClosingPrice/GetMarketWatch?"
-               "market=0&{}&withBestLimits=false&hEven=0&RefID=0").format(CDN, parts)
+               "market=0&{}&withBestLimits={}&hEven=0&RefID=0").format(CDN, parts, bl)
         d = self._json(url, timeout=30)
         return d.get("marketWatch", []) or []
 

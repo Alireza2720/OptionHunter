@@ -101,9 +101,33 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    app.get('/api/algotik/data-range', async (req, res, next) => {
+        try { res.json(await algotik.getDataRange()); }
+        catch (e) { next(e); }
+    });
+
     app.get('/api/algotik/data-range/:symbol', async (req, res, next) => {
         try {
             res.json(await algotik.getSymbolDataRange(req.params.symbol));
+        } catch (e) { next(e); }
+    });
+
+    // Stock candle data range from local DB (backend)
+    app.get('/api/algotik/data-range-stock', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const { COLLECTIONS } = require('../../config/constants');
+            const earliest = await db.collection(COLLECTIONS.CANDLES_DAILY)
+                .find({}).sort({ time: 1 }).limit(1).toArray();
+            const latest = await db.collection(COLLECTIONS.CANDLES_DAILY)
+                .find({}).sort({ time: -1 }).limit(1).toArray();
+            if (!earliest.length || !latest.length) {
+                return res.json({ from: null, to: null, days: 0 });
+            }
+            const from = new Date(earliest[0].time).toISOString().slice(0, 10);
+            const to = new Date(latest[0].time).toISOString().slice(0, 10);
+            const days = Math.floor((new Date(to) - new Date(from)) / 86400000);
+            res.json({ from, to, days });
         } catch (e) { next(e); }
     });
 

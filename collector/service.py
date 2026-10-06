@@ -59,6 +59,11 @@ def _clean_date(s: str) -> str:
 _rf_cache = {'rate': 0.42, 'date': None}
 
 def get_current_rf(force=False):
+    """Read risk-free rate from the shared cache collection.
+
+    The cache is populated externally (backend risk-free.job.js reads
+    from a treasury data source and writes to risk_free_cache).
+    """
     today = datetime.now(timezone.utc).date()
     today_str = today.isoformat()
     if not force and _rf_cache['date'] == today:
@@ -67,31 +72,23 @@ def get_current_rf(force=False):
     db = get_db()
     if not force:
         doc = db[COL_RISK_FREE].find_one({'date': today_str})
-        if doc:
+        if doc and doc.get('rate'):
             _rf_cache['rate'] = float(doc['rate'])
             _rf_cache['date'] = today
             return _rf_cache['rate']
 
+    # Fallback: latest available entry (any date)
     try:
-        import algotik_tse as att
-        t = att.get_treasury_yields(include_stale=True, min_volume=0)
-        if t is not None and len(t) > 0:
-            rate = float(t['EffectiveAnnualYield'].median())
+        doc = db[COL_RISK_FREE].find_one({}, sort=[('date', -1)])
+        if doc and doc.get('rate'):
+            rate = float(doc['rate'])
             _rf_cache['rate'] = rate
-            _rf_cache['date'] = today
-            db[COL_RISK_FREE].update_one(
-                {'date': today_str},
-                {'$set': {
-                    'date': today_str, 'rate': rate,
-                    'count': len(t), 'source': 'algotik_treasury',
-                    'updatedAt': datetime.now(timezone.utc),
-                }},
-                upsert=True,
-            )
-            log('rf_update', f'risk-free updated: {rate:.4f}')
+            log('rf_cached', 'risk-free from cache: {:.4f} ({})'.format(rate, doc.get('date')))
             return rate
     except Exception as e:
         log('rf_error', str(e))
+
+    # Last resort: in-memory default
     return _rf_cache['rate']
 
 
@@ -177,16 +174,51 @@ def status():
 
 
 # ---------- Live Market (برای tick.job.js) ----------
+def _tsetmc_row_to_live(r):
+    """Normalize a TSETMC MarketWatch row to the shape the backend expects."""
+    try:
+        sym = r.get('lva') or r.get('lVal18AFC') or r.get('symbol')
+        if not sym:
+            return None
+        last = float(r.get('pDrCotVal') or r.get('last') or 0)
+        close = float(r.get('pcl') or r.get('pClosing') or 0)
+        po = float(r.get('pOpening') or 0)
+        pmax = float(r.get('pmax') or 0)
+        pmin = float(r.get('pmin') or 0)
+        vol = float(r.get('qTotTran5J') or 0)
+        tno = float(r.get('zTotTran') or 0)
+        return {
+            'Symbol': sym,
+            'Last': last,
+            'Close': close,
+            'pl': last,
+            'Open': po,
+            'pf': po,
+            'MaxAllowed': pmax,
+            'tmax': pmax,
+            'MinAllowed': pmin,
+            'tmin': pmin,
+            'Volume': vol,
+            'tvol': vol,
+            'TradeCount': tno,
+            'tno': tno,
+        }
+    except Exception:
+        return None
+
+
 @app.get('/live-market')
 def live_market():
-    """Snapshot live کل بازار (سهام پایه)."""
+    """Snapshot live کل بازار (سهام پایه) from TSETMC MarketWatch."""
     try:
-        import algotik_tse as att
-        import json
-        df = att.get_live_market()
-        if df is None or len(df) == 0:
-            return {'count': 0, 'data': []}
-        records = json.loads(df.to_json(orient='records', date_format='iso'))
+        from pipeline.tsetmc_client import get_client, TSETMCError
+        client = get_client()
+        mw = client.market_watch(paper_types=(1, 2, 3))
+        records = []
+        for r in (mw or []):
+            norm = _tsetmc_row_to_live(r)
+            if norm:
+                records.append(norm)
         return {
             'count': len(records),
             'data': records,
@@ -199,14 +231,21 @@ def live_market():
 
 @app.get('/live-market/{symbol}')
 def live_symbol(symbol: str):
-    """Snapshot live یک نماد."""
+    """Snapshot live یک نماد from TSETMC MarketWatch."""
     try:
-        import algotik_tse as att
-        import json
-        df = att.get_live_market(symbol=symbol)
-        if df is None or len(df) == 0:
-            return {'count': 0, 'data': []}
-        records = json.loads(df.to_json(orient='records', date_format='iso'))
+        from pipeline.tsetmc_client import get_client
+        from pipeline.tsetmc_parser import normalize_fa
+        client = get_client()
+        mw = client.market_watch(paper_types=(1, 2, 3))
+        target = normalize_fa(symbol)
+        records = []
+        for r in (mw or []):
+            sym = r.get('lva') or r.get('lVal18AFC')
+            if not sym or normalize_fa(sym) != target:
+                continue
+            norm = _tsetmc_row_to_live(r)
+            if norm:
+                records.append(norm)
         return {'count': len(records), 'data': records}
     except Exception as e:
         return {'count': 0, 'data': [], 'error': str(e)}
@@ -415,7 +454,6 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # Phase 3: option history (IV/Greeks)
         # ============================================================
         if payload.get('includeOptionHistory'):
-            rf = get_current_rf()
             for i, sym in enumerate(symbols, 1):
                 if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
@@ -428,21 +466,21 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
                 })
 
                 try:
-                    df, err = opt_mod.fetch_market(sym)
-                    if err or df is None or len(df) == 0:
+                    # Historical migration from TSETMC: OHLCV + ClientType
+                    result = opt_mod.migrate_from_tsetmc(
+                        underlyings=[sym],
+                        dry_run=False,
+                        log_fn=lambda m: log('opt_hist', m),
+                    )
+                    written = int(result.get('records_inserted', 0) or 0)
+                    stats['option_history']['contracts'] += written
+                    stats['option_history']['with_iv'] += 0  # IV computed later
+                    if written == 0:
                         stats['option_history']['errors'] += 1
-                        job_mod.append_warning(job_id, f'{sym}: option market empty')
-                    else:
-                        import json
-                        raw = json.loads(df.to_json(orient='records', date_format='iso'))
-                        docs = opt_mod.analyze_records(raw, rf)
-                        if docs:
-                            written = opt_mod.write_history(docs)
-                            stats['option_history']['contracts'] += written
-                            stats['option_history']['with_iv'] += sum(1 for d in docs if d.get('ivApi'))
+                        job_mod.append_warning(job_id, '{}: no historical option data'.format(sym))
                 except Exception as e:
                     stats['option_history']['errors'] += 1
-                    job_mod.append_error(job_id, f'{sym} options: {e}')
+                    job_mod.append_error(job_id, '{} options: {}'.format(sym, e))
 
                 stats['option_history']['symbols_done'] = i
                 job_mod.set_phase(job_id, 'option_history', {
@@ -676,13 +714,14 @@ def _safe_float(v, zero_as_none=True):
 @app.post('/backfill-option-bidask')
 def backfill_option_bidask(p: BackfillBidAskIn):
     """
-    🆕 دو مرحله:
-    1) Migration از option_snapshots (bid/ask واقعی تاریخی)
-    2) Snapshot زنده از algotik-tse get_option_market (bid/ask فعلی)
+    Two phases:
+      1) Migrate historical bid/ask from option_snapshots -> option_history
+      2) Fetch current live bid/ask from TSETMC MarketWatch (options)
     """
-    import algotik_tse as att
     from datetime import datetime, timezone
     from pipeline import options as opt_mod
+    from pipeline.tsetmc_client import get_client
+    from pymongo import UpdateOne
 
     db = get_db()
     result = {
@@ -693,22 +732,20 @@ def backfill_option_bidask(p: BackfillBidAskIn):
         'errors': [],
     }
 
-    # === مرحله ۱: migration از option_snapshots (bid/ask تاریخی) ===
+    # ---- Phase 1: snapshots -> history ----
     try:
-        underlyings = p.underlyings  # None = همه
         mig = opt_mod.migrate_snapshots_to_history(
-            underlyings=underlyings,
+            underlyings=p.underlyings,
             days=180,
             dry_run=False,
             log_fn=lambda m: log('backfill_bidask_mig', m),
         )
         result['snapshotsMigration'] = mig
-        log('backfill_bidask_mig_done', f"written={mig['written']}", mig)
+        log('backfill_bidask_mig_done', 'written={}'.format(mig.get('written', 0)), mig)
     except Exception as e:
         result['errors'].append({'stage': 'migration', 'error': str(e)[:200]})
 
-    # === مرحله ۲: snapshot زنده از get_option_market ===
-    # فقط برای قراردادهای فعال فعلی
+    # ---- Phase 2: live option quotes from TSETMC ----
     try:
         targets = p.underlyings
         if not targets:
@@ -716,78 +753,66 @@ def backfill_option_bidask(p: BackfillBidAskIn):
             targets = [s['symbol'] for s in db[COL_MONITORED].find({})]
 
         col = db[COL_OPTION_HISTORY]
+        client = get_client()
 
         for sym in targets:
             try:
-                # 🆕 timestamp جدا برای هر نماد — واقع‌گرایانه‌تر
-                now = datetime.now(timezone.utc)
-                df = att.get_option_market(underlying=sym, progress=False)
-                if df is None or len(df) == 0:
+                contracts = opt_mod.discover_contracts_for_underlying(sym)
+                if not contracts:
                     continue
-                result['contractsFound'] += len(df)
 
-                from pymongo import UpdateOne
+                mw = client.market_watch(paper_types=(5, 6), with_best_limits=True)
+                mw_map = {r.get('insCode'): r for r in (mw or []) if r.get('insCode')}
+                result['contractsFound'] += len(contracts)
+
+                ua_doc = db['candles_daily'].find_one(
+                    {'symbol': sym}, sort=[('time', -1)], projection={'close': 1}
+                )
+                ua_price = float(ua_doc['close']) if ua_doc and ua_doc.get('close') else None
+
+                now = datetime.now(timezone.utc)
                 ops = []
-                for _, row in df.iterrows():
-                    bid = row.get('BidPrice')
-                    ask = row.get('AskPrice')
-                    try:
-                        bid = float(bid) if bid is not None else 0
-                        ask = float(ask) if ask is not None else 0
-                    except (TypeError, ValueError):
-                        continue
+                for c in contracts:
+                    m = mw_map.get(c['insCode'], {})
+                    bid, ask = 0.0, 0.0
+                    bl = m.get('bestLimits')
+                    if isinstance(bl, list) and bl:
+                        lvl0 = bl[0]
+                        bid = float(lvl0.get('bd') or lvl0.get('bid') or 0)
+                        ask = float(lvl0.get('od') or lvl0.get('ask') or 0)
                     if bid <= 0 or ask <= 0:
                         continue
 
-                    symbol = row.get('Symbol')
-                    if not symbol:
-                        continue
-
-                    # 🆕 strike / expiry / daysLeft
-                    strike_v = _safe_float(row.get('Strike'))
-                    expiry_v = row.get('EndDate')
-                    if expiry_v is not None and pd.notna(expiry_v):
-                        expiry_v = str(expiry_v)[:10]
-                    else:
-                        expiry_v = None
-
                     days_left = None
-                    if expiry_v:
+                    if c.get('expiry_gregorian'):
                         try:
-                            from datetime import datetime as dt
-                            y, m, d = map(int, expiry_v.split('-'))
-                            days_left = (dt(y, m, d) - now.replace(tzinfo=None)).days
+                            y, mo, d = map(int, c['expiry_gregorian'].split('-'))
+                            exp = datetime(y, mo, d, tzinfo=timezone.utc)
+                            days_left = max(0, (exp - now).days)
                         except Exception:
                             pass
 
                     doc = {
-                        'symbol': symbol,
+                        'symbol': c['ticker'],
                         'underlying': sym,
                         'time': now,
                         'bid': bid,
                         'ask': ask,
-                        'bidVol': _safe_float(row.get('BidVolume')),
-                        'askVol': _safe_float(row.get('AskVolume')),
-                        'last': _safe_float(row.get('Last')),
-                        'close': _safe_float(row.get('Close')),
-                        'volume': float(row.get('Volume') or 0),
-                        'oi': _safe_float(row.get('OpenInterest')),
-                        'strike': strike_v,
-                        'expiry': expiry_v,
+                        'last': float(m.get('pDrCotVal') or 0),
+                        'close': float(m.get('pcl') or 0),
+                        'volume': float(m.get('qTotTran5J') or 0),
+                        'oi': float(m.get('op') or 0),
+                        'strike': c['strike'],
+                        'expiry': c.get('expiry_gregorian'),
                         'daysLeft': days_left,
-                        'size': int(row.get('ContractSize') or 1000),
-                        'S': _safe_float(row.get('UnderlyingLast')) or _safe_float(row.get('UnderlyingClose')),
-                        'ivApi': _safe_float(row.get('ImpliedVolatilityMid')) or _safe_float(row.get('ImpliedVolatility')),
-                        'deltaApi': _safe_float(row.get('Delta'), zero_as_none=False),
-                        'gammaApi': _safe_float(row.get('Gamma'), zero_as_none=False),
-                        'thetaApi': _safe_float(row.get('ThetaPerDay'), zero_as_none=False),
-                        'vegaApi': _safe_float(row.get('Vega'), zero_as_none=False),
-                        'isCall': (row.get('OptionType') or '').lower() == 'call',
-                        'source': 'algotik_snapshot',
+                        'isCall': c['type'] == 'call',
+                        'S': ua_price,
+                        'source': 'tsetmc_snapshot',
+                        'dataQuality': 'real',
                         'computedAt': now,
                     }
                     ops.append(UpdateOne(
-                        {'symbol': symbol, 'time': now},
+                        {'symbol': doc['symbol'], 'time': now},
                         {'$set': doc},
                         upsert=True
                     ))
@@ -803,7 +828,10 @@ def backfill_option_bidask(p: BackfillBidAskIn):
         result['errors'].append({'stage': 'live', 'error': str(e)[:200]})
 
     log('backfill_bidask_done',
-        f"mig={result['snapshotsMigration']['written'] if result['snapshotsMigration'] else 0} live={result['liveSnapshotsFetched']}",
+        'mig={} live={}'.format(
+            (result['snapshotsMigration'] or {}).get('written', 0),
+            result['liveSnapshotsFetched'],
+        ),
         {k: v for k, v in result.items() if k != 'errors'})
 
     return result
@@ -900,26 +928,38 @@ def audit_one_endpoint(symbol: str, days: str = 'auto'):
 # ---------- Data Range ----------
 @app.get('/data-range')
 def data_range():
-    """Global data range across all option data."""
+    """Global data range across all option data (option_history primary)."""
     from pipeline import audit as audit_mod
     earliest = audit_mod._find_earliest_data_date()
     if not earliest:
         return {'from': None, 'to': None, 'days': 0}
 
     db = get_db()
-    latest = db['option_daily_algotik'].find_one(
-        {}, sort=[('date', -1)], projection={'date': 1}
+    # Latest from option_history first
+    latest_doc = db[COL_OPTION_HISTORY].find_one(
+        {}, sort=[('time', -1)], projection={'time': 1}
     )
-    from_dt = earliest
     to_dt = None
-    if latest and latest.get('date'):
-        try:
-            to_dt = datetime.strptime(latest['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
-        except Exception:
-            pass
+    if latest_doc and latest_doc.get('time'):
+        t = latest_doc['time']
+        if isinstance(t, datetime):
+            to_dt = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+    # Fallback to legacy
+    if not to_dt:
+        latest2 = db['option_daily_algotik'].find_one(
+            {}, sort=[('date', -1)], projection={'date': 1}
+        )
+        if latest2 and latest2.get('date'):
+            try:
+                to_dt = datetime.strptime(latest2['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+
     if not to_dt:
         to_dt = datetime.now(timezone.utc)
 
+    from_dt = earliest
     return {
         'from': from_dt.strftime('%Y-%m-%d'),
         'to': to_dt.strftime('%Y-%m-%d'),
@@ -929,22 +969,34 @@ def data_range():
 
 @app.get('/data-range/{symbol}')
 def symbol_data_range(symbol: str):
-    """Per-symbol option data range."""
+    """Per-symbol option data range (option_history primary)."""
     from pipeline import audit as audit_mod
     start = audit_mod._find_symbol_option_start(symbol)
     if not start:
         return {'symbol': symbol, 'from': None, 'to': None, 'days': 0}
 
     db = get_db()
-    latest = db['option_daily_algotik'].find_one(
-        {'underlying': symbol}, sort=[('date', -1)], projection={'date': 1}
+    latest_doc = db[COL_OPTION_HISTORY].find_one(
+        {'underlying': symbol}, sort=[('time', -1)], projection={'time': 1}
     )
-    to_dt = datetime.now(timezone.utc)
-    if latest and latest.get('date'):
-        try:
-            to_dt = datetime.strptime(latest['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
-        except Exception:
-            pass
+    to_dt = None
+    if latest_doc and latest_doc.get('time'):
+        t = latest_doc['time']
+        if isinstance(t, datetime):
+            to_dt = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+    if not to_dt:
+        latest2 = db['option_daily_algotik'].find_one(
+            {'underlying': symbol}, sort=[('date', -1)], projection={'date': 1}
+        )
+        if latest2 and latest2.get('date'):
+            try:
+                to_dt = datetime.strptime(latest2['date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+
+    if not to_dt:
+        to_dt = datetime.now(timezone.utc)
 
     return {
         'symbol': symbol,

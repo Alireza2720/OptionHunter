@@ -303,21 +303,52 @@ def fetch_market(underlying):
     """Return (DataFrame, err) of active contracts for an underlying.
 
     Columns match the old algotik output (Symbol, InsCode, Strike, ...).
+    Bid/ask come from bestLimits (real quotes), NOT pmd/pmo.
     """
     try:
         contracts = discover_contracts_for_underlying(underlying)
         if not contracts:
             return None, "no contracts found"
         client = get_client()
-        mw = client.market_watch(paper_types=(5, 6))
+        mw = client.market_watch(paper_types=(5, 6), with_best_limits=True)
         mw_map = {}
         for r in mw:
             key = r.get("insCode")
             if key:
                 mw_map[key] = r
+
+        # Underlying last close for S field (used for IV computation)
+        db = get_db()
+        ua_doc = db["candles_daily"].find_one(
+            {"symbol": underlying},
+            sort=[("time", -1)],
+            projection={"close": 1},
+        )
+        ua_price = float(ua_doc["close"]) if ua_doc and ua_doc.get("close") else 0.0
+
         rows = []
         for c in contracts:
             m = mw_map.get(c["insCode"], {})
+
+            # Real bid/ask: bestLimits[0]
+            bid_p, ask_p = 0.0, 0.0
+            bl = m.get("bestLimits")
+            if isinstance(bl, list) and bl:
+                lvl0 = bl[0]
+                bid_p = float(lvl0.get("bd") or lvl0.get("bidPrice") or lvl0.get("bid") or 0)
+                ask_p = float(lvl0.get("od") or lvl0.get("askPrice") or lvl0.get("ask") or 0)
+
+            # Days to expiry
+            days_left = None
+            if c.get("expiry_gregorian"):
+                try:
+                    from datetime import datetime as _dt
+                    ey, em, ed = map(int, c["expiry_gregorian"].split("-"))
+                    exp = _dt(ey, em, ed, tzinfo=timezone.utc)
+                    days_left = max(0, (exp - datetime.now(timezone.utc)).days)
+                except Exception:
+                    pass
+
             rows.append({
                 "Symbol": c["ticker"],
                 "InsCode": c["insCode"],
@@ -325,16 +356,16 @@ def fetch_market(underlying):
                 "OptionType": c["type"],
                 "Strike": c["strike"],
                 "EndDate": c.get("expiry_gregorian"),
-                "DaysToExpiry": None,
-                "Last": float(m.get("last", 0) or 0),
-                "Close": float(m.get("pcl", 0) or m.get("pClosing", 0) or 0),
-                "Volume": float(m.get("qTotTran5J", 0) or 0),
-                "TradeCount": float(m.get("zTotTran", 0) or 0),
-                "BidPrice": float(m.get("pmd", 0) or 0),
-                "AskPrice": float(m.get("pmo", 0) or 0),
-                "OpenInterest": float(m.get("op", 0) or 0),
-                "UnderlyingLast": 0.0,
-                "UnderlyingClose": 0.0,
+                "DaysToExpiry": days_left,
+                "Last": float(m.get("pDrCotVal") or m.get("last") or 0),
+                "Close": float(m.get("pcl") or m.get("pClosing") or 0),
+                "Volume": float(m.get("qTotTran5J") or 0),
+                "TradeCount": float(m.get("zTotTran") or 0),
+                "BidPrice": bid_p,
+                "AskPrice": ask_p,
+                "OpenInterest": float(m.get("op") or 0),
+                "UnderlyingLast": ua_price,
+                "UnderlyingClose": ua_price,
             })
         return pd.DataFrame(rows), None
     except Exception as e:
@@ -343,29 +374,76 @@ def fetch_market(underlying):
 
 # ─── Record conversion ───
 def analyze_records(records, risk_free_rate):
-    """Convert list of dicts to option_history docs (no IV computed here)."""
+    """Convert live-market records to option_history docs.
+
+    Computes IV via Black-Scholes inverse when S, K, T and price are available.
+    Marks dataQuality='real' when real bid/ask are present.
+    """
+    from option_reconstruction.pricing import implied_vol, get_risk_free_rate
+
     docs = []
     now = datetime.now(timezone.utc)
+    rf = get_risk_free_rate(risk_free_rate)
+
     for r in records:
         symbol = r.get("Symbol") or r.get("symbol")
         if not symbol:
             continue
+
+        is_call = (r.get("OptionType") or "").lower() == "call"
+        S = r.get("UnderlyingLast") or r.get("UnderlyingClose") or r.get("S")
+        strike = r.get("Strike")
+        expiry = r.get("EndDate") or r.get("expiry")
+        days_left = r.get("DaysToExpiry")
+        bid = r.get("BidPrice")
+        ask = r.get("AskPrice")
+        last = r.get("Last")
+        close = r.get("Close")
+
+        # Compute IV from BS inverse
+        iv = None
+        try:
+            if S and strike and days_left and float(days_left) > 0:
+                T = float(days_left) / 365.0
+                px = float(ask or last or close or 0)
+                if px > 0:
+                    iv_val = implied_vol(
+                        px, float(S), float(strike), T, rf, is_call=is_call
+                    )
+                    if iv_val and 0.01 <= iv_val <= 5.0:
+                        iv = float(iv_val)
+        except Exception:
+            iv = None
+
+        # dataQuality: real only when both sides of the book are present
+        has_real_book = (bid and ask and float(bid) > 0 and float(ask) > 0)
+        if has_real_book:
+            dq = "real"
+        elif close or last:
+            dq = "needs_enrich"
+        else:
+            dq = "missing_price"
+
         docs.append({
             "symbol": symbol,
             "underlying": r.get("UnderlyingSymbol") or r.get("underlying"),
             "time": now,
-            "strike": r.get("Strike"),
-            "expiry": r.get("EndDate"),
-            "isCall": (r.get("OptionType") or "").lower() == "call",
-            "bid": r.get("BidPrice"),
-            "ask": r.get("AskPrice"),
-            "last": r.get("Last"),
-            "close": r.get("Close"),
+            "strike": strike,
+            "expiry": expiry,
+            "daysLeft": days_left,
+            "isCall": is_call,
+            "S": float(S) if S else None,
+            "bid": float(bid) if bid else None,
+            "ask": float(ask) if ask else None,
+            "last": float(last) if last else None,
+            "close": float(close) if close else None,
             "volume": r.get("Volume"),
             "trades": r.get("TradeCount"),
             "oi": r.get("OpenInterest"),
-            "ivApi": None,
+            "ivApi": iv,
+            "riskFreeRate": rf,
             "source": SOURCE_LIVE,
+            "dataQuality": dq,
             "computedAt": now,
         })
     return docs
@@ -413,7 +491,7 @@ def write_snapshot_ticks(underlying, records):
 
 # ─── Backward-compat aliases (service.py calls these) ───
 def migrate_from_daily_algotik(underlyings=None, dry_run=False, **kwargs):
-    """Deprecated alias -> migrate_from_tsetmc."""
+    """Backward-compat alias -> migrate_from_tsetmc."""
     return migrate_from_tsetmc(
         underlyings=underlyings,
         dry_run=dry_run,
@@ -422,15 +500,83 @@ def migrate_from_daily_algotik(underlyings=None, dry_run=False, **kwargs):
 
 
 def migrate_snapshots_to_history(underlyings=None, days=180, dry_run=False, **kwargs):
-    """Deprecated — TSETMC historical covers this. Noop stub."""
-    return {
-        "total_processed": 0,
-        "written": 0,
-        "note": "superseded by migrate_from_tsetmc",
-    }
+    """Fill bid/ask in option_history from option_snapshots.
+
+    Matches snapshots to option_history entries by (symbol, day), taking
+    the LAST valid snapshot of each day as the end-of-day quote.
+    """
+    from datetime import timedelta
+    from collections import defaultdict
+
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    q = {"timestamp": {"$gte": cutoff}}
+    if underlyings:
+        q["underlying"] = {"$in": underlyings}
+
+    # Group snapshots by (symbol, day)
+    by_key = defaultdict(list)
+    for snap in db[COL_OPTION_SNAPSHOTS].find(q, {
+        "symbol": 1, "timestamp": 1, "bid": 1, "ask": 1,
+    }):
+        sym = snap.get("symbol")
+        ts = snap.get("timestamp")
+        if not sym or not ts:
+            continue
+        by_key[(sym, ts.date().isoformat())].append(snap)
+
+    stats = {"scanned": 0, "days_matched": 0, "written": 0, "skipped": 0}
+    ops = []
+
+    for (sym, day_key), snaps in by_key.items():
+        stats["scanned"] += len(snaps)
+        snaps.sort(key=lambda s: s.get("timestamp") or datetime.min.replace(tzinfo=timezone.utc))
+
+        latest = None
+        for s in reversed(snaps):
+            b = s.get("bid"); a = s.get("ask")
+            if b and a and float(b) > 0 and float(a) > 0:
+                latest = s
+                break
+        if not latest:
+            stats["skipped"] += 1
+            continue
+
+        # Find matching option_history entry for that day
+        try:
+            y, m, d = map(int, day_key.split("-"))
+            day_start = datetime(y, m, d, 0, 0, tzinfo=timezone.utc)
+            day_end = datetime(y, m, d, 23, 59, 59, tzinfo=timezone.utc)
+        except Exception:
+            stats["skipped"] += 1
+            continue
+
+        hist = db[COL_OPTION_HISTORY].find_one(
+            {"symbol": sym, "time": {"$gte": day_start, "$lte": day_end}},
+            {"_id": 1},
+        )
+        if not hist:
+            stats["skipped"] += 1
+            continue
+
+        stats["days_matched"] += 1
+        patch = {"bid": float(latest["bid"]), "ask": float(latest["ask"])}
+        ops.append(UpdateOne({"_id": hist["_id"]}, {"$set": patch}))
+
+        if len(ops) >= 500 and not dry_run:
+            r = db[COL_OPTION_HISTORY].bulk_write(ops, ordered=False)
+            stats["written"] += r.modified_count
+            ops = []
+
+    if ops and not dry_run:
+        r = db[COL_OPTION_HISTORY].bulk_write(ops, ordered=False)
+        stats["written"] += r.modified_count
+
+    if log_fn := kwargs.get("log_fn"):
+        log_fn("migrate_snapshots: {}".format(stats))
+    return stats
 
 
-def fetch_contract_history(*args, **kwargs):
-    """Deprecated stub."""
-    return None, "use migrate_from_tsetmc instead"
+
 

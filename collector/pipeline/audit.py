@@ -43,7 +43,18 @@ def _find_earliest_data_date():
             d = d.astimezone(timezone.utc).replace(tzinfo=None)
         return d
 
-    # From option_daily_algotik (date string)
+    # Primary source: option_history (current TSETMC pipeline writes here)
+    doc2 = db[COL_OPTION_HISTORY].find_one(
+        {'time': {'$exists': True}},
+        sort=[('time', 1)],
+        projection={'time': 1},
+    )
+    if doc2 and doc2.get('time'):
+        d = _to_naive_utc(doc2['time'])
+        if d is not None:
+            candidates.append(d)
+
+    # Legacy fallback: option_daily_algotik (only if no option_history exists)
     doc = db['option_daily_algotik'].find_one(
         {'date': {'$exists': True}},
         sort=[('date', 1)],
@@ -55,17 +66,6 @@ def _find_earliest_data_date():
             candidates.append(d)
         except Exception:
             pass
-
-    # From option_history (datetime, possibly naive)
-    doc2 = db[COL_OPTION_HISTORY].find_one(
-        {'time': {'$exists': True}},
-        sort=[('time', 1)],
-        projection={'time': 1},
-    )
-    if doc2 and doc2.get('time'):
-        d = _to_naive_utc(doc2['time'])
-        if d is not None:
-            candidates.append(d)
 
     if not candidates:
         return None
@@ -82,20 +82,7 @@ def _find_symbol_option_start(symbol):
     """
     db = get_db()
 
-    # From option_daily_algotik (date string)
-    doc = db['option_daily_algotik'].find_one(
-        {'underlying': symbol, 'date': {'$exists': True}},
-        sort=[('date', 1)],
-        projection={'date': 1},
-    )
-    if doc and doc.get('date'):
-        try:
-            d = datetime.strptime(doc['date'], '%Y-%m-%d')
-            return d.replace(tzinfo=timezone.utc)
-        except Exception:
-            pass
-
-    # Fallback to option_history
+    # Primary source: option_history
     doc2 = db[COL_OPTION_HISTORY].find_one(
         {'underlying': symbol, 'time': {'$exists': True}},
         sort=[('time', 1)],
@@ -107,6 +94,19 @@ def _find_symbol_option_start(symbol):
             if d.tzinfo is None:
                 d = d.replace(tzinfo=timezone.utc)
             return d
+
+    # Legacy fallback
+    doc = db['option_daily_algotik'].find_one(
+        {'underlying': symbol, 'date': {'$exists': True}},
+        sort=[('date', 1)],
+        projection={'date': 1},
+    )
+    if doc and doc.get('date'):
+        try:
+            d = datetime.strptime(doc['date'], '%Y-%m-%d')
+            return d.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
 
     return None
 def audit_symbol(symbol, from_date=None, to_date=None):
@@ -135,7 +135,7 @@ def audit_symbol(symbol, from_date=None, to_date=None):
 
     # ---- 1. Stock 1m OHLC ----
     base_docs = list(db[COL_CANDLES_BASE].find(
-        {'symbol': symbol, 'source': 'algotik_intraday', 'time': {'$gte': from_date, '$lte': to_date}},
+        {'symbol': symbol, 'source': {'$in': ['tsetmc_intraday', 'algotik_intraday']}, 'time': {'$gte': from_date, '$lte': to_date}},
         {'time': 1, 'open': 1, 'high': 1, 'low': 1, 'close': 1},
     ))
     base_days = set()

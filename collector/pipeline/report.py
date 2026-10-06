@@ -26,7 +26,7 @@ def coverage_report(symbols=None):
     # 🆕 ۴ aggregation به جای ۱۸۲ کوئری
     # 1) candles_base
     base_agg = list(db[COL_CANDLES_BASE].aggregate([
-        {'$match': {'source': 'algotik_intraday'}},
+        {'$match': {'source': {'$in': ['tsetmc_intraday', 'algotik_intraday']}}},
         {'$group': {
             '_id': '$symbol',
             'count': {'$sum': 1},

@@ -56,7 +56,7 @@ def rebuild_symbol(symbol):
     """Rebuild all TF for a symbol from its base candles."""
     db = get_db()
     base = list(db[COL_CANDLES_BASE].find(
-        {'symbol': symbol, 'source': 'algotik_intraday'}
+        {'symbol': symbol, 'source': {'$in': ['tsetmc_intraday', 'algotik_intraday']}}
     ).sort('time', 1))
 
     if not base:
