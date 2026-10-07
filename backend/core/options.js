@@ -1605,6 +1605,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
 
     // ---------- Prefetch: یه query به جای N query ----------
     let optionRowsBySymbolTime = new Map();
+        console.log("[DBG-BT] symbol=" + symbol + " | normed=" + JSON.stringify(norm(symbol)) + " | hasAnyOptionData=" + hasAnyOptionData + " | realEnabled=" + realEnabled + " | sampleCount=" + sampleCount);
     if (realEnabled && hasAnyOptionData) {
         try {
             let _minSec = Infinity, _maxSec = -Infinity;
