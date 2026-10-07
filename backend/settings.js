@@ -49,6 +49,10 @@ const DEFAULTS = {
     // ---- فیلتر هدف سهم ----
     MIN_TARGET_PCT: 4.5,
 
+    // ---- Option contract quality level (A+ / A / B / C / D) ----
+    // Controls which contracts are eligible in BOTH backtest AND live.
+    OPTION_QUALITY_LEVEL: 'B',
+
     // score -> size factor map (7 buckets)
     SCORE_SIZE_MAP: [
         { min: 0.80, factor: 1.3 },
@@ -239,6 +243,11 @@ async function resetStrategyDefaults(strategyId) {
 }
 
 
+function getOptionQualityLevel() {
+    const v = String(values.OPTION_QUALITY_LEVEL || 'B').toUpperCase();
+    return ['A+','A','B','C','D'].includes(v) ? v : 'B';
+}
+
 function scoreSizeFactor(score) {
     if (!values.SCORE_SIZE_ENABLED) return 1.0;
     if (!Number.isFinite(score)) return 1.0;
@@ -257,4 +266,5 @@ module.exports = {
     setRiskFreeRate, getRiskFreeRate, getRiskFreeMeta,
     signalFactor, levelFactor, ivFactor, dataDepthFactor,
     scoreSizeFactor,
+    getOptionQualityLevel,
 };

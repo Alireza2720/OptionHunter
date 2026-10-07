@@ -267,9 +267,14 @@ function register(app, deps) {
 
     // ---- Trading Settings ----
     app.get('/api/trading-settings', (req, res) => {
+        const DEFAULTS = require('../../settings').DEFAULTS;
         res.json({
             values: settings.get(),
-            defaults: require('../../settings').DEFAULTS
+            defaults: DEFAULTS,
+            optionQualityLevels: ['A+','A','B','C','D'],
+            currentQualityLevel: (settings.getOptionQualityLevel
+                ? settings.getOptionQualityLevel()
+                : (DEFAULTS.OPTION_QUALITY_LEVEL || 'B'))
         });
     });
 

@@ -623,7 +623,10 @@ async function _stage5_optionBacktest(jobId, plans, dateRange, opts) {
             const r = await deps.backtest.runBacktest(cfg, dateRange.from, dateRange.to, {
                 mode: 'option',
                 useRealOption: true,
-                lightMode: true
+                optionType: opts.optionType || 'call',
+                lightMode: true,
+                // Respect user-selected quality level
+                qualityLevel: (opts.qualityLevel || null)
             });
             const optStats = r.optionStats || r.stats || {};
             const realUsed = r.realUsed || 0;
@@ -722,7 +725,7 @@ function _stage6_verdict(optionResults, opts) {
         const ratio = r.stockPF > 0 ? r.optionPF / r.stockPF : 0;
         const reasons = [];
 
-        if (r.optionN < minOptN) reasons.push(`N=${r.optionN} < ${minOptN}`);
+        if (r.optionN < minOptN) reasons.push(`N_opt=${r.optionN} < ${minOptN} (کیفیت آپشن را به سطح پایین‌تر تغییر بده)`);
         if (r.realRatio < minRealRatio) reasons.push(`realRatio=${(r.realRatio*100).toFixed(0)}% < ${(minRealRatio*100)}%`);
         if (r.optionPF < minPF) reasons.push(`PF=${r.optionPF} < ${minPF}`);
         if (r.optionAvgPnl < minAvg) reasons.push(`AvgPnl=${r.optionAvgPnl.toFixed(1)}% < ${minAvg}%`);

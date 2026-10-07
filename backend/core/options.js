@@ -15,6 +15,7 @@
 
 const { TRADING_DAYS_PER_YEAR } = require('../config/constants');
 const { calcUnifiedSize } = require('./sizing-unified');
+const { getQualityParams } = require('./option-selector');
 
 // ============================================================
 // Dependencies (تزریق می‌شن)
@@ -1201,9 +1202,13 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         } catch (_) { return null; }
     }
 
+    // Quality-aware delta filtering
+    const allowMissingDelta = p.allowMissingDelta !== false;  // B/C/D allow; A+/A do not
     const valid = candidateRows.filter(c => {
         const d = getDelta(c);
-        if (d === null || d === undefined) return false;
+        if (d === null || d === undefined) {
+            return allowMissingDelta;  // accept unknown delta for looser levels
+        }
         return d >= p.deltaMin && d <= p.deltaMax;
     });
     if (!valid.length) return null;
@@ -1433,7 +1438,27 @@ function tryGetApproxTradeData(t, closes, times, p) {
 
 async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     const db = requireDep('getDB')();
-    const p = { ...OPT_BT_DEFAULTS, ...opts };
+    // Resolve quality level (opts > settings > default)
+    let qualityLevel = opts.qualityLevel;
+    if (!qualityLevel && deps.settings && typeof deps.settings.getOptionQualityLevel === 'function') {
+        try { qualityLevel = deps.settings.getOptionQualityLevel(); } catch (_) {}
+    }
+    const qParams = getQualityParams(qualityLevel);
+
+    const p = {
+        ...OPT_BT_DEFAULTS,
+        // Override quality-dependent defaults (unless explicitly set by caller)
+        deltaMin: opts.deltaMin != null ? opts.deltaMin : qParams.deltaMin,
+        deltaMax: opts.deltaMax != null ? opts.deltaMax : qParams.deltaMax,
+        minDays: opts.minDays != null ? opts.minDays : qParams.minDays,
+        maxDays: opts.maxDays != null ? opts.maxDays : qParams.maxDays,
+        minPremium: opts.minPremium != null ? opts.minPremium : qParams.minPremium,
+        minOI: opts.minOI != null ? opts.minOI : qParams.minOI,
+        maxSpreadPct: opts.maxSpreadPct != null ? opts.maxSpreadPct : qParams.maxSpreadPct,
+        allowEnriched: qParams.allowEnriched,
+        qualityLevel: qParams.level,
+    };
+    Object.assign(p, opts);
 
     if (!closedTrades.length) {
         return {
@@ -1484,9 +1509,14 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             } else if (p.optionType === 'put') {
                 _query.isCall = false;
             }
-            if (_mq === 'real') {
-                _query.dataQuality = 'real';
-            } else if (_mq === 'enriched') {
+            if (_mq === 'real' || p.allowEnriched === false) {
+                // A+/A: real only
+                _query.$or = [
+                    { dataQuality: 'real' },
+                    { dataQuality: { $exists: false } }
+                ];
+            } else {
+                // B/C/D: allow enriched
                 _query.$or = [
                     { dataQuality: { $in: ['real', 'enriched'] } },
                     { dataQuality: { $exists: false } }

@@ -911,7 +911,8 @@ async function runBacktest(cfg, from, to, opts = {}) {
             tradeRes.trades,
             {
                 realEnabled: !!opts.useRealOption,
-                optionType: opts.optionType || 'call'
+                optionType: opts.optionType || 'call',
+                qualityLevel: opts.qualityLevel || null
             }
         );
     }

@@ -104,14 +104,17 @@ function computeGlobalStats(trades) {
 
 function computeEffectiveRiskPct(limits, stats) {
     if (!limits.useKelly) return limits.riskPct;
-    // 🆕 اگه نمونه کافی نبود، Kelly رو نادیده بگیر و به riskPct ثابت برگرد
     if (!stats.kellyReliable) return limits.riskPct;
 
     const kellyPct = stats.halfKelly * 100;
     if (!Number.isFinite(kellyPct) || kellyPct <= 0.5) {
         return limits.riskPct;
     }
-    return Math.min(limits.riskPct, kellyPct, limits.kellyCapPct);
+    // 🆕 Kelly can INCREASE size above riskPct (up to kellyCapPct),
+    // but never go below the base riskPct (floor).
+    const floor = limits.riskPct || 1.5;
+    const cap = limits.kellyCapPct || 3.0;
+    return Math.min(Math.max(kellyPct, floor), cap);
 }
 
 // ============================================================

@@ -683,7 +683,12 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
         const rows = (result.details || []).filter(d => d.symbol === sym);
         if (!rows.length) continue;
 
-        const dynMin = getDynamicMinTrades(result._dateRangeDays || 180);
+        // In option mode, option coverage is inherently partial (~30-80%).
+        // Use a lower dynMin so auto-config doesn't reject every candidate.
+        const baseDyn = getDynamicMinTrades(result._dateRangeDays || 180);
+        const dynMin = mode === 'stock'
+            ? baseDyn
+            : Math.max(2, Math.round(baseDyn * 0.35));
         const losingSet = result._losingStrategies instanceof Set ? result._losingStrategies : new Set();
         const scored = rows.map(d => {
             const target = mode === 'stock' ? (d.stockStats || {}) : (d.optionStats || d.stockStats || {});

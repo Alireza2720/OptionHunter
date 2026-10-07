@@ -39,6 +39,7 @@ async function recordSignal(signalData) {
     // اگه BUY بود، قرارداد آپشن رو پیدا کن
     if (signalData.signalType === 'BUY') {
         try {
+            // Resolve quality level (from settings)
             const optionType = (signalData.regime && signalData.regime.macro === 'bear') ? 'put' : 'call';
             const chain = await deps.options.fetchChain(60000).catch(() => []);
             const names = deps.options.getNames ? deps.options.getNames(signalData.symbol) : [signalData.symbol];
