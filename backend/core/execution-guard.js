@@ -203,6 +203,12 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
         baseSize = Math.floor(baseSize * ctx.timeDecayMult);
     }
 
+    // 🆕 Grade-Aware Multiplier (from option scoring in core/options.js)
+    if (candidate.optionSizeFactor != null && Number.isFinite(candidate.optionSizeFactor)
+        && candidate.optionSizeFactor !== 1.0) {
+        baseSize = Math.floor(baseSize * candidate.optionSizeFactor);
+    }
+
     const curSym = portfolio.exposureBySymbol[candidate.symbol] || 0;
     const remainSym = Math.max(0, maxSym - curSym);
     const bySymbol = Math.floor(remainSym / contractValue);

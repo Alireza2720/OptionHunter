@@ -24,7 +24,11 @@ function calcUnifiedSize(candidate, portfolio, settings, opts = {}) {
     const scoreFactor = (opts.scoreFactor != null && Number.isFinite(opts.scoreFactor))
         ? opts.scoreFactor : 1.0;
 
-    const adjusted = Math.floor(baseSize * scoreFactor);
+    // 🆕 Grade-aware option size factor (from core/options.js)
+    const optionSizeFactor = (opts.optionSizeFactor != null && Number.isFinite(opts.optionSizeFactor))
+        ? opts.optionSizeFactor : 1.0;
+
+    const adjusted = Math.floor(baseSize * scoreFactor * optionSizeFactor);
 
     const remainingSymbol = Math.max(0, capital * (maxSymPct / 100) - (portfolio.exposureBySymbol[candidate.symbol] || 0));
     const bySymbol = Math.floor(remainingSymbol / contractValue);

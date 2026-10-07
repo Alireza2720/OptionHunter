@@ -141,7 +141,118 @@ function selectBestOption(candidates, opts = {}) {
     };
 }
 
+// ============================================================
+// Grade-Aware Scoring (Phase 3+)
+// ============================================================
+// Computes a 0-100 score for an option contract and maps it to
+// a letter grade with a size multiplier. Designed to be called
+// both from backtest (core/options.js) and live (via signals).
+//
+// Weights are stored in settings and can be tuned from the UI.
+// ============================================================
+function computeOptionGrade(row, params) {
+    params = params || {};
+
+    const W = params.weights || {
+        delta:    0.30,
+        spread:   0.20,
+        daysLeft: 0.15,
+        ivHv:     0.15,
+        oi:       0.08,
+        volume:   0.07,
+        quality:  0.05
+    };
+
+    const rows = params.thresholds || [
+        { grade: 'A+', min: 85, factor: 1.00 },
+        { grade: 'A',  min: 70, factor: 0.80 },
+        { grade: 'B',  min: 55, factor: 0.60 },
+        { grade: 'C',  min: 40, factor: 0.40 },
+        { grade: 'D',  min: 25, factor: 0.20 },
+        { grade: 'F',  min: 0,  factor: 0.00 }
+    ];
+
+    const bid = Number(row.bid) || 0;
+    const ask = Number(row.ask) || 0;
+    const delta = Number(row.deltaApi != null ? row.deltaApi : row.delta);
+    const days = Number(row.daysLeft != null ? row.daysLeft : row.dte) || 0;
+    const iv = Number(row.ivApi != null ? row.ivApi : row.iv) || 0;
+    const hv = Number(row.hvApi != null ? row.hvApi : row.hist_vol) || 0;
+    const ivHv = (iv > 0 && hv > 0) ? iv / hv : null;
+    const oi = Number(row.oi) || 0;
+    const vol = Number(row.volume) || 0;
+    const quality = String(row.dataQuality || 'unknown');
+
+    let deltaScore = 0;
+    if (Number.isFinite(delta)) {
+        const dist = Math.abs(delta - 0.55);
+        deltaScore = Math.max(0, 100 - dist * 220);
+    }
+
+    let spreadScore = 0;
+    const mid = (bid + ask) / 2;
+    if (mid > 0 && ask > bid && bid > 0) {
+        const spreadPct = (ask - bid) / mid * 100;
+        spreadScore = Math.max(0, Math.min(100, 100 - (spreadPct - 3) * 4.5));
+    }
+
+    let daysScore = 0;
+    if (days > 0) {
+        const dist = Math.abs(days - 30);
+        daysScore = Math.max(0, 100 - dist * 2.5);
+    }
+
+    let ivHvScore = 50;
+    if (ivHv != null && Number.isFinite(ivHv)) {
+        const dist = Math.abs(ivHv - 1.0);
+        ivHvScore = Math.max(0, 100 - dist * 120);
+    }
+
+    let oiScore = 0;
+    if (oi > 0) oiScore = Math.min(100, Math.log10(oi + 1) * 28);
+
+    let volScore = 0;
+    if (vol > 0) volScore = Math.min(100, Math.log10(vol + 1) * 22);
+
+    let qualityScore = 50;
+    if (quality === 'real') qualityScore = 100;
+    else if (quality === 'enriched') qualityScore = 60;
+    else if (quality === 'missing_price') qualityScore = 0;
+
+    const total =
+        deltaScore   * W.delta +
+        spreadScore  * W.spread +
+        daysScore    * W.daysLeft +
+        ivHvScore    * W.ivHv +
+        oiScore      * W.oi +
+        volScore     * W.volume +
+        qualityScore * W.quality;
+
+    const score = Math.max(0, Math.min(100, Math.round(total)));
+
+    let chosen = rows[rows.length - 1];
+    for (const t of rows) {
+        if (score >= t.min) { chosen = t; break; }
+    }
+
+    return {
+        grade: chosen.grade,
+        score,
+        sizeFactor: chosen.factor,
+        breakdown: {
+            delta:     Math.round(deltaScore),
+            spread:    Math.round(spreadScore),
+            daysLeft:  Math.round(daysScore),
+            ivHv:      Math.round(ivHvScore),
+            oi:        Math.round(oiScore),
+            volume:    Math.round(volScore),
+            quality:   Math.round(qualityScore)
+        },
+        inputs: { delta, days, ivHv, oi, vol, quality, bid, ask }
+    };
+}
 module.exports = {
+    computeOptionGrade,
     selectBestOption,
     getQualityParams,
     isValidContract,

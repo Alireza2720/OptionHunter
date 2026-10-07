@@ -15,7 +15,7 @@
 
 const { TRADING_DAYS_PER_YEAR } = require('../config/constants');
 const { calcUnifiedSize } = require('./sizing-unified');
-const { getQualityParams } = require('./option-selector');
+const { getQualityParams, computeOptionGrade } = require('./option-selector');
 
 // ============================================================
 // Dependencies (تزریق می‌شن)
@@ -736,7 +736,27 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
 
     for (const p of res.picks) {
         try {
-            const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol }, sc, portfolio, signalStrength, config);
+            // 🆕 Grade-aware sizing (live)
+            let _liveGrade = null;
+            try {
+                if (deps.settings && typeof deps.settings.isOptionGradeSizingEnabled === 'function'
+                    && deps.settings.isOptionGradeSizingEnabled()) {
+                    _liveGrade = computeOptionGrade({
+                        bid: p.bid, ask: p.ask,
+                        deltaApi: p.deltaApi != null ? p.deltaApi : p.delta,
+                        daysLeft: p.daysLeft,
+                        ivApi: p.ivApi != null ? p.ivApi : p.iv,
+                        hvApi: p.hvApi != null ? p.hvApi : p.hv,
+                        oi: p.oi, volume: p.volume,
+                        dataQuality: p.dataQuality || 'real'
+                    }, {
+                        weights: deps.settings.getOptionGradeWeights ? deps.settings.getOptionGradeWeights() : null,
+                        thresholds: deps.settings.getOptionGradeThresholds ? deps.settings.getOptionGradeThresholds() : null
+                    });
+                }
+            } catch (_) { _liveGrade = null; }
+            p.optionGrade = _liveGrade;
+            const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol, optionSizeFactor: _liveGrade ? _liveGrade.sizeFactor : 1.0 }, sc, portfolio, signalStrength, config);
             p.positionSize = pi.size;
             p.positionInfo = pi;
         } catch (_) {
@@ -1092,6 +1112,31 @@ async function tryGetRealTradeData(symbol, t, p) {
     const spreadPct = best.bid > 0 && best.ask > 0
         ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100 : null;
 
+
+    // 🆕 Grade-aware sizing — compute grade for this contract
+    let _ohGrade = null;
+    try {
+        if (deps.settings && typeof deps.settings.isOptionGradeSizingEnabled === 'function'
+            && deps.settings.isOptionGradeSizingEnabled()) {
+            const _gp = {
+                weights: deps.settings.getOptionGradeWeights ? deps.settings.getOptionGradeWeights() : null,
+                thresholds: deps.settings.getOptionGradeThresholds ? deps.settings.getOptionGradeThresholds() : null
+            };
+            const _gr = {
+                bid: best.bid,
+                ask: best.ask,
+                deltaApi: best.deltaApi,
+                daysLeft: best.daysLeft,
+                ivApi: best.ivApi,
+                hvApi: best.hvApi,
+                oi: best.oi,
+                volume: best.volume,
+                dataQuality: best.dataQuality
+            };
+            _ohGrade = computeOptionGrade(_gr, _gp);
+        }
+    } catch (_) { _ohGrade = null; }
+
     return {
         entryTime: t.entryTime, exitTime: t.exitTime,
         stockEntry: t.entryPrice, stockExit: t.exitPrice,
@@ -1325,6 +1370,10 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         exitReason: t.exitReason,
         // 🆕 option-exit classification
         optionExitInfo: classifyOptionExit(best, exitRow, (exitSec - entrySec) / 86400),
+        optionGrade: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.grade : null,
+        optionScore: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.score : null,
+        optionSizeFactor: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.sizeFactor : 1.0,
+        optionGradeBreakdown: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.breakdown : null,
         entryIvAtEntry: best.ivApi || null,
         entryDeltaAtEntry: best.deltaApi || null,
         entryThetaAtEntry: best.thetaApi || null,

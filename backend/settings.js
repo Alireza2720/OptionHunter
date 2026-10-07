@@ -53,6 +53,32 @@ const DEFAULTS = {
     // Controls which contracts are eligible in BOTH backtest AND live.
     OPTION_QUALITY_LEVEL: 'B',
 
+    // ---- 🆕 Grade-Aware Option Sizing ----
+    // Weights for 7 components. Sum should be 1.0 (not enforced).
+    OPTION_GRADE_WEIGHTS: {
+        delta:    0.30,
+        spread:   0.20,
+        daysLeft: 0.15,
+        ivHv:     0.15,
+        oi:       0.08,
+        volume:   0.07,
+        quality:  0.05
+    },
+    // Grade thresholds: score range -> letter + size factor.
+    // Must be sorted DESC by min.
+    OPTION_GRADE_THRESHOLDS: [
+        { grade: 'A+', min: 85, factor: 1.00 },
+        { grade: 'A',  min: 70, factor: 0.80 },
+        { grade: 'B',  min: 55, factor: 0.60 },
+        { grade: 'C',  min: 40, factor: 0.40 },
+        { grade: 'D',  min: 25, factor: 0.20 },
+        { grade: 'F',  min: 0,  factor: 0.00 }
+    ],
+    // Minimum score to be considered (F fallback).
+    OPTION_MIN_SCORE: 25,
+    // Enable/disable grade-aware sizing globally.
+    OPTION_GRADE_SIZING_ENABLED: 1,
+
     // score -> size factor map (7 buckets)
     SCORE_SIZE_MAP: [
         { min: 0.80, factor: 1.3 },
@@ -183,12 +209,33 @@ function signalFactor(confluence) {
 }
 function levelFactor(level) {
     const L = String(level || '').toUpperCase();
+    // 🆕 Prefer grade-aware thresholds if present (configurable from UI)
+    const th = values.OPTION_GRADE_THRESHOLDS;
+    if (Array.isArray(th)) {
+        const hit = th.find(function (t) { return String(t.grade).toUpperCase() === L; });
+        if (hit && Number.isFinite(hit.factor)) return hit.factor;
+    }
+    // Legacy fallback
     if (L === 'A+') return values.LEVEL_FACTOR_A_PLUS;
     if (L === 'A') return values.LEVEL_FACTOR_A;
     if (L === 'B') return values.LEVEL_FACTOR_B;
     if (L === 'C') return values.LEVEL_FACTOR_C;
     if (L === 'D') return values.LEVEL_FACTOR_D;
     return 0.5;
+}
+
+// 🆕 Grade-aware sizing — helpers
+function getOptionGradeWeights() {
+    return values.OPTION_GRADE_WEIGHTS || null;
+}
+function getOptionGradeThresholds() {
+    return values.OPTION_GRADE_THRESHOLDS || null;
+}
+function getOptionMinScore() {
+    return Number.isFinite(values.OPTION_MIN_SCORE) ? values.OPTION_MIN_SCORE : 25;
+}
+function isOptionGradeSizingEnabled() {
+    return !!values.OPTION_GRADE_SIZING_ENABLED;
 }
 function ivFactor(ivHv) {
     if (!ivHv || ivHv <= 0) return 1;
@@ -264,7 +311,11 @@ module.exports = {
     minTargetPct,
     getStrategyDefaults, getAllStrategyDefaults, saveStrategyDefaults, resetStrategyDefaults,
     setRiskFreeRate, getRiskFreeRate, getRiskFreeMeta,
-    signalFactor, levelFactor, ivFactor, dataDepthFactor,
+    dataDepthFactor,
     scoreSizeFactor,
     getOptionQualityLevel,
+    getOptionGradeWeights,
+    getOptionGradeThresholds,
+    getOptionMinScore,
+    isOptionGradeSizingEnabled,
 };
