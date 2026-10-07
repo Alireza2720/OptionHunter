@@ -220,6 +220,10 @@ class TSETMCClient:
 
         paper_types: (1,2,3) = stocks, (5,6) = options
         with_best_limits: include 5-level best bid/ask (adds bestLimits array)
+
+        Primary source: cdn.tsetmc.com (JSON).
+        Fallback: old.tsetmc.com/tsev2/data/MarketWatchInit.aspx
+                  (gzipped, pipe-delimited — used when cdn returns 403).
         """
         parts = "&".join(
             "paperTypes[{}]={}".format(i, pt)
@@ -228,8 +232,104 @@ class TSETMCClient:
         bl = "true" if with_best_limits else "false"
         url = ("{}/ClosingPrice/GetMarketWatch?"
                "market=0&{}&withBestLimits={}&hEven=0&RefID=0").format(CDN, parts, bl)
-        d = self._json(url, timeout=30)
-        return d.get("marketWatch", []) or []
+
+        # Try modern API first
+        try:
+            d = self._json(url, timeout=15)
+            mw = d.get("marketWatch", []) or []
+            if mw:
+                return mw
+        except TSETMCError:
+            pass
+
+        # Fallback to legacy endpoint (some IPs get 403 on the modern one)
+        return self._legacy_market_watch(paper_types, with_best_limits)
+
+    def _legacy_market_watch(self, paper_types, with_best_limits=False):
+        """Fallback parser for old.tsetmc.com/tsev2/data/MarketWatchInit.aspx.
+
+        Response is gzipped. Format: 4 sections split by '@':
+          [0] index info
+          [1] market overview
+          [2] sector summary
+          [3] contracts list (semicolon-delimited rows)
+        Each contract row is comma-delimited with 26 fields; field 25 is the
+        row-type marker ('3A' for stock/option contract).
+        """
+        url = "{}/data/MarketWatchInit.aspx?h=0&r=0".format(OLD)
+        try:
+            st, body = self._get(url, timeout=30)
+        except TSETMCError:
+            return []
+        if st != 200 or not body.strip():
+            return []
+
+        sections = body.split('@')
+        if len(sections) < 4:
+            return []
+
+        want_stocks = any(pt in paper_types for pt in (1, 2, 3))
+        want_options = any(pt in paper_types for pt in (5, 6))
+
+        def _f(fields, idx, default=0.0):
+            try:
+                v = fields[idx].strip()
+                return float(v) if v else default
+            except (ValueError, IndexError):
+                return default
+
+        out = []
+        for row_str in sections[3].split(';'):
+            row_str = row_str.strip()
+            if not row_str:
+                continue
+            fields = row_str.split(',')
+            if len(fields) < 26:
+                continue
+            if fields[25].strip() != '3A':
+                continue
+
+            try:
+                ins_code = fields[0].strip()
+                ticker = fields[2].strip()
+                if not ins_code or not ticker:
+                    continue
+
+                is_option = ticker[0] in ('ض', 'ط')
+                if is_option and not want_options:
+                    continue
+                if not is_option and not want_stocks:
+                    continue
+
+                bid = _f(fields, 11)
+                ask = _f(fields, 12)
+
+                row = {
+                    'insCode': ins_code,
+                    'lva': ticker,
+                    'lVal18AFC': ticker,
+                    'pDrCotVal': _f(fields, 5),
+                    'last': _f(fields, 5),
+                    'pcl': _f(fields, 6),
+                    'pClosing': _f(fields, 6),
+                    'pmax': _f(fields, 7),
+                    'zTotTran': _f(fields, 8),
+                    'qTotTran5J': _f(fields, 9),
+                    'qTotTran': _f(fields, 10),
+                    'pd1': bid,
+                    'po1': ask,
+                    'py': _f(fields, 13),
+                    'yesterday': _f(fields, 13),
+                    'size': _f(fields, 21),
+                    'op': 0,
+                }
+                if with_best_limits:
+                    row['bestLimits'] = [{'bd': bid, 'od': ask, 'bq': 0, 'oq': 0}]
+                out.append(row)
+            except Exception:
+                continue
+
+        return out
 
 
 # ─── Singleton ───
