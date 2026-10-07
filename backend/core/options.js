@@ -1436,6 +1436,80 @@ function tryGetApproxTradeData(t, closes, times, p) {
     };
 }
 
+// ============================================================
+// 🆕 Grade an option contract A+ -> D based on quality
+// Instead of rejecting, classify so it can still participate
+// in backtest/live with a lower size factor.
+// ============================================================
+function gradeOption(c) {
+    const bid = Number(c.bid) || 0;
+    const ask = Number(c.ask) || 0;
+    const oi = Number(c.oi) || 0;
+    const days = Number(c.daysLeft) || 0;
+    const delta = Number(c.delta);
+    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+    const spreadPct = mid > 0 ? ((ask - bid) / mid) * 100 : 100;
+    const dq = c.dataQuality || 'real';
+
+    if (!(ask > 0)) return null;
+
+    // A+ : strictest
+    if (bid > 0 && ask >= 500 && spreadPct <= 8 &&
+        days >= 14 && days <= 45 && oi >= 200 &&
+        Number.isFinite(delta) && delta >= 0.45 && delta <= 0.65 &&
+        dq === 'real') {
+        return { grade: 'A+', score: 5, spreadPct, delta };
+    }
+
+    // A
+    if (bid > 0 && ask >= 300 && spreadPct <= 10 &&
+        days >= 10 && days <= 55 && oi >= 100 &&
+        Number.isFinite(delta) && delta >= 0.35 && delta <= 0.75 &&
+        dq === 'real') {
+        return { grade: 'A', score: 4, spreadPct, delta };
+    }
+
+    // B
+    if (bid > 0 && ask >= 150 && spreadPct <= 15 &&
+        days >= 7 && days <= 70 && oi >= 50 &&
+        Number.isFinite(delta) && delta >= 0.25 && delta <= 0.85) {
+        return { grade: 'B', score: 3, spreadPct, delta };
+    }
+
+    // C
+    if (bid > 0 && ask >= 80 && spreadPct <= 20 &&
+        days >= 3 && days <= 90 && oi >= 20 &&
+        Number.isFinite(delta) && delta >= 0.15 && delta <= 0.90) {
+        return { grade: 'C', score: 2, spreadPct, delta };
+    }
+
+    // D — most permissive
+    if (ask >= 30 && spreadPct <= 30 &&
+        days >= 1 && days <= 180) {
+        return { grade: 'D', score: 1, spreadPct, delta: Number.isFinite(delta) ? delta : null };
+    }
+
+    return null;
+}
+
+// ============================================================
+// 🆕 Grade a whole chain (keep all eligible contracts)
+// ============================================================
+function gradeOptionChain(chain) {
+    const out = [];
+    for (const c of (chain || [])) {
+        const g = gradeOption(c);
+        if (!g) continue;
+        out.push(Object.assign({}, c, {
+            _grade: g.grade,
+            _gradeScore: g.score,
+            _spreadPct: g.spreadPct,
+            _deltaUsed: g.delta
+        }));
+    }
+    return out;
+}
+
 async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     const db = requireDep('getDB')();
     // Resolve quality level (opts > settings > default)
@@ -1712,6 +1786,8 @@ module.exports = {
     runRealOptionBacktest: (symbol, trades, opts) => runHybridOptionBacktest(symbol, trades, { ...opts, realEnabled: true }),
     // stats
     positionStats,
+    // grading
+    gradeOption, gradeOptionChain,
     // constants
     OPT_BT_DEFAULTS
 };

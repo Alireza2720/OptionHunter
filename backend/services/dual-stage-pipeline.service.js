@@ -1094,7 +1094,9 @@ async function runDualStage(jobId, opts = {}) {
             }
         }
 
+        const __t5 = Date.now();
         const stage5 = await _stage5_optionBacktest(jobId, stage4.plans, ranges.test, merged);
+        stage5.stageTimeMs = Date.now() - __t5;
 
         await _setStage(jobId, 5, {
             stage5: {
@@ -1118,6 +1120,28 @@ async function runDualStage(jobId, opts = {}) {
 
         // Done
         const elapsed = Math.round((Date.now() - t0) / 1000);
+        // 🆕 per-stage timings (ms)
+        const stageTimings = {
+            stage1_stockBacktest_ms: stage1.stageTimeMs || null,
+            stage2_fdrFilter_ms:     stage2.stageTimeMs || null,
+            stage3_validation_ms:    stage3.stageTimeMs || null,
+            stage4_leaderConfirmer_ms: stage4.stageTimeMs || null,
+            stage5_optionBacktest_ms: stage5.stageTimeMs || null,
+            stage6_verdict_ms:       stage6.stageTimeMs || null,
+            stage7_apply_ms:         stage7.stageTimeMs || null,
+            total_ms:                Date.now() - t0,
+            total_sec:               elapsed,
+        };
+        deps.logger && deps.logger.info(
+            `[dual-stage ${jobId}] DONE in ${elapsed}s — ` +
+            `s1=${stageTimings.stage1_stockBacktest_ms || '?'}ms ` +
+            `s2=${stageTimings.stage2_fdrFilter_ms || '?'}ms ` +
+            `s3=${stageTimings.stage3_validation_ms || '?'}ms ` +
+            `s4=${stageTimings.stage4_leaderConfirmer_ms || '?'}ms ` +
+            `s5=${stageTimings.stage5_optionBacktest_ms || '?'}ms ` +
+            `s6=${stageTimings.stage6_verdict_ms || '?'}ms ` +
+            `s7=${stageTimings.stage7_apply_ms || '?'}ms`
+        );
         // 🆕 به‌جای _setStage(99) که current=99/total=7 می‌کرد، مستقیم مقدار درست ست کن
         await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
             { _id: new ObjectId(jobId) },
@@ -1131,6 +1155,7 @@ async function runDualStage(jobId, opts = {}) {
         );
 
         const finalResult = {
+            stageTimings,
             ranges,
             stages: {
                 1: { totalConfigs: configs.length },
