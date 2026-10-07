@@ -37,6 +37,8 @@ module.exports = {
       error_file: __dirname + '/logs/error.log',
       out_file: __dirname + '/logs/out.log',
       merge_logs: true,
+      max_size: '50M',
+      retain: 7,
       time: true
     },
    {
@@ -56,6 +58,8 @@ module.exports = {
       error_file: __dirname + '/logs/monitor-error.log',
       out_file: __dirname + '/logs/monitor-out.log',
       merge_logs: true,
+      max_size: '50M',
+      retain: 7,
       time: true
     }
   ]
