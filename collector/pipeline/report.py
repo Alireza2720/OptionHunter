@@ -5,7 +5,9 @@ from .db import get_db, COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF, COL
 
 # 🆕 cache داخلی
 _cov_cache = {'result': None, 'at': 0, 'symbols_key': None}
-_COV_TTL = 180   # 3 دقیقه
+# 10min TTL (was 3min) — frontend polls every 60s, so this reduces
+# full aggregations from ~20/hour to ~6/hour on the 1-core server.
+_COV_TTL = 600
 
 
 def coverage_report(symbols=None):

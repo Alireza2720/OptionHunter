@@ -677,7 +677,7 @@ function clearCache(prefix) {
 // 🆕 Candle cache — با eviction خودکار (رفع memory leak)
 // ============================================================
 const _candleCache = new Map();
-const CANDLE_TTL_MS = 30 * 60 * 1000;  // 🆕 30 دقیقه    // ۳ دقیقه
+const CANDLE_TTL_MS = 45 * 60 * 1000;  // 45min (was 30) — market-hours safe
 const CANDLE_MAX_ENTRIES = 500;          // ۲۳ نماد × ۸ تایم‌فریم + بافر
 
 function _cacheKey(symbol, tf) { return `${symbol}::${tf}`; }

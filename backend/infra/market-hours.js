@@ -46,7 +46,9 @@ function marketStateLabel() {
 // تو ساعات بازار: ۳۰ دقیقه (پولینگ فعال)
 // خارج از بازار: ۶ ساعت (بی‌کاری طولانی)
 function expensiveCacheTTL() {
-    return isMarketHourOrNear() ? 30 * 60 * 1000 : 6 * 60 * 60 * 1000;
+    // During market: 30min. Outside market: 12h (was 6h) — since data doesn't
+    // change outside trading hours, longer cache saves CPU.
+    return isMarketHourOrNear() ? 30 * 60 * 1000 : 12 * 60 * 60 * 1000;
 }
 
 module.exports = {

@@ -111,8 +111,9 @@ function start() {
         if (marketHours.isMarketOpen()) return;
         return checkHealth();
     };
-    tasks.push(cron.schedule('*/2 * * * *', healthSchedule));
-    tasks.push(cron.schedule('0 */2 * * *', checkBackendMemory));
+    // Every 5min (was 2min) — pm2 jlist spawn removed elsewhere too.
+    tasks.push(cron.schedule('*/5 * * * *', healthSchedule));
+    tasks.push(cron.schedule('0 */4 * * *', checkBackendMemory));
     tasks.push(cron.schedule('*/5 * * * *', checkTickFreshness));
     deps.logger && deps.logger.info('health.job started');
 }
