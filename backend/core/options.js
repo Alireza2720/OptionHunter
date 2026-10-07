@@ -1588,6 +1588,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     };
     Object.assign(p, opts);
 
+    console.log("[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + closedTrades.length + " | realEnabled=" + (realEnabled !== false));
     if (!closedTrades.length) {
         return {
             assumptions: p,
