@@ -231,7 +231,9 @@ async function bootstrap() {
     // 4) infra clients
     telegram.init(() => mongo.getDB());
     algotik.setBaseUrl(envConf.ALGOTIK_URL);
-    optionsChain.setUrl(envConf.OPTIONS_API_URL);
+    // NOTE: optionsChain no longer fetches optionschool24 directly.
+    // COLLECTOR_URL comes from ALGOTIK_URL inside infra/options-chain.js.
+    // Do NOT call setUrl(OPTIONS_API_URL) — that would override the collector URL.
 
     // 5) settings (مستقیم از settings.js)
     settingsModule.init({ getDB: mongo.getDB });
