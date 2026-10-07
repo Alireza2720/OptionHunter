@@ -746,66 +746,6 @@ def chain_invalidate():
     return {'ok': True}
 
 
-# ---------- Enriched Option Chain (Phase 1 — TSETMC-based) ----------
-from fastapi import Request as _FRequest, Response as _FResponse
-
-@app.get('/chain/enriched')
-def chain_enriched(fresh: int = 0, meta: int = 0):
-    """Full enriched option chain from TSETMC (optionschool24-compatible).
-
-    Query params:
-        fresh=1     force cache bypass (recompute now)
-        meta=1      wrap in {count, data, meta} instead of plain array
-    """
-    try:
-        data = og_mod.get_chain_cached(force=(fresh == 1))
-        meta_info = og_mod.get_chain_meta() or {}
-        if meta == 1:
-            return {
-                'count': len(data),
-                'data': data,
-                'meta': meta_info,
-            }
-        return _FResponse(
-            content=json.dumps(data),
-            media_type='application/json',
-            headers={
-                'X-Chain-Count': str(len(data)),
-                'X-Chain-Compute-Ms': str(meta_info.get('computeMs', 0)),
-            },
-        )
-    except Exception as e:
-        import traceback
-        log('chain_enriched_err', str(e)[:200])
-        return _FResponse(
-            content=json.dumps({'error': str(e)}),
-            media_type='application/json',
-            status_code=500,
-        )
-
-
-@app.get('/chain/enriched/status')
-def chain_enriched_status():
-    """Metadata only: last refresh time, count, compute ms."""
-    meta_info = og_mod.get_chain_meta()
-    if not meta_info:
-        return {'ready': False}
-    return {'ready': True, **meta_info}
-
-
-@app.get('/chain/diagnose')
-def chain_diagnose():
-    """Diagnostic: raw MarketWatch field names."""
-    return og_mod.diagnose_market_watch()
-
-
-@app.post('/chain/invalidate')
-def chain_invalidate():
-    """Force cache invalidation."""
-    og_mod.invalidate_caches()
-    return {'ok': True}
-
-
 # ---------- Options Migration ----------
 class MigrateOptionsIn(BaseModel):
     underlyings: Optional[List[str]] = None
