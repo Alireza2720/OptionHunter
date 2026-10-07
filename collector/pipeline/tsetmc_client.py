@@ -248,13 +248,15 @@ class TSETMCClient:
     def _legacy_market_watch(self, paper_types, with_best_limits=False):
         """Fallback parser for old.tsetmc.com/tsev2/data/MarketWatchInit.aspx.
 
-        Response is gzipped. Format: 4 sections split by '@':
-          [0] index info
-          [1] market overview
-          [2] sector summary
-          [3] contracts list (semicolon-delimited rows)
-        Each contract row is comma-delimited with 26 fields; field 25 is the
-        row-type marker ('3A' for stock/option contract).
+        Response is gzipped; format has 5 sections split by '@':
+          [0] index info (21 bytes)
+          [1] market overview (215 bytes)
+          [2] contracts list (the main payload — this is what we need)
+          [3] order-book limits
+          [4] trailing counter
+
+        Each contract row in section[2] is ';'-delimited; fields are
+        comma-separated. See field mapping below (verified 2026-10).
         """
         url = "{}/data/MarketWatchInit.aspx?h=0&r=0".format(OLD)
         try:
@@ -265,8 +267,11 @@ class TSETMCClient:
             return []
 
         sections = body.split('@')
-        if len(sections) < 4:
+        if len(sections) < 3:
             return []
+
+        # ✅ section[2] is the contracts list (NOT section[3])
+        contracts_section = sections[2]
 
         want_stocks = any(pt in paper_types for pt in (1, 2, 3))
         want_options = any(pt in paper_types for pt in (5, 6))
@@ -279,20 +284,24 @@ class TSETMCClient:
                 return default
 
         out = []
-        for row_str in sections[3].split(';'):
+        for row_str in contracts_section.split(';'):
             row_str = row_str.strip()
             if not row_str:
                 continue
             fields = row_str.split(',')
-            if len(fields) < 26:
-                continue
-            if fields[25].strip() != '3A':
+            if len(fields) < 14:
                 continue
 
             try:
                 ins_code = fields[0].strip()
-                ticker = fields[2].strip()
+                ticker = fields[2].strip() if len(fields) > 2 else ''
                 if not ins_code or not ticker:
+                    continue
+                # Ticker must be Persian (starts with Arabic block)
+                if len(ticker) < 1:
+                    continue
+                cp = ord(ticker[0])
+                if cp < 0x0600 or cp > 0x06FF:
                     continue
 
                 is_option = ticker[0] in ('ض', 'ط')
@@ -301,6 +310,15 @@ class TSETMCClient:
                 if not is_option and not want_stocks:
                     continue
 
+                # Verified field mapping for section[2] (2026-10):
+                #   [0] insCode      [1] ISIN         [2] ticker
+                #   [3] lVal30       [4] hEven        [5] pClosing
+                #   [6] pDrCotVal    [7] pmax         [8] zTotTran
+                #   [9] qTotTran5J   [10] qTotTran    [11] pd1 (bid)
+                #   [12] po1 (ask)   [13] py (yday)   [14..] extras
+                last_price = _f(fields, 6)
+                close_px = _f(fields, 5)
+                yday = _f(fields, 13)
                 bid = _f(fields, 11)
                 ask = _f(fields, 12)
 
@@ -308,23 +326,26 @@ class TSETMCClient:
                     'insCode': ins_code,
                     'lva': ticker,
                     'lVal18AFC': ticker,
-                    'pDrCotVal': _f(fields, 5),
-                    'last': _f(fields, 5),
-                    'pcl': _f(fields, 6),
-                    'pClosing': _f(fields, 6),
+                    'lVal30': fields[3].strip() if len(fields) > 3 else '',
+                    'pDrCotVal': last_price,
+                    'last': last_price,
+                    'pcl': close_px,
+                    'pClosing': close_px,
+                    'py': yday,
+                    'yesterday': yday,
                     'pmax': _f(fields, 7),
                     'zTotTran': _f(fields, 8),
                     'qTotTran5J': _f(fields, 9),
                     'qTotTran': _f(fields, 10),
                     'pd1': bid,
                     'po1': ask,
-                    'py': _f(fields, 13),
-                    'yesterday': _f(fields, 13),
-                    'size': _f(fields, 21),
+                    'size': _f(fields, 21) or 1000,
                     'op': 0,
                 }
                 if with_best_limits:
-                    row['bestLimits'] = [{'bd': bid, 'od': ask, 'bq': 0, 'oq': 0}]
+                    row['bestLimits'] = [{
+                        'bd': bid, 'od': ask, 'bq': 0, 'oq': 0,
+                    }]
                 out.append(row)
             except Exception:
                 continue
