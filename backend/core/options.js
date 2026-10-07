@@ -1194,8 +1194,13 @@ function classifyOptionExit(entryRow, exitRow, heldDays) {
     };
 }
 
+
+// 🆕 DEBUG (temporary)
+let __dbgCallCount = 0;
+function __dbg(...args) { if (__dbgCallCount <= 5) console.log("[DBG-tryGetReal]", ...args); }
+
 function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
-    const FEE_BUY = getFeeBuy();
+    __dbgCallCount++; const FEE_BUY = getFeeBuy();
     const FEE_SELL = getFeeSell();
 
     // 🆕 Latency با p.latencySec
@@ -1228,7 +1233,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
             }
         }
     }
-    if (!candidateRows.length) return null;
+    if (!candidateRows.length) { __dbg("no candidateRows", {underlying: symbol, entrySec, exitSec, _loSec, _hiSec, rowCount: rowsBySymbol.size}); return null; }
 
     // 🆕 delta: از deltaApi، یا محاسبه با BS (bid/ask هر دو اجباری هستن قبل از این تابع)
     const RISK_FREE_LOCAL = getRiskFree();
@@ -1256,7 +1261,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         }
         return d >= p.deltaMin && d <= p.deltaMax;
     });
-    if (!valid.length) return null;
+    if (!valid.length) { __dbg("no valid (delta filter)", {candidates: candidateRows.length, deltaMin: p.deltaMin, deltaMax: p.deltaMax, allowMissingDelta}); return null; }
 
     // 🆕 target delta انعطاف‌پذیر — مرکز بازه‌ی موجود
     let targetDelta = 0.55;
@@ -1296,12 +1301,12 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         const dist = Math.abs(sec - exitSec);
         if (dist < exitDist) { exitDist = dist; exitRow = r; }
     }
-    if (!exitRow) return null;
+    if (!exitRow) { __dbg("no exitRow", {symbol: best.symbol, exitSec, entrySec}); return null; }
 
     // ---- 🆕 قیمت‌ها فقط از bid/ask واقعی ----
     const entry = realisticBuyPrice(best);
     const exit  = realisticSellPrice(exitRow);
-    if (!entry || !exit) return null;   // ⛔ اگه bid/ask نبود → کل معامله skip
+    if (!entry || !exit) { __dbg("no real bid/ask", {sym: best.symbol, entryBid: best.bid, entryAsk: best.ask, exitBid: exitRow.bid, exitAsk: exitRow.ask}); return null; }
 
     // ---- 🆕 Slippage داینامیک (۱ قرارداد، نه multiplier) ----
     const contractMultiplier = best.size || 1000;
