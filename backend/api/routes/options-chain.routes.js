@@ -46,12 +46,14 @@ function register(app, deps) {
             const t0 = Date.now();
             const list = await optionsChain.fetchChain(maxAgeMs);
             const ms = Date.now() - t0;
+            if (logger) logger.info('[options-chain] fetchChain returned ' + (list && list.length) + ' items in ' + ms + 'ms (fresh=' + fresh + ', maxAgeMs=' + maxAgeMs + ')');
 
             if (!Array.isArray(list)) {
                 throw new Error('options-chain returned non-array');
             }
 
-            const clean = list.filter(c => c && c.symbol && c.strike > 0);
+            // fetchChain already filters (c.symbol && c.strike > 0); use as-is
+            const clean = list;
 
             if (withMeta) {
                 return res.json({
