@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .db import get_db, log
 from .tsetmc_client import get_client, TSETMCError
 from .tsetmc_parser import normalize_fa
