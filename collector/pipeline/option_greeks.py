@@ -259,14 +259,16 @@ def compute_enriched_chain(underlyings=None, force=False):
         is_call = c.get('type') == 'call'
         T = max(days_left, 1) / 365.0
 
-        # Mid price for IV
+        # Price for IV: prefer last (like optionschool24) → close → mid
         mid = 0.0
-        if bid_p > 0 and ask_p > 0:
+        if last > 0:
+            mid = last
+        elif close_px > 0:
+            mid = close_px
+        elif bid_p > 0 and ask_p > 0:
             mid = (bid_p + ask_p) / 2
         elif ask_p > 0:
             mid = ask_p
-        elif last > 0:
-            mid = last
 
         # IV via Newton-Raphson
         iv = None
@@ -327,8 +329,8 @@ def compute_enriched_chain(underlyings=None, force=False):
             's_volume': ask_v,
             'black_sholes': round(_safe_float(bs.get('price')), 2),
             'bs_d': round(bs_diff, 2),
-            'imp': round(iv * 100, 2) if iv else 0,
-            'sigma': round(hv * 100, 2) if hv else 0,
+            'imp': round(iv, 4) if iv else 0,
+            'sigma': round(hv, 4) if hv else 0,
             'delta': round(_safe_float(bs.get('delta')), 4),
             'gamma': round(_safe_float(bs.get('gamma')), 6),
             'theta': round(_safe_float(bs.get('theta')), 4),
