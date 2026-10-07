@@ -1,0 +1,400 @@
+# -*- coding: utf-8 -*-
+"""option_greeks.py — Enriched option chain from TSETMC.
+
+Replaces optionschool24.com for Greeks + IV computation.
+Output format is compatible with optionschool24's /last?type=3 so both
+OptionHunter backend and OptionStrategist can consume it unchanged.
+
+Pipeline:
+    1. Discover contracts from TSETMC (cached 1h)
+    2. Fetch options MarketWatch (bid/ask/last/vol)
+    3. Fetch stock MarketWatch (underlying spot)
+    4. For each contract:
+        - compute days_left, T, HV (30d window)
+        - solve IV via Newton-Raphson from mid price
+        - compute BS price + Greeks (delta/gamma/theta/vega)
+    5. Return optionschool24-compatible JSON array
+"""
+
+import math
+import time
+from datetime import datetime, timezone
+from typing import Optional, List, Dict
+
+from .db import get_db, log
+from .tsetmc_client import get_client, TSETMCError
+from .tsetmc_parser import normalize_fa
+
+# BS helpers (already in collector)
+try:
+    from option_reconstruction.pricing import (
+        bs_call, bs_put, implied_vol, norm_cdf,
+    )
+    _BS_AVAILABLE = True
+except ImportError:
+    _BS_AVAILABLE = False
+    def _stub_bs(*a, **kw):
+        return {'price': 0.0, 'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0}
+    bs_call = _stub_bs
+    bs_put = _stub_bs
+    def implied_vol(*a, **kw):
+        return None
+    def norm_cdf(x):
+        return 0.5
+
+# ================================================================
+# Caches
+# ================================================================
+_contract_cache = {'at': 0.0, 'data': None}
+_CONTRACT_TTL = 3600          # refresh contract list every 1h
+
+_chain_cache = {'at': 0.0, 'data': None, 'meta': None}
+_CHAIN_TTL = 60               # refresh full chain every 60s
+
+HV_WINDOW = 30                # HV window (trading days)
+MIN_HV_SAMPLES = 10
+
+
+# ================================================================
+# Helpers
+# ================================================================
+def _safe_float(v, default=0.0):
+    try:
+        x = float(v)
+        if x != x:  # NaN
+            return default
+        return x
+    except (TypeError, ValueError):
+        return default
+
+
+def _pv_str(price, volume):
+    """Format 'price/volume' like optionschool24 (e.g., '1234/5678')."""
+    p = _safe_float(price)
+    v = _safe_float(volume)
+    if p <= 0:
+        return ''
+    if v > 0:
+        return '{}/{}'.format(round(p, 2), int(v))
+    return str(round(p, 2))
+
+
+def _compute_hv_from_closes(closes):
+    """Annualized HV from chronological closes."""
+    if not closes or len(closes) < MIN_HV_SAMPLES + 1:
+        return None
+    rets = []
+    for i in range(1, len(closes)):
+        a, b = closes[i - 1], closes[i]
+        if a > 0 and b > 0:
+            rets.append(math.log(b / a))
+    if len(rets) < MIN_HV_SAMPLES:
+        return None
+    m = sum(rets) / len(rets)
+    var = sum((r - m) ** 2 for r in rets) / max(1, len(rets) - 1)
+    try:
+        return math.sqrt(var * 245)  # Tehran trading days/year
+    except Exception:
+        return None
+
+
+def _get_hv_map(symbols, window=HV_WINDOW):
+    """Compute 30d HV for each symbol from candles_daily."""
+    db = get_db()
+    out = {}
+    for sym in symbols:
+        try:
+            rows = list(db['candles_daily'].find(
+                {'symbol': sym},
+                {'time': 1, 'close': 1},
+            ).sort('time', -1).limit(window + 5))
+            if not rows:
+                continue
+            closes = [r['close'] for r in reversed(rows) if r.get('close', 0) > 0]
+            hv = _compute_hv_from_closes(closes)
+            if hv and 0.01 < hv < 5.0:
+                out[sym] = hv
+        except Exception as e:
+            log('og_hv_err', '{}: {}'.format(sym, str(e)[:100]))
+    return out
+
+
+def _get_risk_free():
+    """Risk-free rate from risk_free_cache (populated by OptionHunter job)."""
+    try:
+        db = get_db()
+        doc = db['risk_free_cache'].find_one({}, sort=[('date', -1)])
+        if doc and doc.get('rate'):
+            r = float(doc['rate'])
+            if 0.01 < r < 1.0:
+                return r
+    except Exception:
+        pass
+    return 0.23
+
+
+def _discover_all_contracts_cached(force=False):
+    """Discover all option contracts for all monitored underlyings (cached)."""
+    from . import options as opt_mod
+    db = get_db()
+    now = time.time()
+    if not force and _contract_cache['data'] is not None and (now - _contract_cache['at']) < _CONTRACT_TTL:
+        return _contract_cache['data']
+
+    underlyings = [s['symbol'] for s in db['monitored_symbols'].find({})]
+    all_contracts = []
+    for ua in underlyings:
+        try:
+            cs = opt_mod.discover_contracts_for_underlying(ua)
+            for c in cs:
+                c['_underlying'] = ua
+                all_contracts.append(c)
+        except Exception as e:
+            log('og_disc_err', '{}: {}'.format(ua, str(e)[:120]))
+
+    _contract_cache['data'] = all_contracts
+    _contract_cache['at'] = now
+    log('og_disc', 'discovered {} contracts for {} underlyings'.format(len(all_contracts), len(underlyings)))
+    return all_contracts
+
+
+# ================================================================
+# Main
+# ================================================================
+def compute_enriched_chain(underlyings=None, force=False):
+    """Build the full enriched option chain (optionschool24-compatible)."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+
+    if not underlyings:
+        underlyings = [s['symbol'] for s in db['monitored_symbols'].find({})]
+
+    ua_set = set(normalize_fa(u) for u in underlyings)
+
+    contracts_all = _discover_all_contracts_cached(force=force)
+    contracts_all = [c for c in contracts_all
+                     if normalize_fa(c.get('_underlying', '')) in ua_set]
+
+    rf = _get_risk_free()
+    hv_map = _get_hv_map(underlyings)
+
+    client = get_client()
+
+    # Options MarketWatch (single HTTP call for all options)
+    try:
+        mw_opts = client.market_watch(paper_types=(5, 6), with_best_limits=True)
+    except TSETMCError as e:
+        log('og_mw_opt_err', str(e)[:200])
+        mw_opts = []
+    opt_map = {r.get('insCode'): r for r in (mw_opts or []) if r.get('insCode')}
+
+    # Stock MarketWatch (for underlying spot)
+    try:
+        mw_stocks = client.market_watch(paper_types=(1, 2, 3))
+    except TSETMCError:
+        mw_stocks = []
+    spot_map = {}
+    for r in (mw_stocks or []):
+        sym = r.get('lva') or r.get('lVal18AFC')
+        if not sym:
+            continue
+        last = _safe_float(r.get('pDrCotVal') or r.get('last') or r.get('pcl'))
+        if last > 0:
+            spot_map[normalize_fa(sym)] = last
+
+    out = []
+
+    for c in contracts_all:
+        ua = c.get('_underlying')
+        ins = c.get('insCode')
+        if not ua or not ins:
+            continue
+
+        ua_norm = normalize_fa(ua)
+        S = spot_map.get(ua_norm)
+        if not S or S <= 0:
+            continue
+
+        m = opt_map.get(ins, {})
+
+        # Bid/ask from bestLimits[0]
+        bid_p, ask_p, bid_v, ask_v = 0.0, 0.0, 0.0, 0.0
+        bl = m.get('bestLimits')
+        if isinstance(bl, list) and bl:
+            lvl0 = bl[0]
+            bid_p = _safe_float(lvl0.get('bd') or lvl0.get('bid'))
+            bid_v = _safe_float(lvl0.get('bq') or lvl0.get('bidVol') or lvl0.get('bVolume'))
+            ask_p = _safe_float(lvl0.get('od') or lvl0.get('ask'))
+            ask_v = _safe_float(lvl0.get('oq') or lvl0.get('askVol') or lvl0.get('oVolume'))
+
+        last = _safe_float(m.get('pDrCotVal') or m.get('last'))
+        close_px = _safe_float(m.get('pcl') or m.get('pClosing') or last)
+        yday = _safe_float(m.get('py') or m.get('yesterday'))
+        vol = _safe_float(m.get('qTotTran5J') or m.get('volume'))
+        val = _safe_float(m.get('qTotTran') or m.get('value'))
+        tno = _safe_float(m.get('zTotTran') or m.get('tradeCount'))
+        oi = _safe_float(m.get('op') or m.get('openInterest'))
+
+        close_pct = 0.0
+        if yday > 0 and close_px > 0:
+            close_pct = (close_px / yday - 1) * 100
+
+        # Days to expiry
+        expiry_greg = c.get('expiry_gregorian')
+        days_left = None
+        if expiry_greg:
+            try:
+                ey, em, ed = map(int, expiry_greg.split('-'))
+                exp_dt = datetime(ey, em, ed, 23, 59, 59, tzinfo=timezone.utc)
+                days_left = max(0, (exp_dt - now).days)
+            except Exception:
+                pass
+        if days_left is None or days_left <= 0:
+            continue
+
+        strike = _safe_float(c.get('strike'))
+        if strike <= 0:
+            continue
+
+        is_call = c.get('type') == 'call'
+        T = max(days_left, 1) / 365.0
+
+        # Mid price for IV
+        mid = 0.0
+        if bid_p > 0 and ask_p > 0:
+            mid = (bid_p + ask_p) / 2
+        elif ask_p > 0:
+            mid = ask_p
+        elif last > 0:
+            mid = last
+
+        # IV via Newton-Raphson
+        iv = None
+        if _BS_AVAILABLE and mid > 0 and S > 0:
+            try:
+                iv = implied_vol(mid, S, strike, T, rf, is_call=is_call)
+                if iv and not (0.01 <= iv <= 5.0):
+                    iv = None
+            except Exception:
+                iv = None
+
+        hv = hv_map.get(ua)
+        sigma = iv if iv else (hv if hv else 0.4)
+
+        if _BS_AVAILABLE:
+            bs = bs_call(S, strike, T, rf, sigma) if is_call else bs_put(S, strike, T, rf, sigma)
+        else:
+            bs = {'price': 0.0, 'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0}
+
+        intrinsic = max(S - strike, 0) if is_call else max(strike - S, 0)
+
+        if is_call:
+            status_text = 'سود' if S > strike else ('ضرر' if S < strike else 'تفاوت')
+        else:
+            status_text = 'سود' if S < strike else ('ضرر' if S > strike else 'تفاوت')
+
+        bs_diff = 0.0
+        if bs['price'] > 0 and mid > 0:
+            bs_diff = (mid - bs['price']) / bs['price'] * 100
+
+        out.append({
+            'name': c.get('ticker') or '',
+            'fname': c.get('name') or '',
+            'co': ins,
+            'basis_name': ua,
+            'type': 1 if is_call else 2,
+            'basis': S,
+            'basis_c': S,
+            'emal': strike,
+            'to_date': expiry_greg,
+            'day_left': days_left,
+            'days_left_actual': days_left,
+            'close': last,
+            'close_c': round(close_pct, 2),
+            'final': last,
+            'final_c': round(close_pct, 2),
+            'yday': yday,
+            'highest_price': 0,
+            'lowest_price': 0,
+            'Tvolume': vol,
+            'Tvalue': val,
+            'Tcount': tno,
+            'op': oi,
+            'op_change': 0,
+            'b_price': _pv_str(bid_p, bid_v),
+            'b_volume': bid_v,
+            's_price': _pv_str(ask_p, ask_v),
+            's_volume': ask_v,
+            'black_sholes': round(_safe_float(bs.get('price')), 2),
+            'bs_d': round(bs_diff, 2),
+            'imp': round(iv * 100, 2) if iv else 0,
+            'sigma': round(hv * 100, 2) if hv else 0,
+            'delta': round(_safe_float(bs.get('delta')), 4),
+            'gamma': round(_safe_float(bs.get('gamma')), 6),
+            'theta': round(_safe_float(bs.get('theta')), 4),
+            'vega': round(_safe_float(bs.get('vega')), 4),
+            'rho': 0,
+            'size': 1000,
+            'tazmin': 0,
+            'tazmin_3': 0,
+            'value': intrinsic,
+            'status_text': status_text,
+            'isCall': is_call,
+            'source': 'tsetmc_enriched',
+        })
+
+    return out
+
+
+def get_chain_cached(force=False, ttl=None):
+    """Return cached enriched chain (refreshed if stale)."""
+    if ttl is None:
+        ttl = _CHAIN_TTL
+    now = time.time()
+    if (not force
+            and _chain_cache['data'] is not None
+            and (now - _chain_cache['at']) < ttl):
+        return _chain_cache['data']
+
+    t0 = time.time()
+    data = compute_enriched_chain(force=force)
+    elapsed_ms = int((time.time() - t0) * 1000)
+
+    _chain_cache['data'] = data
+    _chain_cache['at'] = time.time()
+    _chain_cache['meta'] = {
+        'count': len(data),
+        'computeMs': elapsed_ms,
+        'at': datetime.now(timezone.utc).isoformat(),
+        'source': 'tsetmc_enriched',
+    }
+    log('og_chain_refresh', 'count={} ms={}'.format(len(data), elapsed_ms))
+    return data
+
+
+def get_chain_meta():
+    return _chain_cache.get('meta')
+
+
+def invalidate_caches():
+    """Clear both chain and contract caches."""
+    _chain_cache['data'] = None
+    _chain_cache['at'] = 0.0
+    _contract_cache['data'] = None
+    _contract_cache['at'] = 0.0
+
+
+def diagnose_market_watch():
+    """Return diagnostic info about raw MarketWatch fields."""
+    client = get_client()
+    try:
+        opts = client.market_watch(paper_types=(5, 6))
+    except TSETMCError as e:
+        return {'error': str(e)}
+    if not opts:
+        return {'count': 0}
+    return {
+        'count': len(opts),
+        'sample_keys': list(opts[0].keys()),
+        'sample_row': opts[0],
+    }
