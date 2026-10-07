@@ -209,6 +209,38 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
         if last > 0:
             spot_map[normalize_fa(sym)] = last
 
+    # ── Parallel BestLimits: fetch 5-level order book for all contracts ──
+    _best_limits_map = {}
+    _all_ins = [cc.get('insCode') for cc in contracts_all if cc.get('insCode')]
+
+    if _all_ins:
+        _t0_bl = time.time()
+        _bl_ok = 0
+        _bl_fail = 0
+
+        def _fetch_best(code):
+            try:
+                return code, client.best_limits(code)
+            except Exception:
+                return code, None
+
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futures = {ex.submit(_fetch_best, code): code for code in _all_ins}
+            for fut in as_completed(futures):
+                try:
+                    code, limits = fut.result()
+                    if limits:
+                        _best_limits_map[code] = limits
+                        _bl_ok += 1
+                    else:
+                        _bl_fail += 1
+                except Exception:
+                    _bl_fail += 1
+
+        _elapsed = round(time.time() - _t0_bl, 1)
+        log('og_best_limits', 'fetched {}/{} in {}s (failed={})'.format(
+            _bl_ok, len(_all_ins), _elapsed, _bl_fail))
+
     out = []
 
     for c in contracts_all:
@@ -233,6 +265,17 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
             bid_v = _safe_float(lvl0.get('bq') or lvl0.get('bidVol') or lvl0.get('bVolume'))
             ask_p = _safe_float(lvl0.get('od') or lvl0.get('ask'))
             ask_v = _safe_float(lvl0.get('oq') or lvl0.get('askVol') or lvl0.get('oVolume'))
+
+        # ── Merge real volumes from BestLimits ──
+        _book = _best_limits_map.get(ins)
+        if _book and _book[0]:
+            _lvl1 = _book[0]
+            if _lvl1['bid'] > 0:
+                bid_p = _lvl1['bid']
+                bid_v = _lvl1['bid_vol']
+            if _lvl1['ask'] > 0:
+                ask_p = _lvl1['ask']
+                ask_v = _lvl1['ask_vol']
 
         last = _safe_float(m.get('pDrCotVal') or m.get('last'))
         close_px = _safe_float(m.get('pcl') or m.get('pClosing') or last)
@@ -359,6 +402,7 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
             'b_volume': bid_v,
             's_price': _pv_str(ask_p, ask_v),
             's_volume': ask_v,
+            'bid_book': _best_limits_map.get(ins) or None,
             'black_sholes': round(_safe_float(bs.get('price')), 2),
             'bs_d': round(bs_diff, 2),
             'imp': round(iv, 4) if iv else 0,
