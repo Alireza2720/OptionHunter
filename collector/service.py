@@ -688,15 +688,17 @@ def coverage():
 from fastapi import Request as _FRequest, Response as _FResponse
 
 @app.get('/chain/enriched')
-def chain_enriched(fresh: int = 0, meta: int = 0):
+def chain_enriched(fresh: int = 0, meta: int = 0, model: str = 'bsm'):
     """Full enriched option chain from TSETMC (optionschool24-compatible).
 
     Query params:
-        fresh=1     force cache bypass (recompute now)
-        meta=1      wrap in {count, data, meta} instead of plain array
+        fresh=1           force cache bypass (recompute now)
+        meta=1            wrap in {count, data, meta} instead of plain array
+        model=bsm|heston  pricing model (default: bsm)
     """
     try:
-        data = og_mod.get_chain_cached(force=(fresh == 1))
+        pm = 'heston' if str(model).lower() == 'heston' else 'bsm'
+        data = og_mod.get_chain_cached(force=(fresh == 1), pricing_model=pm)
         meta_info = og_mod.get_chain_meta() or {}
         if meta == 1:
             return {

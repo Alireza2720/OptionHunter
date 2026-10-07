@@ -1,25 +1,41 @@
 'use strict';
 // ============================================================
-// options-chain.js — کلاینت Optionschool24 (زنجیره آپشن زنده)
+// options-chain.js — Proxy to Collector's /chain/enriched
 // ============================================================
-// این تنها منبع خارجی است که باقی می‌ماند چون جایگزینی ندارد.
-// داده در حافظه cache می‌شود تا از هجوم درخواست جلوگیری شود.
+// After Phase 2 migration, this module no longer fetches
+// optionschool24.com. It proxies the collector's TSETMC-based
+// enriched chain, with local in-memory caching.
+//
+// Output format is compatible with the legacy optionschool24
+// response, so existing callers don't need changes.
 // ============================================================
 
 const fetch = require('node-fetch');
 const { CACHE_TTL } = require('../config/constants');
-const cache = require('./cache');
 
-let OPTIONS_URL = 'https://s3.optionschool24.com/last?type=3';
-let cacheTtlMs = CACHE_TTL.OPTION_CHAIN;
+// Collector base URL (env ALGOTIK_URL or default)
+let COLLECTOR_URL = process.env.ALGOTIK_URL || 'http://127.0.0.1:5000';
 
-const chainCache = cache.memory(10, cacheTtlMs);
-const CACHE_KEY = 'chain';
+// Keep OPTIONS_API_URL as a fallback for safety during transition
+const FALLBACK_URL = process.env.OPTIONS_API_URL || '';
 
-function setUrl(url) { if (url) OPTIONS_URL = url; }
-function setCacheTtl(ms) { if (ms > 0) cacheTtlMs = ms; }
+let cacheTtlMs = CACHE_TTL.OPTION_CHAIN || 60000;
+let pricingModel = process.env.PRICING_MODEL || 'bsm';
 
-// ---------- Normalization ----------
+// Simple in-memory cache
+const cache = { at: 0, list: null, meta: null };
+
+function setUrl(url) {
+    if (url) COLLECTOR_URL = url;
+}
+function setCacheTtl(ms) {
+    if (ms > 0) cacheTtlMs = ms;
+}
+function setPricingModel(m) {
+    if (m === 'bsm' || m === 'heston') pricingModel = m;
+}
+
+// ---------- Normalization (kept from old options-chain.js) ----------
 const norm = s => String(s || '')
     .replace(/ي/g, 'ی').replace(/ك/g, 'ک')
     .replace(/[\u200c\u200e\u200f\s\u00a0]/g, '')
@@ -36,17 +52,45 @@ const asDecimal = v => {
     return n > 3 ? n / 100 : n;
 };
 
-// ---------- Parsing ----------
+// ---------- Raw fetch from collector ----------
+async function fetchFromCollector(maxAgeMs) {
+    const fresh = maxAgeMs === 0;
+    const url = `${COLLECTOR_URL.replace(/\/+$/, '')}/chain/enriched${fresh ? '?fresh=1' : ''}${fresh ? '&' : '?'}model=${pricingModel}`;
+    const r = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        timeout: 60000,
+    });
+    if (!r.ok) throw new Error(`collector /chain/enriched HTTP ${r.status}`);
+    const data = await r.json();
+    if (!Array.isArray(data)) throw new Error('collector response is not an array');
+    return data;
+}
+
+// ---------- Fallback: direct optionschool24 (only if explicitly configured) ----------
+async function fetchFromFallback() {
+    if (!FALLBACK_URL) throw new Error('no fallback configured');
+    const r = await fetch(FALLBACK_URL, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+        timeout: 30000,
+    });
+    if (!r.ok) throw new Error(`fallback HTTP ${r.status}`);
+    const data = await r.json();
+    if (!Array.isArray(data)) throw new Error('fallback response is not an array');
+    return data;
+}
+
+// ---------- Parse a row from collector (already optionschool24-shaped) ----------
 function parseContract(r) {
     const fname = r.fname || '';
     const isPut = /^اخت[يی]ارف/.test(fname);
     const isCallName = /^اخت[يی]ارخ/.test(fname);
+    const isCall = r.isCall === true || isCallName || (!isPut && r.type === 1);
 
     return {
         symbol: r.name,
         fullName: fname,
         isin: r.co,
-        isCall: isCallName || (!isPut && r.type === 1),
+        isCall,
         underlying: norm(r.basis_name),
         underlyingRaw: r.basis_name,
         S: num(r.basis),
@@ -58,9 +102,9 @@ function parseContract(r) {
         final: num(r.final),
         yday: num(r.yday),
         bid: first(r.b_price),
-        bidVol: first(r.b_volume),
+        bidVol: num(r.b_volume) || first(r.b_volume),
         ask: first(r.s_price),
-        askVol: first(r.s_volume),
+        askVol: num(r.s_volume) || first(r.s_volume),
         volume: num(r.Tvolume),
         value: num(r.Tvalue),
         trades: num(r.Tcount),
@@ -76,46 +120,64 @@ function parseContract(r) {
         size: num(r.size) || 1000,
         margin: num(r.tazmin),
         intrinsic: num(r.value),
-        statusText: r.status_text || ''
+        statusText: r.status_text || '',
+        pricingModel: r.pricingModel || 'bsm',
+        source: r.source || 'tsetmc_enriched',
     };
 }
 
-// ---------- Fetch ----------
+// ---------- Public API (kept compatible with callers) ----------
 async function fetchChain(maxAgeMs = cacheTtlMs) {
-    if (maxAgeMs > 0) {
-        const cached = chainCache.get(CACHE_KEY);
-        if (cached && Array.isArray(cached.list) && cached.list.length) {
-            const age = Date.now() - cached.at;
-            if (age < maxAgeMs) return cached.list;
+    const now = Date.now();
+    if (maxAgeMs > 0 && cache.list && (now - cache.at) < maxAgeMs) {
+        return cache.list;
+    }
+
+    let raw = null;
+    let source = 'collector';
+
+    // Try collector first
+    try {
+        raw = await fetchFromCollector(maxAgeMs);
+    } catch (e) {
+        if (FALLBACK_URL) {
+            try {
+                raw = await fetchFromFallback();
+                source = 'fallback';
+            } catch (e2) {
+                throw new Error(`both collector and fallback failed: ${e.message} / ${e2.message}`);
+            }
+        } else {
+            throw e;
         }
     }
 
-    const r = await fetch(OPTIONS_URL, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0',
-            Accept: 'application/json'
-        },
-        timeout: 30000
-    });
-    if (!r.ok) throw new Error(`Options API HTTP ${r.status}`);
-    const data = await r.json();
-    if (!Array.isArray(data)) throw new Error('پاسخ نامعتبر از API آپشن');
+    const list = raw.map(parseContract).filter(c => c.symbol && c.strike > 0);
 
-    const list = data.map(parseContract).filter(c => c.symbol && c.strike > 0);
-    chainCache.set(CACHE_KEY, { at: Date.now(), list });
+    cache.at = now;
+    cache.list = list;
+    cache.meta = { at: new Date(), source, count: list.length, pricingModel };
+
     return list;
 }
 
 function chainAge() {
-    const cached = chainCache.get(CACHE_KEY);
-    return cached ? Math.round((Date.now() - cached.at) / 1000) : null;
+    return cache.list ? Math.round((Date.now() - cache.at) / 1000) : null;
 }
 
-function clearCache() { chainCache.del(CACHE_KEY); }
+function clearCache() {
+    cache.list = null;
+    cache.at = 0;
+    cache.meta = null;
+}
+
+function getMeta() {
+    return cache.meta;
+}
 
 module.exports = {
-    setUrl, setCacheTtl,
-    fetchChain, chainAge, clearCache,
-    // helpers برای استفاده در core
-    norm, num, first, asDecimal, parseContract
+    setUrl, setCacheTtl, setPricingModel,
+    fetchChain, chainAge, clearCache, getMeta,
+    // helpers
+    norm, num, first, asDecimal, parseContract,
 };

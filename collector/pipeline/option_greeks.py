@@ -24,6 +24,12 @@ from typing import Optional, List, Dict
 from .db import get_db, log
 from .tsetmc_client import get_client, TSETMCError
 from .tsetmc_parser import normalize_fa
+try:
+    from . import heston as heston_mod
+    _HESTON_AVAILABLE = True
+except Exception:
+    _HESTON_AVAILABLE = False
+    heston_mod = None
 
 # BS helpers (already in collector)
 try:
@@ -161,7 +167,7 @@ def _discover_all_contracts_cached(force=False):
 # ================================================================
 # Main
 # ================================================================
-def compute_enriched_chain(underlyings=None, force=False):
+def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
     """Build the full enriched option chain (optionschool24-compatible)."""
     db = get_db()
     now = datetime.now(timezone.utc)
@@ -285,10 +291,33 @@ def compute_enriched_chain(underlyings=None, force=False):
         hv = hv_map.get(ua)
         sigma = iv if iv else (hv if hv else 0.4)
 
-        if _BS_AVAILABLE:
-            bs = bs_call(S, strike, T, rf, sigma) if is_call else bs_put(S, strike, T, rf, sigma)
+        # Pricing model selection: 'bsm' (default) or 'heston'
+        use_heston = (pricing_model == 'heston') and _HESTON_AVAILABLE and is_call
+        if use_heston:
+            try:
+                # Derive Heston params: v0 from IV, others from defaults
+                hp = dict(heston_mod.DEFAULT_HESTON)
+                hp['v0'] = max(0.001, sigma * sigma)
+                hres = heston_mod.price_call(S, strike, T, rf, hp)
+                bs = {
+                    'price': hres['price'],
+                    'delta': hres['delta'],
+                    'gamma': hres['gamma'],
+                    'theta': hres['theta'],
+                    'vega': hres['vega'],
+                }
+            except Exception:
+                # Fall back to BSM if Heston fails
+                use_heston = False
+                if _BS_AVAILABLE:
+                    bs = bs_call(S, strike, T, rf, sigma)
+                else:
+                    bs = {'price': 0.0, 'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0}
         else:
-            bs = {'price': 0.0, 'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0}
+            if _BS_AVAILABLE:
+                bs = bs_call(S, strike, T, rf, sigma) if is_call else bs_put(S, strike, T, rf, sigma)
+            else:
+                bs = {'price': 0.0, 'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0}
 
         intrinsic = max(S - strike, 0) if is_call else max(strike - S, 0)
 
@@ -335,8 +364,8 @@ def compute_enriched_chain(underlyings=None, force=False):
             'sigma': round(hv, 4) if hv else 0,
             'delta': round(_safe_float(bs.get('delta')), 4),
             'gamma': round(_safe_float(bs.get('gamma')), 6),
-            'theta': round(_safe_float(bs.get('theta')) * 182.5, 4),
-            'vega': round(_safe_float(bs.get('vega')) * 18.677, 4),
+            'theta': round(_safe_float(bs.get('theta')), 4),
+            'vega': round(_safe_float(bs.get('vega')), 4),
             'rho': 0,
             'size': 1000,
             'tazmin': 0,
@@ -345,12 +374,13 @@ def compute_enriched_chain(underlyings=None, force=False):
             'status_text': status_text,
             'isCall': is_call,
             'source': 'tsetmc_enriched',
+            'pricingModel': 'heston' if use_heston else 'bsm',
         })
 
     return out
 
 
-def get_chain_cached(force=False, ttl=None):
+def get_chain_cached(force=False, ttl=None, pricing_model='bsm'):
     """Return cached enriched chain (refreshed if stale)."""
     if ttl is None:
         ttl = _CHAIN_TTL
@@ -361,7 +391,7 @@ def get_chain_cached(force=False, ttl=None):
         return _chain_cache['data']
 
     t0 = time.time()
-    data = compute_enriched_chain(force=force)
+    data = compute_enriched_chain(force=force, pricing_model=pricing_model)
     elapsed_ms = int((time.time() - t0) * 1000)
 
     _chain_cache['data'] = data
@@ -371,6 +401,7 @@ def get_chain_cached(force=False, ttl=None):
         'computeMs': elapsed_ms,
         'at': datetime.now(timezone.utc).isoformat(),
         'source': 'tsetmc_enriched',
+        'pricingModel': pricing_model,
     }
     log('og_chain_refresh', 'count={} ms={}'.format(len(data), elapsed_ms))
     return data
