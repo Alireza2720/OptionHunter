@@ -239,10 +239,14 @@ def compute_enriched_chain(underlyings=None, force=False):
         if yday > 0 and close_px > 0:
             close_pct = (close_px / yday - 1) * 100
 
-        # Days to expiry
+        # Days to expiry: prefer TSETMC's own day count, else compute
         expiry_greg = c.get('expiry_gregorian')
         days_left = None
-        if expiry_greg:
+        # TSETMC field[25] from MarketWatch (trading days to expiry)
+        mw_days = m.get('days_left_actual')
+        if mw_days and mw_days > 0:
+            days_left = int(mw_days)
+        if days_left is None and expiry_greg:
             try:
                 ey, em, ed = map(int, expiry_greg.split('-'))
                 exp_dt = datetime(ey, em, ed, 23, 59, 59, tzinfo=timezone.utc)

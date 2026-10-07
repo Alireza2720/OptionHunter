@@ -316,11 +316,21 @@ class TSETMCClient:
                 #   [6] pDrCotVal    [7] pmax         [8] zTotTran
                 #   [9] qTotTran5J   [10] qTotTran    [11] pd1 (bid)
                 #   [12] po1 (ask)   [13] py (yday)   [14..] extras
-                last_price = _f(fields, 6)
-                close_px = _f(fields, 5)
-                yday = _f(fields, 13)
-                bid = _f(fields, 11)
-                ask = _f(fields, 12)
+                # Verified field mapping (2026-10-07):
+                #   [0] insCode      [1] ISIN         [2] ticker
+                #   [3] lVal30       [4] hEven        [5] pClosing
+                #   [6] pDrCotVal    [7] py           [8] zTotTran
+                #   [9] qTotTran5J   [10] qTotTran    [11] pd1 (bid)
+                #   [12] po1 (ask)   [13] pmin        [21] size
+                #   [22] pmax?       [25] days_to_expiry (trading days)
+                last_price = _f(fields, 6)        # pDrCotVal (last trade)
+                close_px = _f(fields, 5)          # pClosing (close)
+                yday = _f(fields, 7)              # py (yesterday)
+                bid = _f(fields, 11)              # pd1
+                ask = _f(fields, 12)              # po1
+                pmin = _f(fields, 13)
+                pmax = _f(fields, 22)
+                days_left_actual = _f(fields, 25)
 
                 row = {
                     'insCode': ins_code,
@@ -333,12 +343,14 @@ class TSETMCClient:
                     'pClosing': close_px,
                     'py': yday,
                     'yesterday': yday,
-                    'pmax': _f(fields, 7),
+                    'pmin': pmin,
+                    'pmax': pmax,
                     'zTotTran': _f(fields, 8),
                     'qTotTran5J': _f(fields, 9),
                     'qTotTran': _f(fields, 10),
                     'pd1': bid,
                     'po1': ask,
+                    'days_left_actual': days_left_actual,
                     'size': _f(fields, 21) or 1000,
                     'op': 0,
                 }
