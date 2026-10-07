@@ -51,7 +51,7 @@ function register(app, deps) {
                 throw new Error('options-chain returned non-array');
             }
 
-            const clean = list.filter(c => c && c.name && c.strike > 0);
+            const clean = list.filter(c => c && c.symbol && c.strike > 0);
 
             if (withMeta) {
                 return res.json({
