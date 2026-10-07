@@ -239,18 +239,16 @@ def compute_enriched_chain(underlyings=None, force=False):
         if yday > 0 and close_px > 0:
             close_pct = (close_px / yday - 1) * 100
 
-        # Days to expiry: prefer TSETMC's own day count, else compute
+        # Days to expiry: always from calendar, +1 (include today and expiry day)
+        # Matches optionschool24 semantics.
         expiry_greg = c.get('expiry_gregorian')
         days_left = None
-        # TSETMC field[25] from MarketWatch (trading days to expiry)
-        mw_days = m.get('days_left_actual')
-        if mw_days and mw_days > 0:
-            days_left = int(mw_days)
-        if days_left is None and expiry_greg:
+        if expiry_greg:
             try:
                 ey, em, ed = map(int, expiry_greg.split('-'))
-                exp_dt = datetime(ey, em, ed, 23, 59, 59, tzinfo=timezone.utc)
-                days_left = max(0, (exp_dt - now).days)
+                exp_date = datetime(ey, em, ed, 0, 0, 0, tzinfo=timezone.utc)
+                today_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                days_left = max(1, (exp_date - today_date).days + 1)
             except Exception:
                 pass
         if days_left is None or days_left <= 0:
@@ -337,8 +335,8 @@ def compute_enriched_chain(underlyings=None, force=False):
             'sigma': round(hv, 4) if hv else 0,
             'delta': round(_safe_float(bs.get('delta')), 4),
             'gamma': round(_safe_float(bs.get('gamma')), 6),
-            'theta': round(_safe_float(bs.get('theta')), 4),
-            'vega': round(_safe_float(bs.get('vega')), 4),
+            'theta': round(_safe_float(bs.get('theta')) * 365, 4),
+            'vega': round(_safe_float(bs.get('vega')) * 100, 4),
             'rho': 0,
             'size': 1000,
             'tazmin': 0,
