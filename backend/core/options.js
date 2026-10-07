@@ -1663,6 +1663,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                     }
                 }
             ).toArray();
+            console.log("[DBG-bulkRows] count=" + (bulkRows ? bulkRows.length : 0) + " | _query=" + JSON.stringify(_query));
 
             // group by symbol + sort by time (برای باینری سرچ)
             for (const r of bulkRows) {
