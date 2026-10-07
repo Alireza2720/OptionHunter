@@ -25,6 +25,7 @@ const symbolsRoutes = require('./routes/symbols.routes');
 const configsRoutes = require('./routes/configs.routes');
 const jobsRoutes = require('./routes/jobs.routes');
 const optionsRoutes = require('./routes/options.routes');
+const optionsChainRoutes = require('./routes/options-chain.routes');
 const algotikRoutes = require('./routes/algotik.routes');
 const analysisRoutes = require('./routes/analysis.routes');
 const portfolioRoutes = require('./routes/portfolio.routes');
@@ -72,6 +73,7 @@ function createApp(deps) {
     configsRoutes.register(app, deps);
     jobsRoutes.register(app, deps);
     optionsRoutes.register(app, deps);
+    optionsChainRoutes.register(app, deps);
     algotikRoutes.register(app, deps);
     analysisRoutes.register(app, deps);
     portfolioRoutes.register(app, deps);
