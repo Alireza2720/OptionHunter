@@ -58,7 +58,7 @@ async function fetchFromCollector(maxAgeMs) {
     const url = `${COLLECTOR_URL.replace(/\/+$/, '')}/chain/enriched${fresh ? '?fresh=1' : ''}${fresh ? '&' : '?'}model=${pricingModel}`;
     const r = await fetch(url, {
         headers: { 'Accept': 'application/json' },
-        timeout: 60000,
+        timeout: 180000,  // 3min — compute can take up to ~90s on busy server
     });
     if (!r.ok) throw new Error(`collector /chain/enriched HTTP ${r.status}`);
     const data = await r.json();
@@ -71,7 +71,7 @@ async function fetchFromFallback() {
     if (!FALLBACK_URL) throw new Error('no fallback configured');
     const r = await fetch(FALLBACK_URL, {
         headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
-        timeout: 30000,
+        timeout: 60000,  // fallback — 60s
     });
     if (!r.ok) throw new Error(`fallback HTTP ${r.status}`);
     const data = await r.json();
