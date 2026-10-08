@@ -86,7 +86,8 @@ const OPT_BT_DEFAULTS = {
     minDataQuality: 'enriched',
     // NEW: quality enforcement in backtest (mirrors live)
     minVolume: 0,
-    maxTradeReturnPct: 1000};
+    maxTradeReturnPct: 1000,
+    minTargetPct: 4.5};
 
 const RELAX_LEVELS = [
     { name: 'A+', tag: null, overrides: {} },
@@ -1778,7 +1779,20 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         let result = null;
         if (realEnabled && hasAnyOptionData) {
             try {
-                result = tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
+                {
+                const _entryPx = t.entryPrice || t.stockEntry;
+                const _stopPx = t.stop;
+                const _atrVal = t.atr;
+                let _skip = false;
+                if (_entryPx > 0) {
+                    const _riskPx = (_stopPx && _stopPx < _entryPx)
+                        ? (_entryPx - _stopPx)
+                        : (_atrVal ? 2 * _atrVal : _entryPx * 0.03);
+                    const _targetPct = (_riskPx * 2.5 / _entryPx) * 100;
+                    if (_targetPct < (p.minTargetPct || 0)) _skip = true;
+                }
+                result = _skip ? null : tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
+            }
             } catch (_) { result = null; }
         }
         // 🆕 فقط معاملات با bid/ask واقعی پذیرفته می‌شن
