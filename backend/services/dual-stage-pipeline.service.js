@@ -42,7 +42,7 @@ const STAGE_LABELS = {
     99: 'تکمیل'
 };
 
-const EXCLUDED_STRATEGIES = new Set(['sector_momentum', 'ob_sweep_pro', 'ob_after_sweep']);
+const EXCLUDED_STRATEGIES = new Set(['sector_momentum', 'ob_sweep_pro', 'ob_after_sweep', 'short_term_reversal_pro']);
 
 const DEFAULTS = {
     // بازه‌ها — اگه null، خودکار محاسبه می‌شن
@@ -122,43 +122,62 @@ function _toUnixSec(v) {
 
 async function _resolveDateRanges(opts) {
     const db = deps.getDB();
-    // Dynamic: no fixed cutoff — start from earliest available option data
+    // R11 sanity: reject absurd timestamps (pre-2020 or future)
+    const MIN_TS = Math.floor(new Date('2020-01-01').getTime() / 1000);
+    const MAX_TS = Math.floor(Date.now() / 1000) + 86400;
+    function _clamp(ts, label) {
+        if (ts == null || !Number.isFinite(ts)) return null;
+        if (ts < MIN_TS) {
+            deps.logger && deps.logger.warn('[dual-stage] ' + label + ' too old: ' + new Date(ts * 1000).toISOString().slice(0, 10) + ' -> rejected');
+            return null;
+        }
+        if (ts > MAX_TS) return null;
+        return ts;
+    }
 
-    let testFrom = _toUnixSec(opts.testFrom);
-    let testTo = _toUnixSec(opts.testTo);
+    let testFrom = _clamp(_toUnixSec(opts.testFrom), 'testFrom');
+    let testTo = _clamp(_toUnixSec(opts.testTo), 'testTo');
     if (!testFrom) {
-        // Dynamic: earliest option date in DB
         try {
             const earliest = await db.collection(COLLECTIONS.OPTION_HISTORY)
-                .findOne({}, { sort: { time: 1 }, projection: { time: 1 } });
-            testFrom = earliest ? Math.floor(new Date(earliest.time).getTime() / 1000) : (Math.floor(Date.now() / 1000) - 365 * 86400);
-        } catch (_) {
-            testFrom = Math.floor(Date.now() / 1000) - 365 * 86400;
+                .findOne({ time: { $gte: new Date(MIN_TS * 1000) } }, { sort: { time: 1 }, projection: { time: 1 } });
+            testFrom = earliest ? Math.floor(new Date(earliest.time).getTime() / 1000) : null;
+        } catch (_) {}
+        if (!testFrom) {
+            testFrom = Math.floor(Date.now() / 1000) - 180 * 86400;
+            deps.logger && deps.logger.warn('[dual-stage] no usable option_history — defaulting testFrom to 180d ago');
         }
     }
     if (!testTo) testTo = Math.floor(Date.now() / 1000);
 
-    let valFrom = _toUnixSec(opts.validationFrom);
-    let valTo = _toUnixSec(opts.validationTo);
+    let valFrom = _clamp(_toUnixSec(opts.validationFrom), 'valFrom');
+    let valTo = _clamp(_toUnixSec(opts.validationTo), 'valTo');
     if (!valTo) valTo = testFrom - 86400;
     if (!valFrom) {
         const days = opts.validationsDays || 60;
         valFrom = valTo - days * 86400;
     }
 
-    let trainTo = _toUnixSec(opts.trainTo);
+    let trainTo = _clamp(_toUnixSec(opts.trainTo), 'trainTo');
     if (!trainTo) trainTo = valFrom - 86400;
 
-    let trainFrom = _toUnixSec(opts.trainFrom);
+    let trainFrom = _clamp(_toUnixSec(opts.trainFrom), 'trainFrom');
     if (!trainFrom) {
         try {
             const r = await db.collection(COLLECTIONS.CANDLES_BASE)
-                .findOne({}, { sort: { time: 1 }, projection: { time: 1 } });
-            trainFrom = r ? Math.floor(new Date(r.time).getTime() / 1000) : (trainTo - 3 * 365 * 86400);
-        } catch (_) {
-            trainFrom = trainTo - 3 * 365 * 86400;
-        }
+                .findOne({ time: { $gte: new Date(MIN_TS * 1000) } }, { sort: { time: 1 }, projection: { time: 1 } });
+            trainFrom = r ? Math.floor(new Date(r.time).getTime() / 1000) : null;
+        } catch (_) {}
+        if (!trainFrom) trainFrom = trainTo - 365 * 86400;
     }
+
+    // Final sanity — force trainFrom < trainTo
+    if (trainFrom >= trainTo) {
+        deps.logger && deps.logger.warn('[dual-stage] trainFrom >= trainTo — clamping to 365d before');
+        trainFrom = trainTo - 365 * 86400;
+    }
+    if (valFrom >= valTo) valFrom = valTo - 60 * 86400;
+    if (testFrom >= testTo) testFrom = testTo - 90 * 86400;
 
     return {
         train: { from: trainFrom, to: trainTo, days: Math.round((trainTo - trainFrom) / 86400) },

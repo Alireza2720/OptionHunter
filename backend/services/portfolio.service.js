@@ -78,17 +78,8 @@ async function simulateFromJob(jobId, opts = {}) {
     let filteredTrades = allTrades;
 
     // 🆕 اگه whitelist غیرفعاله، filterTrades هم bypass کن
-    let _wlOff = true;
-    if (deps.signalFilterService) {
-        try {
-            const wl = await deps.signalFilterService.getWhitelist();
-            _wlOff = (wl === null);
-        } catch (e) {
-            _wlOff = true;
-        }
-    }
-
-    if (!_wlOff && opts.useSignalFilter !== false && deps.analysisService) {
+    // R11: bypass disabled signalFilterService — always use analysis when enabled
+    if (opts.useSignalFilter !== false && deps.analysisService) {
         try {
             const analysis = await deps.analysisService.analyzeJob(jobId, { minTrades, iterations: 2000 });
             const fr = filterTrades(allTrades, analysis, {
