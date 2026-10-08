@@ -1697,7 +1697,9 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         let result = null;
         if (realEnabled && hasAnyOptionData) {
             try {
+            try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-BEFORE-CALL] t.entryTime=" + t.entryTime + " | rowsBySymbolSize=" + optionRowsBySymbolTime.size + " | realEnabled=" + realEnabled + " | hasAnyOptionData=" + hasAnyOptionData + "\n"); } catch(_) {}
                 result = tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
+            try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-AFTER-CALL] result=" + (result ? "OBJECT" : "null") + "\n"); } catch(__e) { try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-AFTER-ERR] " + __e.message + "\n"); } catch(_) {} }
             } catch (_) { result = null; }
         }
         // 🆕 فقط معاملات با bid/ask واقعی پذیرفته می‌شن
