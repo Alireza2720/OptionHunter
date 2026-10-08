@@ -1590,7 +1590,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
 
     try {
         var __cl = (closedTrades === null) ? "NULL" : (closedTrades === undefined) ? "UNDEF" : "type=" + typeof closedTrades + ",len=" + (closedTrades && closedTrades.length !== undefined ? closedTrades.length : "N/A");
-        require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + __cl + " | realEnabled=" + (realEnabled !== false) + "\n");
+        require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + __cl + "\n");
     } catch(__e) {
         try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-runHybrid-ERR] " + __e.message + "\n"); } catch(_) {}
     }
