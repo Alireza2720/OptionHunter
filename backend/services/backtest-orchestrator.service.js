@@ -688,7 +688,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
         const baseDyn = getDynamicMinTrades(result._dateRangeDays || 180);
         const dynMin = mode === 'stock'
             ? baseDyn
-            : Math.max(2, Math.round(baseDyn * 0.35));
+            : Math.max(2, Math.round(baseDyn * 0.20));
         const losingSet = result._losingStrategies instanceof Set ? result._losingStrategies : new Set();
         const scored = rows.map(d => {
             const target = mode === 'stock' ? (d.stockStats || {}) : (d.optionStats || d.stockStats || {});
