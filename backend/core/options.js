@@ -1287,12 +1287,13 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const _qSpreadPct = _qMid > 0 ? ((_qAsk - _qBid) / _qMid) * 100 : 100;
     const _qOI = Number(best.oi) || 0;
     const _qVol = Number(best.volume) || 0;
-    if (_qAsk < (p.minPremium || 0)) return null;
-    if (_qSpreadPct > (p.maxSpreadPct || 100)) return null;
-    if (_qOI < (p.minOI || 0)) return null;
-    if ((p.minVolume || 0) > 0 && _qVol < p.minVolume) return null;
+    if (_qAsk < 20) return null;
+    if (_qSpreadPct > 80) return null;
+    if (best.oi != null && Number.isFinite(Number(best.oi)) && Number(best.oi) > 0 && Number(best.oi) < 5) return null;
+
     const _qDays = Number(best.daysLeft) || 0;
-    if (_qDays < (p.minDays || 0) || _qDays > (p.maxDays || 9999)) return null;
+    if (_qDays < 2) return null;
+    if (_qDays > 180) return null;
 
     // NEW: grade-aware — reject F tier (deep OTM / illiquid / huge spread)
     let _ohGrade = null;
