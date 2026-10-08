@@ -86,7 +86,7 @@ const OPT_BT_DEFAULTS = {
     minDataQuality: 'enriched',
     // NEW: quality enforcement in backtest (mirrors live)
     minVolume: 0,
-    maxTradeReturnPct: 500};
+    maxTradeReturnPct: 1000};
 
 const RELAX_LEVELS = [
     { name: 'A+', tag: null, overrides: {} },
@@ -1343,9 +1343,33 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     if (!exitRow) return null;
 
     // ---- 🆕 قیمت‌ها فقط از bid/ask واقعی ----
-    const entry = realisticBuyPrice(best);
-    const exit  = realisticSellPrice(exitRow);
+    let entry = realisticBuyPrice(best);
+    let exit  = realisticSellPrice(exitRow);
     if (!entry || !exit) return null;   // ⛔ اگه bid/ask نبود → کل معامله skip
+
+    // Bug 9 FIX: intraday adjustment for stock move signal -> EOD
+    const _rawEntryPrice = entry.price;
+    const _rawExitPrice = exit.price;
+    try {
+        const _adjDelta = (typeof getDelta === "function" ? getDelta(best) : null) || 0.5;
+        if (t.entryPrice > 0 && best.S > 0) {
+            const _dS = Number(t.entryPrice) - Number(best.S);
+            const _cap = entry.price * 0.5;
+            let _dOpt = _adjDelta * _dS;
+            if (_dOpt > _cap) _dOpt = _cap;
+            if (_dOpt < -_cap) _dOpt = -_cap;
+            entry = Object.assign({}, entry, { price: Math.max(1, entry.price + _dOpt), _adj: true, _dS: _dS });
+        }
+        if (t.exitPrice > 0 && exitRow.S > 0) {
+            const _dS2 = Number(t.exitPrice) - Number(exitRow.S);
+            const _cap2 = exit.price * 0.5;
+            let _dOpt2 = _adjDelta * _dS2;
+            if (_dOpt2 > _cap2) _dOpt2 = _cap2;
+            if (_dOpt2 < -_cap2) _dOpt2 = -_cap2;
+            exit = Object.assign({}, exit, { price: Math.max(1, exit.price + _dOpt2), _adj: true, _dS: _dS2 });
+        }
+    } catch (_) {}
+
 
     // Bug 9 FIX: adjust option entry/exit for stock move between signal and EOD
     {
@@ -1423,7 +1447,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         entrySource: entry.source, exitSource: exit.source,
         entryWasReal: entry.isReal, exitWasReal: exit.isReal,
 
-        optionEntryRaw: entry.price, optionExitRaw: exit.price,
+        optionEntryRaw: (typeof _rawEntryPrice !== "undefined" ? _rawEntryPrice : entry.price), optionExitRaw: (typeof _rawExitPrice !== "undefined" ? _rawExitPrice : exit.price),
         optionEntry: finalEntryPrice, optionExit: exitFillPrice,
 
         slippagePct: dynSlip * 100,

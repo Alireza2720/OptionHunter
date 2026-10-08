@@ -201,6 +201,7 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
                 entryFillTime: s.time + fillDelaySec,
                 entryPrice: fillPrice,
                 entrySignalPrice: c.close,
+                sizeMultiplier: (cfg && Number.isFinite(cfg.sizeMultiplier)) ? cfg.sizeMultiplier : 1,
                 entryIdx: c.i,
                 reason: s.reason,
                 status: 'open',

@@ -71,6 +71,7 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
             pnlPct: t.pnlPct,
             signalScore: t.signalScore,
             optionSizeFactor: t.optionSizeFactor,   // NEW
+            sizeMultiplier: t.sizeMultiplier || 1,
             optionGrade: t.optionGrade              // NEW
         };
 
