@@ -196,6 +196,10 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     if (baseSize === 0 && riskAmt >= contractValue * 0.4) {
         baseSize = 1;
     }
+    // NEW: allow minimum 1 contract if risk covers at least 40% of contract cost
+    if (baseSize === 0 && riskAmt >= contractValue * 0.4) {
+        baseSize = 1;
+    }
 
     // Soft multipliers (regime + score)
     if (ctx.combinedFactor && ctx.combinedFactor !== 1.0) {
