@@ -1197,7 +1197,7 @@ function classifyOptionExit(entryRow, exitRow, heldDays) {
 
 // 🆕 DEBUG (temporary)
 let __dbgCallCount = 0;
-function __dbg(...args) { if (__dbgCallCount <= 5) process.stdout.write("[DBG-tryGetReal]", ...args); }
+function __dbg(...args) { if (__dbgCallCount <= 5) { try { require('fs').appendFileSync('/tmp/oh-debug.log', '[DBG-tryGetReal] ' + JSON.stringify(args) + '\n'); } catch(_) {} } }
 
 function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     __dbgCallCount++; const FEE_BUY = getFeeBuy();
@@ -1588,7 +1588,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     };
     Object.assign(p, opts);
 
-    process.stdout.write("[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + closedTrades.length + " | realEnabled=" + (realEnabled !== false) + "\n");
+    try { require('fs').appendFileSync('/tmp/oh-debug.log', "[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + closedTrades.length + " | realEnabled=" + (realEnabled !== false) + '\n'); } catch(_) {}
     if (!closedTrades.length) {
         return {
             assumptions: p,
@@ -1606,7 +1606,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
 
     // ---------- Prefetch: یه query به جای N query ----------
     let optionRowsBySymbolTime = new Map();
-        process.stdout.write("[DBG-BT] symbol=" + symbol + " | normed=" + JSON.stringify(norm(symbol)) + " | hasAnyOptionData=" + hasAnyOptionData + " | realEnabled=" + realEnabled + " | sampleCount=" + sampleCount + "\n");
+        try { require('fs').appendFileSync('/tmp/oh-debug.log', "[DBG-BT] symbol=" + symbol + " | normed=" + JSON.stringify(norm(symbol)) + " | hasAnyOptionData=" + hasAnyOptionData + " | realEnabled=" + realEnabled + " | sampleCount=" + sampleCount + '\n'); } catch(_) {}
     if (realEnabled && hasAnyOptionData) {
         try {
             let _minSec = Infinity, _maxSec = -Infinity;
@@ -1664,7 +1664,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                     }
                 }
             ).toArray();
-            process.stdout.write("[DBG-bulkRows] count=" + (bulkRows ? bulkRows.length : 0) + " | _query=" + JSON.stringify(_query) + "\n");
+            try { require('fs').appendFileSync('/tmp/oh-debug.log', "[DBG-bulkRows] count=" + (bulkRows ? bulkRows.length : 0) + " | _query=" + JSON.stringify(_query) + '\n'); } catch(_) {}
 
             // group by symbol + sort by time (برای باینری سرچ)
             for (const r of bulkRows) {
