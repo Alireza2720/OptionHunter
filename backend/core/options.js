@@ -75,7 +75,7 @@ const OPT_BT_DEFAULTS = {
     // when applied on top of real bid/ask PnL. Disabled by default.
     // Set to >0 only if you intentionally want extra pessimism.
     // 🆕 Phase 2: Realism — بدون تخمین
-    timeWindowDays: 1,
+    timeWindowDays: 2,
     dynSlipBase: 0.001,
     dynSlipImpactCoef: 0.5,
     minFillRatio: 0,
@@ -1291,9 +1291,12 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     if (_qSpreadPct > 80) return null;
     if (best.oi != null && Number.isFinite(Number(best.oi)) && Number(best.oi) > 0 && Number(best.oi) < 5) return null;
 
-    const _qDays = Number(best.daysLeft) || 0;
-    if (_qDays < 2) return null;
-    if (_qDays > 180) return null;
+    const _qDaysRaw = best.daysLeft;
+    if (_qDaysRaw != null && Number.isFinite(Number(_qDaysRaw)) && Number(_qDaysRaw) > 0) {
+        const _qDays = Number(_qDaysRaw);
+        if (_qDays < 2) return null;
+        if (_qDays > 180) return null;
+    }
 
     // NEW: grade-aware — reject F tier (deep OTM / illiquid / huge spread)
     let _ohGrade = null;
@@ -1667,9 +1670,8 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             // Build dataQuality filter based on minDataQuality option
             const _mq = p.minDataQuality || 'enriched';
             const _query = {
-                underlying: norm(symbol),
+                underlying: { $in: [symbol, norm(symbol)] },
                 time: { $gte: minTime, $lte: maxTime },
-                daysLeft: { $gte: Math.max(1, p.minDays - 7), $lte: Math.max(p.maxDays, 90) },
                 bid: { $gt: 0 },
                 ask: { $gt: 0 }
             };
