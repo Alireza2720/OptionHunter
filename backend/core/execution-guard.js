@@ -112,7 +112,7 @@ function computeEffectiveRiskPct(limits, stats) {
     }
     // 🆕 Kelly can INCREASE size above riskPct (up to kellyCapPct),
     // but never go below the base riskPct (floor).
-    const floor = limits.riskPct || 1.5;
+    const floor = 0.1;
     const cap = limits.kellyCapPct || 3.0;
     return Math.min(Math.max(kellyPct, floor), cap);
 }

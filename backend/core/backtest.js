@@ -440,7 +440,7 @@ function computeStats(trades) {
         (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime)
     );
     for (const t of sortedByExit) {
-        equity *= (1 + t.pnlPct / 100);
+        equity *= (1 + Math.max(-1, Math.min(5, t.pnlPct / 100)));
         equityCurve.push({
             time: t.exitFillTime || t.exitTime,
             equity: round2(equity)
@@ -651,7 +651,7 @@ function computeEquityCurve(trades) {
     let peak = 100;
     const curve = [{ time: sorted.length ? sorted[0].entryTime : 0, equity: 100, drawdown: 0 }];
     for (const t of sorted) {
-        eq *= (1 + t.pnlPct / 100);
+        eq *= (1 + 0.01 * Math.max(-1, Math.min(5, t.pnlPct / 100)));
         if (eq > peak) peak = eq;
         const dd = ((peak - eq) / peak) * 100;
         curve.push({

@@ -69,7 +69,9 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
             size: t.size,
             entryTime: entryTs,
             pnlPct: t.pnlPct,
-            signalScore: t.signalScore
+            signalScore: t.signalScore,
+            optionSizeFactor: t.optionSizeFactor,   // NEW
+            optionGrade: t.optionGrade              // NEW
         };
 
         // تصمیم

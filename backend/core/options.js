@@ -83,7 +83,10 @@ const OPT_BT_DEFAULTS = {
     latencySec: 1,
     // Enrichment-aware defaults (pessimistic)
     spreadPenaltyMult: 0.0,
-    minDataQuality: 'enriched'};
+    minDataQuality: 'enriched',
+    // NEW: quality enforcement in backtest (mirrors live)
+    minVolume: 0,
+    maxTradeReturnPct: 500};
 
 const RELAX_LEVELS = [
     { name: 'A+', tag: null, overrides: {} },
@@ -1276,6 +1279,43 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
 
     const best = valid[0];
 
+    // NEW: [QUALITY GATES — mirrors live selectCalls/scoreContract]
+    const _qAsk = Number(best.ask) || 0;
+    const _qBid = Number(best.bid) || 0;
+    if (!(_qAsk > 0 && _qBid > 0)) return null;
+    const _qMid = (_qAsk + _qBid) / 2;
+    const _qSpreadPct = _qMid > 0 ? ((_qAsk - _qBid) / _qMid) * 100 : 100;
+    const _qOI = Number(best.oi) || 0;
+    const _qVol = Number(best.volume) || 0;
+    if (_qAsk < (p.minPremium || 0)) return null;
+    if (_qSpreadPct > (p.maxSpreadPct || 100)) return null;
+    if (_qOI < (p.minOI || 0)) return null;
+    if ((p.minVolume || 0) > 0 && _qVol < p.minVolume) return null;
+    const _qDays = Number(best.daysLeft) || 0;
+    if (_qDays < (p.minDays || 0) || _qDays > (p.maxDays || 9999)) return null;
+
+    // NEW: grade-aware — reject F tier (deep OTM / illiquid / huge spread)
+    let _ohGrade = null;
+    try {
+        if (deps.settings && typeof deps.settings.isOptionGradeSizingEnabled === 'function'
+            && deps.settings.isOptionGradeSizingEnabled()) {
+            const _gd = getDelta(best);
+            _ohGrade = computeOptionGrade({
+                bid: best.bid, ask: best.ask,
+                deltaApi: _gd,
+                daysLeft: best.daysLeft,
+                ivApi: best.ivApi != null ? best.ivApi : null,
+                hvApi: best.hvApi != null ? best.hvApi : null,
+                oi: best.oi, volume: best.volume,
+                dataQuality: best.dataQuality || 'real'
+            }, {
+                weights: deps.settings.getOptionGradeWeights ? deps.settings.getOptionGradeWeights() : null,
+                thresholds: deps.settings.getOptionGradeThresholds ? deps.settings.getOptionGradeThresholds() : null
+            });
+        }
+    } catch (_) { _ohGrade = null; }
+    if (_ohGrade && _ohGrade.grade === 'F') return null;
+
     // ---- انتخاب رکورد خروج (بهینه با باینری سرچ) ----
     const contractRows = rowsBySymbol.get(best.symbol) || [];
     let exitRow = null, exitDist = Infinity;
@@ -1333,6 +1373,12 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const entryCost = finalEntryPrice * (1 + FEE_BUY);
     const exitProceeds = exitFillPrice * (1 - FEE_SELL);
 
+    // NEW: sanity cap — rejects unrealistic returns from stale rows
+    let _rawPnlPct = (exitProceeds / entryCost - 1) * 100;
+    if (Number.isFinite(p.maxTradeReturnPct) && _rawPnlPct > p.maxTradeReturnPct) {
+        _rawPnlPct = p.maxTradeReturnPct;
+    }
+
     const spreadPct = best.bid > 0 && best.ask > 0
         ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100
         : (best.close > 0 && best.bid > 0 ? (best.close - best.bid) / best.close * 100 : null);
@@ -1366,7 +1412,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
         iv: best.ivApi, hv: best.hvApi,
         ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
-        pnlPct: (exitProceeds / entryCost - 1) * 100,
+        pnlPct: _rawPnlPct,
         exitReason: t.exitReason,
         // 🆕 option-exit classification
         optionExitInfo: classifyOptionExit(best, exitRow, (exitSec - entrySec) / 86400),
@@ -1779,7 +1825,7 @@ function positionStats(list) {
         // Equity curve → MaxDD
         let eq = 100, peak = 100;
         for (const x of pnls) {
-            eq *= (1 + x / 100);
+            eq *= (1 + 0.01 * Math.max(-1, Math.min(5, x / 100)));
             if (eq > peak) peak = eq;
             const dd = ((peak - eq) / peak) * 100;
             if (dd > maxDD) maxDD = dd;
