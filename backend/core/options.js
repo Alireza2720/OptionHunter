@@ -1194,13 +1194,8 @@ function classifyOptionExit(entryRow, exitRow, heldDays) {
     };
 }
 
-
-// 🆕 DEBUG (temporary)
-let __dbgCallCount = 0;
-function __dbg(...args) { if (__dbgCallCount <= 5) { try { require('fs').appendFileSync('/tmp/oh-debug.log', '[DBG-tryGetReal] ' + JSON.stringify(args) + '\n'); } catch(_) {} } }
-
 function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
-    __dbgCallCount++; const FEE_BUY = getFeeBuy();
+    const FEE_BUY = getFeeBuy();
     const FEE_SELL = getFeeSell();
 
     // 🆕 Latency با p.latencySec
@@ -1233,7 +1228,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
             }
         }
     }
-    if (!candidateRows.length) { __dbg("no candidateRows", {underlying: symbol, entrySec, exitSec, _loSec, _hiSec, rowCount: rowsBySymbol.size}); return null; }
+    if (!candidateRows.length) return null;
 
     // 🆕 delta: از deltaApi، یا محاسبه با BS (bid/ask هر دو اجباری هستن قبل از این تابع)
     const RISK_FREE_LOCAL = getRiskFree();
@@ -1261,7 +1256,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         }
         return d >= p.deltaMin && d <= p.deltaMax;
     });
-    if (!valid.length) { __dbg("no valid (delta filter)", {candidates: candidateRows.length, deltaMin: p.deltaMin, deltaMax: p.deltaMax, allowMissingDelta}); return null; }
+    if (!valid.length) return null;
 
     // 🆕 target delta انعطاف‌پذیر — مرکز بازه‌ی موجود
     let targetDelta = 0.55;
@@ -1301,12 +1296,12 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         const dist = Math.abs(sec - exitSec);
         if (dist < exitDist) { exitDist = dist; exitRow = r; }
     }
-    if (!exitRow) { __dbg("no exitRow", {symbol: best.symbol, exitSec, entrySec}); return null; }
+    if (!exitRow) return null;
 
     // ---- 🆕 قیمت‌ها فقط از bid/ask واقعی ----
     const entry = realisticBuyPrice(best);
     const exit  = realisticSellPrice(exitRow);
-    if (!entry || !exit) { __dbg("no real bid/ask", {sym: best.symbol, entryBid: best.bid, entryAsk: best.ask, exitBid: exitRow.bid, exitAsk: exitRow.ask}); return null; }
+    if (!entry || !exit) return null;   // ⛔ اگه bid/ask نبود → کل معامله skip
 
     // ---- 🆕 Slippage داینامیک (۱ قرارداد، نه multiplier) ----
     const contractMultiplier = best.size || 1000;
@@ -1316,7 +1311,6 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
 
     // ---- 🆕 پر شدن سفارش ----
     const fillRatio = computeFillRatio(orderSize, dailyVol, p.maxParticipation);
-    try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-fillRatio] fillRatio=" + fillRatio + " | min=" + (p.minFillRatio || 0.05) + " | vol=" + (best.volume) + "\n"); } catch(_) {}
     if (fillRatio < (p.minFillRatio != null ? p.minFillRatio : 0)) {
         return null;
     }
@@ -1589,12 +1583,6 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     };
     Object.assign(p, opts);
 
-    try {
-        var __cl = (closedTrades === null) ? "NULL" : (closedTrades === undefined) ? "UNDEF" : "type=" + typeof closedTrades + ",len=" + (closedTrades && closedTrades.length !== undefined ? closedTrades.length : "N/A");
-        require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + __cl + "\n");
-    } catch(__e) {
-        try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-runHybrid-ERR] " + __e.message + "\n"); } catch(_) {}
-    }
     if (!closedTrades.length) {
         return {
             assumptions: p,
@@ -1612,7 +1600,6 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
 
     // ---------- Prefetch: یه query به جای N query ----------
     let optionRowsBySymbolTime = new Map();
-        try { require('fs').appendFileSync('/tmp/oh-debug.log', "[DBG-BT] symbol=" + symbol + " | normed=" + JSON.stringify(norm(symbol)) + " | hasAnyOptionData=" + hasAnyOptionData + " | realEnabled=" + realEnabled + " | sampleCount=" + sampleCount + '\n'); } catch(_) {}
     if (realEnabled && hasAnyOptionData) {
         try {
             let _minSec = Infinity, _maxSec = -Infinity;
@@ -1670,7 +1657,6 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                     }
                 }
             ).toArray();
-            try { require('fs').appendFileSync('/tmp/oh-debug.log', "[DBG-bulkRows] count=" + (bulkRows ? bulkRows.length : 0) + " | _query=" + JSON.stringify(_query) + '\n'); } catch(_) {}
 
             // group by symbol + sort by time (برای باینری سرچ)
             for (const r of bulkRows) {
@@ -1698,10 +1684,8 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         let result = null;
         if (realEnabled && hasAnyOptionData) {
             try {
-            try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-BEFORE-CALL] t.entryTime=" + t.entryTime + " | rowsBySymbolSize=" + optionRowsBySymbolTime.size + " | realEnabled=" + realEnabled + " | hasAnyOptionData=" + hasAnyOptionData + "\n"); } catch(_) {}
                 result = tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
-            try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-AFTER-CALL] result=" + (result ? "OBJECT" : "null") + "\n"); } catch(__e) { try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-AFTER-ERR] " + __e.message + "\n"); } catch(_) {} }
-            } catch (__err) { try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-CATCH] " + __err.message + "\n" + (__err.stack || "").split("\n").slice(0,3).join("\n") + "\n"); } catch(_) {} result = null; }
+            } catch (_) { result = null; }
         }
         // 🆕 فقط معاملات با bid/ask واقعی پذیرفته می‌شن
         if (result) {
