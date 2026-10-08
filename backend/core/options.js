@@ -78,7 +78,7 @@ const OPT_BT_DEFAULTS = {
     timeWindowDays: 1,
     dynSlipBase: 0.001,
     dynSlipImpactCoef: 0.5,
-    minFillRatio: 0.02,
+    minFillRatio: 0,
     maxParticipation: 0.4,
     latencySec: 1,
     // Enrichment-aware defaults (pessimistic)
@@ -1316,7 +1316,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
 
     // ---- 🆕 پر شدن سفارش ----
     const fillRatio = computeFillRatio(orderSize, dailyVol, p.maxParticipation);
-    if (fillRatio < (p.minFillRatio || 0.05)) {
+    if (fillRatio < (p.minFillRatio != null ? p.minFillRatio : 0)) {
         return null;
     }
 
