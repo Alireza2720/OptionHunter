@@ -1316,6 +1316,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
 
     // ---- 🆕 پر شدن سفارش ----
     const fillRatio = computeFillRatio(orderSize, dailyVol, p.maxParticipation);
+    try { require("fs").appendFileSync("/tmp/oh-debug.log", "[DBG-fillRatio] fillRatio=" + fillRatio + " | min=" + (p.minFillRatio || 0.05) + " | vol=" + (best.volume) + "\n"); } catch(_) {}
     if (fillRatio < (p.minFillRatio != null ? p.minFillRatio : 0)) {
         return null;
     }
