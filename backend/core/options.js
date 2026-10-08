@@ -1197,7 +1197,7 @@ function classifyOptionExit(entryRow, exitRow, heldDays) {
 
 // 🆕 DEBUG (temporary)
 let __dbgCallCount = 0;
-function __dbg(...args) { if (__dbgCallCount <= 5) console.log("[DBG-tryGetReal]", ...args); }
+function __dbg(...args) { if (__dbgCallCount <= 5) process.stdout.write("[DBG-tryGetReal]", ...args); }
 
 function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     __dbgCallCount++; const FEE_BUY = getFeeBuy();
@@ -1588,7 +1588,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     };
     Object.assign(p, opts);
 
-    console.log("[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + closedTrades.length + " | realEnabled=" + (realEnabled !== false));
+    process.stdout.write("[DBG-runHybrid] symbol=" + symbol + " | closedTrades=" + closedTrades.length + " | realEnabled=" + (realEnabled !== false) + "\n");
     if (!closedTrades.length) {
         return {
             assumptions: p,
@@ -1606,7 +1606,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
 
     // ---------- Prefetch: یه query به جای N query ----------
     let optionRowsBySymbolTime = new Map();
-        console.log("[DBG-BT] symbol=" + symbol + " | normed=" + JSON.stringify(norm(symbol)) + " | hasAnyOptionData=" + hasAnyOptionData + " | realEnabled=" + realEnabled + " | sampleCount=" + sampleCount);
+        process.stdout.write("[DBG-BT] symbol=" + symbol + " | normed=" + JSON.stringify(norm(symbol)) + " | hasAnyOptionData=" + hasAnyOptionData + " | realEnabled=" + realEnabled + " | sampleCount=" + sampleCount + "\n");
     if (realEnabled && hasAnyOptionData) {
         try {
             let _minSec = Infinity, _maxSec = -Infinity;
@@ -1664,7 +1664,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                     }
                 }
             ).toArray();
-            console.log("[DBG-bulkRows] count=" + (bulkRows ? bulkRows.length : 0) + " | _query=" + JSON.stringify(_query));
+            process.stdout.write("[DBG-bulkRows] count=" + (bulkRows ? bulkRows.length : 0) + " | _query=" + JSON.stringify(_query) + "\n");
 
             // group by symbol + sort by time (برای باینری سرچ)
             for (const r of bulkRows) {
