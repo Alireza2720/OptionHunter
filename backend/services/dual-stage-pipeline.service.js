@@ -42,7 +42,7 @@ const STAGE_LABELS = {
     99: 'تکمیل'
 };
 
-const EXCLUDED_STRATEGIES = new Set(['sector_momentum']);
+const EXCLUDED_STRATEGIES = new Set(['sector_momentum', 'ob_sweep_pro', 'ob_after_sweep']);
 
 const DEFAULTS = {
     // بازه‌ها — اگه null، خودکار محاسبه می‌شن

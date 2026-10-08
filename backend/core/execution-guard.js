@@ -194,7 +194,11 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     let baseSize = Math.floor(riskAmt / contractValue);
     // NEW: allow minimum 1 contract if risk covers at least 40% of contract cost
     if (baseSize === 0 && riskAmt >= contractValue * 0.4) {
-        baseSize = 1;
+        // R7 refined: require option grade C or better for min-1-contract
+        const _g = String(candidate.optionGrade || 'A').toUpperCase();
+        if (['A+', 'A', 'B', 'C'].includes(_g)) {
+            baseSize = 1;
+        }
     }
     // NEW: allow minimum 1 contract if risk covers at least 40% of contract cost
     if (baseSize === 0 && riskAmt >= contractValue * 0.4) {

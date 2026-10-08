@@ -18,7 +18,7 @@
 const QUALITY_LEVELS = {
     'A+': { deltaMin: 0.45, deltaMax: 0.65, minDays: 14, maxDays: 45,  maxSpreadPct: 8,  minOI: 200, minPremium: 500, allowEnriched: false, allowMissingDelta: false },
     'A':  { deltaMin: 0.35, deltaMax: 0.75, minDays: 10, maxDays: 55,  maxSpreadPct: 10, minOI: 100, minPremium: 300, allowEnriched: false, allowMissingDelta: false },
-    'B':  { deltaMin: 0.25, deltaMax: 0.85, minDays: 7,  maxDays: 70,  maxSpreadPct: 15, minOI: 50,  minPremium: 150, allowEnriched: true,  allowMissingDelta: true  },
+    'B':  { deltaMin: 0.20, deltaMax: 0.88, minDays: 5,  maxDays: 90,  maxSpreadPct: 25, minOI: 20,  minPremium: 100, allowEnriched: true,  allowMissingDelta: true  },
     'C':  { deltaMin: 0.15, deltaMax: 0.90, minDays: 3,  maxDays: 90,  maxSpreadPct: 20, minOI: 20,  minPremium: 80,  allowEnriched: true,  allowMissingDelta: true  },
     'D':  { deltaMin: 0.05, deltaMax: 0.98, minDays: 1,  maxDays: 180, maxSpreadPct: 30, minOI: 0,   minPremium: 30,  allowEnriched: true,  allowMissingDelta: true  },
 };
