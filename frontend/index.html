@@ -3967,6 +3967,7 @@ async function runBacktestOrchestrator() {
       })
     }, 0);
     _btJobId = r.jobId;
+    try { localStorage.setItem('last_bt_job_id', _btJobId); } catch (_) {}
     prog.innerHTML = `<div class="hint">Job: ${r.jobId}</div>`;
     if (_btPollTimer) clearInterval(_btPollTimer);
     _btPollTimer = setInterval(pollBacktest, 3000);
@@ -4004,6 +4005,9 @@ async function pollBacktest() {
       clearInterval(_btPollTimer);
       _btPollTimer = null;
       _btLastResult = r.result;
+      window._lastBtCompareResult = r.result;
+      window._lastBtCompareJobId = _btJobId;
+      try { localStorage.setItem('last_bt_job_id', _btJobId); } catch (_) {}
       renderBacktestResults(r.result);
       const btn = document.getElementById('bt2RunBtn');
       if (btn) { btn.disabled = false; btn.textContent = ' اجرای بک‌تست کامل'; }
