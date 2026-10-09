@@ -191,55 +191,6 @@
   --gradient-card: linear-gradient(135deg, rgba(139,92,246,0.06) 0%, rgba(236,72,153,0.04) 100%);
 }
 
-/* ── FOREST THEME ── */
-[data-theme="forest"] {
-  --bg: #0d1410;
-  --bg-elev-1: #121c16;
-  --bg-elev-2: #182620;
-  --bg-elev-3: #1f3028;
-  --bg-input: #0f1814;
-  --bg-hover: rgba(34, 197, 94, 0.06);
-  --bg-active: rgba(34, 197, 94, 0.1);
-
-  --border: rgba(34, 197, 94, 0.14);
-  --border-strong: rgba(34, 197, 94, 0.24);
-  --border-subtle: rgba(34, 197, 94, 0.07);
-
-  --text: #d1e8dc;
-  --text-dim: #8fa99a;
-  --text-muted: #5d7a6c;
-  --text-bright: #ecfdf5;
-
-  --accent: #22c55e;
-  --accent-hover: #16a34a;
-  --accent-subtle: rgba(34, 197, 94, 0.15);
-  --accent-glow: rgba(34, 197, 94, 0.35);
-
-  --success: #10b981;
-  --success-subtle: rgba(16, 185, 129, 0.15);
-  --success-border: rgba(16, 185, 129, 0.3);
-
-  --danger: #ef4444;
-  --danger-subtle: rgba(239, 68, 68, 0.15);
-  --danger-border: rgba(239, 68, 68, 0.3);
-
-  --warn: #eab308;
-  --warn-subtle: rgba(234, 179, 8, 0.15);
-  --warn-border: rgba(234, 179, 8, 0.3);
-
-  --info: #06b6d4;
-  --info-subtle: rgba(6, 182, 212, 0.15);
-
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
-  --shadow-lg: 0 16px 40px rgba(0,0,0,0.6);
-  --shadow-glow: 0 0 28px var(--accent-glow);
-
-  --gradient-brand: linear-gradient(135deg, #22c55e 0%, #14b8a6 50%, #06b6d4 100%);
-  --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --gradient-card: linear-gradient(135deg, rgba(34,197,94,0.05) 0%, rgba(20,184,166,0.03) 100%);
-}
-
 /* ── CREAM THEME ── */
 [data-theme="cream"] {
   --bg: #faf6ef;
@@ -314,12 +265,12 @@ body.menu-open, body.modal-open { overflow: hidden !important; position: fixed; 
 /* ── HEADER ── */
 header {
   text-align: center;
-  margin-bottom: var(--sp-8);
-  padding: var(--sp-8) var(--sp-4);
+  margin-bottom: var(--sp-5);
+  padding: var(--sp-4) var(--sp-4);
   position: relative;
 }
 .brand {
-  font-size: 56px;
+  font-size: 58px;
   font-weight: 800;
   background: var(--gradient-brand);
   -webkit-background-clip: text;
@@ -335,9 +286,9 @@ header {
   50% { background-position: 100% 50%; }
 }
 .brand-sub {
-  font-size: 20px;
+  font-size: 26px;
   color: var(--text-dim);
-  letter-spacing: 4px;
+  letter-spacing: 2px;
   text-transform: uppercase;
   font-weight: 500;
 }
@@ -1486,8 +1437,12 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
 </div> <div id="globalLoader"><div class="loader-spinner"></div><div class="loader-text" id="loaderText"></div><div class="loader-sub" id="loaderSub"></div></div>
 <div id="alertContainer"></div> <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()" aria-label="منو"><span></span><span></span><span></span></button>
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
-<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('forest')">جنگل</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel(); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست</button>  <!-- R20: dual-stage menu removed --> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();" style="background:linear-gradient(135deg, var(--danger-subtle), var(--warn-subtle)); border:1px solid var(--warn-border); font-weight:600;">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
-        <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();" style="background:linear-gradient(135deg,var(--success-subtle),var(--accent-subtle)); border:1px solid var(--success-border); font-weight:600;">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="openSizeMultPanel(); toggleMenu();">اندازه استراتژی‌ها</button> <button class="menu-item" onclick="openSweepPanel(); toggleMenu();" style="background:linear-gradient(135deg,var(--accent-subtle),var(--success-subtle)); border:1px solid var(--accent); font-weight:600;">غنی‌سازی استراتژی</button> <button class="menu-item" onclick="promptToken(); toggleMenu();">توکن ادمین</button> <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
+<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel(); toggleMenu();">بک‌تست</button>  <!-- R20: dual-stage menu removed --> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
+        <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="openSizeMultPanel(); toggleMenu();">اندازه استراتژی‌ها</button> <button class="menu-item" onclick="openSweepPanel(); toggleMenu();">غنی‌سازی استراتژی</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div>
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="btn small outline" style="flex:1;" onclick="promptToken()">توکن ادمین</button>
+      <button class="btn small outline" style="flex:1;" onclick="runBackupNow()">دریافت بکاپ</button>
+    </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
 </div> <div class="modal-bg" id="modalBg"
      onclick="if(event.target===this) closeModal()"
      onmousedown="if(document.querySelector('.jobs-panel-container')) _jobsPanelUserActive=true;"
