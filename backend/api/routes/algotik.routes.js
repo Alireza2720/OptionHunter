@@ -107,6 +107,11 @@ function register(app, deps) {
                             ...(s.stock_daily || {}),
                             to: dailyMap[s.symbol] || null,
                         from: dailyFromMap[s.symbol] || null
+                        },
+                        options: {
+                            ...(s.options || {}),
+                            from: optionFromMap[s.symbol] || (s.options && s.options.from) || null,
+                            to: optionToMap[s.symbol] || (s.options && s.options.to) || null
                         }
                     }))
                 };

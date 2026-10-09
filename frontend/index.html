@@ -6299,6 +6299,46 @@ function _r24ApplyMode() {
     else document.body.classList.remove('mode-stock');
   } catch (_) {}
 }
+
+// R25 render wrap — run _r24ApplyMode + hide option cols after render
+(function(){
+  function hideOptCols() {
+    try {
+      var r = window._lastBtCompareResult || {};
+      if (r.mode !== "stock") return;
+      var container = document.getElementById("bt2ResultsArea");
+      if (!container) return;
+      ["bySymbol","byStrategy"].forEach(function(k){
+        var tabEl = container.querySelector("[data-bt3tab=\"" + k + "\"]");
+        if (!tabEl) return;
+        var tables = tabEl.querySelectorAll("table.data-table");
+        for (var t = 0; t < tables.length; t++) {
+          var tbl = tables[t];
+          var h1 = tbl.querySelectorAll("thead tr")[0];
+          if (h1) { var c1 = h1.querySelectorAll("th, td"); for (var i = 2; i < c1.length; i++) c1[i].style.display = "none"; }
+          var h2 = tbl.querySelectorAll("thead tr")[1];
+          if (h2) { var c2 = h2.querySelectorAll("th, td"); for (var j = 5; j < c2.length; j++) c2[j].style.display = "none"; }
+          var rows = tbl.querySelectorAll("tbody tr");
+          for (var b = 0; b < rows.length; b++) {
+            var tds = rows[b].querySelectorAll("td");
+            if (tds.length === 1 && tds[0].colSpan > 5) { tds[0].colSpan = 6; continue; }
+            for (var kk = 6; kk < tds.length; kk++) tds[kk].style.display = "none";
+          }
+        }
+      });
+    } catch (e) { console.error("hideOptCols:", e); }
+  }
+  if (typeof window.renderBacktestResults === "function") {
+    var _orig = window.renderBacktestResults;
+    window.renderBacktestResults = function(res, tid) {
+      _orig.call(this, res, tid);
+      setTimeout(function(){
+        try { _r24ApplyMode(); } catch(_) {}
+        hideOptCols();
+      }, 80);
+    };
+  }
+})();
 </script>
 </body>
 </html>
