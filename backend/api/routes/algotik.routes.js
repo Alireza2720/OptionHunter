@@ -81,7 +81,29 @@ function register(app, deps) {
 
             const r = await deps.dataService.cachedSWR(covCacheKey, ttl,
                 () => algotik.getCoverage());
-            res.json(r);
+            // R22b: enrich coverage with daily to-date from DB
+            try {
+                const db = deps.getDB();
+                const { COLLECTIONS } = require('../../config/constants');
+                const dailyAgg = await db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
+                    { $group: { _id: '$symbol', to: { $max: '$time' } } }
+                ]).toArray();
+                const dailyMap = {};
+                for (const d of dailyAgg) dailyMap[d._id] = d.to;
+                const enriched = {
+                    ...r,
+                    symbols: (r.symbols || []).map(s => ({
+                        ...s,
+                        stock_daily: {
+                            ...(s.stock_daily || {}),
+                            to: dailyMap[s.symbol] || null
+                        }
+                    }))
+                };
+                return res.json(enriched);
+            } catch (_) {
+                return res.json(r);
+            }
         } catch (e) { next(e); }
     });
 
