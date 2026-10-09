@@ -303,6 +303,13 @@ async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
     const sigHash = makeCacheKey(signature);
     const cached = await loadTradeCache(sigHash);
 
+    // R15: re-inject strategyId on cached trades (old caches lack it)
+    if (cached && Array.isArray(cached.trades) && cfg && cfg.strategyId) {
+        for (const t of cached.trades) {
+            if (!t.strategyId) t.strategyId = cfg.strategyId;
+        }
+    }
+
     // A) بدون cache
     if (!cached) {
         if (onProgress) onProgress({ phase: 'compute', from, to });
