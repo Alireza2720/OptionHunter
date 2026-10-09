@@ -178,6 +178,14 @@ async function load() {
     } catch (_) {
         strategyMinTargets = { ...DEFAULT_STRATEGY_MIN_TARGETS };
     }
+    try {
+        const sm = await deps.getDB().collection('meta').findOne({ _id: 'strategy_size_mult' });
+        strategySizeMult = (sm && sm.values)
+            ? { ...DEFAULT_STRATEGY_SIZE_MULT, ...sm.values }
+            : { ...DEFAULT_STRATEGY_SIZE_MULT };
+    } catch (_) {
+        strategySizeMult = { ...DEFAULT_STRATEGY_SIZE_MULT };
+    }
     return values;
 }
 
@@ -299,6 +307,21 @@ function getMinTargetPctFor(strategyId) {
     return strategyMinTargets._default != null ? strategyMinTargets._default : 3.5;
 }
 function getStrategyMinTargetMap() { return { ...strategyMinTargets }; }
+function getStrategySizeMult(strategyId) {
+    if (!strategyId) return strategySizeMult._default != null ? strategySizeMult._default : 1.0;
+    if (strategySizeMult[strategyId] != null) return strategySizeMult[strategyId];
+    return strategySizeMult._default != null ? strategySizeMult._default : 1.0;
+}
+function getStrategySizeMultMap() { return { ...strategySizeMult }; }
+async function saveStrategySizeMult(map) {
+    strategySizeMult = { ...DEFAULT_STRATEGY_SIZE_MULT, ...(map || {}) };
+    await deps.getDB().collection('meta').updateOne(
+        { _id: 'strategy_size_mult' },
+        { $set: { values: strategySizeMult } },
+        { upsert: true }
+    );
+    return strategySizeMult;
+}
 async function saveStrategyMinTargets(map) {
     strategyMinTargets = { ...DEFAULT_STRATEGY_MIN_TARGETS, ...(map || {}) };
     await deps.getDB().collection('meta').updateOne(
@@ -358,6 +381,7 @@ module.exports = {
     getStrategyDefaults, getAllStrategyDefaults, saveStrategyDefaults, resetStrategyDefaults,
     setRiskFreeRate, getRiskFreeRate, getRiskFreeMeta,
     getMinTargetPctFor, getStrategyMinTargetMap, saveStrategyMinTargets, DEFAULT_STRATEGY_MIN_TARGETS,
+    getStrategySizeMult, getStrategySizeMultMap, saveStrategySizeMult, DEFAULT_STRATEGY_SIZE_MULT,
     dataDepthFactor,
     scoreSizeFactor,
     getOptionQualityLevel,

@@ -1484,7 +1484,7 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
 <div id="alertContainer"></div> <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()" aria-label="منو"><span></span><span></span><span></span></button>
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
 <div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('forest')">جنگل</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel('option'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست آپشن</button> <button class="menu-item" onclick="openBacktestPanel('stock'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--success); font-weight:600;">بک‌تست سهم پایه</button> <button class="menu-item" onclick="openDualStagePanel(); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست دو مرحله‌ای</button> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();" style="background:linear-gradient(135deg, var(--danger-subtle), var(--warn-subtle)); border:1px solid var(--warn-border); font-weight:600;">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
-        <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();" style="background:linear-gradient(135deg,var(--success-subtle),var(--accent-subtle)); border:1px solid var(--success-border); font-weight:600;">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="promptToken(); toggleMenu();">توکن ادمین</button> <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
+        <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();" style="background:linear-gradient(135deg,var(--success-subtle),var(--accent-subtle)); border:1px solid var(--success-border); font-weight:600;">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="openSizeMultPanel(); toggleMenu();">اندازه استراتژی‌ها</button> <button class="menu-item" onclick="promptToken(); toggleMenu();">توکن ادمین</button> <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
 </div> <div class="modal-bg" id="modalBg"
      onclick="if(event.target===this) closeModal()"
      onmousedown="if(document.querySelector('.jobs-panel-container')) _jobsPanelUserActive=true;"
@@ -1615,6 +1615,54 @@ const fmtPF = v => {
 };
 const trendBadge = t => { if (!t) return '<span class="badge none">-</span>'; const up = /up|bull|صعود/i.test(t), dn = /down|bear|نزول/i.test(t); return `<span class="badge ${up?'long':dn?'short':'none'}">${esc(t)}</span>`; };
 function getToken() { return localStorage.getItem('adminToken') || ''; }
+async function openSizeMultPanel() {
+  openModal('اندازه استراتژی‌ها', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+  try {
+    const r = await apiFetch(BACKEND_URL + '/api/strategy-size-mult', {}, 0);
+    const map = r.map || {};
+    const strategies = Object.keys(map).filter(k => k !== '_default');
+    const rows = strategies.map(sid => {
+      const s = strategiesInfo.find(x => x.id === sid);
+      const name = s ? s.name : sid;
+      const val = map[sid];
+      return '<tr><td>' + esc(name) + '</td><td style="direction:ltr;font-size:11px;">' + esc(sid) + '</td><td><input type="number" step="0.1" min="0" max="3" id="sm_' + sid + '" value="' + val + '" style="width:80px;"></td></tr>';
+    }).join('');
+    const defVal = map._default != null ? map._default : 1.0;
+    openModal('اندازه استراتژی‌ها', '<div class="hint">ضریب اندازه هر استراتژی (۰ = غیرفعال، ۱ = عادی، ۲ = دو برابر). فقط روی بک‌تست و live اعمال می‌شود.</div>' +
+      '<div class="form-row" style="margin-top:10px;"><div class="field"><label>پیش‌فرض (استراتژی‌های تعریف‌نشده)</label><input type="number" step="0.1" min="0" max="3" id="sm__default" value="' + defVal + '"></div></div>' +
+      '<div class="table-responsive" style="max-height:400px;overflow-y:auto;margin-top:10px;">' +
+      '<table class="data-table"><thead><tr><th>استراتژی</th><th>id</th><th>ضریب</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>' +
+      '<div style="margin-top:14px;display:flex;gap:8px;">' +
+      '<button class="btn success" onclick="saveSizeMult()">ذخیره</button>' +
+      '<button class="btn outline" onclick="closeModal()">انصراف</button>' +
+      '</div>');
+  } catch (e) {
+    openModal('خطا', '<div class="empty-note">' + esc(e.message) + '</div>');
+  }
+}
+async function saveSizeMult() {
+  const map = {};
+  const defEl = document.getElementById('sm__default');
+  if (defEl && defEl.value !== '') map._default = parseFloat(defEl.value);
+  document.querySelectorAll('input[id^="sm_"]').forEach(el => {
+    const sid = el.id.slice(3);
+    if (sid === '_default') return;
+    const v = parseFloat(el.value);
+    if (Number.isFinite(v)) map[sid] = v;
+  });
+  try {
+    await apiFetch(BACKEND_URL + '/api/strategy-size-mult', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ map })
+    });
+    showAlert('ذخیره شد', 'success', 3000);
+    closeModal();
+  } catch (e) {
+    showAlert('خطا: ' + e.message, 'error');
+  }
+}
 function promptToken() { const current = getToken(); openModal(' وارد کردن توکن', `<div class="hint">توکن ادمین برای عملیات تغییر داده.</div><div class="form-row"><div class="field" style="flex:1;min-width:200px;"><label>توکن ادمین</label><input type="text" id="tokenInput" value="${esc(current)}" style="direction:ltr;text-align:left;"></div></div><div style="display:flex;gap:6px;margin-top:10px;"><button class="btn" onclick="saveToken()">ذخیره</button><button class="btn outline" onclick="clearToken()">پاک کردن</button></div>`); }
 async function saveToken() { const t = document.getElementById('tokenInput').value.trim(); if (!t) return showAlert('توکن خالی است.', 'warn'); try { const res = await fetch(`${BACKEND_URL}/api/auth/check`, { headers: { 'x-admin-token': t } }); const d = await res.json(); if (d.ok) { localStorage.setItem('adminToken', t); showAlert('ذخیره شد.', 'success', 4000); closeModal(); await checkBackendStatus(); } else showAlert('توکن نادرست.', 'error', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 function clearToken() { localStorage.removeItem('adminToken'); showAlert('پاک شد.', 'info', 3000); closeModal(); }

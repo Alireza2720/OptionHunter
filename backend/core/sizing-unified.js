@@ -28,7 +28,10 @@ function calcUnifiedSize(candidate, portfolio, settings, opts = {}) {
     const optionSizeFactor = (opts.optionSizeFactor != null && Number.isFinite(opts.optionSizeFactor))
         ? opts.optionSizeFactor : 1.0;
 
-    const adjusted = Math.floor(baseSize * scoreFactor * optionSizeFactor);
+    const strategySizeMult = (opts.strategySizeMult != null && Number.isFinite(opts.strategySizeMult))
+        ? opts.strategySizeMult : 1.0;
+
+    const adjusted = Math.floor(baseSize * scoreFactor * optionSizeFactor * strategySizeMult);
 
     const remainingSymbol = Math.max(0, capital * (maxSymPct / 100) - (portfolio.exposureBySymbol[candidate.symbol] || 0));
     const bySymbol = Math.floor(remainingSymbol / contractValue);

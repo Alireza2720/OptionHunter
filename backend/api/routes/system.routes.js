@@ -306,6 +306,21 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    app.get('/api/strategy-size-mult', (req, res) => {
+        try {
+            const map = settings.getStrategySizeMultMap ? settings.getStrategySizeMultMap() : {};
+            res.json({ map });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+    app.put('/api/strategy-size-mult', async (req, res, next) => {
+        try {
+            const { map } = req.body || {};
+            if (!map || typeof map !== 'object') return res.status(400).json({ error: 'map لازم است' });
+            const saved = await settings.saveStrategySizeMult(map);
+            res.json({ success: true, map: saved });
+        } catch (e) { next(e); }
+    });
+
     app.get('/api/strategy-defaults', (req, res) => {
         const overrides = settings.getAllStrategyDefaults();
         const all = {};

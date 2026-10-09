@@ -588,6 +588,14 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
         scoreFac = deps.settings.scoreSizeFactor(signalStrength.signalScore.score);
     }
 
+    // R16: per-strategy size multiplier (live)
+    let stratMult = 1.0;
+    try {
+        if (deps.settings && typeof deps.settings.getStrategySizeMult === 'function' && config && config.strategyId) {
+            stratMult = deps.settings.getStrategySizeMult(config.strategyId);
+        }
+    } catch (_) {}
+
     const sizeMult = (config && Number.isFinite(config.sizeMultiplier)) ? config.sizeMultiplier : 1.0;
     const portfolio = currentPortfolio || { totalExposure: 0, exposureBySymbol: {} };
 
@@ -607,7 +615,8 @@ async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStreng
             scoreFactor: scoreFac,
             levelFactor: levelFac,
             ivFactor: ivFac,
-            dataFactor: dataFac * sizeMult
+            dataFactor: dataFac * sizeMult,
+            strategySizeMult: stratMult
         }
     );
 
@@ -1321,6 +1330,13 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         }
     } catch (_) { _ohGrade = null; }
     if (_ohGrade && _ohGrade.grade === 'F') return null;
+
+    // R16: IV/HV filter — mirror live's maxIvHv
+    if (p.maxIvHv != null && Number.isFinite(p.maxIvHv) && p.maxIvHv > 0) {
+        const _ivv = Number(best.ivApi);
+        const _hvv = Number(best.hvApi);
+        if (_ivv > 0 && _hvv > 0 && (_ivv / _hvv) > p.maxIvHv) return null;
+    }
 
     // ---- انتخاب رکورد خروج (بهینه با باینری سرچ) ----
     const contractRows = rowsBySymbol.get(best.symbol) || [];

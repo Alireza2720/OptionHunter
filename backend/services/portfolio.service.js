@@ -217,7 +217,11 @@ async function simulateFromJob(jobId, opts = {}) {
         useSignalScore: opts.useSignalScore !== false,
         useSignalFilter: opts.useSignalFilter !== false,
         // Filter
-        minTrades: minTrades
+        minTrades: minTrades,
+        // R16: per-strategy size multiplier
+        strategySizeMultMap: (deps.settings && deps.settings.getStrategySizeMultMap)
+            ? deps.settings.getStrategySizeMultMap()
+            : null
     };
 
     const result = portfolioCore.simulate(filteredTrades, limits, {
