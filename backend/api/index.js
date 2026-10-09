@@ -33,7 +33,7 @@ const wfRoutes = require('./routes/wf.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const regimeRoutes = require('./routes/regime.routes');
 const pipelineRoutes = require('./routes/pipeline.routes');
-const dualStageRoutes = require('./routes/dual-stage.routes');
+// R20: dual-stage removed
 const tearsheetRoutes = require('./routes/tearsheet.routes');
 const backtestRoutes = require('./routes/backtest.routes');
 const journalRoutes = require('./routes/journal.routes');
@@ -81,7 +81,7 @@ function createApp(deps) {
     dashboardRoutes.register(app, deps);
     regimeRoutes.register(app, deps);
     pipelineRoutes.register(app, deps);
-    dualStageRoutes.register(app, deps);
+    // R20: dualStageRoutes.register(app, deps);
     tearsheetRoutes.register(app, deps);
     backtestRoutes.register(app, deps);
     journalRoutes.register(app, deps);

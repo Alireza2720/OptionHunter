@@ -234,6 +234,23 @@ async function evaluateConfig(config, marketInfo) {
         }
     }
 
+    // R20: load enhancements for Pro strategies (mirror backtest)
+    let _enhancements = null;
+    if (def.isPro) {
+        try {
+            const _enhMod = require('./enhancements');
+            _enhancements = await _enhMod.loadEnhancements(
+                deps.getDB(),
+                config.symbol,
+                null,
+                Math.floor(Date.now() / 1000)
+            );
+        } catch (_e) {
+            deps.logger && deps.logger.warn('live enhancements: ' + _e.message);
+            _enhancements = null;
+        }
+    }
+
     let result;
     try {
         result = def.run(
@@ -243,7 +260,8 @@ async function evaluateConfig(config, marketInfo) {
                 htfCandles, htfTimeframe: htfTf, entryWindow: ew,
                 pairCandles,          // 🆕
                 pairSymbol,           // 🆕
-                sectorPeerCandles     // 🆕
+                sectorPeerCandles,    // 🆕
+                enhancements: _enhancements   // R20
             }
         );
     } catch (e) {
