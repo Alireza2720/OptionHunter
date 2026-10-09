@@ -449,9 +449,10 @@ header {
 }
 .theme-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
 }
+.theme-grid .btn { padding: 6px 4px; font-size: 10.5px; }
 
 /* ── CARDS ── */
 .card {
@@ -917,7 +918,7 @@ table.data-table tbody tr:hover td { background: var(--bg-hover); }
 table.data-table tbody tr.symbol-start td { border-top: 1px solid var(--border-strong); }
 table.data-table tbody tr:nth-child(even) td { background: var(--bg-elev-2); }
 table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover); }
-table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
+
 
 /* ── BADGES ── */
 .badge {
@@ -1437,8 +1438,8 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
 </div> <div id="globalLoader"><div class="loader-spinner"></div><div class="loader-text" id="loaderText"></div><div class="loader-sub" id="loaderSub"></div></div>
 <div id="alertContainer"></div> <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()" aria-label="منو"><span></span><span></span><span></span></button>
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
-<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel(); toggleMenu();">بک‌تست</button>  <!-- R20: dual-stage menu removed --> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
-        <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="openSizeMultPanel(); toggleMenu();">اندازه استراتژی‌ها</button> <button class="menu-item" onclick="openSweepPanel(); toggleMenu();">غنی‌سازی استراتژی</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div>
+<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div>  <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel(); toggleMenu();">بک‌تست</button>  <!-- R20: dual-stage menu removed --> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();">دکتر سیستم</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
+        <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="openSizeMultPanel(); toggleMenu();">اندازه استراتژی‌ها</button> <button class="menu-item" onclick="openSweepPanel(); toggleMenu();">غنی‌سازی استراتژی</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div id="r21_status_ticker"> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;">در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> </div> <div id="r21_status_dynamic"></div> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div>
     <div style="display:flex; gap:8px; margin-bottom:14px;">
       <button class="btn small outline" style="flex:1;" onclick="promptToken()">توکن ادمین</button>
       <button class="btn small outline" style="flex:1;" onclick="runBackupNow()">دریافت بکاپ</button>
@@ -1449,8 +1450,8 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
      onmouseup="setTimeout(()=>{_jobsPanelUserActive=false;}, 2000);"> <div class="modal"> <h3><span id="modalTitle"></span><button class="btn small outline" onclick="closeModal()">بستن</button></h3> <div id="modalBody"></div> </div>
 </div> <div class="container"> <header> <div class="brand">OptionHunter</div> <div class="brand-sub">شکارچی آپشن · بورس تهران</div> </header> <div class="card" id="cardLiveDashboard"> <h2 style="flex-wrap:wrap;">
     <span style="display:flex; gap:4px;">
-      <button class="btn tiny outline" id="dashTabLive" onclick="switchDashTab('live')">داشبورد زنده</button>
       <button class="btn tiny" id="dashTabPaper" onclick="switchDashTab('paper')">معاملات دمو</button>
+      <button class="btn tiny outline" id="dashTabLive" onclick="switchDashTab('live')">داشبورد زنده</button>
     </span>
     <button class="btn tiny outline" onclick="refreshActiveDash(this)" style="margin-right:auto;">رفرش</button>
   </h2> <div id="dashboardContent" style="display:none;"><div class="empty-note">در حال بارگذاری...</div></div>
@@ -1714,7 +1715,7 @@ async function loadActiveJobs(btn) {
     const el = document.getElementById('menuActiveJobs');
     if (el) {
       if (!allJobs.length) el.innerHTML = '<div class="empty-note">فعالیتی نیست</div>';
-      else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'OHDoctor' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${statusLabels[j.status] || j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
+      else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'دکتر سیستم' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${statusLabels[j.status] || j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
     }
   } catch (e) {}
   finally {
@@ -2103,11 +2104,9 @@ async function loadDataPipeline() {
     try {
       cs = await apiFetch(`${BACKEND_URL}/api/algotik/status`, {}, 0);
     } catch (_) {}
-    const t = cs.ticker || {};
     const rf = cs.risk_free || 0;
     const snapshots = cs.option_snapshots || 0;
     const symbolsEnabled = cs.symbols_enabled;
-    const collectorOnline = Object.keys(cs).length >0;
     const el = document.getElementById('algotikStats');
     if (el) {
       el.innerHTML = `
@@ -2266,7 +2265,7 @@ function onStrategyChange() {
   if (!s) return;
   const c = document.getElementById('paramsContainer');
   const fields = Object.entries(s.defaultParams).map(([k, v]) => `<div class="field"><label>${PARAM_LABELS[k]||k}</label><input type="number" step="any" id="param_${k}" value="${v}"></div>`).join('');
-  c.innerHTML = `<div class="adv-accordion" id="advAccordion"><div class="adv-header" onclick="event.stopPropagation(); document.getElementById('advAccordion').classList.toggle('open');"><span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length})</span><span class="chev">▼</span></div><div class="adv-body" onclick="event.stopPropagation();"><div class="form-row">${fields}</div></div></div>`;
+  c.innerHTML = `<div class="adv-accordion" id="advAccordion"><div class="adv-header" onclick="document.getElementById('advAccordion').classList.toggle('open');"><span>تنظیمات پیشرفته (${Object.keys(s.defaultParams).length})</span><span class="chev">▼</span></div><div class="adv-body" onclick="event.stopPropagation();"><div class="form-row">${fields}</div></div></div>`;
   document.getElementById('timeframeSelect').value = s.defaultTimeframe;
   document.getElementById('htfSelect').value = s.htfTimeframe || '1d';
   const pairField = document.getElementById('pairSymbolField');
@@ -3155,7 +3154,7 @@ function renderJobProgress(job) {
   const dc = chunks.filter(c => c.status === 'DONE').length;
   const tt = chunks.length || (job.progress && job.progress.total) || 1;
   const pv = tt >0 ? Math.round((dc || (job.progress && job.progress.current) || 0) / tt * 100) : 0;
-  const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'OHDoctor' };
+  const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'دکتر سیستم' };
   const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه‌ی نتایج', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' };
   if (job.status === 'COMPUTING') {
     return `<div class="job-card"><div class="job-header"><span class="job-type ${job.type}">${typeMap[job.type] || job.type}</span><span class="job-status COMPUTING">محاسبه‌ی نتایج</span><span class="job-msg" style="margin-right:auto;">در حال تحلیل آماری + WF + رژیم + پورتفولیو...</span></div><div class="progress-bar"><div class="progress-fill" style="width:100%;animation:loadingPulse 1.4s ease-in-out infinite;"></div></div><div class="job-msg">این مرحله ۲-۱۰ دقیقه طول می‌کشد</div></div>`;
@@ -3194,7 +3193,7 @@ async function refreshJobsPanel() {
     const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status));
     const doneCount = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).length;
     const renderJob = (j, isDone) => {
-      const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'OHDoctor' };
+      const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'دکتر سیستم' };
       const total = (j.progress && j.progress.total) || 0;
       const current = (j.progress && j.progress.current) || 0;
       const symCount = (j.payload && j.payload.symbols && j.payload.symbols.length) || 1;
@@ -3228,14 +3227,14 @@ function switchJobsTab(w, btn) {
 }
 async function cancelActiveJob(id) { if (!confirm('لغو شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function cancelDoctorJobById(jobId) {
-  if (!confirm('OHDoctor متوقف شود؟')) return;
+  if (!confirm('دکتر سیستم متوقف شود؟')) return;
   try {
     const r = await apiFetch(`${BACKEND_URL}/api/doctor/kill`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId }),
     }, 0);
-    if (r.success) showAlert(' OHDoctor متوقف شد', 'success', 4000);
+    if (r.success) showAlert(' دکتر سیستم متوقف شد', 'success', 4000);
     else showAlert('ℹ️ ' + (r.message || 'انجام نشد'), 'info', 4000);
     setTimeout(() => {
       if (typeof refreshJobsPanel === 'function') refreshJobsPanel().catch(() => {});
@@ -3700,7 +3699,7 @@ function guideFull() {
     <div class="menu-label" style="margin-top:8px;">چند-نمادی / صنعت</div> ${sb('Pairs Spread', 'z-score نسبت دو نماد هم‌صنعت', '30m', 'بازار رنج')}
     ${sb('Sector Momentum', 'خود نماد قوی‌تر از میانگین صنعت', '1h', 'صنعت داغ')}
     <div class="menu-label" style="margin-top:8px;">ترکیبی</div> ${sb('Ensemble', 'رای وزنی از 12 زیراستراتژی', '30m', 'همه رژیم‌ها')}
-    <h4 class="guide-h">مدیریت سرمایه (Mode 2)</h4> <ul class="guide-ul"> <li><b>Duplicate Guard</b>: هر نماد در هر لحظه فقط یک پوزیشن</li> <li><b>Correlation Cluster</b>: نمادهای همبسته (corr >0.7) مجموع ≤ 30%</li> <li><b>Sector Limit</b>: هر صنعت ≤ 40% سرمایه</li> <li><b>Kelly Criterion</b>: حجم پویا بر اساس edge + fallback به risk%</li> <li><b>Signal Filter</b>: فقط pairهای تأییدشده توسط Bootstrap CI</li> </ul> <h4 class="guide-h">استراتژی‌های علمی (جدید)</h4> <ul class="guide-ul"> <li><b>TSMOM (Time Series Momentum)</b>: مومنتوم سری‌زمانی ۱۲ ماهه با فیلتر نوسان — Moskowitz et al. (2012).</li> <li><b>Momentum 12-1</b>: مومنتوم ۱۲ ماهه با skip یک ماه آخر — Jegadeesh &amp; Titman (1993).</li> <li><b>Short-Term Reversal</b>: بازگشت پس از افت ۵-۷ روزه — Lehmann (1990).</li> <li><b>Low Volatility Anomaly</b>: خرید در دوره‌های کم‌نوسان — Baker et al. (2011).</li></ul> <h4 class="guide-h">ابزارهای جدید</h4> <ul class="guide-ul"> <li><b>غنی‌سازی استراتژی (Sweep)</b>: تست ۳۰ ترکیب پارامتر در هر استراتژی و انتخاب بهترین بر اساس PF<sup>0.75</sup>×N<sup>0.25</sup>.</li> <li><b>Grade-Aware Option Sizing</b>: درجه‌بندی قرارداد آپشن از A+ تا F و تنظیم حجم پوزیشن متناسب با درجه.</li> <li><b>OHDoctor</b>: بررسی جامع سیستم در ۲۴ بخش با گزارش خودکار به Bale.</li> <li><b>معاملات دمو (Paper)</b>: ثبت خودکار سیگنال‌ها و پیگیری PnL بدون ریسک واقعی.</li></ul> `;
+    <h4 class="guide-h">مدیریت سرمایه (Mode 2)</h4> <ul class="guide-ul"> <li><b>Duplicate Guard</b>: هر نماد در هر لحظه فقط یک پوزیشن</li> <li><b>Correlation Cluster</b>: نمادهای همبسته (corr >0.7) مجموع ≤ 30%</li> <li><b>Sector Limit</b>: هر صنعت ≤ 40% سرمایه</li> <li><b>Kelly Criterion</b>: حجم پویا بر اساس edge + fallback به risk%</li> <li><b>Signal Filter</b>: فقط pairهای تأییدشده توسط Bootstrap CI</li> </ul> <h4 class="guide-h">استراتژی‌های علمی (جدید)</h4> <ul class="guide-ul"> <li><b>TSMOM (Time Series Momentum)</b>: مومنتوم سری‌زمانی ۱۲ ماهه با فیلتر نوسان — Moskowitz et al. (2012).</li> <li><b>Momentum 12-1</b>: مومنتوم ۱۲ ماهه با skip یک ماه آخر — Jegadeesh &amp; Titman (1993).</li> <li><b>Short-Term Reversal</b>: بازگشت پس از افت ۵-۷ روزه — Lehmann (1990).</li> <li><b>Low Volatility Anomaly</b>: خرید در دوره‌های کم‌نوسان — Baker et al. (2011).</li></ul> <h4 class="guide-h">ابزارهای جدید</h4> <ul class="guide-ul"> <li><b>غنی‌سازی استراتژی (Sweep)</b>: تست ۳۰ ترکیب پارامتر در هر استراتژی و انتخاب بهترین بر اساس PF<sup>0.75</sup>×N<sup>0.25</sup>.</li> <li><b>Grade-Aware Option Sizing</b>: درجه‌بندی قرارداد آپشن از A+ تا F و تنظیم حجم پوزیشن متناسب با درجه.</li> <li><b>دکتر سیستم</b>: بررسی جامع سیستم در ۲۴ بخش با گزارش خودکار به Bale.</li> <li><b>معاملات دمو (Paper)</b>: ثبت خودکار سیگنال‌ها و پیگیری PnL بدون ریسک واقعی.</li></ul> `;
 }
 function jdpTodayJalali() {
   const now = new Date();
@@ -5423,7 +5422,7 @@ let _doctorTimer = null;
 let _doctorActiveFile = null;
 let _doctorDbJobId = null;
 async function openDoctorPanel() {
-  openModal('OHDoctor — بررسی جامع', `
+  openModal('دکتر سیستم — بررسی جامع', `
     <div class="hint">۲۴ بخش: env، syntax، bug-patterns، config، PM2، systemd، mongo، HTTP، collector، gaps، live-tick، strategies، regime، journal، portfolio، pipeline، backtest، Bale، perf، security، logs.</div> <div class="adv-accordion open" id="docOpts"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <span><b> گزینه‌ها</b></span><span class="chev">▼</span> </div> <div class="adv-body"> <div style="padding:8px 12px;background:var(--success-subtle);border:1px solid var(--success-border);border-radius:var(--r-md);margin-bottom:10px;font-size:12px;"> <b> حالت پیشنهادی:</b> Safe Mode — روی سرور ضعیف امن است. برای اجرای heavy، تیک skip-heavy را بردار و مطمئن شو بازار بسته یا شب باشد.
         </div> <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12.5px;"> <label><input type="checkbox" id="docSkipHeavy" checked> Skip heavy (پیشنهاد)</label> <label><input type="checkbox" id="docSkipPipeline" checked> Skip pipeline</label> <label><input type="checkbox" id="docSkipBacktest" checked> Skip backtest</label> <label><input type="checkbox" id="docSkipLive"> Skip live-tick</label> <label><input type="checkbox" id="docSendReport" checked> ارسال گزارش به Bale</label> <label><input type="checkbox" id="docVerbose"> Verbose</label> <label style="color:var(--danger);"><input type="checkbox" id="docForceHours"> Force hours (اجبار در ساعت بازار)</label> </div> <div id="docMarketHint" style="margin-top:8px;padding:6px 10px;border-radius:var(--r-md);font-size:11.5px;background:var(--bg-elev-2);"></div> <div class="form-row" style="margin-top:8px;"> <div class="field" style="flex:1;min-width:260px;"> <label>Sections (خالی = همه) — مثلا: 1,2,3,9</label> <input type="text" id="docSections" placeholder="1,2,3,4,5,6,7,8,9,..." style="direction:ltr;"> </div> </div> </div> </div> <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;"> <button class="btn success" id="docRunBtn" onclick="runDoctor()" style="flex:1;font-weight:600;"> شروع بررسی</button> <button class="btn danger" id="docKillBtn" style="display:none;" onclick="killDoctor()">توقف</button> <button class="btn outline" onclick="refreshDoctorReports()"> گزارش‌های قبلی</button> </div> <div id="docStatus" style="margin-top:12px;"></div> <div id="docConsole" style="margin-top:12px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);padding:10px;font-family:var(--font-mono);font-size:11px;direction:ltr;text-align:left;max-height:400px;overflow-y:auto;white-space:pre-wrap;display:none;"></div> <div id="docReportsList" style="margin-top:14px;"></div> <div style="margin-top:14px;display:flex;gap:8px;"> <button class="btn outline" onclick="closeModal()">بستن</button> <button class="btn outline" onclick="refreshDoctorStatus()"> رفرش وضعیت</button> </div> `);
   setTimeout(() => {
@@ -5486,7 +5485,7 @@ async function runDoctor() {
   const inDanger = isTradingDay && mins >= SAFE_START && mins <= SAFE_END;
   if (inDanger && !forceHours) {
     showAlert(
-      ' الان ساعت بازار است — OHDoctor اجرا نمی‌شود.\n' +
+      ' الان ساعت بازار است — دکتر سیستم اجرا نمی‌شود.\n' +
       'بعد از 12:45 امتحان کن، یا تیک Force hours را بزن (خطرناک).',
       'warn', 8000
     );
@@ -5500,7 +5499,7 @@ async function runDoctor() {
   )) return;
   if (forceHours && inDanger && !confirm(
     ' FORCE HOURS\n' +
-    'بازار هم‌اکنون باز است. اجرای OHDoctor سنگین می‌تواند:\n' +
+    'بازار هم‌اکنون باز است. اجرای دکتر سیستم سنگین می‌تواند:\n' +
     '  • سیگنال‌های زنده را delayed کند\n' +
     '  • تیک‌ها را با تأخیر پردازش کند\n' +
     '  • سرور را به swap ببرد\n' +
@@ -5537,7 +5536,7 @@ async function runDoctor() {
   }
 }
 async function killDoctor() {
-  if (!confirm('OHDoctor متوقف شود؟')) return;
+  if (!confirm('دکتر سیستم متوقف شود؟')) return;
   try {
     const body = _doctorDbJobId ? { jobId: _doctorDbJobId } : {};
     const r = await apiFetch(`${BACKEND_URL}/api/doctor/kill`, {
@@ -5566,7 +5565,7 @@ async function refreshDoctorStatus() {
     const started = s.startedAt ? new Date(s.startedAt).toLocaleString('fa-IR') : '-';
     const finished = s.finishedAt ? new Date(s.finishedAt).toLocaleString('fa-IR') : '-';
     el.innerHTML = `
-      <div class="job-card"> <div class="job-header"> <span class="job-type" style="background:var(--accent-subtle);color:var(--accent);">OHDoctor</span> <span class="badge ${s.running ? 'warn' : s.status === 'done' ? 'long' : 'short'}">${s.status || '?'}</span> ${s.exitCode !== null && s.exitCode !== undefined ? `<span class="badge ${s.exitCode === 0 ? 'long' : 'short'}">exit=${s.exitCode}</span>` : ''}
+      <div class="job-card"> <div class="job-header"> <span class="job-type" style="background:var(--accent-subtle);color:var(--accent);">دکتر سیستم</span> <span class="badge ${s.running ? 'warn' : s.status === 'done' ? 'long' : 'short'}">${s.status || '?'}</span> ${s.exitCode !== null && s.exitCode !== undefined ? `<span class="badge ${s.exitCode === 0 ? 'long' : 'short'}">exit=${s.exitCode}</span>` : ''}
         </div> <div class="hint" style="font-size:11.5px;"> شروع: ${started} | پایان: ${finished} | PID: ${s.pid || '-'}
           ${s.outputFile ? ` | فایل: <code>${esc(s.outputFile)}</code> (${Math.round((s.fileSize || 0) / 1024)}KB)` : ''}
         </div> ${s.error ? `<div class="hint" style="color:var(--danger);">${esc(s.error)}</div>` : ''}
@@ -5812,12 +5811,14 @@ function _r21MoveElements() {
         h.className = "menu-label";
         h.style.marginTop = "10px";
         h.textContent = "Backfill";
-        statusTab.insertBefore(slot, statusTab.firstChild);
-        statusTab.insertBefore(h, slot);
+        const dynHost = document.getElementById('r21_status_dynamic') || statusTab;
+        dynHost.appendChild(h);
+        dynHost.appendChild(slot);
       }
       slot.appendChild(ptabBackfill);
     }
     if (algotikStats && slot && algotikStats.parentElement !== slot) {
+      algotikStats.style.marginTop = '12px';
       slot.appendChild(algotikStats);
     }
   } catch (_) {}
