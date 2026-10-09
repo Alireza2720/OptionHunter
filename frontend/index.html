@@ -3341,7 +3341,24 @@ async function viewJobDetail(id) {
   try {
     const job = await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, {}, 0);
     hideLoader();
-    if (job.type === 'backtest-compare' || job.type === 'pipeline' || job.type === 'dual-stage') {
+    // R27: multi-mode from jobs panel — detect and rebuild
+    const mode = (job.payload && job.payload.mode) || (job.result && job.result.mode);
+    if (job.type === 'backtest-compare') {
+      if (typeof _btJobs !== 'undefined' && Array.isArray(_btJobs) && _btJobs.length) {
+        const match = _btJobs.find(x => x.jobId === id);
+        if (match) {
+          // multi-mode job — reopen panel + poll
+          openBacktestPanel();
+          setTimeout(() => {
+            if (typeof renderMultiResults === 'function') renderMultiResults();
+          }, 300);
+          return;
+        }
+      }
+      openBacktestResultView(id);
+      return;
+    }
+    if (job.type === 'pipeline' || job.type === 'dual-stage') {
       openBacktestResultView(id);
       return;
     }
@@ -4021,9 +4038,15 @@ async function pollBacktestMulti() {
 function useStockOnly() { return _btJobs && _btJobs.length === 1 && _btJobs[0].mode === 'stock'; }
 function useOptionOnly() { return _btJobs && _btJobs.length === 1 && _btJobs[0].mode === 'option'; }
 
-function renderMultiResults() {
+function renderMultiResults(jobsArg) {
+  if (Array.isArray(jobsArg) && jobsArg.length) _btJobs = jobsArg;
   const res = document.getElementById('bt2ResultsArea');
-  if (!res) return;
+  if (!res) {
+    // R27: renderMultiResults accept jobs — open modal first
+    if (typeof openBacktestPanel === 'function') openBacktestPanel();
+    setTimeout(() => { try { renderMultiResults(jobsArg); } catch(_) {} }, 300);
+    return;
+  }
   const stockJob = _btJobs.find(j => j.mode === 'stock' && j.status === 'DONE');
   const optionJob = _btJobs.find(j => j.mode === 'option' && j.status === 'DONE');
 

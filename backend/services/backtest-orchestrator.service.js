@@ -652,6 +652,21 @@ async function computeFullResult(job, jobId) {
         deps.logger && deps.logger.warn(`[bt-compute] save last_backtest_pf: ${e.message}`);
     }
 
+    // R27: strip option fields when mode=stock
+    if (mode === 'stock') {
+        delete result.portfolio;
+        delete result.optimalTargetPct;
+        if (Array.isArray(result.details)) {
+            for (const d of result.details) {
+                delete d.optionStats;
+                delete d.trades;
+                delete d.realUsed;
+                delete d.approxUsed;
+                delete d.optimalTargetPct;
+            }
+        }
+    }
+
     deps.logger && deps.logger.info(`[bt-compute] ${jobId} done`);
     return result;
 }
