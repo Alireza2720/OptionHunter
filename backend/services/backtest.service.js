@@ -364,6 +364,46 @@ async function runBacktestCompareJob(job) {
                     hasDetails: true
                 };
 
+                // R14: stock-only optimal minTargetPct
+                if (isStockOnly && result.stockTrades && result.stockTrades.length >= 3) {
+                    try {
+                        const _ths = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0];
+                        const _list = result.stockTrades.map(t => {
+                            const entry = Number(t.entryPrice || t.stockEntry) || 0;
+                            if (entry <= 0) return null;
+                            const stop = Number(t.stop);
+                            const atr = Number(t.atr);
+                            const risk = (stop && stop < entry) ? (entry - stop) : (atr ? 2 * atr : entry * 0.03);
+                            return Object.assign({}, t, { _targetPct: (risk * 2.5 / entry) * 100 });
+                        }).filter(Boolean);
+                        let _best = { threshold: null, pf: 0, n: 0, score: 0, totalPnl: 0 };
+                        for (const th of _ths) {
+                            const sub = _list.filter(x => x._targetPct >= th);
+                            if (sub.length < 3) continue;
+                            const w = sub.filter(x => x.pnlPct > 0);
+                            const l = sub.filter(x => x.pnlPct <= 0);
+                            const gp = w.reduce((s, x) => s + x.pnlPct, 0);
+                            const gl = -l.reduce((s, x) => s + x.pnlPct, 0);
+                            const pf = gl > 0 ? gp / gl : (gp > 0 ? 99 : 0);
+                            const sc = pf * Math.sqrt(sub.length);
+                            if (sc > _best.score) {
+                                _best = {
+                                    threshold: th,
+                                    pf: Math.round(pf * 100) / 100,
+                                    n: sub.length,
+                                    score: Math.round(sc * 100) / 100,
+                                    totalPnl: Math.round(sub.reduce((s, x) => s + x.pnlPct, 0) * 100) / 100
+                                };
+                            }
+                        }
+                        if (_best.threshold != null) {
+                            result.optimalTargetPct = {};
+                            result.optimalTargetPct[s.id] = _best;
+                            summary.optimalTargetPct = result.optimalTargetPct;
+                        }
+                    } catch (_) {}
+                }
+
                 // 🆕 ذخیره‌ی جزئیات کامل در کالکشن جدا
                 try {
                     await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS).updateOne(
@@ -395,6 +435,7 @@ async function runBacktestCompareJob(job) {
                                 overlapWarning: result.overlapWarning,
                                 overlapSeverity: result.overlapSeverity,
                                 cacheSignature: result.cacheSignature,
+                                optimalTargetPct: result.optimalTargetPct || null,
                                 createdAt: new Date()
                             }
                         },

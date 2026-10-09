@@ -387,6 +387,7 @@ async function computeFullResult(job, jobId) {
             'trades.stockEntry': 1, 'trades.stockExit': 1,
             'trades.optionEntry': 1, 'trades.optionExit': 1,
             'trades.delta': 1, 'trades.iv': 1, 'trades.source': 1, 'trades.exitReason': 1,
+            optimalTargetPct: 1,
             'stockTrades.entryTime': 1, 'stockTrades.exitTime': 1, 'stockTrades.pnlPct': 1,
             'stockTrades.entryPrice': 1, 'stockTrades.exitPrice': 1,
             'stockTrades.entryFillTime': 1, 'stockTrades.exitFillTime': 1,
@@ -394,10 +395,42 @@ async function computeFullResult(job, jobId) {
         })
         .toArray();
 
+    // R14: aggregate optimal per strategy across all details
+    const _optAgg = {};
+    for (const d of details) {
+        if (!d.optimalTargetPct) continue;
+        for (const [sid, info] of Object.entries(d.optimalTargetPct)) {
+            if (!info || info.threshold == null) continue;
+            if (!_optAgg[sid]) _optAgg[sid] = { threshold: 0, pf: 0, n: 0, score: 0, totalPnl: 0, count: 0 };
+            const cur = _optAgg[sid];
+            const totN = cur.n + (info.n || 0);
+            if (totN > 0) {
+                cur.threshold = (cur.threshold * cur.n + info.threshold * info.n) / totN;
+                cur.pf = (cur.pf * cur.n + (info.pf || 0) * info.n) / totN;
+                cur.score = (cur.score * cur.n + (info.score || 0) * info.n) / totN;
+            }
+            cur.n = totN;
+            cur.totalPnl += info.totalPnl || 0;
+            cur.count += 1;
+        }
+    }
+    for (const k of Object.keys(_optAgg)) {
+        const x = _optAgg[k];
+        _optAgg[k] = {
+            threshold: Math.round(x.threshold * 10) / 10,
+            pf: Math.round(x.pf * 100) / 100,
+            n: x.n,
+            score: Math.round(x.score * 100) / 100,
+            totalPnl: Math.round(x.totalPnl * 100) / 100,
+            symbolsCount: x.count
+        };
+    }
+
     const result = {
         mode,
         panelsUsed: panels,
         summary: job.result || {},
+        optimalTargetPct: _optAgg,
         details: details.map(d => ({
             symbol: d.symbol,
             strategyId: d.strategyId,
@@ -409,6 +442,7 @@ async function computeFullResult(job, jobId) {
             tradesCount: (d.trades || []).length,
             realUsed: d.realUsed || 0,
             approxUsed: d.approxUsed || 0,
+            optimalTargetPct: d.optimalTargetPct || null,
             trades: (d.trades || []).slice(0, 200),
             stockTrades: (d.stockTrades || []).slice(0, 200)
         }))

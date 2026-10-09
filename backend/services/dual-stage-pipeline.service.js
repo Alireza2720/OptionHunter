@@ -69,10 +69,10 @@ const DEFAULTS = {
     signalCorrThreshold: 0.5,
     signalCorrToleranceSec: 300,
 
-    // Stage 5 gates
+    // Stage 5 gates (R14: relaxed for real data availability)
     minOptionTrades: 3,
-    minRealRatio: 0.5,
-    minOptionPF: 1.2,
+    minRealRatio: 0.3,
+    minOptionPF: 1.05,
 
     // Verdict
     goThreshold: 0.6,
