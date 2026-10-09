@@ -1483,7 +1483,7 @@ table.data-table tbody tr.symbol-start td { background: var(--bg-elev-3); }
 </div> <div id="globalLoader"><div class="loader-spinner"></div><div class="loader-text" id="loaderText"></div><div class="loader-sub" id="loaderSub"></div></div>
 <div id="alertContainer"></div> <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()" aria-label="منو"><span></span><span></span><span></span></button>
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
-<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('forest')">جنگل</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel('option'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست آپشن</button> <button class="menu-item" onclick="openBacktestPanel('stock'); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--success); font-weight:600;">بک‌تست سهم پایه</button> <!-- R20: dual-stage menu removed --> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();" style="background:linear-gradient(135deg, var(--danger-subtle), var(--warn-subtle)); border:1px solid var(--warn-border); font-weight:600;">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
+<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('forest')">جنگل</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> <div class="menu-divider"></div> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;"> در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> <div class="menu-divider"></div> <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel(); toggleMenu();" style="background:var(--gradient-card); border:1px solid var(--accent); font-weight:600;">بک‌تست</button>  <!-- R20: dual-stage menu removed --> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();" style="background:linear-gradient(135deg, var(--danger-subtle), var(--warn-subtle)); border:1px solid var(--warn-border); font-weight:600;">OHDoctor</button> <button class="menu-item" onclick="openFreshnessPanel(); toggleMenu();">تازگی دیتا</button>
         <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();" style="background:linear-gradient(135deg,var(--success-subtle),var(--accent-subtle)); border:1px solid var(--success-border); font-weight:600;">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openJournal(); toggleMenu();">ژورنال معاملات</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> <button class="menu-item" onclick="openSizeMultPanel(); toggleMenu();">اندازه استراتژی‌ها</button> <button class="menu-item" onclick="promptToken(); toggleMenu();">توکن ادمین</button> <button class="menu-item" onclick="runBackupNow(); toggleMenu();">دریافت بکاپ</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
 </div> <div class="modal-bg" id="modalBg"
      onclick="if(event.target===this) closeModal()"
@@ -3812,6 +3812,7 @@ let _btJobId = null;
 let _btPollTimer = null;
 let _btLastResult = null;
 function openBacktestPanel(mode) {
+  mode = mode || 'both';
   _btMode = mode || 'option';
   _btLastResult = null;
   const title = mode === 'stock' ? 'بک‌تست سهم پایه' : 'بک‌تست آپشن';
@@ -3854,7 +3855,7 @@ function openBacktestPanel(mode) {
               <label class="bt-opt-lbl" title="فقط pairهای تأییدشده توسط whitelist"><input type="checkbox" id="bt2_portfolio_filter" checked><span>فیلتر سیگنال</span><span class="bt-opt-info">?</span></label>
             </div> </div> </div> <div class="adv-accordion" id="btPanel_wf"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_wf_on" checked> <b>اعتبارسنجی زمانی</b> (اعتبارسنجی زمانی)
             </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>تعداد پنجره</label><input type="number" id="bt2_wf_windows" value="8" min="2" max="12"></div> <div class="field"><label>numTrials</label><input type="number" id="bt2_wf_numTrials" value="234" min="10" max="10000"></div> </div> </div> </div> <div class="adv-accordion open" id="btPanel_regime"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_regime_on" checked> <b>وضعیت بازار</b> (نمایشی + فیلتر bear)
-            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint">پس از اتمام، رژیم هر نماد در نتایج نمایش داده می‌شود. اگر «فقط کال» انتخاب شود، سیگنال‌های bear رد می‌شوند.</div> </div> </div> </div> </div> <button class="btn success" id="bt2RunBtn" onclick="runBacktestOrchestrator()" style="width:100%;margin-top:14px;"> اجرای بک‌تست کامل</button> <div id="bt2Progress" style="margin-top:12px;"></div> <div id="bt2ResultsArea" style="margin-top:14px;"></div> `);
+            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint">پس از اتمام، رژیم هر نماد در نتایج نمایش داده می‌شود. اگر «فقط کال» انتخاب شود، سیگنال‌های bear رد می‌شوند.</div> </div> </div> </div> </div> <div id="bt2_mode_row" style="display:flex;gap:16px;margin-top:12px;padding:10px 14px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);"><b style="font-size:12px;align-self:center;">حالت بک‌تست:</b><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="bt2_mode_stock" checked> سهم پایه</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="bt2_mode_option" checked> آپشن</label></div><button class="btn success" id="bt2RunBtn" onclick="runBacktestOrchestrator()" style="width:100%;margin-top:14px;"> اجرای بک‌تست کامل</button> <div id="bt2Progress" style="margin-top:12px;"></div> <div id="bt2ResultsArea" style="margin-top:14px;"></div> `);
 }
 async function bt2UseAllData(btn) {
   const orig = btn ? btn.textContent : null;
@@ -3899,23 +3900,22 @@ async function runBacktestOrchestrator() {
   const strategies = Array.from(document.querySelectorAll('.bt2-strat:checked')).map(c => ({ id: c.value }));
   if (!symbols.length) return showAlert('حداقل یک نماد', 'warn');
   if (!strategies.length) return showAlert('حداقل یک استراتژی', 'warn');
+  const useStock = document.getElementById('bt2_mode_stock') && document.getElementById('bt2_mode_stock').checked;
+  const useOption = document.getElementById('bt2_mode_option') && document.getElementById('bt2_mode_option').checked;
+  if (!useStock && !useOption) return showAlert('حداقل یک حالت انتخاب کنید', 'warn');
   const fromV = document.getElementById('bt2From').value;
   const toV = document.getElementById('bt2To').value;
   if (!fromV || !toV) return showAlert('تاریخ را انتخاب کن', 'warn');
   const fromGreg = jalaliToGreg(fromV);
   const toGreg = jalaliToGreg(toV);
-  if (!fromGreg || !toGreg) return showAlert('فرمت تاریخ نامعتبر — نمونه: 1405/01/01', 'warn');
+  if (!fromGreg || !toGreg) return showAlert('فرمت تاریخ نامعتبر', 'warn');
   const from = Math.floor(new Date(fromGreg + 'T00:00:00Z').getTime() / 1000);
   const to = Math.floor(new Date(toGreg + 'T23:59:59Z').getTime() / 1000);
   const panels = {
-    analysis: {
-      enabled: document.getElementById('bt2_analysis_on').checked,
-      minTrades: +document.getElementById('bt2_analysis_minTrades').value || 5,
-      iterations: +document.getElementById('bt2_analysis_iterations').value || 10000
-    },
+    analysis: { enabled: document.getElementById('bt2_analysis_on').checked, minTrades: +document.getElementById('bt2_analysis_minTrades').value || 5, iterations: +document.getElementById('bt2_analysis_iterations').value || 10000 },
     portfolio: {
       enabled: document.getElementById('bt2_portfolio_on').checked,
-      capital: +String(document.getElementById('bt2_portfolio_capital').value).replace(/[^\\d.\\-]/g, ''),
+      capital: +(String(document.getElementById('bt2_portfolio_capital').value).replace(/[^0-9]/g,'') || 0),
       riskPct: +document.getElementById('bt2_portfolio_riskPct').value,
       maxSymPct: +document.getElementById('bt2_portfolio_maxSymPct').value,
       maxTotalPct: +document.getElementById('bt2_portfolio_maxTotalPct').value,
@@ -3929,56 +3929,215 @@ async function runBacktestOrchestrator() {
       useSignalScore: document.getElementById('bt2_portfolio_score').checked,
       useSignalFilter: document.getElementById('bt2_portfolio_filter').checked
     },
-    wf: {
-      enabled: document.getElementById('bt2_wf_on').checked,
-      windows: +document.getElementById('bt2_wf_windows').value || 4,
-      numTrials: +document.getElementById('bt2_wf_numTrials').value || 234
-    },
-    regime: {
-      enabled: document.getElementById('bt2_regime_on').checked
-    }
+    wf: { enabled: document.getElementById('bt2_wf_on').checked, windows: +document.getElementById('bt2_wf_windows').value || 4, numTrials: +document.getElementById('bt2_wf_numTrials').value || 234 },
+    regime: { enabled: document.getElementById('bt2_regime_on').checked }
   };
-  const optionTypeEl = document.getElementById('bt2OptionType');
-  const optionType = optionTypeEl ? optionTypeEl.value : 'call';
+  const qlEl = document.getElementById('bt2QualityLevel');
+  const qualityLevel = qlEl ? (qlEl.value || null) : null;
   const btn = document.getElementById('bt2RunBtn');
   const prog = document.getElementById('bt2Progress');
   const res = document.getElementById('bt2ResultsArea');
   res.innerHTML = '';
   btn.disabled = true;
   btn.textContent = '...';
-  const infoEl = document.getElementById('bt2RangeInfo');
-  if (infoEl) {
-    const days = Math.floor((to - from) / 86400);
-    infoEl.style.display = 'block';
-    infoEl.innerHTML = ` در حال اجرا: <b>${fromV}</b> <b>${toV}</b> (${days} روز) · <b>${symbols.length}</b> نماد × <b>${strategies.length}</b> استراتژی`;
-    infoEl.style.color = 'var(--accent)';
-  }
+
+  const modes = [];
+  if (useStock) modes.push('stock');
+  if (useOption) modes.push('option');
+
+  _btJobs = modes.map(m => ({ mode: m, jobId: null, status: 'QUEUED', result: null, error: null }));
+
+  prog.innerHTML = '<div class="hint">در حال شروع ' + modes.length + ' بک‌تست...</div>';
+
   try {
-    const qlEl = document.getElementById('bt2QualityLevel');
-    const qualityLevel = qlEl ? (qlEl.value || null) : null;
-    const r = await apiFetch(`${BACKEND_URL}/api/backtest/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        mode: _btMode,
-        symbols, strategies, panels,
-        dateFrom: from, dateTo: to,
-        optionType,
-        qualityLevel
-      })
-    }, 0);
-    _btJobId = r.jobId;
-    try { localStorage.setItem('last_bt_job_id', _btJobId); } catch (_) {}
-    prog.innerHTML = `<div class="hint">Job: ${r.jobId}</div>`;
+    for (let i = 0; i < modes.length; i++) {
+      const mode = modes[i];
+      const r = await apiFetch(BACKEND_URL + '/api/backtest/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, symbols, strategies, panels, dateFrom: from, dateTo: to, optionType: 'call', qualityLevel })
+      }, 0);
+      _btJobs[i].jobId = r.jobId;
+      _btJobs[i].status = 'RUNNING';
+    }
     if (_btPollTimer) clearInterval(_btPollTimer);
-    _btPollTimer = setInterval(pollBacktest, 3000);
-    pollBacktest();
+    _btPollTimer = setInterval(pollBacktestMulti, 3000);
+    pollBacktestMulti();
   } catch (e) {
-    prog.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
+    prog.innerHTML = '<div class="empty-note">خطا: ' + esc(e.message) + '</div>';
     btn.disabled = false;
     btn.textContent = ' اجرای بک‌تست کامل';
   }
 }
+
+async function pollBacktestMulti() {
+  if (!_btJobs || !_btJobs.length) return;
+  const prog = document.getElementById('bt2Progress');
+  if (!prog) { if (_btPollTimer) clearInterval(_btPollTimer); return; }
+
+  let allDone = true;
+  let lines = '';
+  for (const j of _btJobs) {
+    if (!j.jobId) { allDone = false; continue; }
+    if (j.status === 'DONE' || j.status === 'FAILED' || j.status === 'CANCELLED') {
+      lines += '<div style="font-size:12px;margin-top:4px;">' + (j.mode === 'stock' ? 'سهم پایه' : 'آپشن') + ': <b>' + j.status + '</b>' + (j.error ? ' — ' + esc(j.error) : '') + '</div>';
+      continue;
+    }
+    allDone = false;
+    try {
+      const r = await apiFetch(BACKEND_URL + '/api/backtest/results/' + j.jobId, {}, 0);
+      if (r.computing) {
+        lines += '<div style="font-size:12px;margin-top:4px;">' + (j.mode === 'stock' ? 'سهم پایه' : 'آپشن') + ': در حال محاسبه... ' + (r.computingFor || 0) + 's</div>';
+      } else if (r.status === 'DONE' && r.result) {
+        j.result = r.result;
+        j.status = 'DONE';
+        lines += '<div style="font-size:12px;margin-top:4px;">' + (j.mode === 'stock' ? 'سهم پایه' : 'آپشن') + ': <b>تکمیل</b></div>';
+      } else if (r.status === 'FAILED' || r.status === 'CANCELLED') {
+        j.status = r.status;
+        j.error = r.error || '';
+        lines += '<div style="font-size:12px;margin-top:4px;">' + (j.mode === 'stock' ? 'سهم پایه' : 'آپشن') + ': <b>' + r.status + '</b></div>';
+      } else {
+        lines += '<div style="font-size:12px;margin-top:4px;">' + (j.mode === 'stock' ? 'سهم پایه' : 'آپشن') + ': ' + r.status + '...</div>';
+      }
+    } catch (_) {}
+  }
+
+  prog.innerHTML = '<div class="job-card"><div class="job-header"><span class="job-type backtest-compare">بک‌تست ' + (useStockOnly() ? 'سهم' : (useOptionOnly() ? 'آپشن' : 'ترکیبی')) + '</span></div>' + lines + '</div>';
+
+  if (allDone) {
+    clearInterval(_btPollTimer);
+    _btPollTimer = null;
+    const btn = document.getElementById('bt2RunBtn');
+    btn.disabled = false;
+    btn.textContent = ' اجرای بک‌تست کامل';
+    renderMultiResults();
+  }
+}
+
+function useStockOnly() { return _btJobs && _btJobs.length === 1 && _btJobs[0].mode === 'stock'; }
+function useOptionOnly() { return _btJobs && _btJobs.length === 1 && _btJobs[0].mode === 'option'; }
+
+function renderMultiResults() {
+  const res = document.getElementById('bt2ResultsArea');
+  if (!res) return;
+  const stockJob = _btJobs.find(j => j.mode === 'stock' && j.status === 'DONE');
+  const optionJob = _btJobs.find(j => j.mode === 'option' && j.status === 'DONE');
+
+  if (!stockJob && !optionJob) {
+    res.innerHTML = '<div class="empty-note">هیچ نتیجه‌ای موجود نیست</div>';
+    return;
+  }
+  if (!stockJob || !optionJob) {
+    // Single mode — render directly
+    const single = stockJob || optionJob;
+    renderBacktestResults(single.result, 'bt2ResultsArea');
+    window._lastBtCompareResult = single.result;
+    window._lastBtCompareJobId = single.jobId;
+    return;
+  }
+
+  // Two modes — three tabs
+  const container = document.createElement('div');
+  container.innerHTML =
+    '<div class="tabs" style="margin-bottom:14px;display:flex;gap:4px;">' +
+      '<button class="tab active" onclick="switchMultiTab('stock')">سهم پایه</button>' +
+      '<button class="tab" onclick="switchMultiTab('option')">آپشن</button>' +
+      '<button class="tab" onclick="switchMultiTab('combined')">ترکیبی</button>' +
+    '</div>' +
+    '<div id="bt_tab_stock" style="display:none;"></div>' +
+    '<div id="bt_tab_option"></div>' +
+    '<div id="bt_tab_combined" style="display:none;"></div>';
+  res.innerHTML = '';
+  res.appendChild(container);
+
+  renderBacktestResults(stockJob.result, 'bt_tab_stock');
+  renderBacktestResults(optionJob.result, 'bt_tab_option');
+  renderCombinedTab(stockJob.result, optionJob.result, 'bt_tab_combined');
+}
+
+function switchMultiTab(which) {
+  ['stock', 'option', 'combined'].forEach(k => {
+    const el = document.getElementById('bt_tab_' + k);
+    if (el) el.style.display = k === which ? 'block' : 'none';
+  });
+  document.querySelectorAll('#bt2ResultsArea > div > .tabs .tab').forEach(t => t.classList.remove('active'));
+  const idx = which === 'stock' ? 0 : which === 'option' ? 1 : 2;
+  const tabs = document.querySelectorAll('#bt2ResultsArea > div > .tabs .tab');
+  if (tabs[idx]) tabs[idx].classList.add('active');
+}
+
+function renderCombinedTab(stockResult, optionResult, targetId) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const stockDetails = stockResult.details || [];
+  const optionDetails = optionResult.details || [];
+  const bySymbol = {};
+  for (const d of stockDetails) {
+    if (!bySymbol[d.symbol]) bySymbol[d.symbol] = { stock: [], option: [] };
+    bySymbol[d.symbol].stock.push(d);
+  }
+  for (const d of optionDetails) {
+    if (!bySymbol[d.symbol]) bySymbol[d.symbol] = { stock: [], option: [] };
+    bySymbol[d.symbol].option.push(d);
+  }
+
+  const suggestions = [];
+  for (const [sym, data] of Object.entries(bySymbol)) {
+    const candidates = [];
+    for (const d of data.stock) {
+      const t = d.stockStats || {};
+      const n = t.count || 0;
+      if (n < 5) continue;
+      const pf = Number.isFinite(t.profitFactor) ? t.profitFactor : (t.totalPnl > 0 ? 5 : 0);
+      if (pf < 1) continue;
+      const score = 0.5 * Math.pow(pf, 0.75) * Math.pow(n, 0.25);
+      candidates.push({ symbol: sym, strategyId: d.strategyId, strategyName: d.strategyName, mode: 'stock', pf, n, score });
+    }
+    for (const d of data.option) {
+      const t = d.optionStats || {};
+      const n = t.count || 0;
+      if (n < 5) continue;
+      const pf = Number.isFinite(t.profitFactor) ? t.profitFactor : (t.totalPnl > 0 ? 5 : 0);
+      if (pf < 1) continue;
+      const score = 0.5 * Math.pow(pf, 0.75) * Math.pow(n, 0.25);
+      candidates.push({ symbol: sym, strategyId: d.strategyId, strategyName: d.strategyName, mode: 'option', pf, n, score });
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    if (candidates.length) {
+      suggestions.push({ symbol: sym, leader: candidates[0], confirmers: candidates.slice(1, 3) });
+    }
+  }
+
+  const stockStats = stockResult.summary ? (stockResult.summary.total || null) : null;
+  const optStats = optionResult.summary ? (optionResult.summary.total || null) : null;
+
+  let html = '<div class="hint" style="padding:10px;background:var(--accent-subtle);border-radius:var(--r-md);margin-bottom:12px;line-height:1.9;">' +
+    '<b>حالت ترکیبی:</b> نصف اهمیت برای سهم پایه، نصف برای آپشن. تنظیم خودکار بر اساس امتیاز وزنی (PF<sup>0.75</sup> × √N با وزن ۰.۵ برای هر طرف).' +
+    '</div>';
+
+  html += '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">تنظیم خودکار ترکیبی</h4>';
+  if (!suggestions.length) {
+    html += '<div class="empty-note">هیچ نماد معتبری برای ترکیب نیست</div>';
+  } else {
+    for (const sug of suggestions) {
+      html += '<div class="auto-plan-card" style="margin-bottom:10px;">';
+      html += '<h5>' + esc(sug.symbol) + '</h5>';
+      const ld = sug.leader;
+      html += '<div class="auto-role-row"><span class="role-badge leader">لیدر</span> ' +
+        '<span class="badge ' + (ld.mode === 'stock' ? 'none' : 'warn') + '" style="margin:0 4px;">' + (ld.mode === 'stock' ? 'سهم' : 'آپشن') + '</span> ' +
+        '<b>' + esc(ld.strategyName) + '</b><span class="auto-score">PF=' + ld.pf.toFixed(2) + ' · N=' + ld.n + ' · Score=' + ld.score.toFixed(2) + '</span></div>';
+      for (const c of sug.confirmers) {
+        html += '<div class="auto-role-row"><span class="role-badge confirmer">تایید</span> ' +
+          '<span class="badge ' + (c.mode === 'stock' ? 'none' : 'warn') + '" style="margin:0 4px;">' + (c.mode === 'stock' ? 'سهم' : 'آپشن') + '</span> ' +
+          '<b>' + esc(c.strategyName) + '</b><span class="auto-score">PF=' + c.pf.toFixed(2) + ' · N=' + c.n + ' · Score=' + c.score.toFixed(2) + '</span></div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  el.innerHTML = html;
+}
+
 async function pollBacktest() {
   if (!_btJobId) return;
   try {
@@ -4023,8 +4182,8 @@ async function pollBacktest() {
     console.error('poll error', e);
   }
 }
-function renderBacktestResults(result) {
-  const el = document.getElementById('bt2ResultsArea');
+function renderBacktestResults(result, targetId) {
+  const el = document.getElementById(targetId || 'bt2ResultsArea');
   if (!el || !result) return;
   const summary = result.summary || {};
   const panels = result.panelsUsed || {};
