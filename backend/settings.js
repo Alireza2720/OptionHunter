@@ -4,6 +4,28 @@
 let deps = null;
 function init(d) { deps = d; }
 
+const DEFAULT_STRATEGY_MIN_TARGETS = {
+    _default: 3.5,
+    smc_unicorn: 2.5,
+    smc_unicorn_pro: 2.5,
+    ob_sweep: 2.5,
+    ob_sweep_pro: 2.5,
+    ob_after_sweep: 2.5,
+    ob_after_sweep_pro: 2.5,
+    tsmom: 4.5,
+    tsmom_pro: 4.5,
+    momentum_12_1: 4.5,
+    momentum_12_1_pro: 4.5,
+    donchian: 4.5,
+    donchian_pro: 4.5,
+    low_vol_anomaly: 4.5,
+    low_vol_anomaly_pro: 4.5,
+    short_term_reversal: 3.0,
+    short_term_reversal_pro: 3.0,
+    sector_momentum: 3.5,
+    ensemble: 3.5,
+};
+
 const DEFAULTS = {
     // ---- بازه‌ی ورود ----
     ENTRY_START: '09:30',
@@ -93,6 +115,7 @@ const DEFAULTS = {
 };
 
 let values = { ...DEFAULTS };
+let strategyMinTargets = { ...DEFAULT_STRATEGY_MIN_TARGETS };
 let strategyDefaults = {};  // { strategyId: {params...} }
 
 // 🆕 Risk-free dynamic cache (از risk-free.job)
@@ -262,6 +285,21 @@ function multiConfirmerWindow() { return values.MULTI_CONFIRMER_TIME_WINDOW || 6
 function minTargetPct() { return values.MIN_TARGET_PCT || 3.5; }
 
 // ---- پیش‌فرض‌های استراتژی ----
+function getMinTargetPctFor(strategyId) {
+    if (!strategyId) return strategyMinTargets._default != null ? strategyMinTargets._default : 3.5;
+    if (strategyMinTargets[strategyId] != null) return strategyMinTargets[strategyId];
+    return strategyMinTargets._default != null ? strategyMinTargets._default : 3.5;
+}
+function getStrategyMinTargetMap() { return { ...strategyMinTargets }; }
+async function saveStrategyMinTargets(map) {
+    strategyMinTargets = { ...DEFAULT_STRATEGY_MIN_TARGETS, ...(map || {}) };
+    await deps.getDB().collection('meta').updateOne(
+        { _id: 'strategy_min_targets' },
+        { $set: { values: strategyMinTargets } },
+        { upsert: true }
+    );
+    return strategyMinTargets;
+}
 function getStrategyDefaults(strategyId) {
     return { ...(strategyDefaults[strategyId] || {}) };
 }

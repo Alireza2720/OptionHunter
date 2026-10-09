@@ -87,7 +87,8 @@ const OPT_BT_DEFAULTS = {
     // NEW: quality enforcement in backtest (mirrors live)
     minVolume: 0,
     maxTradeReturnPct: 1000,
-    minTargetPct: 4.5};
+    minTargetPct: 4.5,
+    autoDetectTarget: true};
 
 const RELAX_LEVELS = [
     { name: 'A+', tag: null, overrides: {} },
@@ -1813,6 +1814,42 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         }
     }
 
+    // R13: auto-detect optimal minTargetPct per strategy (PF × √N)
+    let _optimalTargets = null;
+    if (p.autoDetectTarget !== false) {
+        const _thresholds = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0];
+        const _byStrat = {};
+        for (const tr of trades) {
+            const sid = tr._strategyId || '_default';
+            if (!_byStrat[sid]) _byStrat[sid] = [];
+            _byStrat[sid].push(tr);
+        }
+        _optimalTargets = {};
+        for (const [sid, list] of Object.entries(_byStrat)) {
+            let best = { threshold: null, pf: 0, n: 0, score: 0, totalPnl: 0 };
+            for (const th of _thresholds) {
+                const sub = list.filter(x => (x._targetPct || 0) >= th);
+                if (sub.length < 3) continue;
+                const w = sub.filter(x => x.pnlPct > 0);
+                const l = sub.filter(x => x.pnlPct <= 0);
+                const gp = w.reduce((s, x) => s + x.pnlPct, 0);
+                const gl = -l.reduce((s, x) => s + x.pnlPct, 0);
+                const pf = gl > 0 ? gp / gl : (gp > 0 ? 99 : 0);
+                const score = pf * Math.sqrt(sub.length);
+                if (score > best.score) {
+                    best = {
+                        threshold: th,
+                        pf: Math.round(pf * 100) / 100,
+                        n: sub.length,
+                        score: Math.round(score * 100) / 100,
+                        totalPnl: Math.round(sub.reduce((s, x) => s + x.pnlPct, 0) * 100) / 100
+                    };
+                }
+            }
+            if (best.threshold != null) _optimalTargets[sid] = best;
+        }
+    }
+
     const wins = trades.filter(x => x.pnlPct > 0);
     const losses = trades.filter(x => x.pnlPct <= 0);
     const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
@@ -1845,7 +1882,8 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
         },
         trades, mode: 'hybrid',
         realUsed, approxUsed, hasAnyOptionData,
-        coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0
+        coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0,
+        optimalTargetPct: _optimalTargets
     };
 
     if (!trades.length) result.diagnostic = 'هیچ معامله ای با bid/ask واقعی پیدا نشد.';

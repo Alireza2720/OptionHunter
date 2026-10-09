@@ -588,7 +588,9 @@ async function evaluateConfig(config, marketInfo) {
         const atr = last.indicators && last.indicators.atr;
         const risk = stop && stop < lastPrice ? lastPrice - stop : (atr ? 2 * atr : lastPrice * 0.03);
         const targetPct = (risk * targetMultiplier / lastPrice) * 100;
-        const minTarget = deps.minTargetPct();
+        const minTarget = (deps.settings && typeof deps.settings.getMinTargetPctFor === 'function')
+            ? deps.settings.getMinTargetPctFor(config.strategyId)
+            : deps.minTargetPct();
 
         if (targetPct < minTarget) {
             await deps.notify(`${config.symbol}: هدف سهم فقط ${targetPct.toFixed(1)}% (${targetMultiplier}R در ${macro}) - کمتر از حداقل ${minTarget}%.`);

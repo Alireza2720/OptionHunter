@@ -290,6 +290,22 @@ function register(app, deps) {
     });
 
     // ---- Strategy Defaults ----
+    // R13: per-strategy minTargetPct
+    app.get('/api/strategy-min-targets', (req, res) => {
+        try {
+            const map = settings.getStrategyMinTargetMap ? settings.getStrategyMinTargetMap() : {};
+            res.json({ map });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+    app.put('/api/strategy-min-targets', async (req, res, next) => {
+        try {
+            const { map } = req.body || {};
+            if (!map || typeof map !== 'object') return res.status(400).json({ error: 'map لازم است' });
+            const saved = await settings.saveStrategyMinTargets(map);
+            res.json({ success: true, map: saved });
+        } catch (e) { next(e); }
+    });
+
     app.get('/api/strategy-defaults', (req, res) => {
         const overrides = settings.getAllStrategyDefaults();
         const all = {};
