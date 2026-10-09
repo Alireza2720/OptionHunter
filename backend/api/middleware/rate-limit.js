@@ -7,6 +7,8 @@ const buckets = new Map();
 
 function makeLimiter({ windowMs, max, keyFn }) {
     return (req, res, next) => {
+        const _ip = req.ip || req.connection.remoteAddress || '';
+        if (_ip === '127.0.0.1' || _ip === '::1' || _ip === '::ffff:127.0.0.1') return next();
         const key = keyFn ? keyFn(req) : (req.ip || req.connection.remoteAddress || 'unknown');
         const now = Date.now();
         let b = buckets.get(key);

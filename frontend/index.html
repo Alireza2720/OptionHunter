@@ -1220,7 +1220,7 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 }
 .adv-header:hover { background: var(--bg-hover); color: var(--text); }
 .adv-body { display: none; padding: var(--sp-4); border-top: 1px solid var(--border-subtle); }
-.adv-accordion.open .adv-body { display: block; animation: slideDown var(--t-normal) var(--ease); }
+.adv-accordion.open > .adv-body { display: block; animation: slideDown var(--t-normal) var(--ease); }
 .adv-accordion.open .adv-header .chev { transform: rotate(180deg); }
 
 /* ── AUTO-PLAN / STRATEGY CARDS ── */
@@ -1657,8 +1657,6 @@ async function checkBackendStatus() {
     bs.style.color = d.status === 'ok' ? 'var(--success)' : 'var(--danger)';
     const cs = document.getElementById('collectorStatus');
     if (cs) {
-      cs.textContent = d.collectorOnline ? 'آنلاین' : 'آفلاین';
-      cs.style.color = d.collectorOnline ? 'var(--success)' : 'var(--danger)';
     }
     const ms = document.getElementById('marketStatus');
     if (d.holidayToday) {
@@ -2359,7 +2357,7 @@ function renderConfigs() {
         ? ' <span class="badge warn" title="Pipeline: MAYBE — size 0.5">MAYBE ×0.5</span>'
         : '';
       const checkbox = `<input type="checkbox" class="config-checkbox" ${selectedConfigs.has(id)?'checked':''} onchange="toggleSelectConfig('${id}', this.checked)">`;
-      const symbolCell = idx === 0 ? `<td rowspan="${items.length}" style="font-weight:600; vertical-align:middle;"><b>${esc(symbol)}</b></td>` : '';
+      const symbolCell = `<td><b>${esc(symbol)}</b></td>`;
       const rowClass = (idx === 0 ? 'symbol-start ' : '') + (isInsufficient ? 'insufficient-row' : '');
       html += `<tr class="${rowClass}"><td>${checkbox}</td>${symbolCell}<td>${esc(name)}${pairTag}${verdictBadge}${insufChip}</td><td>${roleBadge}</td><td>${posBadge}</td><td>${active}</td><td>${actions}</td></tr>`;
     });
@@ -3107,7 +3105,7 @@ async function saveTradingSettings(keys) {
         const el = document.getElementById(`ts_${k}`);
         if (!el) return;
         let v = String(el.value).trim();
-        if (el.hasAttribute("data-rial")) v = v.replace(/[^\\d.\\-]/g, "");
+        if (el.hasAttribute("data-rial")) v = v.replace(/[^\d.-]/g, "");
         if (v === '') return;
         if (k === 'OPTION_QUALITY_LEVEL') body[k] = v;
         else body[k] = v;
@@ -5817,9 +5815,9 @@ function _r21MoveElements() {
       }
       slot.appendChild(ptabBackfill);
     }
-    if (algotikStats && slot && algotikStats.parentElement !== slot) {
-      algotikStats.style.marginTop = '12px';
-      slot.appendChild(algotikStats);
+    if (algotikStats && slot) {
+      algotikStats.style.marginTop = '16px';
+      if (algotikStats.parentElement !== slot) slot.appendChild(algotikStats);
     }
   } catch (_) {}
 }

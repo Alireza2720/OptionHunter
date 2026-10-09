@@ -740,7 +740,7 @@ async function s8_mongo() {
             signal_history: ['createdAt_-1'],
             backtest_jobs: ['status_1_createdAt_1'],
             backtest_compare_details: ['jobId_1_symbol_1_strategyId_1'],
-            stock_ticks: ['symbol_1_time_1'],
+            stock_ticks: ['symbol_1_time_-1'],
             logs: ['at_1'],
         };
         for (const [col, idx] of Object.entries(exp)) {
@@ -1130,6 +1130,8 @@ async function s17_portfolio() {
 async function s18_pipeline() {
     section(18, 'DUAL-STAGE PIPELINE (DRY RUN)');
     if (CONF.skipPipeline) return info('skip-pipeline');
+    // R20: dual-stage routes removed — skip
+    return info('dual-stage removed in R20');
     if (!await preHeavyCheck('S18 PIPELINE')) return;
     const symResp = await httpGet(CONF.backend + '/api/monitored-symbols');
     const syms = (symResp.ok ? symResp.json : []) || [];

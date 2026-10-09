@@ -219,6 +219,8 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     if (candidate.optionSizeFactor != null && Number.isFinite(candidate.optionSizeFactor)
         && candidate.optionSizeFactor !== 1.0) {
         baseSize = Math.floor(baseSize * candidate.optionSizeFactor);
+    }
+
 
     // Bug 12 FIX: dual-stage verdict sizeMultiplier (GO=1.0, MAYBE=0.5)
     if (candidate.sizeMultiplier != null && Number.isFinite(candidate.sizeMultiplier) && candidate.sizeMultiplier !== 1.0) {
@@ -229,7 +231,6 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     if (candidate.strategySizeMult != null && Number.isFinite(candidate.strategySizeMult)
         && candidate.strategySizeMult !== 1.0) {
         baseSize = Math.floor(baseSize * candidate.strategySizeMult);
-    }
     }
 
     const curSym = portfolio.exposureBySymbol[candidate.symbol] || 0;

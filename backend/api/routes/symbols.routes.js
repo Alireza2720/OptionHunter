@@ -85,9 +85,7 @@ function register(app, deps) {
                     // اگه cache قدیمی شد ولی هنوز تو 24h → فوری بده + پس‌زمینه refresh
                     const marketHours = require('../../infra/market-hours');
                     const ttl = marketHours.expensiveCacheTTL();
-                    const cov = dataService.cachedSWR('coverage',
-                        ttl,
-                        () => deps.algotik.getCoverage()).then(() => {}).catch(() => {});
+                    const cov = await dataService.cachedSWR('coverage', ttl, () => deps.algotik.getCoverage());
                     for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
                 } catch (_) {}
             }
