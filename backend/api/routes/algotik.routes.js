@@ -86,7 +86,7 @@ function register(app, deps) {
                 const db = deps.getDB();
                 const { COLLECTIONS } = require('../../config/constants');
                 const dailyAgg = await db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
-                    { $group: { _id: '$symbol', to: { $max: '$time' } } }
+                    { $group: { _id: '$symbol', to: { $max: '$time' }, from: { $min: '$time' } } }
                 ]).toArray();
                 const dailyMap = {};
                 for (const d of dailyAgg) dailyMap[d._id] = d.to;

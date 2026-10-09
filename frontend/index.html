@@ -5776,9 +5776,9 @@ function renderMonitoredSymbols() {
             ? '<span class="badge ' + (r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none') + '">' + (r.macro === 'bull' ? 'صعودی' : r.macro === 'bear' ? 'نزولی' : 'رنج') + '</span>'
             : '<span class="badge none">-</span>';
         const cov = covMap[s.symbol] || {};
-        const d1m = (cov.stock_base && cov.stock_base.to) || null;
-        const dDaily = (cov.stock_daily && cov.stock_daily.to) || null;
-        const dOpt = (cov.options && cov.options.to) || null;
+        const d1m = (cov.stock_base && cov.stock_base.from) || null;
+        const dDaily = (cov.stock_daily && cov.stock_daily.from) || null;
+        const dOpt = (cov.options && cov.options.from) || null;
         return '<tr>' +
             '<td><b>' + esc(s.symbol) + '</b></td>' +
             '<td style="font-size:11px; direction:ltr;">' + fmtDate(d1m) + '</td>' +
