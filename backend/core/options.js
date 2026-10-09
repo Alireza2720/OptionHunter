@@ -1877,20 +1877,23 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             let best = { threshold: null, pf: 0, n: 0, score: 0, totalPnl: 0 };
             for (const th of _thresholds) {
                 const sub = list.filter(x => (x._targetPct || 0) >= th);
-                if (sub.length < 3) continue;
+                if (sub.length < 5) continue;
                 const w = sub.filter(x => x.pnlPct > 0);
                 const l = sub.filter(x => x.pnlPct <= 0);
                 const gp = w.reduce((s, x) => s + x.pnlPct, 0);
                 const gl = -l.reduce((s, x) => s + x.pnlPct, 0);
                 const pf = gl > 0 ? gp / gl : (gp > 0 ? 99 : 0);
-                const score = pf * Math.sqrt(sub.length);
+                                const total = gp - gl;
+                if (total <= 0) continue;
+                if (!Number.isFinite(pf) || pf < 1.0) continue;
+const score = pf * Math.sqrt(sub.length);
                 if (score > best.score) {
                     best = {
                         threshold: th,
                         pf: Math.round(pf * 100) / 100,
                         n: sub.length,
                         score: Math.round(score * 100) / 100,
-                        totalPnl: Math.round(sub.reduce((s, x) => s + x.pnlPct, 0) * 100) / 100
+                        totalPnl: Math.round(total * 100) / 100
                     };
                 }
             }

@@ -709,7 +709,7 @@ function _stage6_verdict(optionResults, opts) {
     const verdicts = [];
     const goThreshold = opts.goThreshold || 0.7;
     const maybeThreshold = opts.maybeThreshold || 0.5;
-    const minOptN = opts.minOptionTrades || 5;
+    const minOptN = opts.minOptionTrades || 3;
     const minRealRatio = opts.minRealRatio || 0.5;
     const minPF = opts.minOptionPF || 1.2;
     const minAvg = opts.minAvgPnl != null ? opts.minAvgPnl : 0;
