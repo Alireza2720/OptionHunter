@@ -1776,7 +1776,36 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     const trades = [];
     let realUsed = 0, approxUsed = 0;
 
-    for (const t of closedTrades) {
+    // R13: per-strategy minTargetPct pre-filter
+    let _perStratTargets = null;
+    try {
+        if (deps.settings && typeof deps.settings.getStrategyMinTargetMap === 'function') {
+            _perStratTargets = deps.settings.getStrategyMinTargetMap();
+        }
+    } catch (_) { _perStratTargets = null; }
+
+    function _targetPctOfTrade(t) {
+        const entry = Number(t.entryPrice || t.stockEntry) || 0;
+        if (entry <= 0) return null;
+        const stop = Number(t.stop);
+        const atr = Number(t.atr);
+        const risk = (stop && stop < entry) ? (entry - stop) : (atr ? 2 * atr : entry * 0.03);
+        return (risk * 2.5 / entry) * 100;
+    }
+
+    let _processTrades = closedTrades;
+    if (_perStratTargets) {
+        _processTrades = closedTrades.filter(t => {
+            const sid = t.strategyId || '_default';
+            const minT = (_perStratTargets[sid] != null)
+                ? _perStratTargets[sid]
+                : (_perStratTargets._default != null ? _perStratTargets._default : 3.5);
+            const tp = _targetPctOfTrade(t);
+            return tp == null || tp >= minT;
+        });
+    }
+
+    for (const t of _processTrades) {
         let result = null;
         if (realEnabled && hasAnyOptionData) {
             try {
@@ -1805,6 +1834,8 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                 result.spreadPenaltyApplied = Math.round(_sp * 10000) / 10000;
                 result.pnlPct = result.pnlPct * (1 - _sp);
             }
+            result._strategyId = t.strategyId || '_default';
+            result._targetPct = _targetPctOfTrade(t);
             trades.push(result);
             realUsed++;
         }

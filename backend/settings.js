@@ -170,6 +170,14 @@ async function load() {
         values = { ...DEFAULTS, ...base };
         strategyDefaults = {};
     }
+    try {
+        const smt = await deps.getDB().collection('meta').findOne({ _id: 'strategy_min_targets' });
+        strategyMinTargets = (smt && smt.values)
+            ? { ...DEFAULT_STRATEGY_MIN_TARGETS, ...smt.values }
+            : { ...DEFAULT_STRATEGY_MIN_TARGETS };
+    } catch (_) {
+        strategyMinTargets = { ...DEFAULT_STRATEGY_MIN_TARGETS };
+    }
     return values;
 }
 
@@ -349,6 +357,7 @@ module.exports = {
     minTargetPct,
     getStrategyDefaults, getAllStrategyDefaults, saveStrategyDefaults, resetStrategyDefaults,
     setRiskFreeRate, getRiskFreeRate, getRiskFreeMeta,
+    getMinTargetPctFor, getStrategyMinTargetMap, saveStrategyMinTargets, DEFAULT_STRATEGY_MIN_TARGETS,
     dataDepthFactor,
     scoreSizeFactor,
     getOptionQualityLevel,

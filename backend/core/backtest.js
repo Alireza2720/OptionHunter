@@ -207,6 +207,7 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
                 status: 'open',
                 signalInfo: ind,
                 slippagePct: STOCK_SLIPPAGE_PCT * 100,
+                strategyId: cfg.strategyId || null,
                 // 🆕 Phase 4 — فیلدهای score (از signal indicators)
                 atr: ind.atr || null,
                 rsiFast: ind.rsiFast || null,
