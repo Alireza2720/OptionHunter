@@ -594,7 +594,7 @@ async function applyAutoConfig(plans, trainingMeta = null) {
         await db.collection(COLLECTIONS.SIGNALS_STATE).deleteMany({ configId: { $in: oldIds } });
         // 🆕 invalidate برای هر config
         for (const oldId of oldIds) {
-            try { await deps.backtestService.invalidateCacheForConfig(oldId); } catch (_) {}
+            try { await deps.backtest.invalidateCacheForConfig(oldId); } catch (_) {}
         }
 
         const STRATEGIES = deps.strategies.STRATEGIES;
