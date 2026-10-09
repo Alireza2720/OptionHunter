@@ -122,67 +122,46 @@ function _toUnixSec(v) {
 
 async function _resolveDateRanges(opts) {
     const db = deps.getDB();
-    // R11 sanity: reject absurd timestamps (pre-2020 or future)
-    const MIN_TS = Math.floor(new Date('2020-01-01').getTime() / 1000);
-    const MAX_TS = Math.floor(Date.now() / 1000) + 86400;
-    function _clamp(ts, label) {
-        if (ts == null || !Number.isFinite(ts)) return null;
-        if (ts < MIN_TS) {
-            deps.logger && deps.logger.warn('[dual-stage] ' + label + ' too old: ' + new Date(ts * 1000).toISOString().slice(0, 10) + ' -> rejected');
-            return null;
+
+    function _clamp(ts) {
+        if (ts == null || !Number.isFinite(Number(ts))) return null;
+        return Math.floor(Number(ts));
+    }
+
+    // R13c: default = last 180 days of real option data
+    let _latestOptionTs = null;
+    try {
+        const latest = await db.collection(COLLECTIONS.OPTION_HISTORY)
+            .findOne({ time: { $type: "date" } }, { sort: { time: -1 }, projection: { time: 1 } });
+        if (latest && latest.time) {
+            _latestOptionTs = Math.floor(new Date(latest.time).getTime() / 1000);
         }
-        if (ts > MAX_TS) return null;
-        return ts;
-    }
+    } catch (_) {}
+    if (!_latestOptionTs) _latestOptionTs = Math.floor(Date.now() / 1000);
 
-    let testFrom = _clamp(_toUnixSec(opts.testFrom), 'testFrom');
-    let testTo = _clamp(_toUnixSec(opts.testTo), 'testTo');
-    if (!testFrom) {
-        try {
-            const earliest = await db.collection(COLLECTIONS.OPTION_HISTORY)
-                .findOne({ time: { $gte: new Date(MIN_TS * 1000) } }, { sort: { time: 1 }, projection: { time: 1 } });
-            testFrom = earliest ? Math.floor(new Date(earliest.time).getTime() / 1000) : null;
-        } catch (_) {}
-        if (!testFrom) {
-            testFrom = Math.floor(Date.now() / 1000) - 180 * 86400;
-            deps.logger && deps.logger.warn('[dual-stage] no usable option_history — defaulting testFrom to 180d ago');
-        }
-    }
-    if (!testTo) testTo = Math.floor(Date.now() / 1000);
+    let testFrom = _clamp(_toUnixSec(opts.testFrom));
+    let testTo   = _clamp(_toUnixSec(opts.testTo));
+    if (!testFrom) testFrom = _latestOptionTs - 180 * 86400;
+    if (!testTo)   testTo   = _latestOptionTs;
 
-    let valFrom = _clamp(_toUnixSec(opts.validationFrom), 'valFrom');
-    let valTo = _clamp(_toUnixSec(opts.validationTo), 'valTo');
-    if (!valTo) valTo = testFrom - 86400;
-    if (!valFrom) {
-        const days = opts.validationsDays || 60;
-        valFrom = valTo - days * 86400;
-    }
+    let valTo   = _clamp(_toUnixSec(opts.validationTo));
+    let valFrom = _clamp(_toUnixSec(opts.validationFrom));
+    if (!valTo)   valTo   = testFrom - 86400;
+    if (!valFrom) valFrom = valTo - 60 * 86400;
 
-    let trainTo = _clamp(_toUnixSec(opts.trainTo), 'trainTo');
-    if (!trainTo) trainTo = valFrom - 86400;
+    let trainTo   = _clamp(_toUnixSec(opts.trainTo));
+    let trainFrom = _clamp(_toUnixSec(opts.trainFrom));
+    if (!trainTo)   trainTo   = valFrom - 86400;
+    if (!trainFrom) trainFrom = trainTo - 365 * 86400;
 
-    let trainFrom = _clamp(_toUnixSec(opts.trainFrom), 'trainFrom');
-    if (!trainFrom) {
-        try {
-            const r = await db.collection(COLLECTIONS.CANDLES_BASE)
-                .findOne({ time: { $gte: new Date(MIN_TS * 1000) } }, { sort: { time: 1 }, projection: { time: 1 } });
-            trainFrom = r ? Math.floor(new Date(r.time).getTime() / 1000) : null;
-        } catch (_) {}
-        if (!trainFrom) trainFrom = trainTo - 365 * 86400;
-    }
-
-    // Final sanity — force trainFrom < trainTo
-    if (trainFrom >= trainTo) {
-        deps.logger && deps.logger.warn('[dual-stage] trainFrom >= trainTo — clamping to 365d before');
-        trainFrom = trainTo - 365 * 86400;
-    }
+    if (trainFrom >= trainTo) trainFrom = trainTo - 365 * 86400;
     if (valFrom >= valTo) valFrom = valTo - 60 * 86400;
     if (testFrom >= testTo) testFrom = testTo - 90 * 86400;
 
     return {
-        train: { from: trainFrom, to: trainTo, days: Math.round((trainTo - trainFrom) / 86400) },
-        validation: { from: valFrom, to: valTo, days: Math.round((valTo - valFrom) / 86400) },
-        test: { from: testFrom, to: testTo, days: Math.round((testTo - testFrom) / 86400) }
+        train: { from: trainFrom, to: trainTo, days: Math.max(1, Math.round((trainTo - trainFrom) / 86400)) },
+        validation: { from: valFrom, to: valTo, days: Math.max(1, Math.round((valTo - valFrom) / 86400)) },
+        test: { from: testFrom, to: testTo, days: Math.max(1, Math.round((testTo - testFrom) / 86400)) }
     };
 }
 
