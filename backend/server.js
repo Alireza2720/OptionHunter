@@ -53,7 +53,7 @@ async function start() {
             monthlyReportJob: deps.monthlyReportJob,   // 🆕
             journalService: deps.journalService,
             backtestOrchestrator: deps.backtestOrchestrator, // 🆕
-            dualStageService: deps.dualStageService,   // 🆕
+            // 🆕
             paperTradingService: deps.paperTradingService || deps.paperTrading,   // 🆕 fallback
 
             // config

@@ -428,6 +428,8 @@ async function bootstrap() {
     });
 
     // 🆕 11.13.5) dual-stage pipeline
+    // R21: dual-stage service removed
+    /*
     dualStageService.init({
         getDB: mongo.getDB,
         logger,
@@ -440,6 +442,7 @@ async function bootstrap() {
         algotik,   // 🆕 برای backfill option bid/ask
         notify: telegram.notify
     });
+    */
 
     journalService.init({ getDB: mongo.getDB, logger });
     journalUpdaterJob.init({ journalService, logger });

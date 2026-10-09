@@ -2655,7 +2655,7 @@ async function loadLiveDashboard(btn) {
   if (btn) { btn.disabled = true; btn.textContent = ''; }
   try {
     const d = await apiFetch(`${BACKEND_URL}/api/dashboard/live`, {}, 0);
-    const fmtM = n => (n / 1000000).toFixed(1) + 'M';
+    const fmtM = n => fmtRial(n);
     const capital = d.capital || {};
     const open = d.openPositions || {};
     const today = d.today || {};
@@ -4575,6 +4575,9 @@ async function openTickerHistory() {
   }
 }
 window.addEventListener('load', async () => {
+  // R21: call move helper after boot
+  try { _r21MoveElements(); } catch (_) {}
+
   if (!await waitForBackend()) {
     document.getElementById('bootMessage').textContent = 'اتصال به سرور برقرار نشد.';
     document.getElementById('bootRetryBtn').style.display = 'inline-block';
@@ -5568,7 +5571,100 @@ async function checkEnrichStatus() {
             showAlert('غنی‌سازی تمام شد', 'success', 5000);
         }
     } catch (e) {}
-}</script>
+}
+// ─── R21: symbols table ───
+function fmtRial(n) {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "-";
+  return new Intl.NumberFormat("en-US").format(Math.round(Number(n))) + " ریال";
+}
+window.fmtRial = fmtRial;
+
+function renderMonitoredSymbols() {
+  const g = document.getElementById("symbolGrid");
+  if (!g) return;
+  const cnt = document.getElementById("symbolCountLabel");
+  if (cnt) cnt.textContent = monitoredSymbols.length;
+  if (!monitoredSymbols.length) {
+    g.innerHTML = "<div class=\"empty-note\">نمادی اضافه نشده است</div>";
+    return;
+  }
+  const covMap = {};
+  for (const c of (window._coverageData || [])) covMap[c.symbol] = c;
+  const fmtDate = (ts) => {
+    if (!ts) return "-";
+    try {
+      const d = new Date(ts);
+      const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
+        timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit"
+      }).formatToParts(d);
+      const m = {};
+      parts.forEach(p => m[p.type] = p.value);
+      return m.year + "/" + m.month + "/" + m.day;
+    } catch (_) { return "-"; }
+  };
+  const rows = monitoredSymbols.map(s => {
+    const q = window._symbolQuotes && window._symbolQuotes[s.symbol];
+    const marketOpen = isMarketOpenNow();
+    const priceHtml = q && q.price
+      ? "<span style=\"font-weight:600;\">" + q.price.toLocaleString() + "</span>" +
+        (q.queue === "buy" ? " <span class=\"badge warn\">صف خرید</span>" : "") +
+        (q.queue === "sell" ? " <span class=\"badge short\">صف فروش</span>" : "")
+      : (marketOpen ? "<span style=\"opacity:.5;font-size:10.5px;\">دریافت...</span>" : "<span style=\"opacity:.4;font-size:10.5px;\">بسته</span>");
+    const r = (window._regimeMap && window._regimeMap[s.symbol]) || null;
+    const regimeHtml = r
+      ? "<span class=\"badge " + (r.macro === "bull" ? "long" : r.macro === "bear" ? "short" : "none") + "\">" + (r.macro === "bull" ? "صعودی" : r.macro === "bear" ? "نزولی" : "رنج") + "</span>"
+      : "<span class=\"badge none\">-</span>";
+    const cov = covMap[s.symbol] || {};
+    const d1m = (cov.stock_base && cov.stock_base.to) || null;
+    const dDaily = (cov.stock_daily && cov.stock_daily.to) || null;
+    const dOpt = (cov.options && cov.options.to) || null;
+    return "<tr>" +
+      "<td><b>" + esc(s.symbol) + "</b></td>" +
+      "<td style=\"font-size:11px; line-height:1.6; text-align:right;\">" +
+        "<div>1m: <b>" + fmtDate(d1m) + "</b></div>" +
+        "<div>روزانه: <b>" + fmtDate(dDaily) + "</b></div>" +
+        "<div>آپشن: <b>" + fmtDate(dOpt) + "</b></div>" +
+      "</td>" +
+      "<td>" + regimeHtml + "</td>" +
+      "<td>" + priceHtml + "</td>" +
+      "<td>" +
+        "<button class=\"btn tiny outline\" onclick=\"viewChain('" + esc(s.symbol) + "')\">زنجیره</button> " +
+        "<button class=\"btn tiny danger\" onclick=\"deleteMonitoredSymbol('" + s._id + "','" + esc(s.symbol) + "')\">حذف</button>" +
+      "</td>" +
+      "</tr>";
+  }).join("");
+  g.innerHTML =
+    "<div class=\"table-responsive\" style=\"max-height:500px; overflow-y:auto;\">" +
+    "<table class=\"data-table\">" +
+    "<thead><tr><th>نام</th><th>دیتای موجود</th><th>رژیم</th><th>قیمت</th><th>عملیات</th></tr></thead>" +
+    "<tbody>" + rows + "</tbody>" +
+    "</table></div>";
+}
+
+// ─── R21: move backfill to status tab, guide to guide tab ───
+function _r21MoveElements() {
+  try {
+    const statusTab = document.getElementById("menuTab-status");
+    const guideTab = document.getElementById("menuTab-guide");
+    const backfillBlock = document.getElementById("ptab-backfill");
+    const guideBlock = document.getElementById("dataGuideAccordion");
+    if (statusTab && backfillBlock && !statusTab.querySelector("#ptab-backfill")) {
+      const h = document.createElement("div");
+      h.className = "menu-label";
+      h.style.marginTop = "10px";
+      h.textContent = "Backfill";
+      statusTab.insertBefore(backfillBlock, statusTab.firstChild);
+      statusTab.insertBefore(h, backfillBlock);
+    }
+    if (guideTab && guideBlock && !guideTab.querySelector("#dataGuideAccordion")) {
+      const content = document.getElementById("guideContentInMenu");
+      if (content) guideTab.insertBefore(guideBlock, content);
+      else guideTab.appendChild(guideBlock);
+    }
+  } catch (_) {}
+}
+window._r21MoveElements = _r21MoveElements;
+</script>
 </body>
 </html>
 
