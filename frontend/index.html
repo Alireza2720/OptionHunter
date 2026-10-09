@@ -5867,6 +5867,221 @@ window._r21MoveElements = _r21MoveElements;
   }
   window.addEventListener("load", () => setTimeout(() => _moneyFormatAll(document), 100));
 })();
+
+// ─── R23b: Strategy Sweep UI ───
+let _sweepJobId = null;
+let _sweepPollTimer = null;
+
+async function openSweepPanel() {
+  openModal('غنی‌سازی استراتژی', '<div style="text-align:center;padding:30px;">در حال بارگذاری...</div>');
+  try {
+    let latestInfo = '';
+    try {
+      const lr = await apiFetch(BACKEND_URL + '/api/sweep/latest', {}, 0);
+      if (lr && !lr.empty && lr.computedAt) {
+        const dt = new Date(lr.computedAt).toLocaleString('fa-IR');
+        latestInfo = '<div class="hint" style="padding:8px 12px;background:var(--success-subtle);border:1px solid var(--success-border);border-radius:var(--r-md);margin-bottom:10px;">گزارش قبلی: <b>' + dt + '</b> — <button class="btn tiny outline" onclick="loadSweepLatest()">مشاهده</button></div>';
+      }
+    } catch (_) {}
+
+    const symsHtml = monitoredSymbols.map(s => '<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">' +
+      '<input type="checkbox" class="sw_sym" value="' + esc(s.symbol) + '" checked> ' + esc(s.symbol) + '</label>').join('') || '<div class="empty-note">نمادی نیست</div>';
+
+    const supportedIds = ['smc_unicorn','smc_unicorn_pro','ob_sweep','ob_sweep_pro','ob_after_sweep','ob_after_sweep_pro','tsmom','tsmom_pro','momentum_12_1','momentum_12_1_pro','donchian','donchian_pro','low_vol_anomaly','low_vol_anomaly_pro','short_term_reversal','short_term_reversal_pro','sector_momentum'];
+
+    const stratsHtml = strategiesInfo.map(s => {
+      const ok = supportedIds.includes(s.id);
+      return '<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;' + (ok ? '' : 'opacity:0.4;') + '">' +
+        '<input type="checkbox" class="sw_strat" value="' + esc(s.id) + '" ' + (ok ? 'checked' : 'disabled') + '> ' + esc(s.name) + '</label>';
+    }).join('') || '<div class="empty-note">استراتژی نیست</div>';
+
+    const today = jdpTodayJalali();
+
+    const html = latestInfo +
+      '<div class="hint" style="margin-bottom:10px;">برای هر استراتژی ۳ پارامتر کلیدی × ۱۰ مقدار (۳۰ ترکیب) تست می‌شود. بهترین بر اساس امتیاز <b>PF<sup>0.75</sup> × N<sup>0.25</sup></b> انتخاب می‌شود.</div>' +
+      '<div class="menu-label">حالت</div>' +
+      '<div style="display:flex;gap:16px;margin-bottom:12px;padding:8px 12px;background:var(--bg-elev-2);border-radius:var(--r-md);">' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" id="sw_mode_stock" checked> سهم پایه</label>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" id="sw_mode_option" checked> آپشن</label>' +
+      '</div>' +
+      '<div class="menu-label">نمادها <button class="btn tiny outline" onclick="document.querySelectorAll(String.fromCharCode(46)+String.fromCharCode(115,119,95,115,121,109)).forEach(function(c){c.checked=true})">همه</button> <button class="btn tiny outline" onclick="document.querySelectorAll(String.fromCharCode(46)+String.fromCharCode(115,119,95,115,121,109)).forEach(function(c){c.checked=false})">هیچ</button></div>' +
+      '<div style="max-height:150px;overflow-y:auto;padding:6px 0;">' + symsHtml + '</div>' +
+      '<div class="menu-label" style="margin-top:10px;">استراتژی‌ها</div>' +
+      '<div style="max-height:180px;overflow-y:auto;padding:6px 0;">' + stratsHtml + '</div>' +
+      '<div class="date-range-row" style="margin-top:14px;">' +
+        '<label>از: <input type="text" id="swFrom" data-jdp data-jdp-only-date value="1403/01/01" style="direction:ltr;text-align:center;width:100px;"></label>' +
+        '<label>تا: <input type="text" id="swTo" data-jdp data-jdp-only-date value="' + today + '" style="direction:ltr;text-align:center;width:100px;"></label>' +
+      '</div>' +
+      '<div style="margin-top:10px;padding:8px 12px;background:var(--warn-subtle);border:1px solid var(--warn-border);border-radius:var(--r-md);font-size:12px;"><b>هشدار:</b> ممکن است چند ساعت طول بکشد.</div>' +
+      '<div style="display:flex;gap:8px;margin-top:14px;">' +
+        '<button class="btn success" id="swRunBtn" onclick="runSweep()" style="flex:1;">شروع غنی‌سازی</button>' +
+        '<button class="btn danger" id="swCancelBtn" style="display:none;" onclick="cancelSweep()">توقف</button>' +
+      '</div>' +
+      '<div id="swProgress" style="margin-top:14px;"></div>' +
+      '<div id="swResults" style="margin-top:14px;"></div>';
+
+    openModal('غنی‌سازی استراتژی', html);
+    setTimeout(function() {
+      try {
+        if (typeof jalaliDatepicker !== 'undefined') jalaliDatepicker.startWatch({ selector: 'input[data-jdp]', minDate: '1400/01/01', maxDate: 'today', zIndex: 3000 });
+      } catch (_) {}
+    }, 100);
+  } catch (e) {
+    openModal('خطا', '<div class="empty-note">' + esc(e.message) + '</div>');
+  }
+}
+
+async function runSweep() {
+  const symbols = Array.from(document.querySelectorAll('.sw_sym:checked')).map(c => c.value);
+  const strategies = Array.from(document.querySelectorAll('.sw_strat:checked')).map(c => c.value);
+  const useStock = document.getElementById('sw_mode_stock').checked;
+  const useOption = document.getElementById('sw_mode_option').checked;
+  const fromV = document.getElementById('swFrom').value;
+  const toV = document.getElementById('swTo').value;
+
+  if (!symbols.length) return showAlert('حداقل یک نماد', 'warn');
+  if (!strategies.length) return showAlert('حداقل یک استراتژی', 'warn');
+  if (!useStock && !useOption) return showAlert('حداقل یک حالت', 'warn');
+  if (!fromV || !toV) return showAlert('تاریخ', 'warn');
+
+  const fromGreg = jalaliToGreg(fromV);
+  const toGreg = jalaliToGreg(toV);
+  if (!fromGreg || !toGreg) return showAlert('تاریخ نامعتبر', 'warn');
+
+  const modes = [];
+  if (useStock) modes.push('stock');
+  if (useOption) modes.push('option');
+
+  const from = Math.floor(new Date(fromGreg + 'T00:00:00Z').getTime() / 1000);
+  const to = Math.floor(new Date(toGreg + 'T23:59:59Z').getTime() / 1000);
+
+  const btn = document.getElementById('swRunBtn');
+  const cancelBtn = document.getElementById('swCancelBtn');
+  const prog = document.getElementById('swProgress');
+  btn.disabled = true;
+  btn.textContent = 'در حال شروع...';
+  cancelBtn.style.display = 'inline-block';
+
+  try {
+    const r = await apiFetch(BACKEND_URL + '/api/sweep/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols, strategies, modes, dateFrom: from, dateTo: to })
+    }, 0);
+    _sweepJobId = r.jobId;
+    prog.innerHTML = '<div class="hint">Job: ' + r.jobId + '</div>';
+    if (_sweepPollTimer) clearInterval(_sweepPollTimer);
+    _sweepPollTimer = setInterval(pollSweep, 4000);
+    pollSweep();
+  } catch (e) {
+    prog.innerHTML = '<div class="empty-note">خطا: ' + esc(e.message) + '</div>';
+    btn.disabled = false;
+    btn.textContent = 'شروع غنی‌سازی';
+    cancelBtn.style.display = 'none';
+  }
+}
+
+async function pollSweep() {
+  if (!_sweepJobId) return;
+  const prog = document.getElementById('swProgress');
+  const btn = document.getElementById('swRunBtn');
+  const cancelBtn = document.getElementById('swCancelBtn');
+  if (!prog) { if (_sweepPollTimer) clearInterval(_sweepPollTimer); return; }
+  try {
+    const j = await apiFetch(BACKEND_URL + '/api/jobs/' + _sweepJobId, {}, 0);
+    const p = j.progress || {};
+    const total = p.total || 0;
+    const cur = p.current || 0;
+    const pct = total > 0 ? Math.round(cur / total * 100) : 0;
+    prog.innerHTML = '<div class="job-card">' +
+      '<div class="job-header"><span class="job-type" style="background:var(--accent-subtle);color:var(--accent);">Sweep</span>' +
+      '<span class="job-status ' + j.status + '">' + j.status + '</span></div>' +
+      '<div class="job-msg">' + esc(p.message || '') + '</div>' +
+      '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+      '<div class="job-msg">' + cur + ' / ' + total + ' (' + pct + '%)</div></div>';
+    if (['DONE', 'FAILED', 'CANCELLED'].indexOf(j.status) >= 0) {
+      if (_sweepPollTimer) clearInterval(_sweepPollTimer);
+      _sweepPollTimer = null;
+      btn.disabled = false;
+      btn.textContent = 'شروع غنی‌سازی';
+      cancelBtn.style.display = 'none';
+      if (j.status === 'DONE' && j.result) renderSweepResults(j.result);
+      else if (j.status === 'FAILED') prog.innerHTML += '<div class="empty-note">خطا: ' + esc(j.error || '') + '</div>';
+    }
+  } catch (e) { console.error('poll sweep:', e); }
+}
+
+async function cancelSweep() {
+  if (!_sweepJobId) return;
+  if (!confirm('لغو کنم؟')) return;
+  try {
+    await apiFetch(BACKEND_URL + '/api/sweep/' + _sweepJobId + '/cancel', { method: 'POST' }, 0);
+    showAlert('درخواست لغو ارسال شد', 'info', 4000);
+  } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+
+async function loadSweepLatest() {
+  try {
+    const r = await apiFetch(BACKEND_URL + '/api/sweep/latest', {}, 0);
+    if (r && !r.empty && r.summary) renderSweepResults(r);
+    else showAlert('گزارشی نیست', 'warn');
+  } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+
+function renderSweepResults(result) {
+  const res = document.getElementById('swResults');
+  if (!res || !result) return;
+  const summary = result.summary || {};
+  const modes = result.modes || ['stock'];
+  const entries = Object.entries(summary);
+  if (!entries.length) { res.innerHTML = '<div class="empty-note">نتیجه‌ای نیست</div>'; return; }
+
+  let html = '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">نتایج غنی‌سازی</h4>';
+  html += '<div class="hint">حالت‌ها: ' + modes.map(m => m === 'stock' ? 'سهم' : 'آپشن').join(' + ') + ' — ' + (result.totalRuns || 0) + ' بک‌تست</div>';
+  html += '<div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">';
+  for (const entry of entries) {
+    const sid = entry[0], info = entry[1];
+    if (!info) continue;
+    const sName = (strategiesInfo.find(s => s.id === sid) || {}).name || sid;
+    const badge = info.isBaseline ? '<span class="badge none">بدون تغییر</span>' : '<span class="badge long">بهبود</span>';
+    const changedHtml = info.changed ? '<div style="font-size:11.5px;color:var(--warn);margin-top:4px;">تغییر: <b>' + esc(info.changed.param) + '</b> از ' + info.changed.from + ' → <b>' + info.changed.to + '</b> (×' + info.changed.mult + ')</div>' : '';
+    html += '<div style="padding:10px 14px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;"><b>' + esc(sName) + '</b>' + badge + '</div>' +
+      '<div style="font-size:12px;color:var(--text-dim);margin-top:6px;">امتیاز: <b>' + (info.avgScore || 0).toFixed(2) + '</b> | PF: <b>' + (info.avgPf || 0).toFixed(2) + '</b> | N: <b>' + (info.avgN || 0).toFixed(0) + '</b></div>' +
+      changedHtml + '</div>';
+  }
+  html += '</div>';
+
+  const overrides = {};
+  for (const entry of entries) {
+    const sid = entry[0], info = entry[1];
+    if (info && !info.isBaseline && info.changed) {
+      const def = strategiesInfo.find(x => x.id === sid);
+      overrides[sid] = Object.assign({}, (def ? def.defaultParams : {}), info.params || {});
+    }
+  }
+  if (Object.keys(overrides).length) {
+    html += '<div style="margin-top:14px;"><button class="btn success" onclick="applySweepResults()">اعمال بهترین تنظیمات</button></div>';
+    window._sweepApplyOverrides = overrides;
+  }
+  res.innerHTML = html;
+}
+
+async function applySweepResults() {
+  const overrides = window._sweepApplyOverrides;
+  if (!overrides) return showAlert('چیزی برای اعمال نیست', 'warn');
+  const count = Object.keys(overrides).length;
+  if (!confirm('اعمال برای ' + count + ' استراتژی؟')) return;
+  try {
+    await apiFetch(BACKEND_URL + '/api/sweep/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ overrides })
+    }, 0);
+    showAlert('اعمال شد — ' + count + ' استراتژی', 'success', 5000);
+  } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+
 </script>
 </body>
 </html>
