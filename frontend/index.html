@@ -913,6 +913,30 @@ table.data-table th {
   top: 0;
   z-index: 1;
 }
+/* 🌟 Sticky first column (RTL — right edge) */
+table.data-table thead th:first-child {
+  position: sticky;
+  right: 0;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-elev-2);
+  box-shadow: inset -1px 0 0 var(--border-subtle);
+}
+table.data-table tbody td:first-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--bg-elev-1);
+  box-shadow: inset -1px 0 0 var(--border-subtle);
+}
+table.data-table tbody tr:nth-child(even) td:first-child {
+  background: var(--bg-elev-2);
+}
+table.data-table tbody tr:hover td:first-child,
+table.data-table tbody tr:nth-child(even):hover td:first-child {
+  background: var(--bg-hover);
+}
+
 table.data-table tbody tr { transition: background var(--t-fast) var(--ease); }
 table.data-table tbody tr:hover td { background: var(--bg-hover); }
 table.data-table tbody tr.symbol-start td { border-top: 1px solid var(--border-strong); }
