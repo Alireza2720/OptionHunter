@@ -224,6 +224,12 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     if (candidate.sizeMultiplier != null && Number.isFinite(candidate.sizeMultiplier) && candidate.sizeMultiplier !== 1.0) {
         baseSize = Math.floor(baseSize * candidate.sizeMultiplier);
     }
+
+    // R16: per-strategy size multiplier (SMC/OB = 0.3)
+    if (candidate.strategySizeMult != null && Number.isFinite(candidate.strategySizeMult)
+        && candidate.strategySizeMult !== 1.0) {
+        baseSize = Math.floor(baseSize * candidate.strategySizeMult);
+    }
     }
 
     const curSym = portfolio.exposureBySymbol[candidate.symbol] || 0;
