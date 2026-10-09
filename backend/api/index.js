@@ -40,6 +40,7 @@ const journalRoutes = require('./routes/journal.routes');
 const doctorRoutes = require('./routes/doctor.routes');
 const paperTradingRoutes = require('./routes/paper-trading.routes');
 const rollbackRoutes = require('./routes/rollback.routes');
+const sweepRoutes = require('./routes/sweep.routes');
 
 function createApp(deps) {
     const app = express();
@@ -88,6 +89,7 @@ function createApp(deps) {
     doctorRoutes.register(app, deps);
     paperTradingRoutes.register(app, deps);
     rollbackRoutes.register(app, deps);
+    sweepRoutes.register(app, deps);
 
     // ---- 404 + error ----
     app.use(errorMw.notFoundHandler);

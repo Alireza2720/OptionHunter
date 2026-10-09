@@ -89,14 +89,16 @@ function register(app, deps) {
                     { $group: { _id: '$symbol', to: { $max: '$time' }, from: { $min: '$time' } } }
                 ]).toArray();
                 const dailyMap = {};
-                for (const d of dailyAgg) dailyMap[d._id] = d.to;
+                const dailyFromMap = {};
+            for (const d of dailyAgg) { dailyMap[d._id] = d.to; dailyFromMap[d._id] = d.from; }
                 const enriched = {
                     ...r,
                     symbols: (r.symbols || []).map(s => ({
                         ...s,
                         stock_daily: {
                             ...(s.stock_daily || {}),
-                            to: dailyMap[s.symbol] || null
+                            to: dailyMap[s.symbol] || null,
+                        from: dailyFromMap[s.symbol] || null
                         }
                     }))
                 };
