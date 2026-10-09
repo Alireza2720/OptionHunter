@@ -81,6 +81,7 @@ function register(app, deps) {
 
             const r = await deps.dataService.cachedSWR(covCacheKey, ttl,
                 () => algotik.getCoverage());
+            const norm2 = (x) => String(x || '').replace(/\u200c|\u200e|\u200f|\s/g, '').replace(/ي/g, 'ی').replace(/ك/g, 'ک');
             // R22b: enrich coverage with daily to-date from DB
             try {
                 const db = deps.getDB();
@@ -88,6 +89,13 @@ function register(app, deps) {
                 const dailyAgg = await db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
                     { $group: { _id: '$symbol', to: { $max: '$time' }, from: { $min: '$time' } } }
                 ]).toArray();
+            const optionAgg = await db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
+                { $match: { bid: { $gt: 0 }, ask: { $gt: 0 } } },
+                { $group: { _id: '$underlying', to: { $max: '$time' }, from: { $min: '$time' } } }
+            ]).toArray();
+            const optionFromMap = {};
+            const optionToMap = {};
+            for (const d of optionAgg) { optionFromMap[d._id] = d.from; optionToMap[d._id] = d.to; }
                 const dailyMap = {};
                 const dailyFromMap = {};
             for (const d of dailyAgg) { dailyMap[d._id] = d.to; dailyFromMap[d._id] = d.from; }
