@@ -70,6 +70,9 @@ function simulate(trades, limitsInput = {}, ctxInput = {}) {
             entryTime: entryTs,
             pnlPct: t.pnlPct,
             signalScore: t.signalScore,
+            strategySizeMult: (limits.strategySizeMultMap && limits.strategySizeMultMap[t.strategyId] != null)
+                ? limits.strategySizeMultMap[t.strategyId]
+                : 1.0,
             optionSizeFactor: t.optionSizeFactor,   // NEW
             sizeMultiplier: t.sizeMultiplier || 1,
             optionGrade: t.optionGrade              // NEW

@@ -26,6 +26,16 @@ const DEFAULT_STRATEGY_MIN_TARGETS = {
     ensemble: 3.5,
 };
 
+const DEFAULT_STRATEGY_SIZE_MULT = {
+    _default: 1.0,
+    smc_unicorn: 0.3,
+    smc_unicorn_pro: 0.3,
+    ob_sweep: 0.3,
+    ob_sweep_pro: 0.3,
+    ob_after_sweep: 0.3,
+    ob_after_sweep_pro: 0.3,
+};
+
 const DEFAULTS = {
     // ---- بازه‌ی ورود ----
     ENTRY_START: '09:30',
@@ -116,6 +126,7 @@ const DEFAULTS = {
 
 let values = { ...DEFAULTS };
 let strategyMinTargets = { ...DEFAULT_STRATEGY_MIN_TARGETS };
+let strategySizeMult = { ...DEFAULT_STRATEGY_SIZE_MULT };
 let strategyDefaults = {};  // { strategyId: {params...} }
 
 // 🆕 Risk-free dynamic cache (از risk-free.job)

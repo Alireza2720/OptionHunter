@@ -88,7 +88,8 @@ const OPT_BT_DEFAULTS = {
     minVolume: 0,
     maxTradeReturnPct: 1000,
     minTargetPct: 4.5,
-    autoDetectTarget: true};
+    autoDetectTarget: true,
+    maxIvHv: 2.5};
 
 const RELAX_LEVELS = [
     { name: 'A+', tag: null, overrides: {} },
