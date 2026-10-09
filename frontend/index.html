@@ -1513,7 +1513,7 @@ function toggleMenu() { const p=document.getElementById('menuPanel'), b=document
 function switchMenuTab(which, btn) {
   document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
   ['settings','status','guide'].forEach(k => { const el = document.getElementById('menuTab-'+k); if (el) el.style.display = k === which ? 'block' : 'none'; });
-  if (which === 'guide' && !document.getElementById('menuTab-guide').dataset.loaded) { document.getElementById('guideContentInMenu').innerHTML = guideFull(); document.getElementById('menuTab-guide').dataset.loaded = '1'; }
+  if (which === 'guide') { document.getElementById('guideContentInMenu').innerHTML = guideFull(); }
   if (which === 'status') refreshMenuStatus();
 }
 function toggleCard(id) { document.getElementById(id).classList.toggle('open'); }
@@ -5857,6 +5857,10 @@ let _sweepJobId = null;
 let _sweepPollTimer = null;
 
 async function openSweepPanel() {
+  if (!strategiesInfo || !strategiesInfo.length) {
+    showAlert('ابتدا استراتژی‌ها بارگذاری شوند — چند ثانیه صبر کن و دوباره بزن', 'warn', 4000);
+    return;
+  }
   openModal('غنی‌سازی استراتژی', '<div style="text-align:center;padding:30px;">در حال بارگذاری...</div>');
   try {
     let latestInfo = '';
