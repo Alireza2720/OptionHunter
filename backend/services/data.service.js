@@ -549,9 +549,9 @@ async function getDataCoverage(symbols, strategies, getRequiredCandles) {
             } }
         ]).toArray(),
         db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
-            { $match: { underlying: { $in: symbols } } },
+            { $match: { underlying: { $in: symbols }, time: { $gte: new Date(Date.now() - 90 * 86400 * 1000) } } },
             { $group: { _id: '$underlying', count: { $sum: 1 } } }
-        ]).toArray(),
+        ], { allowDiskUse: false, maxTimeMS: 10000 }).toArray(),
         db.collection(COLLECTIONS.OPTION_DAILY).aggregate([
             { $match: { underlying: { $in: symbols } } },
             { $group: { _id: '$underlying', count: { $sum: 1 } } }

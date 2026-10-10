@@ -54,7 +54,15 @@ const secArg = ARGV.find((a) => a.startsWith('--sections='));
 if (secArg) {
     CONF.sections = secArg.split('=')[1].split(',').map((s) => +s.trim()).filter((n) => Number.isInteger(n) && n > 0);
     if (CONF.sections.length === 0) CONF.sections = null;   // parse failure → run all
-    console.log('[monitor.js] parsed sections: ' + JSON.stringify(CONF.sections));
+    console.log('[monitor.js] sections filter parsed: ' + JSON.stringify(CONF.sections));
+}
+// 🆕 Early exit: if only 1 section, ensure CONF.sections is set
+if (ARGV.some((a) => a.startsWith('--sections='))) {
+    if (!CONF.sections || CONF.sections.length === 0) {
+        // Retry parse
+        const _sa = ARGV.find((a) => a.startsWith('--sections='));
+        CONF.sections = _sa.split('=')[1].split(',').map((s) => +s.trim()).filter((n) => Number.isInteger(n) && n > 0);
+    }
 }
 
 // ============================================================
@@ -2430,6 +2438,17 @@ async function s34_report() {
 // 🩺 DOCTOR MODE
 // ============================================================
 async function runDoctor() {
+    // 🆕 Force re-parse sections (in case top-level parse failed)
+    const _reSec = ARGV.find((a) => a.startsWith('--sections='));
+    if (_reSec) {
+        const _parsed = _reSec.split('=')[1].split(',').map((s) => +s.trim()).filter((n) => Number.isInteger(n) && n > 0);
+        if (_parsed.length > 0) CONF.sections = _parsed;
+    }
+    if (CONF.sections && CONF.sections.length > 0) {
+        console.log('[monitor.js] ACTIVE sections filter: ' + JSON.stringify(CONF.sections));
+    } else {
+        console.log('[monitor.js] NO sections filter — running all');
+    }
     // 🆕 Log which sections will run (for --sections debugging)
     if (CONF.sections && CONF.sections.length) {
         console.log('[monitor.js] sections filter active: ' + JSON.stringify(CONF.sections));

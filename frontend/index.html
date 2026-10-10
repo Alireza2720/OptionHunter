@@ -1489,7 +1489,11 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 </style>
 </head>
 <body data-theme="dark">
-<div id="bootOverlay"> <div class="brand" style="font-size:32px;">OptionHunter</div> <div style="width:40px; height:40px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite;"></div> <p id="bootMessage" style="color:var(--text-dim); font-size:13.5px;">در حال اتصال به سرور...</p> <button class="btn small" id="bootRetryBtn" style="display:none;" onclick="location.reload()">تلاش مجدد</button>
+<script>
+  try { console.log('🔵 OptionHunter UI · build phase 13 · ' + new Date().toISOString()); } catch(_) {}
+</script>
+<!-- UI v: phase-13 -->
+<div id="bootOverlay" data-version="phase-13"> <div class="brand" style="font-size:32px;">OptionHunter</div> <div style="width:40px; height:40px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite;"></div> <p id="bootMessage" style="color:var(--text-dim); font-size:13.5px;">در حال اتصال به سرور...</p> <button class="btn small" id="bootRetryBtn" style="display:none;" onclick="location.reload()">تلاش مجدد</button>
 </div> <div id="globalLoader"><div class="loader-spinner"></div><div class="loader-text" id="loaderText"></div><div class="loader-sub" id="loaderSub"></div></div>
 <div id="alertContainer"></div> <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()" aria-label="منو"><span></span><span></span><span></span></button>
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
