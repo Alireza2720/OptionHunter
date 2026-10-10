@@ -6,6 +6,29 @@
 function register(app, deps) {
     const { algotik, getDB } = deps;
 
+    // ---- Debug: active timers ---- 🆕
+    app.get('/api/algotik/debug-timers', (req, res) => {
+        const out = { activeIntervals: [], activeTimeouts: [] };
+        try {
+            const ids = process._getActiveHandles ? process._getActiveHandles() : [];
+            out.handles = ids.length;
+            out.handlesTypes = {};
+            ids.forEach(h => {
+                const n = h && h.constructor ? h.constructor.name : 'unknown';
+                out.handlesTypes[n] = (out.handlesTypes[n] || 0) + 1;
+            });
+        } catch (_) {}
+        // collect cron timers from any known module
+        try {
+            const cached = global.__oh_timers || [];
+            out.activeIntervals = cached.filter(t => t.type === 'interval').slice(0, 50);
+            out.activeTimeouts = cached.filter(t => t.type === 'timeout').slice(0, 50);
+        } catch (_) {}
+        out.memory = process.memoryUsage();
+        out.uptimeSec = Math.round(process.uptime());
+        res.json(out);
+    });
+
     // ---- Health / Status ----
     app.get('/api/algotik/health', async (req, res) => {
         try { res.json({ online: await algotik.isOnline() }); }
@@ -72,6 +95,26 @@ function register(app, deps) {
     app.post('/api/algotik/jobs/:id/cancel', async (req, res, next) => {
         try { res.json(await algotik.cancelJob(req.params.id)); }
         catch (e) { res.status(400).json({ error: e.message }); }
+    });
+    app.post('/api/algotik/jobs/:id/pause', async (req, res, next) => {
+        try {
+            const fetch = require('node-fetch');
+            const env = require('../../config/env').get();
+            const url = (env.ALGOTIK_URL || 'http://127.0.0.1:5000') + '/jobs/' + encodeURIComponent(req.params.id) + '/pause';
+            const r = await fetch(url, { method: 'POST', timeout: 10000 });
+            const d = await r.json();
+            res.json(d);
+        } catch (e) { next(e); }
+    });
+    app.post('/api/algotik/jobs/:id/resume', async (req, res, next) => {
+        try {
+            const fetch = require('node-fetch');
+            const env = require('../../config/env').get();
+            const url = (env.ALGOTIK_URL || 'http://127.0.0.1:5000') + '/jobs/' + encodeURIComponent(req.params.id) + '/resume';
+            const r = await fetch(url, { method: 'POST', timeout: 10000 });
+            const d = await r.json();
+            res.json(d);
+        } catch (e) { next(e); }
     });
 
     // ---- Coverage (heavy — cache 5 min) ----

@@ -67,6 +67,21 @@ def finish_job(job_id, status, result=None):
 def cancel_job(job_id):
     update_job(job_id, status='CANCELLED', finished_at=datetime.now(timezone.utc))
 
+
+def pause_job(job_id):
+    """Mark job as PAUSED. Worker checks is_paused periodically."""
+    update_job(job_id, status='PAUSED', paused_at=datetime.now(timezone.utc))
+
+
+def resume_job(job_id):
+    """Resume a paused job (sets status back to RUNNING)."""
+    update_job(job_id, status='RUNNING', resumed_at=datetime.now(timezone.utc))
+
+
+def is_paused(job_id):
+    j = get_job(job_id)
+    return bool(j and j.get('status') == 'PAUSED')
+
 def is_cancelled(job_id):
     j = get_job(job_id)
     return bool(j and j.get('status') == 'CANCELLED')

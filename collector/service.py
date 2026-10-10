@@ -321,6 +321,50 @@ def _run_full_backfill(job_id: str, payload: dict):
         _run_full_backfill_locked(job_id, payload)
 
 
+def _is_market_open():
+    """Check if Tehran market is currently open (Sat-Wed 09:00-12:35)."""
+    try:
+        from datetime import datetime, timezone, timedelta
+        local = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
+        # Sat=5, Sun=6, Mon=0, Tue=1, Wed=2
+        if local.weekday() not in (5, 6, 0, 1, 2):
+            return False
+        mins = local.hour * 60 + local.minute
+        return 9 * 60 <= mins <= 12 * 60 + 35
+    except Exception:
+        return False
+
+
+def _wait_if_paused(job_id: str, max_wait_sec: int = 7200):
+    """Block while job is paused OR market is open. Returns True if should continue."""
+    import time as _time
+    start = _time.time()
+    while _time.time() - start < max_wait_sec:
+        if job_mod.is_cancelled(job_id):
+            return False  # cancelled
+        if job_mod.is_paused(job_id):
+            _time.sleep(5)
+            continue
+        # market-hours priority: if market is open, auto-pause
+        if _is_market_open():
+            try:
+                if job_mod.get_job(job_id).get('status') != 'PAUSED':
+                    job_mod.update_job(job_id, status='PAUSED', pauseReason='market_open')
+            except Exception:
+                pass
+            _time.sleep(15)
+            continue
+        # clear pauseReason if set and no longer paused by market
+        try:
+            j = job_mod.get_job(job_id) or {}
+            if j.get('pauseReason') == 'market_open' and j.get('status') == 'PAUSED':
+                job_mod.update_job(job_id, status='RUNNING', pauseReason=None)
+        except Exception:
+            pass
+        return True
+    return False
+
+
 def _run_full_backfill_locked(job_id: str, payload: dict):
     """Actual backfill logic — با قفل سراسری اجرا می‌شه."""
     try:
@@ -387,6 +431,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # ============================================================
         if payload.get('includeStockIntraday'):
             for i, sym in enumerate(symbols, 1):
+                if not _wait_if_paused(job_id):
+                    if job_mod.is_cancelled(job_id):
+                        job_mod.finish_job(job_id, 'CANCELLED')
+                        return
                 if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
@@ -427,6 +475,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # ============================================================
         if payload.get('includeStockDaily'):
             for i, sym in enumerate(symbols, 1):
+                if not _wait_if_paused(job_id):
+                    if job_mod.is_cancelled(job_id):
+                        job_mod.finish_job(job_id, 'CANCELLED')
+                        return
                 if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
@@ -466,6 +518,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # ============================================================
         if payload.get('includeOptionHistory'):
             for i, sym in enumerate(symbols, 1):
+                if not _wait_if_paused(job_id):
+                    if job_mod.is_cancelled(job_id):
+                        job_mod.finish_job(job_id, 'CANCELLED')
+                        return
                 if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
@@ -510,6 +566,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # ============================================================
         if payload.get('includeOptionSnapshot'):
             for i, sym in enumerate(symbols, 1):
+                if not _wait_if_paused(job_id):
+                    if job_mod.is_cancelled(job_id):
+                        job_mod.finish_job(job_id, 'CANCELLED')
+                        return
                 if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
@@ -608,6 +668,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
         # ============================================================
         if payload.get('includeAggregate'):
             for i, sym in enumerate(symbols, 1):
+                if not _wait_if_paused(job_id):
+                    if job_mod.is_cancelled(job_id):
+                        job_mod.finish_job(job_id, 'CANCELLED')
+                        return
                 if job_mod.is_cancelled(job_id) or _shutdown_event.is_set():
                     job_mod.finish_job(job_id, 'CANCELLED')
                     return
@@ -699,6 +763,24 @@ def list_jobs(limit: int = 30):
     for j in js:
         j['_id'] = str(j['_id'])
     return js
+
+
+@app.post('/jobs/{job_id}/pause')
+def pause_job_endpoint(job_id: str):
+    try:
+        job_mod.pause_job(job_id)
+        return {'ok': True, 'status': 'PAUSED'}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post('/jobs/{job_id}/resume')
+def resume_job_endpoint(job_id: str):
+    try:
+        job_mod.resume_job(job_id)
+        return {'ok': True, 'status': 'RUNNING'}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.post('/jobs/{job_id}/cancel')
@@ -1066,8 +1148,11 @@ def explain_symbol(symbol: str):
     from pipeline.db import COL_OPTION_HISTORY, COL_CANDLES_DAILY
     out = {'symbol': symbol, 'sources': {}}
     # option_history
+    # Try multiple underlying representations
+    _from_pipeline = normalize_fa(symbol) if 'normalize_fa' in dir() else symbol
+    _variants = list({symbol, _from_pipeline})
     oh = list(db[COL_OPTION_HISTORY].aggregate([
-        {'$match': {'underlying': symbol}},
+        {'$match': {'underlying': {'$in': _variants}}},
         {'$group': {
             '_id': None,
             'count': {'$sum': 1},
@@ -1079,7 +1164,7 @@ def explain_symbol(symbol: str):
             'qualities': {'$addToSet': '$dataQuality'},
         }},
     ]))
-    if oh:
+    if oh and oh[0].get('count', 0) > 0:
         r = oh[0]
         out['sources']['option_history'] = {
             'count': r.get('count', 0),
@@ -1091,7 +1176,16 @@ def explain_symbol(symbol: str):
             'qualities': [q for q in (r.get('qualities') or []) if q],
         }
     else:
+        # Fallback: sample any 3 doc to see what underlying looks like
         out['sources']['option_history'] = {'count': 0}
+        try:
+            sample = list(db[COL_OPTION_HISTORY].find({}, {
+                'underlying': 1, 'symbol': 1, 'basis_name': 1, '_id': 0
+            }).limit(3))
+            out['_sample_underlying_values'] = sample
+            out['_hint'] = 'اگر تعداد بالاست اما اینجا 0 است، underlying در DB با symbol فرق دارد'
+        except Exception:
+            pass
     # option_daily_algotik (legacy)
     try:
         legacy = db['option_daily_algotik'].count_documents({'underlying': symbol})
