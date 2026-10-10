@@ -1784,7 +1784,7 @@ async function loadActiveJobs(btn) {
     const el = document.getElementById('menuActiveJobs');
     if (el) {
       if (!allJobs.length) el.innerHTML = '<div class="empty-note">فعالیتی نیست</div>';
-      else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'دکتر سیستم' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${statusLabels[j.status] || j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
+      else el.innerHTML = allJobs.map(j => { const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم خودکار', 'backtest-compare': 'بک‌تست مقایسه‌ای', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline کامل', ohdoctor: 'دکتر سیستم', sweep: 'غنی‌سازی استراتژی', enrichment: 'غنی‌سازی آپشن', 'full-backfill': 'Backfill کامل' }; const statusLabels = { QUEUED: 'در صف', RUNNING: 'اجرا', COMPUTING: 'محاسبه', DONE: 'تکمیل', FAILED: 'خطا', CANCELLED: 'لغو', PAUSED: 'متوقف' }; return `<div class="job-card"><div class="job-header"><span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span><span class="job-status ${j.status}">${statusLabels[j.status] || j.status}</span></div><div class="job-msg">${esc(j.progress && j.progress.message || j.message || '')}</div></div>`; }).join('');
     }
   } catch (e) {}
   finally {
@@ -3304,6 +3304,7 @@ async function refreshJobsPanel() {
       'full-backfill': 'Backfill کامل',
       'backfill': 'Backfill',
       'enrichment': 'غنی‌سازی آپشن',
+      'sweep': 'غنی‌سازی استراتژی',
     };
     const _statusMap = {
       'QUEUED': 'در صف', 'RUNNING': 'در حال اجرا', 'PAUSED': 'متوقف',
