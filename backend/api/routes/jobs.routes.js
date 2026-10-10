@@ -197,6 +197,19 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // ---- Clear history (R22): delete finished jobs from view only ----
+    app.post('/api/jobs/clear-history', async (req, res, next) => {
+        try {
+            const db = deps.getDB();
+            const { COLLECTIONS } = require('../../config/constants');
+            const r = await db.collection(COLLECTIONS.BACKTEST_JOBS).deleteMany({
+                status: { $in: ['DONE', 'FAILED', 'CANCELLED'] }
+            });
+            // NOTE: real trade data (backtest_compare_details) NOT deleted
+            res.json({ ok: true, deleted: r.deletedCount });
+        } catch (e) { next(e); }
+    });
+
     // ---- Clear old ----
     app.post('/api/jobs/clear-old', async (req, res, next) => {
         try {

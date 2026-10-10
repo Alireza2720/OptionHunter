@@ -3389,9 +3389,12 @@ async function refreshJobsPanel() {
     const doneRows = doneJobs.length ? doneJobs.map(j => renderJob(j, true)).join('') : '<div class="empty-note">تاریخچه خالی است</div>';
     const isActive = _jobsPanelActiveTab === 'active';
     const newHtml = '<div class="jobs-panel-container">' +
-      '<div class="tabs" style="margin-bottom:14px;">' +
-        '<button class="tab ' + (isActive ? 'active' : '') + '" onclick="switchJobsTab(\'active\', this)">فعال</button>' +
-        '<button class="tab ' + (!isActive ? 'active' : '') + '" onclick="switchJobsTab(\'done\', this)">تاریخچه</button>' +
+      '<div class="tabs" style="margin-bottom:14px; justify-content:space-between; align-items:center;">' +
+        '<div style="display:flex; gap:4px;">' +
+          '<button class="tab ' + (isActive ? 'active' : '') + '" onclick="switchJobsTab(\'active\', this)">فعال</button>' +
+          '<button class="tab ' + (!isActive ? 'active' : '') + '" onclick="switchJobsTab(\'done\', this)">تاریخچه</button>' +
+        '</div>' +
+        (!isActive && doneJobs.length ? '<button class="btn tiny danger" onclick="clearJobsHistory()"> پاک کردن تاریخچه</button>' : '') +
       '</div>' +
       '<div id="jobsTab-active" style="display:' + (isActive ? 'block' : 'none') + ';">' + activeRows + '</div>' +
       '<div id="jobsTab-done" style="display:' + (isActive ? 'none' : 'block') + ';">' + doneRows + '</div>' +
@@ -3410,6 +3413,20 @@ function switchJobsTab(w, btn) {
   document.getElementById('jobsTab-active').style.display = w === 'active' ? 'block' : 'none';
   document.getElementById('jobsTab-done').style.display = w === 'done' ? 'block' : 'none';
 }
+async function clearJobsHistory() {
+  if (!confirm('کل تاریخچه فعالیت‌ها پاک شود؟\n\n⚠️ فقط نمایش پاک می‌شود — داده‌های واقعی (بک‌تست، غنی‌سازی، backfill) حفظ می‌شوند.')) return;
+  showLoader('در حال پاک کردن...');
+  try {
+    const r = await apiFetch(BACKEND_URL + '/api/jobs/clear-history', { method: 'POST' }, 0);
+    hideLoader();
+    showAlert((r.deleted || 0) + ' رکورد از تاریخچه پاک شد', 'success', 5000);
+    await refreshJobsPanel();
+  } catch (e) {
+    hideLoader();
+    showAlert('خطا: ' + e.message, 'error');
+  }
+}
+
 async function cancelActiveJob(id) { if (!confirm('لغو شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function cancelDoctorJobById(jobId) {
   if (!confirm('دکتر سیستم متوقف شود؟')) return;
@@ -3576,6 +3593,49 @@ async function renderCollectorJobDetail(j) {
     html += '</div>';
   }
   openModal('جزئیات Backfill', html, true);
+}
+
+async function applyCombinedAutoConfig(mode) {
+  // mode: 'combined' | 'stock' | 'option'
+  var sugs = window._combinedSuggestions || [];
+  if (!sugs.length) return showAlert('پیشنهادی موجود نیست', 'warn');
+  var selections = [];
+  for (var i = 0; i < sugs.length; i++) {
+    var sug = sugs[i];
+    var all = [sug.leader].concat(sug.confirmers || []);
+    var filtered;
+    if (mode === 'stock') {
+      filtered = all.filter(function(x) { return x.mode === 'stock'; });
+    } else if (mode === 'option') {
+      filtered = all.filter(function(x) { return x.mode === 'option'; });
+    } else {
+      filtered = all;  // combined
+    }
+    if (!filtered.length) continue;
+    // Sort: leader first
+    filtered.sort(function(a, b) { return b.score - a.score; });
+    var pairs = filtered.map(function(x, idx) {
+      return { strategyId: x.strategyId, role: idx === 0 ? 'leader' : 'confirmer' };
+    });
+    selections.push({ symbol: sug.symbol, pairs: pairs });
+  }
+  if (!selections.length) return showAlert('برای حالت انتخابی، پیشنهادی وجود ندارد', 'warn');
+  var label = mode === 'combined' ? 'ترکیبی' : (mode === 'stock' ? 'سهم پایه' : 'آپشن');
+  if (!confirm('اعمال تنظیم ' + label + ' برای ' + selections.length + ' نماد؟')) return;
+  showLoader('در حال اعمال...');
+  try {
+    var r = await apiFetch(BACKEND_URL + '/api/backtest/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: window._lastBtCompareJobId || 'manual', selections: selections })
+    }, 0);
+    showAlert('اعمال شد: ' + ((r.applied && r.applied.length) || 0) + ' نماد', 'success', 5000);
+    await loadConfigs();
+  } catch (e) {
+    showAlert('خطا: ' + e.message, 'error');
+  } finally {
+    hideLoader();
+  }
 }
 
 async function viewJobDetail(id) {
@@ -4021,7 +4081,15 @@ async function explainSymbol(sym) {
       } catch (_) { return iso.slice(0, 10); }
     };
     var _hasSample = !!(r._sample_underlying_values || r._hint);
-    var _hintMsg = !_hasSample ? '<div class="hint" style="margin-bottom:8px; padding:6px 10px; background:var(--warn-subtle); border-radius:var(--r-sm); font-size:11px;">🔧 اگر تعداد همه‌جا 0 است، کالکتور روی سرور آپدیت نشده — sync و restart کن.</div>' : '';
+    var _hasOh = r.sources && r.sources.option_history && (r.sources.option_history.count || 0) > 0;
+    var _hintMsg = '';
+    if (!_hasOh && !_hasSample) {
+      _hintMsg = '<div class="hint" style="margin-bottom:8px; padding:8px 12px; background:var(--warn-subtle); border-radius:var(--r-sm); font-size:11.5px; line-height:1.7;">' +
+        ' <b>دیباگ آپشن در دسترس نیست</b><br>' +
+        'این قابلیت نیاز به سینک کالکتور روی سرور دارد. برای بررسی سریع، می‌توانی ' +
+        '<a href="https://api.optionhunter.ir/api/algotik/explain/' + encodeURIComponent(sym) + '" target="_blank" style="color:var(--accent);">خروجی JSON را مستقیم ببینی</a>.' +
+        '</div>';
+    }
     var html = _hintMsg + '<div class="hint" style="margin-bottom:12px;">منبع‌های داده آپشن برای ' + esc(sym) + '</div>';
     html += '<div class="table-responsive"><table class="data-table"><thead><tr><th>منبع</th><th>تعداد</th><th>از تاریخ</th><th>تا تاریخ</th><th>جزئیات</th></tr></thead><tbody>';
     var s = r.sources || {};
@@ -4479,6 +4547,9 @@ function renderCombinedTab(stockResult, optionResult, targetId) {
     '</div>';
 
   html += '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">تنظیم خودکار ترکیبی</h4>';
+  html += '<div class="hint" style="padding:8px 12px;background:var(--bg-elev-2);border-radius:var(--r-md);margin-bottom:10px;line-height:1.9;">' +
+    'سه گزینه داری: می‌توانی استراتژی‌های منتخب <b>سهم پایه</b> یا <b>آپشن</b> را اعمال کنی، یا <b>ترکیبی</b> (بهترین‌ها از هر دو).' +
+    '</div>';
   if (!suggestions.length) {
     html += '<div class="empty-note">هیچ نماد معتبری برای ترکیب نیست</div>';
   } else {
@@ -4496,6 +4567,14 @@ function renderCombinedTab(stockResult, optionResult, targetId) {
       }
       html += '</div>';
     }
+    // Apply buttons
+    html += '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">' +
+      '<button class="btn success" onclick="applyCombinedAutoConfig('combined')"> اعمال ترکیبی (بهترین‌ها از هر دو)</button>' +
+      '<button class="btn outline" onclick="applyCombinedAutoConfig('stock')"> اعمال فقط سهم پایه</button>' +
+      '<button class="btn outline" onclick="applyCombinedAutoConfig('option')"> اعمال فقط آپشن</button>' +
+      '</div>';
+    // Store suggestions globally
+    window._combinedSuggestions = suggestions;
   }
 
   el.innerHTML = html;
