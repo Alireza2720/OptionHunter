@@ -194,7 +194,143 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    app.get('/api/algotik/quality', async (req, res, next) => {
+
+    // ---- Audit (R23 restore) ----
+    app.get('/api/algotik/audit', async (req, res, next) => {
+        try {
+            const days = +(req.query.days || 730);
+            const r = await algotik.auditAll(days);
+            res.json(r);
+        } catch (e) { next(e); }
+    });
+
+    app.get('/api/algotik/audit/:symbol', async (req, res, next) => {
+        try {
+            const days = +(req.query.days || 730);
+            const r = await algotik.auditOne(req.params.symbol, days);
+            res.json(r);
+        } catch (e) { next(e); }
+    });
+
+    // ---- Data range ----
+    app.get('/api/algotik/data-range', async (req, res, next) => {
+        try { res.json(await algotik.getDataRange()); }
+        catch (e) { next(e); }
+    });
+
+    // ---- Explain (R10, restored R23) ----
+    app.get('/api/algotik/explain/:symbol', async (req, res, next) => {
+        try {
+            const fetch = require('node-fetch');
+            const env = require('../../config/env').get();
+            const url = (env.ALGOTIK_URL || 'http://127.0.0.1:5000') + '/explain/' + encodeURIComponent(req.params.symbol);
+            const r = await fetch(url, { timeout: 15000 });
+            const d = await r.json();
+            res.json(d);
+        } catch (e) { next(e); }
+    });
+
+    app.get('/api/algotik/data-range/:symbol', async (req, res, next) => {
+        try {
+            res.json(await algotik.getSymbolDataRange(req.params.symbol));
+        } catch (e) { next(e); }
+    });
+
+    // Stock candle data range from local DB
+    app.get('/api/algotik/data-range-stock', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const { COLLECTIONS } = require('../../config/constants');
+            const earliest = await db.collection(COLLECTIONS.CANDLES_DAILY)
+                .find({}).sort({ time: 1 }).limit(1).toArray();
+            const latest = await db.collection(COLLECTIONS.CANDLES_DAILY)
+                .find({}).sort({ time: -1 }).limit(1).toArray();
+            if (!earliest.length || !latest.length) {
+                return res.json({ from: null, to: null, days: 0 });
+            }
+            const from = new Date(earliest[0].time).toISOString().slice(0, 10);
+            const to = new Date(latest[0].time).toISOString().slice(0, 10);
+            const days = Math.floor((new Date(to) - new Date(from)) / 86400000);
+            res.json({ from, to, days });
+        } catch (e) { next(e); }
+    });
+
+    // ---- Risk-free ----
+    app.get('/api/algotik/risk-free', async (req, res, next) => {
+        try { res.json(await algotik.getRiskFree()); } catch (e) { next(e); }
+    });
+
+    // ---- Ticker ----
+    app.post('/api/algotik/ticker', async (req, res, next) => {
+        try {
+            const { action, intervalSec } = req.body || {};
+            res.json(await algotik.controlTicker(action || 'start', intervalSec || 10));
+        } catch (e) { res.status(400).json({ error: e.message }); }
+    });
+
+    // ---- Data freshness ----
+    app.get('/api/algotik/freshness', async (req, res, next) => {
+        try {
+            const { COLLECTIONS } = require('../../config/constants');
+            const db = getDB();
+            const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
+                .find({ enabled: true }).toArray();
+
+            const today = new Date();
+            today.setUTCHours(0, 0, 0, 0);
+
+            const results = [];
+            for (const m of monitored) {
+                const last = await db.collection(COLLECTIONS.CANDLES_DAILY)
+                    .find({ symbol: m.symbol }).sort({ time: -1 }).limit(1).toArray();
+                const lastTime = last[0] ? new Date(last[0].time) : null;
+                const gap = lastTime ? Math.floor((today - lastTime) / 86400000) : null;
+                results.push({
+                    symbol: m.symbol,
+                    lastDaily: lastTime ? lastTime.toISOString().slice(0, 10) : null,
+                    gapDays: gap,
+                    stale: gap !== null && gap > 3
+                });
+            }
+
+            const stale = results.filter(r => r.stale);
+            res.json({
+                today: today.toISOString().slice(0, 10),
+                total: results.length,
+                staleCount: stale.length,
+                staleSymbols: stale.map(r => r.symbol),
+                symbols: results
+            });
+        } catch (e) { next(e); }
+    });
+
+    // ---- Ticker log ----
+    app.get('/api/algotik/ticker-log', async (req, res, next) => {
+        try {
+            const limit = Math.min(+(req.query.limit || 10), 100);
+            const { COLLECTIONS } = require('../../config/constants');
+            const db = getDB();
+            const docs = await db.collection(COLLECTIONS.LOGS)
+                .find({ msg: { $regex: '^tick ' } })
+                .sort({ at: -1 }).limit(limit).toArray();
+            const logs = docs.map(d => {
+                const msg = String(d.msg || '');
+                const parts = msg.split('|').map(x => x.trim());
+                const symbolsPart = parts[1] ? parts[1].split(' ')[0] : '0';
+                const ticksMatch = parts[2] ? parts[2].match(/(\d+)/) : null;
+                const volMatch = parts[3] ? parts[3].match(/(\d+)/) : null;
+                return {
+                    at: d.at,
+                    symbols: parseInt(symbolsPart) || 0,
+                    ticksOk: ticksMatch ? +ticksMatch[1] : 0,
+                    volumeDelta: volMatch ? +volMatch[1] : 0
+                };
+            });
+            res.json({ logs });
+        } catch (e) { next(e); }
+    });
+
+        app.get('/api/algotik/quality', async (req, res, next) => {
         try {
             const fresh = req.query.fresh === '1';
             const marketHours = require('../../infra/market-hours');
