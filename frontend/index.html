@@ -4595,9 +4595,9 @@ function renderCombinedTab(stockResult, optionResult, targetId) {
     }
     // Apply buttons
     html += '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">' +
-      '<button class="btn success" onclick="applyCombinedAutoConfig('combined')"> اعمال ترکیبی (بهترین‌ها از هر دو)</button>' +
-      '<button class="btn outline" onclick="applyCombinedAutoConfig('stock')"> اعمال فقط سهم پایه</button>' +
-      '<button class="btn outline" onclick="applyCombinedAutoConfig('option')"> اعمال فقط آپشن</button>' +
+      `<button class="btn success" onclick="applyCombinedAutoConfig('combined')"> اعمال ترکیبی (بهترین‌ها از هر دو)</button>` +
+      `<button class="btn outline" onclick="applyCombinedAutoConfig('stock')"> اعمال فقط سهم پایه</button>` +
+      `<button class="btn outline" onclick="applyCombinedAutoConfig('option')"> اعمال فقط آپشن</button>` +
       '</div>';
     // Store suggestions globally
     window._combinedSuggestions = suggestions;
