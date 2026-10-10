@@ -1510,7 +1510,19 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
     </span>
     <button class="btn tiny outline" onclick="refreshActiveDash(this)" style="margin-right:auto;">رفرش</button>
   </h2> <div id="dashboardContent" style="display:none;"><div class="empty-note">در حال بارگذاری...</div></div>
-  <div id="paperDashboardContent"><div class="empty-note">برای مشاهده، روی تب «معاملات دمو» کلیک کن</div></div> </div> <div class="card collapsible open" id="cardPipeline"> <h2 onclick="toggleCard('cardPipeline')"><span class="h2-title">خط لوله داده</span><span class="chev">▼</span></h2> <div class="card-body">  <div id="ptab-backfill"> <div class="pipeline-block"> <h3>Backfill کامل</h3> <div class="form-row" style="align-items:end; margin-bottom:8px;"> <div class="field" style="min-width:150px;"> <label>از تاریخ</label> <input type="text" id="algotikFromDate" placeholder="1405/01/01" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div class="field" style="min-width:150px;"> <label>تا تاریخ</label> <input type="text" id="algotikToDate" placeholder="1405/06/30" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button> </div> <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div> <div id="algotikBackfillJobArea" style="margin-top:10px;"></div> </div> <div class="pipeline-block" id="tickerInMenuSource" style="display:none;"> <input type="number" id="tickerInterval" value="10" min="1" max="300"> <div id="tickerStatus"></div> <div id="tickLiveLog"></div> </div> <div class="adv-accordion" id="dataGuideAccordion" style="margin-top:12px;"> <div class="adv-header" onclick="document.getElementById('dataGuideAccordion').classList.toggle('open')"> <span>راهنمای مفاهیم دیتا</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="guide-block"><div class="g-name">کندل 1m</div><div class="g-desc">کندل یک‌دقیقه‌ای سهام. پایه aggregation به 15m/30m/1h و منبع چارت و backtest.</div></div> <div class="guide-block"><div class="g-name">کندل روزانه</div><div class="g-desc">یک کندل در هر روز معاملاتی. برای تشخیص روند بلندمدت.</div></div> <div class="guide-block"><div class="g-name">آپشن (Option History)</div><div class="g-desc">داده IV/Greeks تاریخی. برای backtest واقعی آپشن.</div></div> <div class="guide-block"><div class="g-name">Ticks</div><div class="g-desc">نوسان زنده سهام (هر ۱۰ ثانیه). برای سیگنال‌های لحظه‌ای.</div></div> <div class="guide-block"><div class="g-name">Snapshot</div><div class="g-desc">عکس لحظه‌ای chain آپشن (هر ۵ دقیقه). برای مانیتورینگ زنده.</div></div> <div class="guide-block"><div class="g-name">Backfill</div><div class="g-desc">پر کردن داده تاریخی از Algotic.</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">کیفیت دیتا</h4> <div class="guide-block"><div class="g-desc"> آماده بک‌تست آپشن<br> داده متوسط<br> داده ناکافی</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">تعمیر خودکار</h4> <div class="guide-block"><div class="g-desc">هر شب ساعت 13:30، سیستم نمادهای ناقص را پیدا می‌کند و خودکار backfill می‌زند.</div></div> </div> </div> <div id="ptab-symbols" style="margin-top:14px;"> <div id="algotikStats" class="sys-grid" style="margin-bottom:12px;"></div> <div id="autoFixBanner" style="margin-bottom:12px; padding:var(--sp-3) var(--sp-4); background:var(--gradient-card); border:1px solid var(--warn-border); border-radius:var(--r-md); display:none;"> <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"> <div> <b style="font-size:13px;"> نمادهای ناقص شناسایی شد</b> <div class="hint" id="autoFixCount" style="margin:2px 0 0;"></div> </div> <div style="display:flex; gap:6px;"> <button class="btn tiny outline" onclick="openQualitySummary()">مشاهده</button> <button class="btn tiny success" onclick="autoFixAllGaps(this)"> تعمیر خودکار</button> </div> </div> </div> <div class="form-row"> <div class="field" style="flex:1; min-width:180px;"> <label>افزودن نماد جدید</label> <input type="text" id="symbolSearchInput" placeholder="مثلا فملی" autocomplete="off"> <div class="autocomplete-list" id="autocompleteList"></div> </div> <button class="btn" onclick="addMonitoredSymbol()">افزودن</button> </div>  <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div> </div> <div id="ptab-coverage" style="margin-top:14px; display:none;"></div> </div> </div> </div> <div class="card collapsible open" id="cardStrategy"> <h2 onclick="toggleCard('cardStrategy')"><span class="h2-title">استراتژی‌ها</span><span class="chev">▼</span><span class="count-pill" id="configsCountLabel">0</span></h2> <div class="card-body"> <div class="hint" style="margin-bottom:10px;">استراتژی‌های فعال</div> <div id="stab-configs"> <div class="adv-accordion" id="createStratAccordion" style="margin-bottom:12px;"> <div class="adv-header" onclick="document.getElementById('createStratAccordion').classList.toggle('open')" style="cursor:pointer;"> <span>ایجاد استراتژی جدید</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>نماد</label><select id="configSymbolSelect" onchange="onMainSymbolChange()"><option value="">-- ابتدا نماد اضافه کنید --</option></select></div> <div class="field" id="pairSymbolField" style="display:none;"> <label>نماد جفت (Pair)</label> <select id="pairSymbolSelect"><option value="">-- انتخاب کنید --</option></select> </div> <div class="field"><label>استراتژی</label><select id="strategySelect"></select></div> <div class="field"><label>تایم فریم ورود</label><select id="timeframeSelect"></select></div> <div class="field"><label>تایم فریم بالا</label><select id="htfSelect"></select></div> <div class="field"><label>نوع کندل</label><select id="candleTypeSelect"><option value="heikin">هیکن آشی</option><option value="simple">ساده</option></select></div> <div class="field"><label>نقش</label><select id="roleSelect"><option value="leader">لیدر</option><option value="confirmer">تاییدکننده</option></select></div> </div> <div id="paramsContainer"></div> <div style="margin-top:10px;"><button class="btn" onclick="addStrategyConfig()"> ایجاد استراتژی</button></div> </div> </div> <div class="bulk-toolbar" id="bulkToolbar"> <span class="sel-count" id="bulkCount">0 مورد انتخاب شده</span> <button class="btn tiny outline" onclick="bulkToggleEnabled(true)">فعال</button> <button class="btn tiny outline" onclick="bulkToggleEnabled(false)">غیرفعال</button> <button class="btn tiny outline" onclick="bulkSetRole('leader')">لیدر کن</button> <button class="btn tiny outline" onclick="bulkSetRole('confirmer')">تاییدکننده کن</button> <button class="btn tiny danger" onclick="bulkDelete()">حذف</button> <button class="btn tiny outline" onclick="clearSelection()">لغو</button> </div> <div class="table-responsive" style="max-height:520px; overflow-y:auto;"> <table class="data-table sticky-2col"> <thead><tr><th><input type="checkbox" class="config-checkbox" id="selectAllConfigs" onchange="toggleSelectAllConfigs(this.checked)"></th><th>نماد</th><th>استراتژی</th><th>نقش</th><th>وضعیت</th><th>فعال</th><th>عملیات</th></tr></thead> <tbody id="configsBody"><tr class="empty-row"><td colspan="7">تنظیمی ایجاد نشده است</td></tr></tbody> </table> </div> </div> </div> </div>  <div class="card collapsible open" id="cardSignals"> <h2 onclick="toggleCard('cardSignals')"><span class="h2-title">تاریخچه سیگنال‌ها</span><span class="chev">▼</span><button class="btn small danger" onclick="event.stopPropagation(); clearSignalHistory()">پاک کردن</button></h2> <div class="card-body"> <div class="table-responsive" style="max-height:500px; overflow-y:auto;"><table class="data-table"> <thead><tr><th>نماد</th><th>زمان کندل</th><th>استراتژی</th><th>نقش</th><th>سیگنال</th><th>قیمت</th><th>روند بالا</th><th>دلیل</th><th>وضعیت</th></tr></thead> <tbody id="signalHistoryBody"><tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده است</td></tr></tbody> </table></div> </div> </div>
+  <div id="paperDashboardContent"><div class="empty-note">برای مشاهده، روی تب «معاملات دمو» کلیک کن</div></div> </div> <div class="card collapsible open" id="cardPipeline"> <h2 onclick="toggleCard('cardPipeline')"><span class="h2-title">خط لوله داده</span><span class="chev">▼</span></h2> <div class="card-body">  <div id="ptab-backfill"> <div class="pipeline-block"> <h3>Backfill کامل</h3> <div class="form-row" style="align-items:end; margin-bottom:8px;"> <div class="field" style="min-width:150px;"> <label>از تاریخ</label> <input type="text" id="algotikFromDate" placeholder="1405/01/01" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div class="field" style="min-width:150px;"> <label>تا تاریخ</label> <input type="text" id="algotikToDate" placeholder="1405/06/30" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div id="backfillSymbolsFilter" style="margin:8px 0; padding:8px 12px; background:var(--bg-elev-2); border:1px solid var(--border); border-radius:var(--r-md);">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+    <b style="font-size:12px;">انتخاب نمادها برای Backfill</b>
+    <div style="display:flex; gap:4px;">
+      <button class="btn tiny outline" onclick="backfillSelectAll(true)">همه</button>
+      <button class="btn tiny outline" onclick="backfillSelectAll(false)">هیچ</button>
+      <button class="btn tiny outline" onclick="backfillSelectActive()">فقط فعال‌ها</button>
+    </div>
+  </div>
+  <div id="backfillSymbolsList" style="display:flex; flex-wrap:wrap; gap:4px; max-height:150px; overflow-y:auto; font-size:12px;"></div>
+  <div class="hint" style="margin:4px 0 0; font-size:10.5px;">خالی = همه نمادهای فعال</div>
+</div>
+        <button class="btn success" id="algotikBackfillBtn" onclick="algotikStartBackfill(this)">شروع Backfill</button> </div> <div class="hint" style="margin:0;">پنج فاز: سهام 1m + روزانه، آپشن daily + analysis (IV/Greeks)، snapshot، aggregation</div> <div id="algotikBackfillJobArea" style="margin-top:10px;"></div> </div> <div class="pipeline-block" id="tickerInMenuSource" style="display:none;"> <input type="number" id="tickerInterval" value="10" min="1" max="300"> <div id="tickerStatus"></div> <div id="tickLiveLog"></div> </div> <div class="adv-accordion" id="dataGuideAccordion" style="margin-top:12px;"> <div class="adv-header" onclick="document.getElementById('dataGuideAccordion').classList.toggle('open')"> <span>راهنمای مفاهیم دیتا</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="guide-block"><div class="g-name">کندل 1m</div><div class="g-desc">کندل یک‌دقیقه‌ای سهام. پایه aggregation به 15m/30m/1h و منبع چارت و backtest.</div></div> <div class="guide-block"><div class="g-name">کندل روزانه</div><div class="g-desc">یک کندل در هر روز معاملاتی. برای تشخیص روند بلندمدت.</div></div> <div class="guide-block"><div class="g-name">آپشن (Option History)</div><div class="g-desc">داده IV/Greeks تاریخی. برای backtest واقعی آپشن.</div></div> <div class="guide-block"><div class="g-name">Ticks</div><div class="g-desc">نوسان زنده سهام (هر ۱۰ ثانیه). برای سیگنال‌های لحظه‌ای.</div></div> <div class="guide-block"><div class="g-name">Snapshot</div><div class="g-desc">عکس لحظه‌ای chain آپشن (هر ۵ دقیقه). برای مانیتورینگ زنده.</div></div> <div class="guide-block"><div class="g-name">Backfill</div><div class="g-desc">پر کردن داده تاریخی از Algotic.</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">کیفیت دیتا</h4> <div class="guide-block"><div class="g-desc"> آماده بک‌تست آپشن<br> داده متوسط<br> داده ناکافی</div></div> <h4 style="font-size:12px;color:var(--accent);margin:14px 0 6px;">تعمیر خودکار</h4> <div class="guide-block"><div class="g-desc">هر شب ساعت 13:30، سیستم نمادهای ناقص را پیدا می‌کند و خودکار backfill می‌زند.</div></div> </div> </div> <div id="ptab-symbols" style="margin-top:14px;"> <div id="algotikStats" class="sys-grid" style="margin-bottom:12px;"></div> <div id="autoFixBanner" style="margin-bottom:12px; padding:var(--sp-3) var(--sp-4); background:var(--gradient-card); border:1px solid var(--warn-border); border-radius:var(--r-md); display:none;"> <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;"> <div> <b style="font-size:13px;"> نمادهای ناقص شناسایی شد</b> <div class="hint" id="autoFixCount" style="margin:2px 0 0;"></div> </div> <div style="display:flex; gap:6px;"> <button class="btn tiny outline" onclick="openQualitySummary()">مشاهده</button> <button class="btn tiny success" onclick="autoFixAllGaps(this)"> تعمیر خودکار</button> </div> </div> </div> <div class="form-row"> <div class="field" style="flex:1; min-width:180px;"> <label>افزودن نماد جدید</label> <input type="text" id="symbolSearchInput" placeholder="مثلا فملی" autocomplete="off"> <div class="autocomplete-list" id="autocompleteList"></div> </div> <button class="btn" onclick="addMonitoredSymbol()">افزودن</button> </div>  <div class="symbol-list" id="symbolGrid"><div class="empty-note">نمادی اضافه نشده است</div></div> </div> <div id="ptab-coverage" style="margin-top:14px; display:none;"></div> </div> </div> </div> <div class="card collapsible open" id="cardStrategy"> <h2 onclick="toggleCard('cardStrategy')"><span class="h2-title">استراتژی‌ها</span><span class="chev">▼</span><span class="count-pill" id="configsCountLabel">0</span></h2> <div class="card-body"> <div class="hint" style="margin-bottom:10px;">استراتژی‌های فعال</div> <div id="stab-configs"> <div class="adv-accordion" id="createStratAccordion" style="margin-bottom:12px;"> <div class="adv-header" onclick="document.getElementById('createStratAccordion').classList.toggle('open')" style="cursor:pointer;"> <span>ایجاد استراتژی جدید</span><span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>نماد</label><select id="configSymbolSelect" onchange="onMainSymbolChange()"><option value="">-- ابتدا نماد اضافه کنید --</option></select></div> <div class="field" id="pairSymbolField" style="display:none;"> <label>نماد جفت (Pair)</label> <select id="pairSymbolSelect"><option value="">-- انتخاب کنید --</option></select> </div> <div class="field"><label>استراتژی</label><select id="strategySelect"></select></div> <div class="field"><label>تایم فریم ورود</label><select id="timeframeSelect"></select></div> <div class="field"><label>تایم فریم بالا</label><select id="htfSelect"></select></div> <div class="field"><label>نوع کندل</label><select id="candleTypeSelect"><option value="heikin">هیکن آشی</option><option value="simple">ساده</option></select></div> <div class="field"><label>نقش</label><select id="roleSelect"><option value="leader">لیدر</option><option value="confirmer">تاییدکننده</option></select></div> </div> <div id="paramsContainer"></div> <div style="margin-top:10px;"><button class="btn" onclick="addStrategyConfig()"> ایجاد استراتژی</button></div> </div> </div> <div class="bulk-toolbar" id="bulkToolbar"> <span class="sel-count" id="bulkCount">0 مورد انتخاب شده</span> <button class="btn tiny outline" onclick="bulkToggleEnabled(true)">فعال</button> <button class="btn tiny outline" onclick="bulkToggleEnabled(false)">غیرفعال</button> <button class="btn tiny outline" onclick="bulkSetRole('leader')">لیدر کن</button> <button class="btn tiny outline" onclick="bulkSetRole('confirmer')">تاییدکننده کن</button> <button class="btn tiny danger" onclick="bulkDelete()">حذف</button> <button class="btn tiny outline" onclick="clearSelection()">لغو</button> </div> <div class="table-responsive" style="max-height:520px; overflow-y:auto;"> <table class="data-table sticky-2col"> <thead><tr><th><input type="checkbox" class="config-checkbox" id="selectAllConfigs" onchange="toggleSelectAllConfigs(this.checked)"></th><th>نماد</th><th>استراتژی</th><th>نقش</th><th>وضعیت</th><th>فعال</th><th>عملیات</th></tr></thead> <tbody id="configsBody"><tr class="empty-row"><td colspan="7">تنظیمی ایجاد نشده است</td></tr></tbody> </table> </div> </div> </div> </div>  <div class="card collapsible open" id="cardSignals"> <h2 onclick="toggleCard('cardSignals')"><span class="h2-title">تاریخچه سیگنال‌ها</span><span class="chev">▼</span><button class="btn small danger" onclick="event.stopPropagation(); clearSignalHistory()">پاک کردن</button></h2> <div class="card-body"> <div class="table-responsive" style="max-height:500px; overflow-y:auto;"><table class="data-table"> <thead><tr><th>نماد</th><th>زمان کندل</th><th>استراتژی</th><th>نقش</th><th>سیگنال</th><th>قیمت</th><th>روند بالا</th><th>دلیل</th><th>وضعیت</th></tr></thead> <tbody id="signalHistoryBody"><tr class="empty-row"><td colspan="9">سیگنالی ثبت نشده است</td></tr></tbody> </table></div> </div> </div>
 </div> <script>
 const BACKEND_URL = 'https://api.optionhunter.ir';
 let _btJobs = [];
@@ -2006,6 +2018,37 @@ function jalaliToGreg(jalaliStr) {
          String(gm).padStart(2, '0') + '-' +
          String(gd).padStart(2, '0');
 }
+function renderBackfillSymbols() {
+  var el = document.getElementById('backfillSymbolsList');
+  if (!el) return;
+  if (!monitoredSymbols || !monitoredSymbols.length) {
+    el.innerHTML = '<span style="color:var(--text-dim);">نمادی برای انتخاب نیست</span>';
+    return;
+  }
+  el.innerHTML = monitoredSymbols.map(function(s) {
+    return '<label style="display:inline-flex; align-items:center; gap:4px; padding:3px 8px; background:var(--bg-elev-3); border:1px solid var(--border); border-radius:var(--r-sm); cursor:pointer;">' +
+      '<input type="checkbox" class="bf-sym-chk" value="' + esc(s.symbol) + '"> ' + esc(s.symbol) +
+      '</label>';
+  }).join('');
+}
+function backfillSelectAll(v) {
+  document.querySelectorAll('.bf-sym-chk').forEach(function(c) { c.checked = v; });
+}
+function backfillSelectActive() {
+  document.querySelectorAll('.bf-sym-chk').forEach(function(c) {
+    var s = (monitoredSymbols || []).find(function(x) { return x.symbol === c.value; });
+    c.checked = !!(s && s.enabled !== false && s.collectEnabled !== false);
+  });
+}
+function backfillGetSelectedSymbols() {
+  var checked = Array.from(document.querySelectorAll('.bf-sym-chk:checked')).map(function(c) { return c.value; });
+  var all = Array.from(document.querySelectorAll('.bf-sym-chk')).map(function(c) { return c.value; });
+  // Empty selection = all symbols (backwards compat)
+  if (checked.length === 0) return null;
+  if (checked.length === all.length) return null;
+  return checked;
+}
+
 async function algotikStartBackfill(btn) {
   const from = jdpNormalize(document.getElementById('algotikFromDate').value);
   const to   = jdpNormalize(document.getElementById('algotikToDate').value);
@@ -2015,7 +2058,12 @@ async function algotikStartBackfill(btn) {
   window._backfillRunning = true;
   const jobArea = document.getElementById('algotikBackfillJobArea');
   try {
-    const r = await apiFetch(`${BACKEND_URL}/api/algotik/full-backfill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dateFrom: from, dateTo: to, includeStockIntraday: true, includeStockDaily: true, includeOptionHistory: true, includeOptionSnapshot: true, includeAggregate: true, includeOptionMigration: true }) }, 0);
+    const r = await apiFetch(`${BACKEND_URL}/api/algotik/full-backfill`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({
+        dateFrom: from, dateTo: to,
+        includeStockIntraday: true, includeStockDaily: true,
+        includeOptionHistory: true, includeOptionSnapshot: true,
+        includeAggregate: true, includeOptionMigration: true
+      }, (function() { var s = backfillGetSelectedSymbols(); return s ? { symbols: s } : {}; })())) }, 0);
     showAlert('Backfill در پس‌زمینه شروع شد.', 'success', 8000);
     jobArea.innerHTML = renderCollectorJobProgress({ _id: r.jobId, status: 'QUEUED', phase: 'init', phases: {} });
     const timer = setInterval(async () => {
@@ -3295,6 +3343,8 @@ async function refreshJobsPanel() {
       const symbolInfo = symCount > 1 ? ' · ' + symCount + ' نماد' : '';
       const msg = (j.progress && j.progress.message) || '';
       const cancelBtn = !isDone ? '<button class="btn tiny danger" onclick="cancelAnyJob(\'' + j._id + '\', \'' + j.type + '\', \'' + j._source + '\')">لغو</button>' : '';
+      const pauseBtn = (!isDone && j._source === 'collector' && j.status === 'RUNNING') ? '<button class="btn tiny warn" onclick="pauseAnyJob(\'' + j._id + '\')">توقف موقت</button>' : '';
+      const resumeBtn = (!isDone && j._source === 'collector' && j.status === 'PAUSED') ? '<button class="btn tiny success" onclick="resumeAnyJob(\'' + j._id + '\')">ادامه</button>' : '';
       const detailBtn = isDone ? '<button class="btn tiny outline" onclick="viewJobDetail(\'' + j._id + '\')">جزئیات</button>' : '';
       const jsonBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="downloadJob(\'' + j._id + '\')">JSON</button>' : '';
       const delBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="deleteJob(\'' + j._id + '\')">حذف</button>' : '';
@@ -3303,7 +3353,7 @@ async function refreshJobsPanel() {
           '<span class="job-type ' + j.type + '">' + typeLabel + '</span>' +
           '<span class="job-status ' + j.status + '">' + statusLabel + '</span>' +
           '<span class="job-msg" style="margin-right:auto;">' + esc(dateStr) + symbolInfo + '</span>' +
-          '<div class="job-actions" style="display:flex; gap:6px;">' + cancelBtn + detailBtn + jsonBtn + delBtn + '</div>' +
+          '<div class="job-actions" style="display:flex; gap:6px;">' + pauseBtn + resumeBtn + cancelBtn + detailBtn + jsonBtn + delBtn + '</div>' +
         '</div>' +
         (!isDone && msg ? '<div class="job-msg" style="margin-top:4px; color:var(--text-dim); font-size:11px;">' + esc(msg) + '</div>' : '') +
       '</div>';
@@ -3355,6 +3405,21 @@ function cancelAnyJob(id, type, source) {
   if (type === 'ohdoctor') return cancelDoctorJobById(id);
   return cancelActiveJob(id);
 }
+async function pauseAnyJob(id) {
+  try {
+    await apiFetch(BACKEND_URL + '/api/algotik/jobs/' + id + '/pause', { method: 'POST' }, 0);
+    showAlert('درخواست توقف ارسال شد', 'info', 4000);
+    setTimeout(function() { refreshJobsPanel(); }, 800);
+  } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+async function resumeAnyJob(id) {
+  try {
+    await apiFetch(BACKEND_URL + '/api/algotik/jobs/' + id + '/resume', { method: 'POST' }, 0);
+    showAlert('درخواست ادامه ارسال شد', 'success', 4000);
+    setTimeout(function() { refreshJobsPanel(); }, 800);
+  } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+}
+
 async function cancelCollectorJob(id) {
   if (!confirm('لغو شود؟')) return;
   try {
@@ -3878,7 +3943,9 @@ async function explainSymbol(sym) {
         return m.year + '/' + m.month + '/' + m.day;
       } catch (_) { return iso.slice(0, 10); }
     };
-    var html = '<div class="hint" style="margin-bottom:12px;">منبع‌های داده آپشن برای ' + esc(sym) + '</div>';
+    var _hasSample = !!(r._sample_underlying_values || r._hint);
+    var _hintMsg = !_hasSample ? '<div class="hint" style="margin-bottom:8px; padding:6px 10px; background:var(--warn-subtle); border-radius:var(--r-sm); font-size:11px;">🔧 اگر تعداد همه‌جا 0 است، کالکتور روی سرور آپدیت نشده — sync و restart کن.</div>' : '';
+    var html = _hintMsg + '<div class="hint" style="margin-bottom:12px;">منبع‌های داده آپشن برای ' + esc(sym) + '</div>';
     html += '<div class="table-responsive"><table class="data-table"><thead><tr><th>منبع</th><th>تعداد</th><th>از تاریخ</th><th>تا تاریخ</th><th>جزئیات</th></tr></thead><tbody>';
     var s = r.sources || {};
     var keys = ['option_history', 'option_daily_algotik', 'option_history_synth'];
@@ -3893,6 +3960,17 @@ async function explainSymbol(sym) {
       html += '<tr><td><b>' + k + '</b></td><td>' + (d.count || 0).toLocaleString() + '</td><td>' + _fmtDate(d.from) + '</td><td>' + _fmtDate(d.to) + '</td><td style="font-size:10.5px;">' + esc(detail) + '</td></tr>';
     });
     html += '</tbody></table></div>';
+    // 🆕 Hint when underlying mismatch
+    if (!r.contracts_count && !(r.sources && r.sources.option_history && r.sources.option_history.count > 0) && r._sample_underlying_values) {
+      html += '<div style="margin-top:12px; padding:10px 14px; background:var(--warn-subtle); border:1px solid var(--warn-border); border-radius:var(--r-md); font-size:12px;">';
+      html += '<b>⚠️ هیچ رکوردی برای این نماد پیدا نشد</b><br>';
+      html += '<span style="font-size:11px;">نمونه مقادیر existing در DB:</span>';
+      html += '<pre style="direction:ltr; text-align:left; font-size:10.5px; max-height:150px; overflow:auto; background:var(--bg-elev-3); padding:6px; border-radius:4px; margin-top:4px;">';
+      html += esc(JSON.stringify(r._sample_underlying_values, null, 2));
+      html += '</pre>';
+      html += '<div style="margin-top:6px; color:var(--text-dim);">' + esc(r._hint || '') + '</div>';
+      html += '</div>';
+    }
     if (r.contracts_count) {
       html += '<div class="hint" style="margin-top:12px;">تعداد قرارداد یکتا: <b>' + r.contracts_count + '</b><br>نمونه: ' + (r.sample_contracts || []).join(', ') + '</div>';
     }
@@ -4956,6 +5034,7 @@ window.addEventListener('load', async () => {
     return;
   }
   document.getElementById('bootOverlay').style.display = 'none';
+  try { if (typeof renderBackfillSymbols === 'function') renderBackfillSymbols(); } catch (_) {}
   jdpInit();
   await checkBackendStatus().catch(() => {});
   await loadTimeframes().catch(() => {});

@@ -52,7 +52,9 @@ const CONF = {
 };
 const secArg = ARGV.find((a) => a.startsWith('--sections='));
 if (secArg) {
-    CONF.sections = secArg.split('=')[1].split(',').map((s) => +s.trim()).filter(Boolean);
+    CONF.sections = secArg.split('=')[1].split(',').map((s) => +s.trim()).filter((n) => Number.isInteger(n) && n > 0);
+    if (CONF.sections.length === 0) CONF.sections = null;   // parse failure → run all
+    console.log('[monitor.js] parsed sections: ' + JSON.stringify(CONF.sections));
 }
 
 // ============================================================
@@ -2428,6 +2430,12 @@ async function s34_report() {
 // 🩺 DOCTOR MODE
 // ============================================================
 async function runDoctor() {
+    // 🆕 Log which sections will run (for --sections debugging)
+    if (CONF.sections && CONF.sections.length) {
+        console.log('[monitor.js] sections filter active: ' + JSON.stringify(CONF.sections));
+    } else {
+        console.log('[monitor.js] running ALL sections');
+    }
     // ══════════════════════════════════════════════════════════
     // 🕐 GATE 1: فقط خارج از ساعت بازار (اجباری)
     // ══════════════════════════════════════════════════════════
