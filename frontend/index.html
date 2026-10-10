@@ -1,6 +1,32 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
+<script>
+// 🆕 R24: Boot diagnostics — visible error reporting
+window.__bootLog = [];
+window.addEventListener('error', function(e) {
+    window.__bootLog.push({ type: 'error', msg: e.message, file: e.filename, line: e.lineno });
+    try {
+        var m = document.getElementById('bootMessage');
+        if (m) m.innerHTML = '❌ خطا در بارگذاری: <b>' + e.message + '</b><br><small>خط ' + e.lineno + ' — فایل ' + (e.filename || '').split('/').pop() + '</small>';
+        var r = document.getElementById('bootRetryBtn');
+        if (r) r.style.display = 'inline-block';
+    } catch(_) {}
+    console.error('[boot-error]', e.message, 'at', e.filename + ':' + e.lineno);
+});
+window.addEventListener('unhandledrejection', function(e) {
+    var reason = e.reason;
+    var txt = reason ? (reason.stack || reason.message || String(reason)) : 'unknown';
+    window.__bootLog.push({ type: 'rejection', reason: txt });
+    try {
+        var m = document.getElementById('bootMessage');
+        if (m) m.innerHTML = '❌ خطا در bootstrap: <b>' + (reason && reason.message ? reason.message : txt).substring(0, 200) + '</b>';
+        var r = document.getElementById('bootRetryBtn');
+        if (r) r.style.display = 'inline-block';
+    } catch(_) {}
+    console.error('[boot-rejection]', txt);
+});
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OptionHunter — شکارچی آپشن</title>
@@ -1490,7 +1516,7 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 </head>
 <body data-theme="dark">
 <script>
-  try { console.log('🔵 OptionHunter UI · build phase 13 · ' + new Date().toISOString()); } catch(_) {}
+  try { console.log('🔵 OptionHunter UI · build phase-24-diag · ' + new Date().toISOString() + new Date().toISOString()); } catch(_) {}
 </script>
 <!-- UI v: phase-13 -->
 <div id="bootOverlay" data-version="phase-13"> <div class="brand" style="font-size:32px;">OptionHunter</div> <div style="width:40px; height:40px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite;"></div> <p id="bootMessage" style="color:var(--text-dim); font-size:13.5px;">در حال اتصال به سرور...</p> <button class="btn small" id="bootRetryBtn" style="display:none;" onclick="location.reload()">تلاش مجدد</button>
@@ -5209,6 +5235,20 @@ window.addEventListener('load', async () => {
   startSystemPolling();
   startUnifiedPolling();
   startDataPipelinePolling();
+
+  // 🆕 R24: safety — force-hide boot overlay after 30s regardless of errors
+  setTimeout(function() {
+    try {
+      var ov = document.getElementById('bootOverlay');
+      if (ov && ov.style.display !== 'none') {
+        var m = document.getElementById('bootMessage');
+        if (m) {
+          m.innerHTML = m.innerHTML + '<br><small style="opacity:0.6;">(بارگذاری طولانی شد — UI نمایش داده شد)</small>';
+        }
+        setTimeout(function() { ov.style.display = 'none'; }, 3000);
+      }
+    } catch(_) {}
+  }, 30000);
 });
 let _unifiedTimer = null;
 const _pollTasks = [
