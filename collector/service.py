@@ -130,6 +130,57 @@ def _install_signal_handlers():
     print('✅ signal handlers installed')
 
 
+# ────────────────────────────────────────────────────────────
+# 🆕 R18: Coverage background refresh (pre-compute + Mongo cache)
+# ────────────────────────────────────────────────────────────
+_coverage_bg_thread = None
+_COVERAGE_REFRESH_SEC = 25 * 60  # 25 min
+
+
+def _coverage_background_loop():
+    """Refresh coverage every ~25min, persist to Mongo."""
+    # Wait for init
+    for _ in range(30):
+        if _shutdown_event.is_set():
+            return
+        time.sleep(1)
+    # First refresh after 20s (let indexes warm up)
+    for _ in range(20):
+        if _shutdown_event.is_set():
+            return
+        time.sleep(1)
+    while not _shutdown_event.is_set():
+        try:
+            from .pipeline import report as _rpt
+            t0 = time.time()
+            result = _rpt.coverage_report(force=True)
+            elapsed = round(time.time() - t0, 1)
+            ok = _rpt.save_coverage_to_mongo(result)
+            print(f'✅ coverage refreshed in {elapsed}s ({len(result)} symbols, saved={ok})')
+        except Exception as e:
+            try:
+                log('coverage_bg_err', str(e)[:200])
+            except Exception:
+                pass
+            print(f'⚠️ coverage bg refresh failed: {e}')
+        # Sleep in 1s chunks to allow shutdown
+        for _ in range(_COVERAGE_REFRESH_SEC):
+            if _shutdown_event.is_set():
+                return
+            time.sleep(1)
+
+
+def _start_coverage_background():
+    global _coverage_bg_thread
+    if _coverage_bg_thread is not None and _coverage_bg_thread.is_alive():
+        return
+    _coverage_bg_thread = threading.Thread(
+        target=_coverage_background_loop, daemon=True, name='coverage-bg'
+    )
+    _coverage_bg_thread.start()
+    print('✅ coverage background thread started')
+
+
 @app.on_event('startup')
 def _startup():
     ensure_indexes()
@@ -143,6 +194,11 @@ def _startup():
         print(f'⚠️ RF init failed: {e}')
 
     _install_signal_handlers()
+    # 🆕 R18: start coverage pre-compute
+    try:
+        _start_coverage_background()
+    except Exception as e:
+        print(f'⚠️ coverage bg start failed: {e}')
 
 
 # ---------- Health ----------
@@ -792,7 +848,21 @@ def cancel_job(job_id: str):
 # ---------- Coverage ----------
 @app.get('/coverage')
 def coverage():
-    return {'symbols': rpt_mod.coverage_report()}
+    # 🆕 R18: prefer Mongo cache (survives restart)
+    try:
+        cached = rpt_mod.load_coverage_from_mongo(max_age_sec=7200)
+        if cached is not None:
+            return {'symbols': cached, '_cached': True}
+    except Exception:
+        pass
+    # Fallback: compute synchronously
+    result = rpt_mod.coverage_report()
+    # Save to Mongo for next time
+    try:
+        rpt_mod.save_coverage_to_mongo(result)
+    except Exception:
+        pass
+    return {'symbols': result, '_cached': False}
 
 
 # ---------- Enriched Option Chain (Phase 1 — TSETMC-based) ----------

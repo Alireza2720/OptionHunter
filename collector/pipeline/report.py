@@ -10,10 +10,15 @@ _cov_cache = {'result': None, 'at': 0, 'symbols_key': None}
 _COV_TTL = 1800   # R17: 30min (was 10min)
 
 
-def coverage_report(symbols=None):
-    """Public wrapper — returns stale cache on error/timeout."""
+def coverage_report(symbols=None, force=False):
+    """Public wrapper — returns stale cache on error/timeout.
+
+    Args:
+        symbols: optional list of symbols (default: all monitored)
+        force: if True, ignore in-memory cache and recompute
+    """
     try:
-        return _coverage_report_inner(symbols)
+        return _coverage_report_inner(symbols, force=force)
     except Exception as _e:
         import time as _t
         if _cov_cache['result'] is not None and (_t.time() - _cov_cache['at']) < 6 * 3600:
@@ -26,7 +31,7 @@ def coverage_report(symbols=None):
         raise
 
 
-def _coverage_report_inner(symbols=None):
+def _coverage_report_inner(symbols=None, force=False):
     db = get_db()
     if not symbols:
         symbols = [s['symbol'] for s in db[COL_MONITORED].find({})]
@@ -34,7 +39,8 @@ def _coverage_report_inner(symbols=None):
     # 🆕 cache key = symbols hash
     key = tuple(sorted(symbols))
     now = time.time()
-    if (_cov_cache['result'] is not None
+    if (not force
+            and _cov_cache['result'] is not None
             and _cov_cache['symbols_key'] == key
             and (now - _cov_cache['at']) < _COV_TTL):
         return _cov_cache['result']
@@ -123,3 +129,53 @@ def _coverage_report_inner(symbols=None):
     _cov_cache['at'] = now
     _cov_cache['symbols_key'] = key
     return out
+
+
+# ────────────────────────────────────────────────────────────
+# R18: Mongo-backed cache (survives collector restart)
+# ────────────────────────────────────────────────────────────
+def save_coverage_to_mongo(result, db=None):
+    """Persist coverage result to meta collection."""
+    try:
+        from datetime import datetime, timezone
+        from .db import get_db as _get_db
+        _db = db if db is not None else _get_db()
+        _db['meta'].update_one(
+            {'_id': 'coverage_cache'},
+            {'$set': {
+                'result': result,
+                'computedAt': datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+        return True
+    except Exception as e:
+        try:
+            from .db import log
+            log('coverage_cache_save_err', str(e)[:200])
+        except Exception:
+            pass
+        return False
+
+
+def load_coverage_from_mongo(max_age_sec=7200, db=None):
+    """Load cached coverage from meta. Returns list or None."""
+    try:
+        from datetime import datetime, timezone
+        from .db import get_db as _get_db
+        _db = db if db is not None else _get_db()
+        doc = _db['meta'].find_one({'_id': 'coverage_cache'})
+        if not doc or not doc.get('result'):
+            return None
+        if max_age_sec:
+            computed = doc.get('computedAt')
+            if computed:
+                # Ensure tz-aware comparison
+                if computed.tzinfo is None:
+                    computed = computed.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - computed).total_seconds()
+                if age > max_age_sec:
+                    return None
+        return doc['result']
+    except Exception:
+        return None
