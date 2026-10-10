@@ -3420,7 +3420,7 @@ async function refreshJobsPanel() {
           '<button class="tab ' + (isActive ? 'active' : '') + '" onclick="switchJobsTab(\'active\', this)">فعال</button>' +
           '<button class="tab ' + (!isActive ? 'active' : '') + '" onclick="switchJobsTab(\'done\', this)">تاریخچه</button>' +
         '</div>' +
-        (!isActive && doneJobs.length ? '<button class="btn tiny danger" onclick="clearJobsHistory()"> پاک کردن تاریخچه</button>' : '') +
+        (doneJobs.length ? '<button class="btn tiny danger" onclick="clearJobsHistory()"> پاک کردن تاریخچه</button>' : '') +
       '</div>' +
       '<div id="jobsTab-active" style="display:' + (isActive ? 'block' : 'none') + ';">' + activeRows + '</div>' +
       '<div id="jobsTab-done" style="display:' + (isActive ? 'none' : 'block') + ';">' + doneRows + '</div>' +
