@@ -3676,7 +3676,7 @@ async function openBacktestResultView(jobId) {
       window._lastBtCompareJobId = jobId;
     }
     const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleString('fa-IR') : '';
-    const modeLabel = _btMode === 'stock' ? ' سهم پایه' : ' آپشن';
+    const modeLabel = _btMode === 'stock' ? ' سهم پایه' : (_btMode === 'both' ? ' هر دو (موازی)' : ' آپشن');
     if (r.result && r.result.stages) {
       renderDualStageResult(r.result);
       return;
@@ -4211,7 +4211,7 @@ function openBacktestPanel(mode) {
               <label class="bt-opt-lbl" title="فقط pairهای تأییدشده توسط whitelist"><input type="checkbox" id="bt2_portfolio_filter" checked><span>فیلتر سیگنال</span><span class="bt-opt-info">?</span></label>
             </div> </div> </div> <div class="adv-accordion" id="btPanel_wf"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_wf_on" checked> <b>اعتبارسنجی زمانی</b> (اعتبارسنجی زمانی)
             </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="form-row"> <div class="field"><label>تعداد پنجره</label><input type="number" id="bt2_wf_windows" value="8" min="2" max="12"></div> <div class="field"><label>numTrials</label><input type="number" id="bt2_wf_numTrials" value="234" min="10" max="10000"></div> </div> </div> </div> <div class="adv-accordion open" id="btPanel_regime"> <div class="adv-header" onclick="this.parentNode.classList.toggle('open')"> <label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:6px;cursor:pointer;"> <input type="checkbox" id="bt2_regime_on" checked> <b>وضعیت بازار</b> (نمایشی + فیلتر bear)
-            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint">پس از اتمام، رژیم هر نماد در نتایج نمایش داده می‌شود. اگر «فقط کال» انتخاب شود، سیگنال‌های bear رد می‌شوند.</div> </div> </div> </div> </div> <div id="bt2_mode_row" style="display:flex;gap:16px;margin-top:12px;padding:10px 14px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);"><b style="font-size:12px;align-self:center;">حالت بک‌تست:</b><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="bt2_mode_stock" checked> سهم پایه</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="bt2_mode_option" checked> آپشن</label></div><button class="btn success" id="bt2RunBtn" onclick="runBacktestOrchestrator()" style="width:100%;margin-top:14px;"> اجرای بک‌تست کامل</button> <div id="bt2Progress" style="margin-top:12px;"></div> <div id="bt2ResultsArea" style="margin-top:14px;"></div> `);
+            </label> <span class="chev">▼</span> </div> <div class="adv-body"> <div class="hint">پس از اتمام، رژیم هر نماد در نتایج نمایش داده می‌شود. اگر «فقط کال» انتخاب شود، سیگنال‌های bear رد می‌شوند.</div> </div> </div> </div> </div> <div id="bt2_mode_row" style="display:flex;gap:16px;margin-top:12px;padding:10px 14px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);"><b style="font-size:12px;align-self:center;">حالت بک‌تست:</b><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="radio" name="bt2_mode_radio" value="stock"> فقط سهم پایه</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="radio" name="bt2_mode_radio" value="option"> فقط آپشن</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="radio" name="bt2_mode_radio" value="both" checked> هر دو (موازی — ۲ job)</label></div><button class="btn success" id="bt2RunBtn" onclick="runBacktestOrchestrator()" style="width:100%;margin-top:14px;"> اجرای بک‌تست کامل</button> <div id="bt2Progress" style="margin-top:12px;"></div> <div id="bt2ResultsArea" style="margin-top:14px;"></div> `);
 }
 async function bt2UseAllData(btn) {
   const orig = btn ? btn.textContent : null;
@@ -4256,9 +4256,9 @@ async function runBacktestOrchestrator() {
   const strategies = Array.from(document.querySelectorAll('.bt2-strat:checked')).map(c => ({ id: c.value }));
   if (!symbols.length) return showAlert('حداقل یک نماد', 'warn');
   if (!strategies.length) return showAlert('حداقل یک استراتژی', 'warn');
-  const useStock = document.getElementById('bt2_mode_stock') && document.getElementById('bt2_mode_stock').checked;
-  const useOption = document.getElementById('bt2_mode_option') && document.getElementById('bt2_mode_option').checked;
-  if (!useStock && !useOption) return showAlert('حداقل یک حالت انتخاب کنید', 'warn');
+  const _modeRadio = document.querySelector('input[name="bt2_mode_radio"]:checked');
+  if (!_modeRadio) return showAlert('حالت بک‌تست را انتخاب کنید', 'warn');
+  const _selectedMode = _modeRadio.value;
   const fromV = document.getElementById('bt2From').value;
   const toV = document.getElementById('bt2To').value;
   if (!fromV || !toV) return showAlert('تاریخ را انتخاب کن', 'warn');
@@ -4298,8 +4298,9 @@ async function runBacktestOrchestrator() {
   btn.textContent = '...';
 
   const modes = [];
-  if (useStock) modes.push('stock');
-  if (useOption) modes.push('option');
+  if (_selectedMode === 'stock') modes.push('stock');
+  else if (_selectedMode === 'option') modes.push('option');
+  else { modes.push('stock'); modes.push('option'); }
 
   _btJobs = modes.map(m => ({ mode: m, jobId: null, status: 'QUEUED', result: null, error: null }));
 
@@ -4555,7 +4556,7 @@ function renderBacktestResults(result, targetId) {
     return;
   }
   const mode = result.mode || 'option';
-  const modeLabel = mode === 'stock' ? 'سهم پایه' : 'آپشن';
+  const modeLabel = mode === 'stock' ? 'سهم پایه' : (mode === 'both' ? 'هر دو (سهم + آپشن)' : 'آپشن');
   const statBox = (l, v, cls) => '<div class="stat ' + (cls||'') + '"><small>' + l + '</small><b>' + v + '</b></div>';
   const validCount = details.filter(d => (d.stockStats && d.stockStats.count) || (d.optionStats && d.optionStats.count)).length;
 
@@ -4563,9 +4564,9 @@ function renderBacktestResults(result, targetId) {
   let summaryHtml = '';
   summaryHtml += '<div class="hint" style="padding:10px 14px;background:var(--accent-subtle);border-radius:var(--r-md);margin-bottom:12px;line-height:1.9;">';
   summaryHtml += '<b>حالت بک‌تست:</b> ' + modeLabel;
-  summaryHtml += (mode === 'option')
-    ? ' — تمام آمار زیر مربوط به <b>معاملات آپشن کال</b> است. معاملات سهم پایه فقط برای تولید سیگنال ورود/خروج استفاده شده.'
-    : ' — تمام آمار زیر مربوط به <b>معاملات سهم پایه</b> است (بدون آپشن).';
+  if (mode === 'option') summaryHtml += ' — تمام آمار زیر مربوط به <b>معاملات آپشن کال</b> است. معاملات سهم پایه فقط برای تولید سیگنال ورود/خروج استفاده شده.';
+  else if (mode === 'stock') summaryHtml += ' — تمام آمار زیر مربوط به <b>معاملات سهم پایه</b> است (بدون آپشن).';
+  else summaryHtml += ' — این بک‌تست شامل <b>هر دو نوع معامله</b> است.';
   summaryHtml += '</div>';
   summaryHtml += '<div class="stats-grid">';
   summaryHtml += statBox('کل ترکیب', details.length);
