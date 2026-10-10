@@ -3565,6 +3565,8 @@ async function renderCollectorJobDetail(j) {
 }
 
 async function viewJobDetail(id) {
+  // 🆕 Clear modal stack to prevent old modals lingering behind
+  try { _modalStack.length = 0; } catch (_) {}
   // Detect collector job (UUID format) vs backend job (ObjectId)
   const _isCollectorId = /^[a-f0-9]{8}-[a-f0-9]{4}/i.test(id);
   if (_isCollectorId) {
@@ -3602,6 +3604,31 @@ async function viewJobDetail(id) {
     }
     if (job.type === 'pipeline' || job.type === 'dual-stage') {
       openBacktestResultView(id);
+      return;
+    }
+    if (job.type === 'sweep' && job.result && job.result.summary) {
+      // 🆕 Render sweep result like the live panel
+      const container = document.createElement('div');
+      container.id = 'sweepHistoryContainer';
+      // Open a modal with placeholder
+      openModal('جزئیات غنی‌سازی استراتژی', '<div id="sweepHistoryContainer" style="min-height:200px;"></div>');
+      // Give the DOM a tick to render, then inject
+      setTimeout(function() {
+        try {
+          // Temporarily swap the ID of an existing element so renderSweepResults targets it
+          var fakeRes = document.getElementById('swResults');
+          if (fakeRes) fakeRes.id = 'swResults_orig';
+          var newRes = document.createElement('div');
+          newRes.id = 'swResults';
+          document.getElementById('sweepHistoryContainer').appendChild(newRes);
+          renderSweepResults(job.result);
+          if (fakeRes) fakeRes.id = 'swResults';
+          newRes.id = 'swResults_history';
+        } catch (e) {
+          document.getElementById('sweepHistoryContainer').innerHTML =
+            '<div class="empty-note">خطا: ' + esc(e.message) + '</div>';
+        }
+      }, 80);
       return;
     }
     if (job.type === 'backtest' && job.result) {

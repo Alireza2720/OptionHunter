@@ -1,16 +1,34 @@
 # -*- coding: utf-8 -*-
 """Coverage / gaps report — نسخه بهینه با aggregation + cache."""
 import time
+from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 from .db import get_db, COL_CANDLES_BASE, COL_CANDLES_DAILY, COL_CANDLES_TF, COL_OPTION_HISTORY, COL_MONITORED
 
 # 🆕 cache داخلی
 _cov_cache = {'result': None, 'at': 0, 'symbols_key': None}
-# 10min TTL (was 3min) — frontend polls every 60s, so this reduces
-# full aggregations from ~20/hour to ~6/hour on the 1-core server.
-_COV_TTL = 600
+# 🆕 R17: 30min TTL (was 10min) — full aggregations are expensive.
+# Frontend gets stale data instantly + background refresh.
+_COV_TTL = 1800
+_COV_STALE_OK = 6 * 3600   # 6h — return stale on error/timeout
 
 
 def coverage_report(symbols=None):
+    """Public wrapper — returns stale cache on error/timeout."""
+    try:
+        return _coverage_report_inner(symbols)
+    except Exception as _e:
+        import time as _t
+        if _cov_cache['result'] is not None and (_t.time() - _cov_cache['at']) < _COV_STALE_OK:
+            try:
+                from .db import log
+                log('coverage_error_stale', str(_e)[:200])
+            except Exception:
+                pass
+            return _cov_cache['result']
+        raise
+
+
+def _coverage_report_inner(symbols=None):
     db = get_db()
     if not symbols:
         symbols = [s['symbol'] for s in db[COL_MONITORED].find({})]
@@ -27,15 +45,20 @@ def coverage_report(symbols=None):
 
     # 🆕 ۴ aggregation به جای ۱۸۲ کوئری
     # 1) candles_base
+    # 🆕 R17: add 2-year time filter to speed up (5.7M → ~2M records)
+    _since = _dt.now(_tz.utc) - _td(days=730)
     base_agg = list(db[COL_CANDLES_BASE].aggregate([
-        {'$match': {'source': {'$in': ['tsetmc_intraday', 'algotik_intraday']}}},
+        {'$match': {
+            'source': {'$in': ['tsetmc_intraday', 'algotik_intraday']},
+            'time': {'$gte': _since}
+        }},
         {'$group': {
             '_id': '$symbol',
             'count': {'$sum': 1},
             'from': {'$min': '$time'},
             'to': {'$max': '$time'},
         }}
-    ]))
+    ], maxTimeMS=15000))
     base_map = {d['_id']: d for d in base_agg}
 
     # 2) candles_daily
