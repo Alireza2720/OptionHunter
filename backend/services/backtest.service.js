@@ -100,7 +100,7 @@ async function listCompareDetails(jobId, opts = {}) {
 async function listJobs(limit = 50, onlyActive = true) {
     const q = onlyActive ? { status: { $in: ACTIVE_JOB_STATUSES } } : {};
     return deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS)
-        .find(q).sort({ createdAt: -1 }).limit(limit).toArray();
+        .find(q, { projection: { result: 0, 'progress.chunks.items': 0 } }).sort({ createdAt: -1 }).limit(limit).toArray();
 }
 
 async function updateProgress(id, current, total, message) {

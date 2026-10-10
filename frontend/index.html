@@ -3223,7 +3223,7 @@ async function openJobsPanel() {
     clearInterval(_dsPollTimer);
     _dsPollTimer = null;
   }
-  openModal('Jobs', '<div style="text-align:center;padding:30px;">...</div>');
+  openModal('فعالیت‌ها', '<div style="text-align:center;padding:30px;">...</div>');
   await refreshJobsPanel();
   if (_jobsPanelTimer) clearInterval(_jobsPanelTimer);
   _jobsPanelTimer = setInterval(() => {
@@ -3236,40 +3236,95 @@ async function openJobsPanel() {
     }
     if (_jobsPanelUserActive) return;
     refreshJobsPanel().catch(() => {});
-  }, 5000);
+  }, 15000);
 }
 async function refreshJobsPanel() {
   try {
-    const r = await apiFetch(`${BACKEND_URL}/api/jobs?limit=50&all=1`, {}, 0);
-    const allJobs = r.jobs || [];
-    const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED','COMPUTING'].includes(j.status));
-    const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status));
-    const doneCount = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].includes(j.status)).length;
-    const renderJob = (j, isDone) => {
-      const typeMap = { backtest: 'بک‌تست', 'auto-config': 'تنظیم', 'backtest-compare': 'مقایسه', 'dual-stage': 'Pipeline ۲ مرحله‌ای', pipeline: 'Pipeline', ohdoctor: 'دکتر سیستم' };
-      const total = (j.progress && j.progress.total) || 0;
-      const current = (j.progress && j.progress.current) || 0;
-      const symCount = (j.payload && j.payload.symbols && j.payload.symbols.length) || 1;
-      const progressLabel = j.status === 'DONE' ? `${current}/${total}` : (j.progress ? j.progress.message : '');
-      const symbolInfo = symCount >1 ? ` · ${symCount} نماد` : '';
-      return `<div class="job-card ${j.cancelRequested ? 'danger' : ''}"> <div class="job-header"> <span class="job-type ${j.type}">${typeMap[j.type] || j.type}</span> <span class="job-status ${j.status}">${j.status}</span> <span class="job-msg" style="margin-right:auto;">${esc(progressLabel)}${symbolInfo}</span> <div class="job-actions" style="margin-right:auto; display:flex; gap:6px;"> ${!isDone ? `<button class="btn tiny danger" onclick="cancelAnyJob('${j._id}', '${j.type}')">لغو</button>` : ''}
-            ${isDone ? `<button class="btn tiny outline" onclick="viewJobDetail('${j._id}')">جزئیات</button>` : ''}
-            ${isDone ? `<button class="btn tiny outline" onclick="downloadJob('${j._id}')">JSON</button>` : ''}
-            ${isDone ? `<button class="btn tiny outline" onclick="deleteJob('${j._id}')">حذف</button>` : ''}
-          </div> </div> ${!isDone ? renderJobProgress(j) : ''}
-      </div>`;
+    const _typeMap = {
+      'backtest': 'بک‌تست تک‌استراتژی',
+      'backtest-compare': 'بک‌تست مقایسه‌ای',
+      'auto-config': 'تنظیم خودکار',
+      'dual-stage': 'پایپلاین ۲ مرحله‌ای',
+      'pipeline': 'پایپلاین کامل',
+      'ohdoctor': 'دکتر سیستم',
+      'sweep': 'غنی‌سازی استراتژی',
+      'full-backfill': 'Backfill کامل',
+      'backfill': 'Backfill',
     };
-    const activeRows = activeJobs.length ? activeJobs.map(j => renderJob(j, false)).join('') : '<div class="empty-note">فعال نیست</div>';
-    const doneRows = doneJobs.length ? doneJobs.map(j => renderJob(j, true)).join('') : '<div class="empty-note">تاریخچه خالی</div>';
+    const _statusMap = {
+      'QUEUED': 'در صف', 'RUNNING': 'در حال اجرا', 'PAUSED': 'متوقف',
+      'COMPUTING': 'در حال محاسبه', 'DONE': 'تکمیل', 'FAILED': 'خطا', 'CANCELLED': 'لغو شده'
+    };
+    const res = await Promise.all([
+      apiFetch(BACKEND_URL + '/api/jobs?limit=100&all=1', {}, 0).catch(() => ({ jobs: [] })),
+      apiFetch(BACKEND_URL + '/api/algotik/jobs?limit=50', {}, 0).catch(() => [])
+    ]);
+    const bkRes = res[0], colRes = res[1];
+    const backendJobs = (bkRes.jobs || []).map(j => Object.assign({}, j, { _source: 'backend' }));
+    const collectorJobsArr = Array.isArray(colRes) ? colRes : [];
+    const collectorJobs = collectorJobsArr.map(j => {
+      const phases = j.phases || {};
+      const phaseEntries = Object.entries(phases);
+      const curPhase = j.phase || '-';
+      const cur = phases[curPhase] || {};
+      const donePhases = phaseEntries.filter(e => e[1] && e[1].current >= e[1].total).length;
+      return {
+        _id: String(j._id),
+        type: j.type || 'full-backfill',
+        status: j.status,
+        createdAt: j.created_at,
+        startedAt: j.started_at,
+        finishedAt: j.finished_at,
+        _source: 'collector',
+        progress: {
+          current: cur.current || 0,
+          total: cur.total || 0,
+          message: curPhase + ' (' + donePhases + '/' + phaseEntries.length + ')' + (cur.current_symbol ? ' — ' + cur.current_symbol : '')
+        }
+      };
+    });
+    const allJobs = backendJobs.concat(collectorJobs);
+    allJobs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED','COMPUTING'].indexOf(j.status) >= 0);
+    const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].indexOf(j.status) >= 0);
+    const renderJob = function(j, isDone) {
+      const typeLabel = _typeMap[j.type] || j.type;
+      const statusLabel = _statusMap[j.status] || j.status;
+      const dateStr = j.createdAt ? new Date(j.createdAt).toLocaleString('fa-IR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      const symCount = (j.payload && j.payload.symbols && j.payload.symbols.length) || 0;
+      const symbolInfo = symCount > 1 ? ' · ' + symCount + ' نماد' : '';
+      const msg = (j.progress && j.progress.message) || '';
+      const cancelBtn = !isDone ? '<button class="btn tiny danger" onclick="cancelAnyJob(\'' + j._id + '\', \'' + j.type + '\', \'' + j._source + '\')">لغو</button>' : '';
+      const detailBtn = isDone ? '<button class="btn tiny outline" onclick="viewJobDetail(\'' + j._id + '\')">جزئیات</button>' : '';
+      const jsonBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="downloadJob(\'' + j._id + '\')">JSON</button>' : '';
+      const delBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="deleteJob(\'' + j._id + '\')">حذف</button>' : '';
+      return '<div class="job-card ' + (j.cancelRequested ? 'danger' : '') + '">' +
+        '<div class="job-header">' +
+          '<span class="job-type ' + j.type + '">' + typeLabel + '</span>' +
+          '<span class="job-status ' + j.status + '">' + statusLabel + '</span>' +
+          '<span class="job-msg" style="margin-right:auto;">' + esc(dateStr) + symbolInfo + '</span>' +
+          '<div class="job-actions" style="display:flex; gap:6px;">' + cancelBtn + detailBtn + jsonBtn + delBtn + '</div>' +
+        '</div>' +
+        (!isDone && msg ? '<div class="job-msg" style="margin-top:4px; color:var(--text-dim); font-size:11px;">' + esc(msg) + '</div>' : '') +
+      '</div>';
+    };
+    const activeRows = activeJobs.length ? activeJobs.map(j => renderJob(j, false)).join('') : '<div class="empty-note">فعالیتی در حال انجام نیست</div>';
+    const doneRows = doneJobs.length ? doneJobs.map(j => renderJob(j, true)).join('') : '<div class="empty-note">تاریخچه خالی است</div>';
     const isActive = _jobsPanelActiveTab === 'active';
-    const newHtml = `<div class="jobs-panel-container"> <div class="tabs" style="margin-bottom:14px;"> <button class="tab ${isActive ? 'active' : ''}" onclick="switchJobsTab('active', this)">فعال (${activeJobs.length})</button> <button class="tab ${!isActive ? 'active' : ''}" onclick="switchJobsTab('done', this)">تاریخچه (${doneJobs.length}/${doneCount})</button> </div> <div id="jobsTab-active" style="display:${isActive ? 'block' : 'none'};">${activeRows}</div> <div id="jobsTab-done" style="display:${isActive ? 'none' : 'block'};">${doneRows}</div> </div>`;
+    const newHtml = '<div class="jobs-panel-container">' +
+      '<div class="tabs" style="margin-bottom:14px;">' +
+        '<button class="tab ' + (isActive ? 'active' : '') + '" onclick="switchJobsTab(\'active\', this)">فعال</button>' +
+        '<button class="tab ' + (!isActive ? 'active' : '') + '" onclick="switchJobsTab(\'done\', this)">تاریخچه</button>' +
+      '</div>' +
+      '<div id="jobsTab-active" style="display:' + (isActive ? 'block' : 'none') + ';">' + activeRows + '</div>' +
+      '<div id="jobsTab-done" style="display:' + (isActive ? 'none' : 'block') + ';">' + doneRows + '</div>' +
+    '</div>';
     const container = document.querySelector('.jobs-panel-container');
-    if (container) {
-      container.outerHTML = newHtml;
-    } else {
-      openModal('Jobs', newHtml);
-    }
-  } catch (e) { openModal('Jobs', `<div class="empty-note">${esc(e.message)}</div>`); }
+    if (container) container.outerHTML = newHtml;
+    else openModal('فعالیت‌ها', newHtml);
+  } catch (e) {
+    openModal('فعالیت‌ها', '<div class="empty-note">' + esc(e.message) + '</div>');
+  }
 }
 function switchJobsTab(w, btn) {
   _jobsPanelActiveTab = w;
@@ -3295,9 +3350,18 @@ async function cancelDoctorJobById(jobId) {
     }, 500);
   } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
 }
-function cancelAnyJob(id, type) {
+function cancelAnyJob(id, type, source) {
+  if (source === 'collector') return cancelCollectorJob(id);
   if (type === 'ohdoctor') return cancelDoctorJobById(id);
   return cancelActiveJob(id);
+}
+async function cancelCollectorJob(id) {
+  if (!confirm('لغو شود؟')) return;
+  try {
+    await apiFetch(BACKEND_URL + '/api/algotik/jobs/' + id + '/cancel', { method: 'POST' });
+    showAlert('درخواست لغو ارسال شد', 'info', 4000);
+    setTimeout(function() { refreshJobsPanel(); }, 1000);
+  } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
 }
 async function deleteJob(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, { method: 'DELETE' }); refreshJobsPanel(); } catch (e) { showAlert('خطا: ' + e.message); } }
 function downloadJob(id) {
@@ -3342,7 +3406,58 @@ function exportDsTableToCSV(tabName) {
   if (!table) return showAlert('داده‌ای برای export نیست', 'warn');
   tableToCSV(table, `dual-stage-${tabName}-${Date.now()}.csv`);
 }
+async function renderCollectorJobDetail(j) {
+  const phases = j.phases || {};
+  const labels = { stock_intraday: 'کندل 1m', stock_daily: 'روزانه سهام', option_history: 'آپشن + IV', option_snapshot: 'snapshot', option_migration: 'migration', aggregate: 'aggregation', enrichment: 'غنی‌سازی' };
+  const statusLabel = { 'QUEUED': 'در صف', 'RUNNING': 'در حال اجرا', 'DONE': 'تکمیل', 'FAILED': 'خطا', 'CANCELLED': 'لغو شده' }[j.status] || j.status;
+  const startStr = j.started_at ? new Date(j.started_at).toLocaleString('fa-IR') : '-';
+  const finStr = j.finished_at ? new Date(j.finished_at).toLocaleString('fa-IR') : '-';
+  let html = '<div class="hint" style="margin-bottom:10px;">نوع: <b>Backfill</b> · وضعیت: <b>' + statusLabel + '</b> · شروع: ' + startStr + ' · پایان: ' + finStr + '</div>';
+  html += '<h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">فازها</h4>';
+  const keys = Object.keys(phases);
+  if (!keys.length) {
+    html += '<div class="empty-note">فازی ثبت نشده</div>';
+  } else {
+    html += '<div class="table-responsive" style="max-height:400px;overflow-y:auto;"><table class="data-table"><thead><tr><th>فاز</th><th>پیشرفت</th><th>نماد فعلی</th><th>جزئیات</th></tr></thead><tbody>';
+    for (const k of keys) {
+      const ph = phases[k] || {};
+      const cur = ph.current || 0, tot = ph.total || 0;
+      const pct = tot > 0 ? Math.round(cur / tot * 100) : 0;
+      const stats = ph.stats ? Object.entries(ph.stats).map(e => e[0] + '=' + e[1]).join(', ') : '';
+      const phLabel = labels[k] || k;
+      const phStatus = ph.status || (cur >= tot ? 'DONE' : 'RUNNING');
+      html += '<tr><td><b>' + esc(phLabel) + '</b> <span class="badge ' + (phStatus === 'DONE' ? 'long' : phStatus === 'FAILED' ? 'short' : 'warn') + '">' + phStatus + '</span></td>';
+      html += '<td>' + cur + ' / ' + tot + ' (' + pct + '%)</td>';
+      html += '<td>' + esc(ph.current_symbol || '—') + '</td>';
+      html += '<td style="font-size:10.5px;">' + esc(stats) + '</td></tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+  const errs = j.errors || [];
+  if (errs.length) {
+    html += '<h4 style="font-size:13px;color:var(--danger);margin:14px 0 6px;">خطاها (' + errs.length + ')</h4>';
+    html += '<div style="max-height:200px;overflow-y:auto;font-size:11px;background:var(--bg-elev-2);padding:8px;border-radius:var(--r-sm);direction:ltr;text-align:left;">';
+    errs.forEach(e => { html += '<div>' + esc(e.msg || e) + '</div>'; });
+    html += '</div>';
+  }
+  openModal('جزئیات Backfill', html, true);
+}
+
 async function viewJobDetail(id) {
+  // Detect collector job (UUID format) vs backend job (ObjectId)
+  const _isCollectorId = /^[a-f0-9]{8}-[a-f0-9]{4}/i.test(id);
+  if (_isCollectorId) {
+    showLoader('در حال بارگذاری...');
+    try {
+      const job = await apiFetch(`${BACKEND_URL}/api/algotik/jobs/${id}`, {}, 0);
+      hideLoader();
+      renderCollectorJobDetail(job);
+    } catch (e) {
+      hideLoader();
+      showAlert('خطا: ' + e.message, 'error');
+    }
+    return;
+  }
   showLoader('در حال بارگذاری...');
   try {
     const job = await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, {}, 0);
