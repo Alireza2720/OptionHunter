@@ -2195,7 +2195,14 @@ async function updateTickerStatus() {
 async function algotikShowLogs() { openModal('لاگ Collector', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>'); try { const r = await apiFetch(`${BACKEND_URL}/api/logs?limit=100`, {}, 0); const logs = r.logs || []; const rows = logs.length ? logs.map(l => { const cls = (l.level === 'error' || (l.msg||'').includes('err')) ? 'err' : ((l.msg||'').includes('ok') || (l.msg||'').includes('OK')) ? 'ok' : 'info'; const time = new Date(l.at).toLocaleString('fa-IR', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'}); return `<div class="algotik-log-row ${cls}">${time} - ${esc(l.msg || '')}</div>`; }).join('') : '<div class="empty-note">لاگی نیست</div>'; openModal(`لاگ (${logs.length})`, `<div class="algotik-log" style="max-height:400px; overflow-y:auto; background:var(--bg-elev-3); border-radius:var(--r-md); padding:10px; font-family:var(--font-mono); font-size:11px; direction:ltr; text-align:left;">${rows}</div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function loadDataPipeline() {
   try {
-    const r = await apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 0);
+    const r = await Promise.race([
+      apiFetch(`${BACKEND_URL}/api/algotik/coverage`, {}, 0),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))
+    ]).catch((e) => {
+      // Fallback: return empty structure so UI still renders
+      console.warn('coverage fetch timeout:', e.message);
+      return { symbols: [] };
+    });
     const syms = r.symbols || [];
     window._coverageData = syms;
     let totalBase = 0, totalDaily = 0, totalOpt = 0, totalIV = 0, totalTicks = 0;
@@ -2233,7 +2240,13 @@ async function loadDataPipeline() {
 async function checkQualityBanner() {
   if (isMarketOpenNow()) return;
   try {
-    const q = await apiFetch(`${BACKEND_URL}/api/algotik/quality`, {}, 0);
+    const q = await Promise.race([
+      apiFetch(`${BACKEND_URL}/api/algotik/quality`, {}, 0),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))
+    ]).catch((e) => {
+      console.warn('quality fetch timeout:', e.message);
+      return { symbols: [], summary: { total: 0, good: 0, warn: 0, bad: 0 } };
+    });
     const banner = document.getElementById('autoFixBanner');
     const cntEl = document.getElementById('autoFixCount');
     if (!banner || !cntEl) return;
