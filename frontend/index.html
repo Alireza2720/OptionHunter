@@ -3303,6 +3303,7 @@ async function refreshJobsPanel() {
       'sweep': 'غنی‌سازی استراتژی',
       'full-backfill': 'Backfill کامل',
       'backfill': 'Backfill',
+      'enrichment': 'غنی‌سازی آپشن',
     };
     const _statusMap = {
       'QUEUED': 'در صف', 'RUNNING': 'در حال اجرا', 'PAUSED': 'متوقف',
@@ -3321,6 +3322,11 @@ async function refreshJobsPanel() {
       const curPhase = j.phase || '-';
       const cur = phases[curPhase] || {};
       const donePhases = phaseEntries.filter(e => e[1] && e[1].current >= e[1].total).length;
+      let _msg = curPhase + ' (' + donePhases + '/' + phaseEntries.length + ')' + (cur.current_symbol ? ' — ' + cur.current_symbol : '');
+      // 🆕 Enrichment jobs have no phases; use stats.msg or fallback
+      if (j.type === 'enrichment') {
+        _msg = (cur.stats && cur.stats.msg) || (cur.current_symbol ? 'غنی‌سازی: ' + cur.current_symbol : 'در حال غنی‌سازی...');
+      }
       return {
         _id: String(j._id),
         type: j.type || 'full-backfill',
@@ -3332,7 +3338,7 @@ async function refreshJobsPanel() {
         progress: {
           current: cur.current || 0,
           total: cur.total || 0,
-          message: curPhase + ' (' + donePhases + '/' + phaseEntries.length + ')' + (cur.current_symbol ? ' — ' + cur.current_symbol : '')
+          message: _msg
         }
       };
     });
@@ -3348,8 +3354,10 @@ async function refreshJobsPanel() {
       const symbolInfo = symCount > 1 ? ' · ' + symCount + ' نماد' : '';
       const msg = (j.progress && j.progress.message) || '';
       const cancelBtn = !isDone ? '<button class="btn tiny danger" onclick="cancelAnyJob(\'' + j._id + '\', \'' + j.type + '\', \'' + j._source + '\')">لغو</button>' : '';
-      const pauseBtn = (!isDone && j.status === 'RUNNING') ? '<button class="btn tiny warn" onclick="pauseAnyJob(\'' + j._id + '\', \'' + j._source + '\')" title="' + (j._source === 'collector' ? 'توقف موقت (قابل ادامه)' : 'لغو نرم') + '">توقف موقت</button>' : '';
-      const resumeBtn = (!isDone && j.status === 'PAUSED') ? '<button class="btn tiny success" onclick="resumeAnyJob(\'' + j._id + '\', \'' + j._source + '\')">ادامه</button>' : '';
+      const pauseOrResumeBtn = (!isDone && j._source === 'collector') ?
+        (j.status === 'RUNNING' ? '<button class="btn tiny warn" onclick="pauseAnyJob(\'' + j._id + '\', \'collector\')">توقف موقت</button>' :
+         j.status === 'PAUSED'  ? '<button class="btn tiny success" onclick="resumeAnyJob(\'' + j._id + '\', \'collector\')">ادامه</button>' : '')
+        : '';
       const detailBtn = isDone ? '<button class="btn tiny outline" onclick="viewJobDetail(\'' + j._id + '\')">جزئیات</button>' : '';
       const jsonBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="downloadJob(\'' + j._id + '\')">JSON</button>' : '';
       const delBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="deleteJob(\'' + j._id + '\')">حذف</button>' : '';
@@ -3358,7 +3366,7 @@ async function refreshJobsPanel() {
           '<span class="job-type ' + j.type + '">' + typeLabel + '</span>' +
           '<span class="job-status ' + j.status + '">' + statusLabel + '</span>' +
           '<span class="job-msg" style="margin-right:auto;">' + esc(dateStr) + symbolInfo + '</span>' +
-          '<div class="job-actions" style="display:flex; gap:6px;">' + pauseBtn + resumeBtn + cancelBtn + detailBtn + jsonBtn + delBtn + '</div>' +
+          '<div class="job-actions" style="display:flex; gap:6px;">' + (typeof pauseOrResumeBtn !== 'undefined' ? pauseOrResumeBtn : '') + cancelBtn + detailBtn + jsonBtn + delBtn + '</div>' +
         '</div>' +
         (!isDone && msg ? '<div class="job-msg" style="margin-top:4px; color:var(--text-dim); font-size:11px;">' + esc(msg) + '</div>' : '') +
       '</div>';

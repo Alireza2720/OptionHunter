@@ -1018,8 +1018,22 @@ class EnrichIn(BaseModel):
 
 _enrich_lock = threading.Lock()
 
-def _run_enrichment(symbol, build_model_first):
-    """Run in background thread."""
+def _run_enrichment(symbol, build_model_first, job_id=None):
+    """Run in background thread. Optionally updates job progress."""
+    def _progress(msg, extra=None):
+        try:
+            log('enrich', msg)
+            if job_id:
+                stats = {'msg': msg[:200]}
+                if extra:
+                    stats.update(extra)
+                job_mod.set_phase(job_id, 'enrichment', {
+                    'current': 0, 'total': 1, 'status': 'RUNNING',
+                    'stats': stats,
+                })
+        except Exception:
+            pass
+
     try:
         import sys
         sys.path.insert(0, os.path.dirname(__file__))
@@ -1028,31 +1042,61 @@ def _run_enrichment(symbol, build_model_first):
 
         db = get_db()
         if build_model_first and not load_spread_model(db):
-            log('enrich_start', 'building spread model first')
+            _progress('building spread model first')
             build_spread_model(db, log_fn=lambda m: log('enrich_model', m))
 
-        log('enrich_start', f'symbol={symbol or "all"}')
-        stats = enrich_collection(db, symbol=symbol, log_fn=lambda m: log('enrich', m))
+        _progress('enrichment starting: symbol=' + (symbol or 'all'))
+        stats = enrich_collection(db, symbol=symbol, log_fn=lambda m: (log('enrich', m), _progress(m) if False else None))
+        _progress('enrichment complete', {
+            'scanned': stats.get('scanned', 0),
+            'enriched': stats.get('enriched', 0),
+            'rebuilt': stats.get('rebuilt', 0),
+        })
         log('enrich_done', f'stats={stats}')
     except Exception as e:
         import traceback
         log('enrich_error', str(e)[:300])
         log('enrich_trace', traceback.format_exc()[:1000])
+        raise
 
 
 @app.post('/enrich-now')
 def enrich_now(p: EnrichIn):
-    """Manually trigger enrichment (async)."""
+    """Manually trigger enrichment as a proper job (visible in activities)."""
     if _enrich_lock.locked():
         return {'ok': False, 'error': 'enrichment already running'}
 
+    # 🆕 Create a proper job so it appears in Activities
+    job = job_mod.create_job('enrichment', {
+        'symbol': p.symbol or None,
+        'buildModelFirst': p.build_model_first,
+    })
+    job_id = job['_id']
+
     def _wrapper():
         with _enrich_lock:
-            _run_enrichment(p.symbol, p.build_model_first)
+            try:
+                job_mod.update_job(job_id, status='RUNNING',
+                                    started_at=datetime.now(timezone.utc))
+                job_mod.set_phase(job_id, 'enrichment', {
+                    'current': 0, 'total': 1, 'status': 'RUNNING',
+                    'stats': {'msg': 'starting...'},
+                })
+                _run_enrichment(p.symbol, p.build_model_first, job_id=job_id)
+                job_mod.set_phase(job_id, 'enrichment', {
+                    'current': 1, 'total': 1, 'status': 'DONE',
+                    'stats': {'msg': 'complete'},
+                })
+                job_mod.finish_job(job_id, 'DONE', {'done': True})
+            except Exception as e:
+                import traceback
+                job_mod.append_error(job_id, str(e))
+                job_mod.append_error(job_id, traceback.format_exc()[:500])
+                job_mod.finish_job(job_id, 'FAILED', {'error': str(e)})
 
     t = threading.Thread(target=_wrapper, daemon=True)
     t.start()
-    return {'ok': True, 'status': 'started', 'symbol': p.symbol or 'all'}
+    return {'ok': True, 'status': 'started', 'symbol': p.symbol or 'all', 'jobId': job_id}
 
 
 @app.get('/enrich-status')
