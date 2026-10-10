@@ -94,36 +94,25 @@ def resolve_insCode(symbol, logger=None):
     # 4) TSETMC search
     try:
         client = get_client()
-        # Try multiple search variants (some Persian chars may normalize differently)
-        _search_variants = list({sym_norm, symbol, symbol.strip()})
-        # Extra variants: remove ZWNJ, replace ی/ي, ک/ك
-        try:
-            _alt = sym_norm.replace("‌", "").replace("ي", "ی").replace("ك", "ک")
-            if _alt not in _search_variants:
-                _search_variants.append(_alt)
-        except Exception:
-            pass
-
-        _found = None
-        for _variant in _search_variants:
-            if _found:
-                break
+        results = client.search(sym_norm)
+        # R14: fallback to alternative search if primary returns nothing
+        if not results:
             try:
-                results = client.search(_variant)
+                _alt = sym_norm.replace("‌", "").replace("ي", "ی").replace("ك", "ک")
+                if _alt != sym_norm:
+                    results = client.search(_alt)
             except TSETMCError:
-                continue
-            for r in results:
-                _r_name = normalize_fa(r.get("lVal18AFC", ""))
-                _r_name2 = normalize_fa(r.get("lVal30", ""))
-                if _r_name == sym_norm or _r_name == normalize_fa(symbol) or _r_name2 == sym_norm:
-                    code = r.get("insCode")
-                    if code:
-                        _found = code
-                        break
-            if _found:
-                break
-        if _found:
-            code = str(_found)
+                results = []
+        for r in results:
+            # Match by ticker (lVal18AFC) OR full name (lVal30)
+            _name1 = normalize_fa(r.get("lVal18AFC", ""))
+            _name2 = normalize_fa(r.get("lVal30", ""))
+            if _name1 == sym_norm or _name2 == sym_norm:
+                code = r.get("insCode")
+                if not code:
+                    continue
+                code = str(code)
+                _insCode_cache[sym_norm] = code
 
                 # Persist to monitored_symbols (primary)
                 if db is not None:

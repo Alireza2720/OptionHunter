@@ -1599,7 +1599,7 @@ function openModal(title, html, pushStack) {
       title: document.getElementById('modalTitle').textContent,
       html: document.getElementById('modalBody').innerHTML
     });
-  } else if (!pushStack) {
+  } else {
     _modalStack.length = 0;
   }
   document.getElementById('modalTitle').textContent = title;
@@ -1817,6 +1817,7 @@ async function loadMonitoredSymbols() {
     try { await loadRegimeMap(); } catch (e) {}
     renderMonitoredSymbols();
     renderConfigSymbolOptions();
+    try { if (typeof renderBackfillSymbols === 'function') renderBackfillSymbols(); } catch (_) {}
   } catch (e) { showAlert('خطا: ' + e.message); }
 }
 async function loadRegimeMap() {
@@ -3347,8 +3348,8 @@ async function refreshJobsPanel() {
       const symbolInfo = symCount > 1 ? ' · ' + symCount + ' نماد' : '';
       const msg = (j.progress && j.progress.message) || '';
       const cancelBtn = !isDone ? '<button class="btn tiny danger" onclick="cancelAnyJob(\'' + j._id + '\', \'' + j.type + '\', \'' + j._source + '\')">لغو</button>' : '';
-      const pauseBtn = (!isDone && j._source === 'collector' && j.status === 'RUNNING') ? '<button class="btn tiny warn" onclick="pauseAnyJob(\'' + j._id + '\')">توقف موقت</button>' : '';
-      const resumeBtn = (!isDone && j._source === 'collector' && j.status === 'PAUSED') ? '<button class="btn tiny success" onclick="resumeAnyJob(\'' + j._id + '\')">ادامه</button>' : '';
+      const pauseBtn = (!isDone && j.status === 'RUNNING') ? '<button class="btn tiny warn" onclick="pauseAnyJob(\'' + j._id + '\', \'' + j._source + '\')" title="' + (j._source === 'collector' ? 'توقف موقت (قابل ادامه)' : 'لغو نرم') + '">توقف موقت</button>' : '';
+      const resumeBtn = (!isDone && j.status === 'PAUSED') ? '<button class="btn tiny success" onclick="resumeAnyJob(\'' + j._id + '\', \'' + j._source + '\')">ادامه</button>' : '';
       const detailBtn = isDone ? '<button class="btn tiny outline" onclick="viewJobDetail(\'' + j._id + '\')">جزئیات</button>' : '';
       const jsonBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="downloadJob(\'' + j._id + '\')">JSON</button>' : '';
       const delBtn = isDone && j._source === 'backend' ? '<button class="btn tiny outline" onclick="deleteJob(\'' + j._id + '\')">حذف</button>' : '';
@@ -3409,7 +3410,30 @@ function cancelAnyJob(id, type, source) {
   if (type === 'ohdoctor') return cancelDoctorJobById(id);
   return cancelActiveJob(id);
 }
-async function pauseAnyJob(id) {
+async function pauseAnyJob(id, source) {
+  if (source === 'collector') {
+    try {
+      await apiFetch(BACKEND_URL + '/api/algotik/jobs/' + id + '/pause', { method: 'POST' }, 0);
+      showAlert('درخواست توقف موقت ارسال شد', 'info', 4000);
+      setTimeout(function() { refreshJobsPanel(); }, 800);
+    } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+  } else {
+    showAlert('این نوع فعالیت قابل توقف/ادامه نیست — از دکمه لغو استفاده کن', 'warn', 5000);
+  }
+}
+async function resumeAnyJob(id, source) {
+  if (source === 'collector') {
+    try {
+      await apiFetch(BACKEND_URL + '/api/algotik/jobs/' + id + '/resume', { method: 'POST' }, 0);
+      showAlert('درخواست ادامه ارسال شد', 'success', 4000);
+      setTimeout(function() { refreshJobsPanel(); }, 800);
+    } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
+  } else {
+    showAlert('این نوع فعالیت قابل ادامه نیست', 'warn', 4000);
+  }
+}
+
+async function _unused_pauseAnyJob_old(id) {
   try {
     await apiFetch(BACKEND_URL + '/api/algotik/jobs/' + id + '/pause', { method: 'POST' }, 0);
     showAlert('درخواست توقف ارسال شد', 'info', 4000);
@@ -5826,7 +5850,7 @@ async function runDoctor() {
   };
   const secTxt = (document.getElementById('docSections').value || '').trim();
   if (secTxt) {
-    body.sections = secTxt.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1 && n <= 24);
+    body.sections = secTxt.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1 && n <= 99);
   }
   try {
     const r = await apiFetch(`${BACKEND_URL}/api/doctor/run`, {
