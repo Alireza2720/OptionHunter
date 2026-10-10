@@ -134,25 +134,29 @@ function register(app, deps) {
                         const ageMs = Date.now() - new Date(doc.computedAt).getTime();
                         // 2h freshness
                         if (ageMs < 2 * 3600 * 1000) {
-                            // enrich with local DB daily/option dates (fast, indexed)
-                            const norm2 = (x) => String(x || '').replace(/\u200c|\u200e|\u200f|\s/g, '').replace(/ي/g, 'ی').replace(/ك/g, 'ک');
+                            // 🆕 R20: cache enrich aggregations for 5min
                             try {
                                 const { COLLECTIONS } = require('../../config/constants');
+                                const aggOpts = { maxTimeMS: 20000 };
                                 const [dailyAgg, optionAgg] = await Promise.all([
-                                    db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
-                                        { $group: { _id: '$symbol', to: { $max: '$time' }, from: { $min: '$time' } } }
-                                    ], { maxTimeMS: 5000 }).toArray(),
-                                    db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
-                                        { $match: { bid: { $gt: 0 }, ask: { $gt: 0 } } },
-                                        { $group: { _id: '$underlying', to: { $max: '$time' }, from: { $min: '$time' } } }
-                                    ], { maxTimeMS: 8000 }).toArray()
+                                    deps.dataService.cachedSWR('cov_enrich_daily', 5 * 60 * 1000, () =>
+                                        db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
+                                            { $group: { _id: '$symbol', to: { $max: '$time' }, from: { $min: '$time' } } }
+                                        ], aggOpts).toArray()
+                                    ),
+                                    deps.dataService.cachedSWR('cov_enrich_option', 5 * 60 * 1000, () =>
+                                        db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
+                                            { $match: { bid: { $gt: 0 }, ask: { $gt: 0 } } },
+                                            { $group: { _id: '$underlying', to: { $max: '$time' }, from: { $min: '$time' } } }
+                                        ], aggOpts).toArray()
+                                    )
                                 ]);
                                 const dailyMap = {}, dailyFromMap = {}, optMap = {}, optFromMap = {};
                                 for (const d of dailyAgg) { dailyMap[d._id] = d.to; dailyFromMap[d._id] = d.from; }
                                 for (const d of optionAgg) { optMap[d._id] = d.to; optFromMap[d._id] = d.from; }
+                                const _src = Array.isArray(doc.result) ? doc.result : (doc.result.symbols || []);
                                 const enriched = {
-                                    ...doc.result,
-                                    symbols: (doc.result.symbols || []).map(s => ({
+                                    symbols: _src.map(s => ({
                                         ...s,
                                         stock_daily: {
                                             ...(s.stock_daily || {}),
