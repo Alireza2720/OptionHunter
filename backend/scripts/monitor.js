@@ -2326,6 +2326,39 @@ async function s35_mechanisms() {
 // ============================================================
 // S34 — FINAL REPORT (renamed from 24)
 // ============================================================
+async function s36_optionDebug() {
+    section(36, 'OPTION DATA PER SYMBOL (DEEP)');
+    if (CONF.skipHeavy) return info('skip-heavy');
+    try {
+        const backendUrl = 'http://127.0.0.1:3000';
+        const symResp = await httpGet(backendUrl + '/api/monitored-symbols');
+        const syms = (symResp.ok && Array.isArray(symResp.json)) ? symResp.json : [];
+        if (!syms.length) return info('no monitored symbols');
+        w('');
+        w('  ' + 'symbol'.padEnd(15) + 'total'.padEnd(12) + 'bid/ask'.padEnd(12) + 'with_iv'.padEnd(12) + 'from'.padEnd(14) + 'to'.padEnd(14) + 'sources');
+        w('  ' + '-'.repeat(90));
+        let issues = 0;
+        for (const s of syms) {
+            try {
+                const r = await httpGet(backendUrl + '/api/algotik/explain/' + encodeURIComponent(s.symbol), { timeout: 15000 });
+                if (!r.ok || !r.json) continue;
+                const oh = (r.json.sources || {}).option_history || { count: 0 };
+                const from = oh.from ? oh.from.slice(0, 10) : '-';
+                const to = oh.to ? oh.to.slice(0, 10) : '-';
+                const sources = (oh.sources || []).join(',') || '-';
+                w('  ' + s.symbol.padEnd(15) + String(oh.count || 0).padEnd(12) + String(oh.with_bid_ask || 0).padEnd(12) + String(oh.with_iv || 0).padEnd(12) + from.padEnd(14) + to.padEnd(14) + sources);
+                if ((oh.count || 0) > 0 && (oh.with_bid_ask || 0) === 0) issues++;
+                if ((oh.count || 0) === 0) issues++;
+            } catch (_) {}
+        }
+        w('');
+        if (issues > 0) warn(issues + ' symbols with missing or empty option data');
+        else ok('all symbols have option data');
+    } catch (e) {
+        fail('S36 crashed: ' + e.message);
+    }
+}
+
 async function s34_report() {
     section(34, 'FINAL REPORT');
 
@@ -2542,6 +2575,7 @@ async function runDoctor() {
     await run(32, 'NETWORK', s32_network, true);
     await run(33, 'POSITIONS', s33_positions, true);
     await run(35, 'MECHANISMS', s35_mechanisms, true);
+    await run(36, 'OPTION-DEBUG', s36_optionDebug, true);
     await run(34, 'REPORT', s34_report, true);
     stopSafetyWatchdog();
 

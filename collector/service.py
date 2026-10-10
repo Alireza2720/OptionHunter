@@ -335,6 +335,13 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
             started_at=datetime.now(timezone.utc)
         )
         symbols = payload.get('symbols') or sym_mod.get_enabled_names()
+        # 🆕 DEBUG: log received flags
+        _flags_log = {k: payload.get(k) for k in ['includeStockIntraday','includeStockDaily','includeOptionHistory','includeOptionSnapshot','includeOptionMigration','includeAggregate']}
+        print(f'📋 Backfill flags: {_flags_log}')
+        try:
+            job_mod.update_job(job_id, debugFlags=_flags_log)
+        except Exception:
+            pass
 
         # 🆕 دیباگ دقیق: بایت‌های واقعی ورودی
         raw_from = payload.get('dateFrom')
@@ -364,7 +371,10 @@ def _run_full_backfill_locked(job_id: str, payload: dict):
             ('aggregate',        'includeAggregate'),
         ]
         for ph_name, flag in _PHASE_FLAGS:
-            enabled = bool(payload.get(flag))
+            _v = payload.get(flag)
+            if _v is None:
+                _v = True  # defensive: missing flag = enabled
+            enabled = bool(_v)
             job_mod.set_phase(job_id, ph_name, {
                 'current': 0,
                 'total': len(symbols) if enabled else 0,
@@ -653,6 +663,25 @@ def start_full_backfill(p: FullBackfillIn):
         'status': 'QUEUED',
         'queued_behind_lock': _backfill_lock.locked(),
     }
+
+
+@app.get('/jobs/{job_id}/raw')
+def get_job_raw(job_id: str):
+    """Raw job doc including payload — for debugging."""
+    j = job_mod.get_job(job_id)
+    if not j:
+        raise HTTPException(404, 'job not found')
+    j['_id'] = str(j['_id'])
+    # Make datetime JSON-safe
+    def _ser(v):
+        if isinstance(v, datetime):
+            return v.isoformat()
+        if isinstance(v, dict):
+            return {k: _ser(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [_ser(x) for x in v]
+        return v
+    return _ser(j)
 
 
 @app.get('/jobs/{job_id}')
@@ -1028,6 +1057,61 @@ def data_range():
         'to': to_dt.strftime('%Y-%m-%d'),
         'days': (to_dt - from_dt).days,
     }
+
+
+@app.get('/explain/{symbol}')
+def explain_symbol(symbol: str):
+    """Detailed option data breakdown for one symbol."""
+    db = get_db()
+    from pipeline.db import COL_OPTION_HISTORY, COL_CANDLES_DAILY
+    out = {'symbol': symbol, 'sources': {}}
+    # option_history
+    oh = list(db[COL_OPTION_HISTORY].aggregate([
+        {'$match': {'underlying': symbol}},
+        {'$group': {
+            '_id': None,
+            'count': {'$sum': 1},
+            'with_bid_ask': {'$sum': {'$cond': [{'$and': [{'$gt': ['$bid', 0]}, {'$gt': ['$ask', 0]}]}, 1, 0]}},
+            'with_iv': {'$sum': {'$cond': [{'$gt': ['$ivApi', 0]}, 1, 0]}},
+            'min_time': {'$min': '$time'},
+            'max_time': {'$max': '$time'},
+            'sources': {'$addToSet': '$source'},
+            'qualities': {'$addToSet': '$dataQuality'},
+        }},
+    ]))
+    if oh:
+        r = oh[0]
+        out['sources']['option_history'] = {
+            'count': r.get('count', 0),
+            'with_bid_ask': r.get('with_bid_ask', 0),
+            'with_iv': r.get('with_iv', 0),
+            'from': r.get('min_time').isoformat() if r.get('min_time') else None,
+            'to': r.get('max_time').isoformat() if r.get('max_time') else None,
+            'sources': r.get('sources', []),
+            'qualities': [q for q in (r.get('qualities') or []) if q],
+        }
+    else:
+        out['sources']['option_history'] = {'count': 0}
+    # option_daily_algotik (legacy)
+    try:
+        legacy = db['option_daily_algotik'].count_documents({'underlying': symbol})
+        out['sources']['option_daily_algotik'] = {'count': legacy}
+    except Exception:
+        out['sources']['option_daily_algotik'] = {'count': 0}
+    # option_history_synth
+    try:
+        synth = db['option_history_synth'].count_documents({'underlying': symbol})
+        out['sources']['option_history_synth'] = {'count': synth}
+    except Exception:
+        out['sources']['option_history_synth'] = {'count': 0}
+    # contracts count
+    try:
+        contracts = db[COL_OPTION_HISTORY].distinct('symbol', {'underlying': symbol})
+        out['contracts_count'] = len(contracts)
+        out['sample_contracts'] = contracts[:5]
+    except Exception:
+        pass
+    return out
 
 
 @app.get('/data-range/{symbol}')

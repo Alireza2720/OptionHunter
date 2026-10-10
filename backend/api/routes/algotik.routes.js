@@ -59,6 +59,16 @@ function register(app, deps) {
         try { res.json(await algotik.getJob(req.params.id)); }
         catch (e) { next(e); }
     });
+    app.get('/api/algotik/jobs/:id/raw', async (req, res, next) => {
+        try {
+            const fetch = require('node-fetch');
+            const env = require('../../config/env').get();
+            const url = (env.ALGOTIK_URL || 'http://127.0.0.1:5000') + '/jobs/' + encodeURIComponent(req.params.id) + '/raw';
+            const r = await fetch(url, { timeout: 10000 });
+            const d = await r.json();
+            res.json(d);
+        } catch (e) { next(e); }
+    });
     app.post('/api/algotik/jobs/:id/cancel', async (req, res, next) => {
         try { res.json(await algotik.cancelJob(req.params.id)); }
         catch (e) { res.status(400).json({ error: e.message }); }
@@ -141,6 +151,16 @@ function register(app, deps) {
     app.get('/api/algotik/data-range', async (req, res, next) => {
         try { res.json(await algotik.getDataRange()); }
         catch (e) { next(e); }
+    });
+    app.get('/api/algotik/explain/:symbol', async (req, res, next) => {
+        try {
+            const fetch = require('node-fetch');
+            const env = require('../../config/env').get();
+            const url = (env.ALGOTIK_URL || 'http://127.0.0.1:5000') + '/explain/' + encodeURIComponent(req.params.symbol);
+            const r = await fetch(url, { timeout: 15000 });
+            const d = await r.json();
+            res.json(d);
+        } catch (e) { next(e); }
     });
 
     app.get('/api/algotik/data-range/:symbol', async (req, res, next) => {

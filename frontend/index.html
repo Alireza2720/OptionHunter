@@ -3433,6 +3433,26 @@ async function renderCollectorJobDetail(j) {
     }
     html += '</tbody></table></div>';
   }
+  // 🆕 Show received flags
+  const _flags = j.payload || {};
+  const _flagKeys = ['includeStockIntraday','includeStockDaily','includeOptionHistory','includeOptionSnapshot','includeOptionMigration','includeAggregate'];
+  const _flagLabels = {
+    includeStockIntraday: 'کندل 1m',
+    includeStockDaily: 'روزانه سهام',
+    includeOptionHistory: 'آپشن + IV',
+    includeOptionSnapshot: 'snapshot',
+    includeOptionMigration: 'migration',
+    includeAggregate: 'aggregation'
+  };
+  html += '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">فلگ‌های ارسالی</h4>';
+  html += '<div class="hint" style="padding:8px 12px;background:var(--bg-elev-2);border-radius:var(--r-md);font-size:11.5px;">';
+  _flagKeys.forEach(function(k) {
+    var v = _flags[k];
+    var vStr = v === undefined ? 'تعریف‌نشده' : (v ? '✅ فعال' : '⛔ غیرفعال');
+    var color = v === undefined ? 'var(--warn)' : (v ? 'var(--success)' : 'var(--text-dim)');
+    html += '<div style="margin:2px 0;"><b>' + (_flagLabels[k] || k) + ':</b> <span style="color:' + color + ';">' + vStr + '</span></div>';
+  });
+  html += '</div>';
   const errs = j.errors || [];
   if (errs.length) {
     html += '<h4 style="font-size:13px;color:var(--danger);margin:14px 0 6px;">خطاها (' + errs.length + ')</h4>';
@@ -3844,6 +3864,45 @@ function downloadCompareDetail(jobId, symbol, strategyId) {
   }).catch(e => showAlert('خطا: ' + e.message, 'error'));
 }
 async function deleteOptionPosition(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/options/positions/${id}`, { method:'DELETE' }); ; } catch (e) { showAlert('خطا: ' + e.message); } }
+async function explainSymbol(sym) {
+  openModal('دیباگ آپشن: ' + sym, '<div style="text-align:center;padding:30px;">در حال دریافت...</div>', true);
+  try {
+    const r = await apiFetch(BACKEND_URL + '/api/algotik/explain/' + encodeURIComponent(sym), {}, 0);
+    const _fmtDate = function(iso) {
+      if (!iso) return '—';
+      try {
+        var d = new Date(iso);
+        var parts = new Intl.DateTimeFormat('en-US-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+        var m = {};
+        parts.forEach(function(p) { m[p.type] = p.value; });
+        return m.year + '/' + m.month + '/' + m.day;
+      } catch (_) { return iso.slice(0, 10); }
+    };
+    var html = '<div class="hint" style="margin-bottom:12px;">منبع‌های داده آپشن برای ' + esc(sym) + '</div>';
+    html += '<div class="table-responsive"><table class="data-table"><thead><tr><th>منبع</th><th>تعداد</th><th>از تاریخ</th><th>تا تاریخ</th><th>جزئیات</th></tr></thead><tbody>';
+    var s = r.sources || {};
+    var keys = ['option_history', 'option_daily_algotik', 'option_history_synth'];
+    keys.forEach(function(k) {
+      var d = s[k] || { count: 0 };
+      var detail = '';
+      if (k === 'option_history') {
+        detail = 'با bid/ask: ' + (d.with_bid_ask || 0) + ' · با IV: ' + (d.with_iv || 0);
+        if (d.sources && d.sources.length) detail += ' · منبع: ' + d.sources.join(', ');
+        if (d.qualities && d.qualities.length) detail += ' · کیفیت: ' + d.qualities.filter(Boolean).join(', ');
+      }
+      html += '<tr><td><b>' + k + '</b></td><td>' + (d.count || 0).toLocaleString() + '</td><td>' + _fmtDate(d.from) + '</td><td>' + _fmtDate(d.to) + '</td><td style="font-size:10.5px;">' + esc(detail) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    if (r.contracts_count) {
+      html += '<div class="hint" style="margin-top:12px;">تعداد قرارداد یکتا: <b>' + r.contracts_count + '</b><br>نمونه: ' + (r.sample_contracts || []).join(', ') + '</div>';
+    }
+    html += '<div style="margin-top:14px;"><button class="btn outline" onclick="closeModal()">بستن</button></div>';
+    openModal('دیباگ آپشن: ' + sym, html, true);
+  } catch (e) {
+    openModal('دیباگ آپشن', '<div class="empty-note">خطا: ' + esc(e.message) + '</div>', true);
+  }
+}
+
 async function viewChain(sym) { openModal(`زنجیره ${sym}`, '<div style="text-align:center;padding:30px;">...</div>'); try { const d = await apiFetch(`${BACKEND_URL}/api/options/chain/${encodeURIComponent(sym)}`, {}, 1); if (!d.rows.length) return openModal(`زنجیره ${sym}`, `<div class="empty-note">قراردادی نیست. (${d.totalMatched || 0} تطبیق)</div>`); const rows = d.rows.map(r => { const ivA = r.ivApi ? (r.ivApi*100).toFixed(1)+'%' : '-'; const delta = r.deltaApi ? r.deltaApi.toFixed(2) : (r.delta ? r.delta.toFixed(2) : '-'); return `<tr style="${r.reject.length?'opacity:.55':''}"><td>${esc(r.symbol)}</td><td>${fmtN(r.strike)}</td><td>${r.expiry}</td><td>${r.daysLeft}</td><td>${fmtN(r.bid)}/${fmtN(r.ask)}</td><td>${r.spreadPct===null?'-':r.spreadPct.toFixed(1)+'%'}</td><td>${ivA}</td><td>${delta}</td><td>${r.oi}</td><td style="font-size:11px;">${r.reject.length?esc(r.reject.join('، ')):'<span class="badge long">OK</span>'}</td></tr>`; }).join(''); openModal(`زنجیره ${sym}`, `<div class="hint">تطبیق: ${d.matchedNames.join(', ')}</div><div class="table-responsive"><table class="data-table"><thead><tr><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>روز</th><th>خرید/فروش</th><th>اسپرد</th><th>IV</th><th>Δ</th><th>OI</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function recommendOption(id) { const it = configs.find(c => c._id === id); if (!it) return; openModal(`پیشنهاد آپشن ${it.symbol}`, '<div style="text-align:center;padding:30px;">...</div>'); try { const r = await apiFetch(`${BACKEND_URL}/api/options/recommend/${id}`, {}, 1); const sc = r.scenario; const head = `<div class="hint">ورود ${fmtN(sc.entry)} | SL ${fmtN(sc.stop)} | TP ${fmtN(sc.target)} | ${sc.horizonDays} روز</div>`; const picks = r.picks.length ? r.picks.map((p,i) => `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)}</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.oi}</td><td>${p.rr.toFixed(2)}</td></tr>`).join('') : `<tr class="empty-row"><td colspan="9">قراردادی نیست</td></tr>`; openModal(`پیشنهاد ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>خرید</th><th>IV</th><th>Δ</th><th>OI</th><th>RR</th></tr></thead><tbody>${picks}</tbody></table></div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function openLogs(source='memory') { openModal('لاگ سیستم', '<div style="text-align:center;padding:30px;">...</div>'); try { let rows; if (source === 'client') rows = clientLogs.slice().reverse(); else { const r = await apiFetch(`${BACKEND_URL}/api/logs?source=${source}&limit=300`, {}, 1); rows = r.logs; } const tab = (k, l) => `<button class="btn small ${source===k?'':'outline'}" onclick="openLogs('${k}')">${l}</button>`; const tabs = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${tab('memory','سرور')}${tab('db','خطاها')}${tab('client','مرورگر')}</div>`; const body = rows.length ? rows.map(l => `<div style="font-family:var(--font-mono);font-size:11px;direction:ltr;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-subtle);color:${l.level==='error'?'var(--danger)':l.level==='warn'?'var(--warn)':'var(--text-dim)'}">${new Date(l.at).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})} [${l.level}] ${esc(l.msg)}</div>`).join('') : '<div class="empty-note">لاگی نیست</div>'; openModal(`لاگ (${rows.length})`, tabs + body); } catch (e) { openModal('لاگ', `<div class="empty-note">${esc(e.message)}</div>`); } }
@@ -5934,7 +5993,7 @@ function renderMonitoredSymbols() {
             '<td>' + regimeHtml + '</td>' +
             '<td>' + priceHtml + '</td>' +
             '<td>' +
-                '<button class="btn tiny outline" onclick="viewChain(\'' + esc(s.symbol) + '\')">زنجیره</button> ' +
+                '<button class="btn tiny outline" onclick="viewChain(\'' + esc(s.symbol) + '\')">زنجیره</button> <button class="btn tiny outline" onclick="explainSymbol(\'' + esc(s.symbol) + '\')" title="دیباگ تاریخچه آپشن">دیباگ</button> ' +
                 '<button class="btn tiny danger" onclick="deleteMonitoredSymbol(\'' + s._id + '\',\'' + esc(s.symbol) + '\')">حذف</button>' +
             '</td>' +
             '</tr>';
