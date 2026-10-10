@@ -302,101 +302,149 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // ---- Data Quality ----
+    // ---- Data Quality ----  🆕 v2: pure aggregation, no loop, no collector call
     app.get('/api/algotik/quality', async (req, res, next) => {
         try {
             const fresh = req.query.fresh === '1';
             const marketHours = require('../../infra/market-hours');
-            const ttl = marketHours.expensiveCacheTTL();
-            const key = 'algotik_quality';
+            const ttl = marketHours.expensiveCacheTTL();   // 30min market / 12h off
+            const key = 'algotik_quality_v2';
 
             if (fresh) {
                 deps.dataService.clearCache(key);
             }
 
             const r = await deps.dataService.cachedSWR(key, ttl, async () => {
-                // کد قدیمی رو داخل این تابع پیچیده بشه
-                return await computeQuality();
+                return await computeQualityV2();
             });
             return res.json(r);
-        } catch (e) { next(e); }
+        } catch (e) {
+            next(e);
+        }
     });
 
-    // 🆕 جدا کردن محاسبه‌ی quality
-    async function computeQuality() {
+    async function computeQualityV2() {
         const db = getDB();
         const { COLLECTIONS } = require('../../config/constants');
         const monitored = await db.collection(COLLECTIONS.MONITORED_SYMBOLS)
             .find({ enabled: true }).toArray();
 
-        const cov = await algotik.getCoverage();
-        const covMap = {};
-        for (const c of (cov.symbols || [])) covMap[c.symbol] = c;
+        if (!monitored.length) {
+            return {
+                symbols: [],
+                summary: { total: 0, good: 0, warn: 0, bad: 0 },
+                computedAt: new Date().toISOString(),
+            };
+        }
 
+        const symbols = monitored.map(m => m.symbol);
         const since7 = new Date(Date.now() - 7 * 86400000);
-        const ticksAgg = await db.collection('stock_ticks').aggregate([
-            { $match: { time: { $gte: since7 } } },
-            { $group: { _id: '$symbol', count: { $sum: 1 } } }
-        ]).toArray();
-        const ticksMap = {};
-        for (const t of ticksAgg) ticksMap[t._id] = t.count;
 
-        const symbols = [];
+        // 5 parallel aggregations — all with maxTimeMS for safety
+        const aggOpts = { allowDiskUse: false, maxTimeMS: 20000 };
+        const [baseAgg, dailyAgg, optAgg, optIvAgg, ticksAgg] = await Promise.all([
+            db.collection(COLLECTIONS.CANDLES_BASE).aggregate([
+                { $match: { symbol: { $in: symbols }, source: 'algotik_intraday' } },
+                { $group: { _id: '$symbol', count: { $sum: 1 } } }
+            ], aggOpts).toArray(),
+            db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
+                { $match: { symbol: { $in: symbols } } },
+                { $group: { _id: '$symbol', count: { $sum: 1 } } }
+            ], aggOpts).toArray(),
+            db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
+                { $match: { underlying: { $in: symbols } } },
+                { $group: { _id: '$underlying', count: { $sum: 1 }, max_time: { $max: '$time' } } }
+            ], aggOpts).toArray(),
+            db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
+                { $match: { underlying: { $in: symbols }, ivApi: { $gt: 0 } } },
+                { $group: { _id: '$underlying', count: { $sum: 1 } } }
+            ], aggOpts).toArray(),
+            db.collection('stock_ticks').aggregate([
+                { $match: { time: { $gte: since7 } } },
+                { $group: { _id: '$symbol', count: { $sum: 1 } } }
+            ], aggOpts).toArray()
+        ]);
+
+        const baseMap = {};
+        const dailyMap = {};
+        const optMap = {};
+        const optIvMap = {};
+        const ticksMap = {};
+        for (const r of baseAgg) baseMap[r._id] = r.count;
+        for (const r of dailyAgg) dailyMap[r._id] = r.count;
+        for (const r of optAgg) optMap[r._id] = r;
+        for (const r of optIvAgg) optIvMap[r._id] = r.count;
+        for (const r of ticksAgg) ticksMap[r._id] = r.count;
+
+        const OPT_CUTOFF_MS = new Date('2026-06-09T00:00:00Z').getTime();
+
+        const out = [];
         let good = 0, warn = 0, bad = 0;
         for (const m of monitored) {
-            const c = covMap[m.symbol] || {};
-            const c1m = (c.stock_base && c.stock_base.count) || 0;
-            const cDaily = (c.stock_daily && c.stock_daily.count) || 0;
-            const cOpt = (c.options && c.options.count) || 0;
-            const cIv = (c.options && c.options.with_iv) || 0;
+            const c1m = baseMap[m.symbol] || 0;
+            const cDaily = dailyMap[m.symbol] || 0;
+            const optRow = optMap[m.symbol] || { count: 0, max_time: null };
+            const cOpt = optRow.count;
+            const cIv = optIvMap[m.symbol] || 0;
             const cTicks = ticksMap[m.symbol] || 0;
 
-            // 🆕 آستانه‌های واقع‌گرایانه‌تر برای نمادهای کم‌معامله
+            const optToMs = optRow.max_time ? new Date(optRow.max_time).getTime() : 0;
+            const optHasRecent = optToMs >= OPT_CUTOFF_MS;
+            const optIsStale = cOpt > 0 && !optHasRecent;
+
             const stockOk = c1m >= 5000 && cDaily >= 40;
             const optOk = cOpt >= 50 && cIv >= 20;
             const liveOk = cTicks >= 500;
 
-                        const OPT_CUTOFF_MS = OPTION_DATA_CUTOFF.getTime();
-            const optToMs = c.options && c.options.to ? new Date(c.options.to).getTime() : 0;
-            const optHasRecent = optToMs >= OPT_CUTOFF_MS;
-            const optIsStale = cOpt > 0 && !optHasRecent;
-
             let quality, reason;
             if (!stockOk) {
-                quality = 'bad'; reason = `کندل ناکافی (1m: ${c1m.toLocaleString()})`; bad++;
-            } else if (optIsStale) {
                 quality = 'bad';
-                reason = `آپشن قدیمی (آخرین: ${c.options.to.slice(0,10)}) — نیاز به backfill`;
+                reason = 'کندل ناکافی (1m: ' + c1m.toLocaleString() + ')';
+                bad++;
+            } else if (optIsStale) {
+                const lastStr = optRow.max_time ? new Date(optRow.max_time).toISOString().slice(0, 10) : '?';
+                quality = 'bad';
+                reason = 'آپشن قدیمی (آخرین: ' + lastStr + ')';
                 bad++;
             } else if (stockOk && optOk) {
-                quality = 'good'; reason = 'آماده بک‌تست آپشن'; good++;
+                quality = 'good';
+                reason = 'آماده بک تست آپشن';
+                good++;
             } else if (stockOk && cOpt > 0 && cOpt < 100) {
-                quality = 'warn'; reason = `آپشن ناقص (${cOpt}/100)`; warn++;
+                quality = 'warn';
+                reason = 'آپشن ناقص (' + cOpt + '/100)';
+                warn++;
             } else if (stockOk && cOpt === 0) {
                 quality = 'bad';
-                reason = `از 1405/03/19 به بعد آپشن ندارد — نماد اصلاً آپشن نداره`;
+                reason = 'از 1405/03/19 آپشن ندارد';
                 bad++;
             } else {
-                quality = 'warn'; reason = 'داده متوسط'; warn++;
+                quality = 'warn';
+                reason = 'داده متوسط';
+                warn++;
             }
 
-            symbols.push({
-                symbol: m.symbol, quality, reason,
+            out.push({
+                symbol: m.symbol,
+                quality, reason,
                 backtestReady: stockOk && optOk && optHasRecent,
                 liveReady: liveOk,
                 optHasRecent,
                 optIsStale,
-                candle_1m: c1m, candle_daily: cDaily,
-                option_history: cOpt, option_with_iv: cIv,
-                option_last_date: c.options && c.options.to ? c.options.to.slice(0,10) : null,
+                candle_1m: c1m,
+                candle_daily: cDaily,
+                option_history: cOpt,
+                option_with_iv: cIv,
+                option_last_date: optRow.max_time ? new Date(optRow.max_time).toISOString().slice(0, 10) : null,
                 stock_ticks_7d: cTicks
             });
         }
 
         return {
-            symbols,
-            summary: { total: symbols.length, good, warn, bad },
-            computedAt: new Date().toISOString()
+            symbols: out,
+            summary: { total: out.length, good, warn, bad },
+            computedAt: new Date().toISOString(),
+            _v: 2
         };
     }
 

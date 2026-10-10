@@ -155,6 +155,10 @@ async function ensureIndexes() {
         { source: 1, underlying: 1, time: -1 }
     );
 
+    // 🆕 R16: option_history.time index for coverage/quality queries
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { time: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { underlying: 1, time: -1, ivApi: 1 });
+
     // --- spread_model + iv_surface meta ---
     // (stored in meta collection, no special index needed beyond _id)
 
