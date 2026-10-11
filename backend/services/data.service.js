@@ -86,7 +86,7 @@ function closedOnly(candles, tf) {
     const now = new Date();
     return candles.filter(c =>
         isCandleClosed(c.time, tfMin, now) &&
-        c.complete !== false   // 🆕 ناقص‌ها رد شوند (undefined = ناشناخته = قبول)
+        (c.complete !== false || (now.getTime() - c.time * 1000 >= tfMin * 60000 * 1.05))
     );
 }
 
