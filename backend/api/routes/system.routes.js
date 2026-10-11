@@ -160,6 +160,50 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // R29: evaluate debug
+    app.post('/api/evaluate-debug', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const configs = await db.collection(COLLECTIONS.STRATEGY_CONFIGS).find({ enabled: true }).toArray();
+            const results = [];
+            const nowSec = Math.floor(Date.now() / 1000);
+            for (const c of configs.slice(0, 100)) {
+                const r = { symbol: c.symbol, strategyId: c.strategyId, role: c.role, timeframe: c.timeframe };
+                try {
+                    const state = await db.collection(COLLECTIONS.SIGNALS_STATE).findOne({ configId: String(c._id) });
+                    if (state) { r.hasState = true; r.position = state.position; r.lastNotifiedTime = state.lastNotifiedTime || null; r.lastNotifiedType = state.lastNotifiedType || null; }
+                    const def = deps.strategies.STRATEGIES[c.strategyId];
+                    if (def) {
+                        const req = deps.strategies.getRequiredCandles(c.strategyId, c.params) || 100;
+                        const LIMIT = Math.max(1000, req * 3);
+                        const candles = deps.dataService.closedOnly(await deps.dataService.getCandles(c.symbol, c.timeframe, { limit: LIMIT }), c.timeframe);
+                        const htfTf = c.htfTimeframe || '1d';
+                        const htf = deps.dataService.closedOnly(await deps.dataService.getCandles(c.symbol, htfTf, { limit: 500 }), htfTf);
+                        r.candleCount = candles.length; r.requiredCandles = req; r.htfCount = htf.length;
+                        if (candles.length >= req && htf.length >= 50) {
+                            const ew = deps.entryWindow();
+                            const result = def.run(candles, Object.assign({}, c.params, { candleType: c.candleType }), { htfCandles: htf, htfTimeframe: htfTf, entryWindow: ew });
+                            r.totalSignals = (result.signals || []).length;
+                            const last = result.signals[result.signals.length - 1];
+                            if (last) { r.lastSignalType = last.signalType; r.lastSignalTime = last.time; r.lastSignalReason = last.reason; r.currentPosition = last.position; r.ageSec = nowSec - last.time; }
+                        } else { r.insufficient = true; }
+                    }
+                } catch (e) { r.error = e.message; }
+                results.push(r);
+            }
+            const summary = {
+                total: results.length,
+                withState: results.filter(r => r.hasState).length,
+                withSignals: results.filter(r => r.totalSignals > 0).length,
+                withBUY: results.filter(r => r.lastSignalType === 'BUY').length,
+                withEXIT: results.filter(r => r.lastSignalType === 'EXIT_LONG').length,
+                insufficient: results.filter(r => r.insufficient).length,
+                errors: results.filter(r => r.error).length
+            };
+            res.json({ summary: summary, results: results.slice(0, 50) });
+        } catch (e) { next(e); }
+    });
+
     // ---- Aggregated Jobs ----
     app.get('/api/system/jobs', async (req, res, next) => {
         try {

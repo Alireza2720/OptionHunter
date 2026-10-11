@@ -376,6 +376,7 @@ async function _evaluateConfigInner(config, marketInfo) {
         }
     }
 
+    deps.logger && deps.logger.info('actionable=' + actionable + ' ' + config.symbol + '/' + config.strategyId + ' type=' + (last.signalType || 'null'));
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
@@ -671,6 +672,8 @@ async function evaluateAll(marketInfo) {
     const db = deps.getDB();
     const configs = await db.collection(COLLECTIONS.STRATEGY_CONFIGS)
         .find({ enabled: true }).toArray();
+
+    deps.logger && deps.logger.info('evaluateAll start: ' + configs.length + ' configs');
 
     const confirmers = configs.filter(c => c.role === 'confirmer');
     const leaders = configs.filter(c => c.role !== 'confirmer');

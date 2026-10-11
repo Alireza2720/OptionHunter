@@ -51,7 +51,12 @@ function push(level, msg) {
         || str.startsWith('tick_ok')
         || str.startsWith('option_ok')
         || str.startsWith('tick_err')
-        || str.startsWith('option_loop');
+        || str.startsWith('option_loop')
+        || str.startsWith('evaluateAll')
+        || str.startsWith('signal ')
+        || str.startsWith('no-signal ')
+        || str.startsWith('duplicate ')
+        || str.startsWith('tick skipped');
 
     if (dbAccessor && persist) {
         try {
