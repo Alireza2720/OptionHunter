@@ -140,6 +140,17 @@ function sameDay(t1, t2) {
 // Single config evaluation
 // ============================================================
 async function evaluateConfig(config, marketInfo) {
+    try {
+        return await _evaluateConfigInner(config, marketInfo);
+    } catch (e) {
+        deps.logger && deps.logger.warn(
+            'evaluateConfig ' + config.symbol + '/' + config.strategyId + ': ' + (e.message || e)
+        );
+        return { symbol: config.symbol, strategyId: config.strategyId, error: e.message };
+    }
+}
+
+async function _evaluateConfigInner(config, marketInfo) {
     const STRATEGIES = deps.strategies.STRATEGIES;
     const def = STRATEGIES[config.strategyId];
     if (!def) return;
@@ -705,7 +716,12 @@ async function evaluateAll(marketInfo) {
             evaluated++;
             _configTimings.push({ sym: c.symbol, sid: c.strategyId, ms: Date.now() - _t0 });
         } catch (e) {
-            deps.notify && deps.notify(`eval ${roleLabel} ${c.symbol}: ${e.message}`).catch(() => {});
+            deps.logger && deps.logger.warn(`eval ${roleLabel} ${c.symbol}: ${e.message}`);
+            try {
+                if (deps.notify) {
+                    deps.notify(`eval ${roleLabel} ${c.symbol}: ${e.message}`).catch(() => {});
+                }
+            } catch (_) {}
         }
     };
 

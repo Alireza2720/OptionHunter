@@ -156,14 +156,21 @@ async function buildMarketInfo(monitored) {
 // ============================================================
 async function tick() {
     if (tickRunning) {
-        // 🆕 فقط لاگ کن اگه کند شده — force reset نکن (باعث تیک موازی می‌شه)
         const elapsed = Date.now() - tickStartTime;
-        if (elapsed > 90000) {
+        // R28: watchdog — اگر tick بیشتر از ۵ دقیقه گیر کرده، آزادش کن
+        if (elapsed > 300000) {
             deps.logger && deps.logger.error(
-                `🚨 tick ${Math.round(elapsed/1000)}s هنوز اجرا`
+                `🚨 tick ${Math.round(elapsed/1000)}s گیر کرد — watchdog آزادش می‌کنه`
             );
+            tickRunning = false;
+        } else {
+            if (elapsed > 60000) {
+                deps.logger && deps.logger.warn(
+                    `⏳ tick ${Math.round(elapsed/1000)}s هنوز در اجرا`
+                );
+            }
+            return;
         }
-        return;
     }
     tickRunning = true;
     tickStartTime = Date.now();
@@ -183,7 +190,9 @@ async function tick() {
         try {
             result = await buildMarketInfo(monitored);
         } catch (e) {
-            await recordTickFailure(e.message);
+            // R28: make sure recordTickFailure never throws
+            try { await recordTickFailure(e.message); } catch (_) {}
+            deps.logger && deps.logger.error('tick buildMarketInfo: ' + (e.stack || e.message));
             return;
         }
 
@@ -214,27 +223,33 @@ async function tick() {
             }
         }
 
-        const n = await deps.signals.evaluateAll(marketInfo);
-        deps.logger && deps.logger.info(`evaluateAll: ${JSON.stringify(n)}`);
+        let n = null;
+        try {
+            n = await deps.signals.evaluateAll(marketInfo);
+            deps.logger && deps.logger.info(`evaluateAll: ${JSON.stringify(n)}`);
+        } catch (e) {
+            deps.logger && deps.logger.error('evaluateAll failed: ' + (e.stack || e.message));
+            // جلوگیری از کرش tick — ادامه بده
+        }
 
         // مدیریت آپشن‌ها
         try {
-            const openOpt = await deps.options.openPositionsCount();
+            const openOpt = await deps.options.openPositionsCount().catch(() => 0);
             if (tehran.minute % 5 === 0 || openOpt > 0) {
-                const chain = await deps.options.fetchChain
-                    ? await deps.options.fetchChain(30000)
+                const chain = (deps.options.fetchChain)
+                    ? await deps.options.fetchChain(30000).catch(() => null)
                     : null;
-                if (chain) {
+                if (chain && Array.isArray(chain) && chain.length > 0) {
                     const mset = new Set(monitored.map(m => deps.options.norm(m.symbol)));
                     if (tehran.minute % 5 === 0) {
-                        await deps.options.storeSnapshots(chain, mset);
-                        await deps.options.storeFullOptionHistory(chain, mset);
+                        await deps.options.storeSnapshots(chain, mset).catch(() => {});
+                        await deps.options.storeFullOptionHistory(chain, mset).catch(() => {});
                     }
-                    await deps.options.managePositions(chain);
+                    await deps.options.managePositions(chain).catch(() => {});
                 }
             }
         } catch (e) {
-            deps.logger && deps.logger.warn('آپشن: ' + e.message);
+            deps.logger && deps.logger.warn('آپشن: ' + (e.message || 'unknown'));
         }
 
         // 🆕 لاگ مخصوص tick log (با فرمت regex قابل پارس)
@@ -250,9 +265,10 @@ async function tick() {
             `${tehran.hour}:${String(tehran.minute).padStart(2, '0')} | ${monitored.length} نماد | ${n && n.evaluated !== undefined ? n.evaluated + '/' + n.total : n} استراتژی | فعال: ${activeCount}`
         );
 
-        await recordTickSuccess();
+        try { await recordTickSuccess(); } catch (_) {}
     } catch (e) {
-        await recordTickFailure(e.message);
+        try { await recordTickFailure(e.message); } catch (_) {}
+        deps.logger && deps.logger.error('tick outer: ' + (e.stack || e.message));
     } finally {
         const duration = Date.now() - tickStartTime;
         tickRunning = false;
