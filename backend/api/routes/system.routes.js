@@ -160,6 +160,20 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // R32: reset lastNotifiedTime
+    app.post('/api/reset-signals-state', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const body = req.body || {};
+            const q = body.configId ? { configId: String(body.configId) } : {};
+            const r = await db.collection(COLLECTIONS.SIGNALS_STATE).updateMany(
+                q,
+                { $set: { lastNotifiedTime: 0, lastNotifiedType: null } }
+            );
+            res.json({ ok: true, modified: r.modifiedCount });
+        } catch (e) { next(e); }
+    });
+
     // R29: evaluate debug
     app.post('/api/evaluate-debug', async (req, res, next) => {
         try {
