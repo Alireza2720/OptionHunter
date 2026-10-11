@@ -2666,6 +2666,10 @@ async function loadSignalHistory() {
   try {
     const _isFirst = signalHistoryCache === null;
     signalHistoryCache = await apiFetch(`${BACKEND_URL}/api/signal-history?limit=100`, {}, 0);
+    // R27: sort by candle time (time) descending
+    if (Array.isArray(signalHistoryCache)) {
+      signalHistoryCache.sort((a, b) => (b.time || 0) - (a.time || 0));
+    }
     if (_isFirst) signalHistoryLimit = 5;
     renderSignalHistory();
   } catch (e) {}
@@ -3354,7 +3358,47 @@ async function refreshJobsPanel() {
       apiFetch(BACKEND_URL + '/api/algotik/jobs?limit=50', {}, 0).catch(() => [])
     ]);
     const bkRes = res[0], colRes = res[1];
-    const backendJobs = (bkRes.jobs || []).map(j => Object.assign({}, j, { _source: 'backend' }));
+    const _rawBackendJobs = (bkRes.jobs || []).map(j => Object.assign({}, j, { _source: 'backend' }));
+    // R27: group stock+option jobs from same orchestrator run into one entry
+    const _btGroups = {};
+    const backendJobs = [];
+    for (const j of _rawBackendJobs) {
+      const _mode = (j.payload && j.payload.mode) || (j.result && j.result.mode);
+      const _isBtPair = (j.type === 'backtest-compare' || j.type === 'backtest');
+      // Heuristic: same payload symbols+strategies+dateFrom within 5 min = same run
+      if (_isBtPair && j.payload) {
+        const _key = (j.payload.symbols || []).join(',') + '::' + (j.payload.strategies || []).map(s => s.id || s).join(',') + '::' + (j.payload.dateFrom || '') + '::' + Math.floor(new Date(j.createdAt).getTime() / 300000);
+        if (!_btGroups[_key]) {
+          _btGroups[_key] = {
+            ...j,
+            _paired: [],
+            _btModes: [],
+            _source: 'backend'
+          };
+        }
+        _btGroups[_key]._paired.push(j);
+        if (_mode) _btGroups[_key]._btModes.push(_mode);
+      } else {
+        backendJobs.push(j);
+      }
+    }
+    for (const g of Object.values(_btGroups)) {
+      const modes = g._btModes.filter(Boolean);
+      if (modes.length > 1) {
+        // Combined run — merge into one entry
+        const _count = g._paired.length;
+        const _allDone = g._paired.every(p => ['DONE', 'FAILED', 'CANCELLED'].includes(p.status));
+        const _anyRunning = g._paired.some(p => ['RUNNING', 'QUEUED', 'COMPUTING'].includes(p.status));
+        g.status = _allDone ? (g._paired.some(p => p.status === 'FAILED') ? 'FAILED' : 'DONE') : (_anyRunning ? 'RUNNING' : g.status);
+        g.progress = g.progress || {};
+        g.progress.message = 'ترکیبی: ' + modes.join(' + ') + ' (' + _count + ' job)';
+        g._isCombined = true;
+        g._modeLabel = 'ترکیبی';
+      } else if (modes.length === 1) {
+        g._modeLabel = modes[0] === 'stock' ? 'سهم پایه' : 'آپشن';
+      }
+      backendJobs.push(g);
+    }
     const collectorJobsArr = Array.isArray(colRes) ? colRes : [];
     const collectorJobs = collectorJobsArr.map(j => {
       const phases = j.phases || {};
@@ -3387,7 +3431,9 @@ async function refreshJobsPanel() {
     const activeJobs = allJobs.filter(j => ['QUEUED','RUNNING','PAUSED','COMPUTING'].indexOf(j.status) >= 0);
     const doneJobs = allJobs.filter(j => ['DONE','FAILED','CANCELLED'].indexOf(j.status) >= 0);
     const renderJob = function(j, isDone) {
-      const typeLabel = _typeMap[j.type] || j.type;
+      let typeLabel = _typeMap[j.type] || j.type;
+      if (j._modeLabel) typeLabel = typeLabel + ' — ' + j._modeLabel;
+      if (j._isCombined) typeLabel = 'بک‌تست ترکیبی';
       const statusLabel = _statusMap[j.status] || j.status;
       const dateStr = j.createdAt ? new Date(j.createdAt).toLocaleString('fa-IR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
       const symCount = (j.payload && j.payload.symbols && j.payload.symbols.length) || 0;

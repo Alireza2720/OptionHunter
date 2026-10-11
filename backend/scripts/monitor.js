@@ -2437,6 +2437,424 @@ async function s34_report() {
 // ============================================================
 // 🩺 DOCTOR MODE
 // ============================================================
+async function s37_marketHours() {
+    section(37, 'MARKET HOURS & TIMEZONE');
+    try {
+        const env = require('path');
+        const nowUtc = new Date();
+        const tehran = new Date(nowUtc.getTime() + 3.5 * 3600 * 1000);
+        const wd = tehran.getUTCDay();
+        const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+        const isTradingDay = [6, 0, 1, 2, 3].includes(wd);
+        const isMarketOpen = isTradingDay && mins >= 9 * 60 && mins <= 12 * 60 + 35;
+        kv('UTC now', nowUtc.toISOString());
+        kv('Tehran now', tehran.toISOString().replace('T', ' ').slice(0, 19));
+        kv('Tehran weekday', ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][wd]);
+        kv('Trading day', isTradingDay ? '✓' : '✗');
+        kv('Market open', isMarketOpen ? '🟢 YES' : '⚪ NO');
+        const issues = [];
+        if (tehran.getUTCMinutes() > 59) issues.push('Tehran minute > 59');
+        try {
+            const r = await httpGet(CONF.backend + '/api/trading-settings');
+            if (r.ok && r.json && r.json.values) {
+                const ew = r.json.values.ENTRY_START || '09:30';
+                const ee = r.json.values.ENTRY_END || '12:00';
+                kv('entry window', ew + ' — ' + ee);
+            }
+        } catch (_) {}
+        if (issues.length) issues.forEach(i => warn(i));
+        else ok('timezone ok');
+    } catch (e) { fail('S37: ' + e.message); }
+}
+
+async function s38_holidayState() {
+    section(38, 'HOLIDAY STATE');
+    try {
+        const r = await httpGet(CONF.backend + '/');
+        if (!r.ok) { warn('backend / not available'); return; }
+        const d = r.json || {};
+        const today = new Date().toISOString().slice(0, 10);
+        kv('holidayToday', d.holidayToday ? '🟡 YES' : '✓ no');
+        if (d.holidayToday) {
+            warn('holiday flag set for today — tick will skip');
+            info('clear: curl -X DELETE http://127.0.0.1:3000/api/holiday');
+        } else ok('not holiday');
+    } catch (e) { fail('S38: ' + e.message); }
+}
+
+async function s39_lastTick() {
+    section(39, 'LAST TICK FRESHNESS');
+    try {
+        const r = await httpGet(CONF.backend + '/');
+        if (!r.ok) { warn('backend / unavailable'); return; }
+        const h = (r.json && r.json.health) || {};
+        kv('lastTickAt', h.lastTickAt || 'never');
+        kv('consecutiveFailures', h.consecutiveFailures || 0);
+        kv('lastError', h.lastError || '-');
+        if (h.lastTickAt) {
+            const ageMin = Math.round((Date.now() - new Date(h.lastTickAt).getTime()) / 60000);
+            kv('age', ageMin + ' min');
+            const mh = new Date(Date.now() + 3.5 * 3600 * 1000);
+            const wd = mh.getUTCDay();
+            const mins = mh.getUTCHours() * 60 + mh.getUTCMinutes();
+            const isOpen = [6,0,1,2,3].includes(wd) && mins >= 9*60 && mins <= 12*60+35;
+            if (isOpen && ageMin > 10) fail('last tick ' + ageMin + 'm ago (market open)');
+            else if (isOpen && ageMin > 5) warn('last tick ' + ageMin + 'm ago');
+            else ok('tick fresh');
+        } else {
+            const mh = new Date(Date.now() + 3.5 * 3600 * 1000);
+            const wd = mh.getUTCDay();
+            const mins = mh.getUTCHours() * 60 + mh.getUTCMinutes();
+            const isOpen = [6,0,1,2,3].includes(wd) && mins >= 9*60 && mins <= 12*60+35;
+            if (isOpen) fail('no tick during market hours!');
+            else info('no tick yet (market closed)');
+        }
+    } catch (e) { fail('S39: ' + e.message); }
+}
+
+async function s40_tickerState() {
+    section(40, 'COLLECTOR TICKER STATE');
+    try {
+        const r = await httpGet(CONF.collector + '/status');
+        if (!r.ok) { warn('collector /status'); return; }
+        const t = (r.json && r.json.ticker) || {};
+        kv('running', t.running ? '✓' : '✗');
+        kv('ticks', t.ticks || 0);
+        kv('errors', t.tick_errors || 0);
+        kv('last_tick_at', t.last_tick_at || '-');
+        if (!t.running) {
+            const mh = new Date(Date.now() + 3.5 * 3600 * 1000);
+            const wd = mh.getUTCDay();
+            const mins = mh.getUTCHours() * 60 + mh.getUTCMinutes();
+            const isOpen = [6,0,1,2,3].includes(wd) && mins >= 9*60 && mins <= 12*60+35;
+            if (isOpen) fail('ticker stopped during market hours');
+            else warn('ticker stopped');
+        } else ok('ticker running');
+    } catch (e) { fail('S40: ' + e.message); }
+}
+
+async function s41_backfillState() {
+    section(41, 'BACKFILL STATE');
+    try {
+        const r = await httpGet(CONF.collector + '/status');
+        if (!r.ok) return warn('collector /status');
+        const d = r.json || {};
+        kv('backfill_running', d.backfill_running ? '🟡 active' : '✓ idle');
+        kv('backfill_paused', d.backfill_paused ? '⏸ paused' : '-');
+        kv('backfill_lock_held', d.backfill_lock_held ? 'yes' : 'no');
+        if (d.backfill_running && d.backfill_lock_held) {
+            info('lock is held (some worker still active)');
+        }
+        const jr = await httpGet(CONF.collector + '/jobs?limit=5');
+        if (jr.ok && Array.isArray(jr.json)) {
+            const active = jr.json.filter(j => j.status === 'RUNNING');
+            const paused = jr.json.filter(j => j.status === 'PAUSED');
+            kv('active jobs', active.length);
+            kv('paused jobs', paused.length);
+        }
+        ok('backfill state ok');
+    } catch (e) { fail('S41: ' + e.message); }
+}
+
+async function s42_diskIo() {
+    section(42, 'DISK I/O & WRITES');
+    try {
+        const r = tryShell("iostat -x 1 2 2>/dev/null | tail -8");
+        if (r.ok && r.stdout) {
+            const lines = r.stdout.split('\n').filter(Boolean);
+            for (const l of lines.slice(-4)) info(l.slice(0, 100));
+        }
+        const df = tryShell("df -h /var/lib/mongodb /var/log 2>/dev/null | tail -3");
+        if (df.ok) for (const l of df.stdout.split('\n').filter(Boolean)) info(l);
+        ok('disk info collected');
+    } catch (e) { warn('S42: ' + e.message); }
+}
+
+async function s43_apiLatency() {
+    section(43, 'API LATENCY DEEP');
+    const endpoints = [
+        ['/ping', 500],
+        ['/api/quotes', 1000],
+        ['/api/monitored-symbols', 2000],
+        ['/api/algotik/coverage', 5000],
+        ['/api/algotik/quality', 8000],
+        ['/api/algotik/freshness', 3000],
+        ['/api/algotik/data-range', 2000]
+    ];
+    let slow = 0;
+    for (const [ep, limit] of endpoints) {
+        const r = await httpGet(CONF.backend + ep, { timeout: 15000 });
+        const col = r.ms > limit * 2 ? C.red : r.ms > limit ? C.yellow : C.green;
+        if (r.ms > limit) slow++;
+        wc('  ' + ep.padEnd(38) + fmtMs(r.ms).padEnd(10) + String(r.status), col);
+    }
+    if (slow === 0) ok('all latencies normal');
+    else warn(slow + ' endpoints slow');
+}
+
+async function s44_nginxLogs() {
+    section(44, 'NGINX ACCESS/ERROR LOGS');
+    try {
+        const err = tryShell("sudo tail -20 /var/log/nginx/error.log 2>/dev/null");
+        if (err.ok && err.stdout.trim()) {
+            const lines = err.stdout.split('\n').filter(Boolean);
+            const important = lines.filter(l => /error|crit|emerg|warn|upstream/.test(l));
+            if (important.length) {
+                warn(important.length + ' nginx errors:');
+                for (const l of important.slice(-8)) info(l.slice(0, 140));
+            } else ok('no recent nginx errors');
+        } else info('nginx error log not available');
+
+        const acc = tryShell("sudo tail -200 /var/log/nginx/access.log 2>/dev/null | awk '{print $9}' | sort | uniq -c | sort -rn");
+        if (acc.ok && acc.stdout.trim()) {
+            info('status code distribution:');
+            for (const l of acc.stdout.trim().split('\n').slice(0, 6)) info('  ' + l);
+        }
+    } catch (e) { warn('S44: ' + e.message); }
+}
+
+async function s45_sslCertExpiry() {
+    section(45, 'SSL CERT EXPIRY');
+    try {
+        const r = tryShell("echo | openssl s_client -servername api.optionhunter.ir -connect api.optionhunter.ir:443 2>/dev/null | openssl x509 -noout -dates -subject 2>/dev/null");
+        if (r.ok && r.stdout) {
+            for (const l of r.stdout.trim().split('\n')) info(l);
+            const m = r.stdout.match(/notAfter=(.+)/);
+            if (m) {
+                const exp = new Date(m[1]);
+                const days = Math.round((exp - Date.now()) / 86400000);
+                kv('days until expiry', days, days < 14 ? C.red : days < 30 ? C.yellow : C.green);
+                if (days < 14) fail('cert expires in ' + days + ' days');
+                else if (days < 30) warn('cert expires in ' + days + ' days');
+                else ok('cert valid');
+            }
+        } else warn('cannot fetch cert');
+    } catch (e) { warn('S45: ' + e.message); }
+}
+
+async function s46_dbConnections() {
+    section(46, 'MONGODB CONNECTIONS');
+    try {
+        const r = tryShell("mongosh --quiet --eval 'db.serverStatus().connections' 2>/dev/null");
+        if (r.ok && r.stdout) {
+            const lines = r.stdout.split('\n').filter(Boolean);
+            for (const l of lines.slice(0, 10)) info(l);
+        } else {
+            const netstat = tryShell("ss -tan 'sport = :27017' 2>/dev/null | wc -l");
+            if (netstat.ok) kv('connections (approx)', netstat.stdout.trim());
+        }
+        ok('mongo connection info');
+    } catch (e) { warn('S46: ' + e.message); }
+}
+
+async function s47_pm2Restarts() {
+    section(47, 'PM2 RESTART HISTORY');
+    const r = tryExec('pm2', ['jlist'], { timeout: 5000 });
+    if (!r.ok) return warn('pm2 unavailable');
+    try {
+        const list = JSON.parse(r.stdout);
+        for (const app of list) {
+            const env = app.pm2_env || {};
+            const restart = env.restart_time || 0;
+            const uptime = env.pm_uptime ? (Date.now() - env.pm_uptime) / 60000 : 0;
+            const col = restart > 100 ? C.red : restart > 30 ? C.yellow : C.green;
+            kv(app.name, 'restarts=' + restart + ' uptime=' + uptime.toFixed(0) + 'm', col);
+            if (restart > 200) fail(app.name + ' restarts=' + restart);
+        }
+        ok('pm2 restart history');
+    } catch (e) { fail('S47: ' + e.message); }
+}
+
+async function s48_logRotation() {
+    section(48, 'LOG ROTATION STATUS');
+    try {
+        const sizes = tryShell("du -sh " + LOGS + " 2>/dev/null");
+        if (sizes.ok) kv('logs dir size', sizes.stdout.trim().split('\t')[0]);
+        const biggest = tryShell("ls -lhS " + LOGS + " 2>/dev/null | head -6");
+        if (biggest.ok) {
+            const lines = biggest.stdout.split('\n').filter(Boolean);
+            for (const l of lines.slice(1, 5)) info(l.slice(0, 100));
+        }
+        const rotate = tryShell("ls /etc/logrotate.d/ 2>/dev/null | grep -iE 'option|pm2|oh' ");
+        if (rotate.ok && rotate.stdout.trim()) ok('logrotate config: ' + rotate.stdout.trim());
+        else warn('no custom logrotate for OptionHunter');
+    } catch (e) { warn('S48: ' + e.message); }
+}
+
+async function s49_crossServiceTimes() {
+    section(49, 'CLOCK SKEW BETWEEN SERVICES');
+    try {
+        const bR = await httpGet(CONF.backend + '/ping', { timeout: 5000 });
+        const cR = await httpGet(CONF.collector + '/health', { timeout: 5000 });
+        let bTime = null, cTime = null;
+        if (bR.ok && bR.json) bTime = bR.json.time;
+        if (cR.ok && cR.json) cTime = cR.json.time;
+        if (bTime && cTime) {
+            const diffSec = Math.abs((new Date(bTime) - new Date(cTime)) / 1000);
+            kv('backend time', bTime);
+            kv('collector time', cTime);
+            kv('clock skew (sec)', diffSec.toFixed(2));
+            if (diffSec > 5) fail('clock skew > 5s');
+            else if (diffSec > 2) warn('clock skew > 2s');
+            else ok('clocks synced');
+        } else info('cannot fetch times');
+    } catch (e) { warn('S49: ' + e.message); }
+}
+
+async function s50_storageEfficiency() {
+    section(50, 'MONGODB STORAGE EFFICIENCY');
+    try {
+        const r = await httpGet(CONF.backend + '/api/storage', { timeout: 5000 });
+        if (r.ok && r.json) {
+            const d = r.json;
+            kv('data', d.dataMB + ' MB');
+            kv('storage', d.storageMB + ' MB');
+            if (d.dataMB && d.storageMB) {
+                const ratio = (d.dataMB / d.storageMB).toFixed(2);
+                kv('data/storage ratio', ratio, ratio > 3 ? C.green : ratio > 1 ? C.yellow : C.red);
+            }
+            kv('collections', d.collections);
+            kv('objects', d.objects);
+        } else warn('storage endpoint');
+        ok('storage info');
+    } catch (e) { warn('S50: ' + e.message); }
+}
+
+async function s51_orphanIndexes() {
+    section(51, 'UNUSED INDEX DETECTION');
+    try {
+        const r = tryShell("mongosh --quiet trading_bot --eval 'db.getCollectionNames().slice(0,5).forEach(c => { try { const s = db[c].aggregate([{$indexStats:{}}]).toArray(); s.forEach(x => { if (x.accesses.ops === 0 && x.name !== \x22_id_\x22) print(c + \x22.\x22 + x.name); }); } catch(e){} })' 2>/dev/null");
+        if (r.ok && r.stdout.trim()) {
+            const lines = r.stdout.trim().split('\n').filter(Boolean);
+            if (lines.length) {
+                info(lines.length + ' unused indexes:');
+                for (const l of lines.slice(0, 10)) info('  ' + l);
+            } else ok('all indexes used');
+        } else info('mongosh not available');
+    } catch (e) { warn('S51: ' + e.message); }
+}
+
+async function s52_signalRate() {
+    section(52, 'SIGNAL RATE ANOMALY');
+    try {
+        const since24h = new Date(Date.now() - 86400000);
+        const r = await httpGet(CONF.backend + '/api/signal-history?limit=100');
+        if (!r.ok || !Array.isArray(r.json)) return warn('signal-history unavailable');
+        const recent = r.json.filter(s => s.createdAt && new Date(s.createdAt) >= since24h);
+        kv('signals last 24h', recent.length);
+        const byType = { BUY: 0, EXIT_LONG: 0 };
+        const bySymbol = {};
+        for (const s of recent) {
+            byType[s.signalType] = (byType[s.signalType] || 0) + 1;
+            bySymbol[s.symbol] = (bySymbol[s.symbol] || 0) + 1;
+        }
+        for (const [k, v] of Object.entries(byType)) kv('  ' + k, v);
+        const top = Object.entries(bySymbol).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        for (const [s, n] of top) kv('  ' + s, n);
+        if (recent.length > 200) warn('high signal rate: ' + recent.length + ' in 24h');
+        else ok('signal rate normal');
+    } catch (e) { warn('S52: ' + e.message); }
+}
+
+async function s53_runtimeDeps() {
+    section(53, 'RUNTIME DEPENDENCIES');
+    try {
+        const r = tryShell("node --version");
+        kv('node', r.stdout.trim());
+        const py = tryShell("python3 --version");
+        kv('python', py.stdout.trim());
+        const mongo = tryShell("mongod --version 2>/dev/null | head -1");
+        kv('mongod', mongo.stdout.trim() || 'not found');
+        const pk = readText(path.join(ROOT, 'package.json'));
+        if (pk) {
+            try {
+                const pkg = JSON.parse(pk);
+                const deps = Object.keys(pkg.dependencies || {});
+                kv('npm deps', deps.length);
+            } catch (_) {}
+        }
+        const req = readText(path.join(COLLECTOR_DIR, 'requirements.txt'));
+        if (req) {
+            const lines = req.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+            kv('pip deps', lines.length);
+        }
+        ok('runtime info');
+    } catch (e) { warn('S53: ' + e.message); }
+}
+
+async function s54_concurrentLoad() {
+    section(54, 'CONCURRENT LOAD TEST');
+    try {
+        const urls = ['/api/quotes', '/api/monitored-symbols', '/ping'];
+        for (const u of urls) {
+            const t0 = Date.now();
+            const promises = [];
+            for (let i = 0; i < 10; i++) {
+                promises.push(httpGet(CONF.backend + u, { timeout: 5000 }));
+            }
+            const results = await Promise.all(promises);
+            const elapsed = Date.now() - t0;
+            const oks = results.filter(r => r.ok).length;
+            const col = elapsed > 3000 ? C.red : elapsed > 1000 ? C.yellow : C.green;
+            kv(u, '10 req in ' + elapsed + 'ms, ok=' + oks + '/10', col);
+            if (oks < 10) warn('some requests failed on ' + u);
+        }
+        ok('concurrent load ok');
+    } catch (e) { warn('S54: ' + e.message); }
+}
+
+async function s55_envIntegrity() {
+    section(55, 'ENV INTEGRITY');
+    const required = ['MONGO_URI', 'ALGOTIK_URL', 'PORT', 'HOST', 'NODE_ENV'];
+    const optional = ['ADMIN_TOKEN', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'];
+    for (const k of required) {
+        if (ENV[k]) ok(k + ' set');
+        else fail(k + ' MISSING');
+    }
+    for (const k of optional) {
+        if (ENV[k]) info(k + ' set');
+        else warn(k + ' missing');
+    }
+    if (ENV.MONGO_URI && !/^mongodb:\/\//.test(ENV.MONGO_URI)) {
+        fail('MONGO_URI format invalid');
+    }
+    if (ENV.PORT && !/^\d+$/.test(ENV.PORT)) fail('PORT not numeric');
+}
+
+async function s56_networkEgress() {
+    section(56, 'NETWORK EGRESS');
+    try {
+        const r = await httpGet('https://api.ipify.org?format=json', { timeout: 8000 });
+        if (r.ok && r.json) kv('public IP', r.json.ip);
+        const t1 = tryShell("curl -s -o /dev/null -w '%{time_total}' https://google.com 2>/dev/null");
+        if (t1.ok) kv('google latency', t1.stdout.trim() + 's');
+        const t2 = tryShell("curl -s -o /dev/null -w '%{time_total}' https://tapi.bale.ai 2>/dev/null");
+        if (t2.ok) kv('bale latency', t2.stdout.trim() + 's');
+        ok('network reachable');
+    } catch (e) { warn('S56: ' + e.message); }
+}
+
+async function s57_deployStatus() {
+    section(57, 'DEPLOY STATUS');
+    try {
+        const git = tryShell("cd " + ROOT + " && git log --oneline -1");
+        if (git.ok) kv('HEAD', git.stdout.trim());
+        const branch = tryShell("cd " + ROOT + " && git rev-parse --abbrev-ref HEAD");
+        if (branch.ok) kv('branch', branch.stdout.trim());
+        const behind = tryShell("cd " + ROOT + " && git rev-list --count HEAD..origin/main 2>/dev/null");
+        if (behind.ok) {
+            const n = parseInt(behind.stdout.trim()) || 0;
+            kv('behind origin', n, n > 0 ? C.yellow : C.green);
+            if (n > 0) warn(n + ' commits behind origin/main');
+        }
+        const dirty = tryShell("cd " + ROOT + " && git status --porcelain | head -5");
+        if (dirty.ok && dirty.stdout.trim()) {
+            warn('working tree has changes:');
+            for (const l of dirty.stdout.trim().split('\n').slice(0, 5)) info('  ' + l);
+        } else ok('working tree clean');
+    } catch (e) { warn('S57: ' + e.message); }
+}
+
 async function runDoctor() {
     // 🆕 Force re-parse sections (in case top-level parse failed)
     const _reSec = ARGV.find((a) => a.startsWith('--sections='));
@@ -2603,6 +3021,27 @@ async function runDoctor() {
     await run(33, 'POSITIONS', s33_positions, true);
     await run(35, 'MECHANISMS', s35_mechanisms, true);
     await run(36, 'OPTION-DEBUG', s36_optionDebug, true);
+    await run(37, 'MARKET-HOURS', s37_marketHours, true);
+    await run(38, 'HOLIDAY', s38_holidayState, true);
+    await run(39, 'LAST-TICK', s39_lastTick, true);
+    await run(40, 'TICKER', s40_tickerState, true);
+    await run(41, 'BACKFILL', s41_backfillState, true);
+    await run(42, 'DISK-IO', s42_diskIo);
+    await run(43, 'API-LATENCY', s43_apiLatency, true);
+    await run(44, 'NGINX-LOGS', s44_nginxLogs, true);
+    await run(45, 'SSL-CERT', s45_sslCertExpiry, true);
+    await run(46, 'DB-CONN', s46_dbConnections);
+    await run(47, 'PM2-RESTARTS', s47_pm2Restarts);
+    await run(48, 'LOG-ROTATE', s48_logRotation);
+    await run(49, 'CLOCK-SKEW', s49_crossServiceTimes, true);
+    await run(50, 'STORAGE', s50_storageEfficiency, true);
+    await run(51, 'INDEXES', s51_orphanIndexes, true);
+    await run(52, 'SIGNAL-RATE', s52_signalRate, true);
+    await run(53, 'RUNTIME', s53_runtimeDeps);
+    await run(54, 'CONCURRENT', s54_concurrentLoad, true);
+    await run(55, 'ENV', s55_envIntegrity);
+    await run(56, 'EGRESS', s56_networkEgress, true);
+    await run(57, 'DEPLOY', s57_deployStatus);
     await run(34, 'REPORT', s34_report, true);
     stopSafetyWatchdog();
 
