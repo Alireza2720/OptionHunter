@@ -213,10 +213,33 @@ def health():
         'shutdown': _shutdown_event.is_set(),
     }
 
+def _query_backfill_state():
+    """R26: query actual job status from DB, not lock."""
+    try:
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        from pipeline.db import COL_JOBS as _COL
+        cutoff = _dt.now(_tz.utc) - _td(minutes=60)
+        col = get_db()[_COL]
+        active = col.count_documents({
+            'status': 'RUNNING',
+            'updated_at': {'$gte': cutoff}
+        }) > 0
+        paused = col.count_documents({
+            'status': 'PAUSED',
+            'updated_at': {'$gte': cutoff}
+        }) > 0
+        return active, paused
+    except Exception:
+        return _backfill_lock.locked(), False
+
+
 @app.get('/status')
 def status():
     db = get_db()
-    # 🆕 estimated_document_count = O(1) از metadata (به جای اسکن کامل)
+    try:
+        _active, _paused = _query_backfill_state()
+    except Exception:
+        _active, _paused = _backfill_lock.locked(), False
     return {
         'symbols_total': db[COL_MONITORED].estimated_document_count(),
         'symbols_enabled': db[COL_MONITORED].count_documents({'enabled': True}),
@@ -226,7 +249,9 @@ def status():
         'option_snapshots': db[COL_OPTION_SNAPSHOTS].estimated_document_count(),
         'risk_free': get_current_rf(),
         'ticker': live_mod.get_stats(),
-        'backfill_running': _backfill_lock.locked(),
+        'backfill_running': _active,
+        'backfill_paused': _paused,
+        'backfill_lock_held': _backfill_lock.locked(),
     }
 
 

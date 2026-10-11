@@ -96,6 +96,28 @@ function register(app, deps) {
         try { res.json(await algotik.cancelJob(req.params.id)); }
         catch (e) { res.status(400).json({ error: e.message }); }
     });
+    // R26: pause all active backfill jobs
+    app.post('/api/algotik/jobs/pause-all', async (req, res, next) => {
+        try {
+            const fetch = require('node-fetch');
+            const env = require('../../config/env').get();
+            const baseUrl = env.ALGOTIK_URL || 'http://127.0.0.1:5000';
+            const r = await fetch(baseUrl + '/jobs?limit=50', { timeout: 10000 });
+            const jobs = await r.json();
+            const paused = [];
+            for (const j of (Array.isArray(jobs) ? jobs : [])) {
+                if (j.status === 'RUNNING' || j.status === 'QUEUED') {
+                    try {
+                        await fetch(baseUrl + '/jobs/' + encodeURIComponent(j._id) + '/pause', {
+                            method: 'POST', timeout: 5000
+                        });
+                        paused.push(j._id);
+                    } catch (_) {}
+                }
+            }
+            res.json({ ok: true, paused: paused.length, jobIds: paused });
+        } catch (e) { next(e); }
+    });
     app.post('/api/algotik/jobs/:id/pause', async (req, res, next) => {
         try {
             const fetch = require('node-fetch');

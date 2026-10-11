@@ -78,13 +78,22 @@ let _backfillStatusAt = 0;
 const BACKFILL_CACHE_MS = 20000;
 
 async function isBackfillRunning() {
+    // R26: during market hours, ALWAYS tick (priority over backfill)
+    try {
+        const t = deps.dataService.getTehranParts();
+        if (isMarketOpen(t)) {
+            return false;
+        }
+    } catch (_) {}
+
     const now = Date.now();
     if (_backfillStatusCache !== null && (now - _backfillStatusAt) < BACKFILL_CACHE_MS) {
         return _backfillStatusCache;
     }
     try {
         const s = await deps.algotik.getStatus();
-        const running = !!(s && s.backfill_running);
+        // R26: only consider ACTIVE running, ignore paused
+        const running = !!(s && s.backfill_running && !s.backfill_paused);
         _backfillStatusCache = running;
         _backfillStatusAt = now;
         return running;
