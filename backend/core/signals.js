@@ -208,7 +208,11 @@ async function _evaluateConfigInner(config, marketInfo) {
         return;
     }
 
-    const ew = deps.entryWindow();
+    const ew = (typeof deps.entryWindow === 'function')
+        ? deps.entryWindow()
+        : (deps.settings && typeof deps.settings.entryWindow === 'function'
+            ? deps.settings.entryWindow()
+            : { start: 9 * 60 + 30, end: 12 * 60 });
 
     // 🆕 pair candles برای pairs_spread
     let pairCandles = null, pairSymbol = null;

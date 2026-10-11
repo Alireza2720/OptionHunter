@@ -355,7 +355,8 @@ async function bootstrap() {
         algotik,
         settings: settingsModule,
         notify: telegram.notify,
-        logger
+        logger,
+        entryWindow: () => settingsModule.entryWindow()   // R30
     });
 
     // 11.5) analysis service (Phase 1)
