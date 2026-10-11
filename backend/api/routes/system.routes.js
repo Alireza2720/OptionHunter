@@ -181,7 +181,7 @@ function register(app, deps) {
                         const htf = deps.dataService.closedOnly(await deps.dataService.getCandles(c.symbol, htfTf, { limit: 500 }), htfTf);
                         r.candleCount = candles.length; r.requiredCandles = req; r.htfCount = htf.length;
                         if (candles.length >= req && htf.length >= 50) {
-                            const ew = deps.entryWindow();
+                            const ew = (deps.settings && typeof deps.settings.entryWindow === 'function') ? deps.settings.entryWindow() : { start: 9 * 60 + 30, end: 12 * 60 };
                             const result = def.run(candles, Object.assign({}, c.params, { candleType: c.candleType }), { htfCandles: htf, htfTimeframe: htfTf, entryWindow: ew });
                             r.totalSignals = (result.signals || []).length;
                             const last = result.signals[result.signals.length - 1];
