@@ -69,22 +69,51 @@ def _fetch_stocks(symbols):
     now_ts = time.time()
     _check_snap_date(_tehran_today())
 
+    def _num(v, d=0.0):
+        try:
+            f = float(v)
+            return d if f != f else f
+        except (TypeError, ValueError):
+            return d
+
     symbols_set = set(symbols) if not isinstance(symbols, set) else symbols
     docs = []
     for r in mw:
         sym = r.get("lva") or r.get("lVal18AFC") or r.get("symbol")
         if not sym or sym not in symbols_set:
             continue
-        # TSETMC MarketWatch field names:
-        #   pDrCotVal = last traded price, pClosing/pcl = yesterday close,
-        #   pOpening = open, pmax/pmin = max/min allowed, qTotTran5J = volume,
-        #   zTotTran = trades count, bestLimits = 5-level bid/ask array.
-        price = float(r.get("pDrCotVal") or r.get("last") or r.get("pcl") or 0)
+
+        price = _num(r.get("pDrCotVal") or r.get("last") or r.get("pcl"))
         if price <= 0:
             continue
 
-        tvol = float(r.get("qTotTran5J") or 0)
-        tno = float(r.get("zTotTran") or 0)
+        close = _num(r.get("pcl") or r.get("pClosing"))
+        yday  = _num(r.get("py") or r.get("priceYesterday") or r.get("yesterday"))
+        popen = _num(r.get("pOpening") or r.get("priceFirst"))
+
+        # High/Low = قیمت معامله‌شده امروز (نه سقف/کف مجاز)
+        high = _num(r.get("pmax"))
+        low  = _num(r.get("pmin"))
+        if high <= 0 and price > 0:
+            high = price
+        if low <= 0 and price > 0:
+            low = price
+
+        # Allowed limits از priceMax/priceMin (نه pmax/pmin)
+        allowed_max = _num(r.get("priceMax"))
+        allowed_min = _num(r.get("priceMin"))
+        ref = close if close > 0 else price
+        if ref > 0:
+            if not (allowed_max > 0 and 0.85 * ref <= allowed_max <= 1.15 * ref):
+                allowed_max = round(ref * 1.05)
+            if not (allowed_min > 0 and 0.85 * ref <= allowed_min <= 1.15 * ref):
+                allowed_min = round(ref * 0.95)
+        else:
+            allowed_max = 0
+            allowed_min = 0
+
+        tvol = _num(r.get("qTotTran5J") or r.get("Volume"))
+        tno  = _num(r.get("zTotTran") or r.get("TradeCount"))
 
         prev = _last_snap.get(sym)
         stale = prev and (now_ts - prev.get("at", 0)) > 8 * 3600
@@ -94,31 +123,41 @@ def _fetch_stocks(symbols):
             vol_delta = 0
         _last_snap[sym] = {"tvol": tvol, "tno": tno, "at": now_ts}
 
-        # Real bid/ask (NOT pmd/pmo — those are min/max allowed price, not quotes)
-        bid_p, ask_p = 0.0, 0.0
+        # Bid/Ask واقعی از bestLimits[0]
+        bid_p, bid_v, ask_p, ask_v = 0.0, 0.0, 0.0, 0.0
         bl = r.get("bestLimits")
         if isinstance(bl, list) and bl:
-            lvl0 = bl[0]
-            bid_p = float(lvl0.get("bd") or lvl0.get("bidPrice") or lvl0.get("bid") or 0)
-            ask_p = float(lvl0.get("od") or lvl0.get("askPrice") or lvl0.get("ask") or 0)
+            l0 = bl[0]
+            bid_p = _num(l0.get("bd") or l0.get("bidPrice") or l0.get("bid"))
+            bid_v = _num(l0.get("bq") or l0.get("bidVol") or l0.get("bidVolume"))
+            ask_p = _num(l0.get("od") or l0.get("askPrice") or l0.get("ask"))
+            ask_v = _num(l0.get("oq") or l0.get("askVol") or l0.get("askVolume"))
         if bid_p <= 0:
-            bid_p = float(r.get("pd1") or 0)
+            bid_p = _num(r.get("pd1") or r.get("pMeDem"))
         if ask_p <= 0:
-            ask_p = float(r.get("po1") or 0)
+            ask_p = _num(r.get("po1") or r.get("pMeOf"))
+        if bid_p > 0 and ask_p > 0 and bid_p > ask_p:
+            bid_p, ask_p = ask_p, bid_p
+            bid_v, ask_v = ask_v, bid_v
 
         docs.append({
             "symbol": sym,
             "time": ts,
             "price": price,
-            "close": float(r.get("pcl") or 0),
-            "open": float(r.get("pOpening") or 0),
-            "high": float(r.get("pmax") or 0),
-            "low": float(r.get("pmin") or 0),
+            "close": close,
+            "open": popen,
+            "high": high,
+            "low": low,
+            "maxAllowed": allowed_max,
+            "minAllowed": allowed_min,
             "volume": tvol,
             "volumeDelta": vol_delta,
             "tradeCount": tno,
             "bidPrice": bid_p,
+            "bidVol": bid_v,
             "askPrice": ask_p,
+            "askVol": ask_v,
+            "yesterday": yday,
             "source": "tsetmc_live_tick",
         })
 

@@ -258,20 +258,180 @@ def status():
     }
 
 
+# ---------- Webgw helpers ----------
+import unicodedata as _uc
+
+def _norm_fa(s):
+    """normalize Persian/Arabic text: unify ی/ي و ک/ك، حذف فاصله/نقطه/ZWNJ."""
+    if s is None:
+        return ''
+    s = _uc.normalize('NFKC', str(s))
+    s = s.replace('\u064a', '\u06cc').replace('\u0643', '\u06a9')
+    s = re.sub(r'[\s\.\u200c\u200e\u200f\u00a0\u2022\-_]+', '', s)
+    return s
+
+def _wg_value(item, field):
+    """Webgw اکثر فیلدها را در {value, state} قرار می‌دهد،
+    ولی maxValue/minValue به‌صورت plain number هستند."""
+    if not item:
+        return 0.0
+    v = item.get(field)
+    if isinstance(v, dict):
+        v = v.get('value')
+    if v is None or v == '':
+        return 0.0
+    try:
+        f = float(v)
+        return 0.0 if f != f else f
+    except (TypeError, ValueError):
+        return 0.0
+
+def _fetch_webgw_map(client):
+    """خروجی: dict[normalized_name] = raw_item"""
+    try:
+        items = client.market_watch_cash(timeout=20)
+    except Exception as e:
+        log('live_market_webgw_err', str(e)[:200])
+        return {}
+    out = {}
+    for it in items or []:
+        name = it.get('instrumentName') or it.get('instrumentname') or ''
+        key = _norm_fa(name)
+        if key and key not in out:
+            out[key] = it
+    log('live_market_webgw', 'items={} unique={}'.format(len(items or []), len(out)))
+    return out
+
+def _webgw_to_live_record(item):
+    """Webgw item → ساختار /live-market"""
+    sym = str(item.get('instrumentName') or '').strip()
+    if not sym:
+        return None
+
+    last    = _wg_value(item, 'lastPrice')
+    close   = _wg_value(item, 'closingPrice')
+    yday    = _wg_value(item, 'yesterdayPrice')
+    popen   = _wg_value(item, 'firstPrice')
+    high    = _wg_value(item, 'highValue')
+    low     = _wg_value(item, 'lowValue')
+    vol     = _wg_value(item, 'tradeVolume')
+    tno     = _wg_value(item, 'tradeCount')
+    val     = _wg_value(item, 'tradeValue')
+    pct_l   = _wg_value(item, 'lastPriceChangePercent')
+    pct_c   = _wg_value(item, 'closingPriceChangePercent')
+    mx      = _wg_value(item, 'maxValue')
+    mn      = _wg_value(item, 'minValue')
+    bp      = _wg_value(item, 'buyPrice')
+    bq      = _wg_value(item, 'buyQuantity')
+    ap      = _wg_value(item, 'sellPrice')
+    aq      = _wg_value(item, 'sellQuantity')
+
+    if last <= 0 and close <= 0:
+        return None
+
+    return {
+        'Symbol': sym,
+        'Last': last or close,
+        'Close': close or last,
+        'pl': last or close,
+        'Open': popen,
+        'pf': popen,
+        'High': high or last or close,
+        'Low': low or last or close,
+        'MaxAllowed': mx,
+        'tmax': mx,
+        'MinAllowed': mn,
+        'tmin': mn,
+        'Volume': vol,
+        'tvol': vol,
+        'TradeCount': tno,
+        'tno': tno,
+        'Value': val,
+        'BidPrice': bp,
+        'BidVol': bq,
+        'AskPrice': ap,
+        'AskVol': aq,
+        'LastPercent': pct_l,
+        'ClosePercent': pct_c,
+        'Source': 'webgw',
+    }
+
 # ---------- Live Market (برای tick.job.js) ----------
 def _tsetmc_row_to_live(r):
-    """Normalize a TSETMC MarketWatch row to the shape the backend expects."""
+    """Normalize a TSETMC MarketWatch row to the shape the backend expects.
+
+    نکته مهم: در TSETMC CDN API، قیمت‌های مجاز در priceMax/priceMin هستن،
+    نه در pmax/pmin. pmax/pmin = بیشترین/کمترین قیمت معامله‌شده امروز.
+    """
     try:
         sym = r.get('lva') or r.get('lVal18AFC') or r.get('symbol')
         if not sym:
             return None
-        last = float(r.get('pDrCotVal') or r.get('last') or 0)
-        close = float(r.get('pcl') or r.get('pClosing') or 0)
-        po = float(r.get('pOpening') or 0)
-        pmax = float(r.get('pmax') or 0)
-        pmin = float(r.get('pmin') or 0)
-        vol = float(r.get('qTotTran5J') or 0)
-        tno = float(r.get('zTotTran') or 0)
+
+        def _num(v, d=0.0):
+            try:
+                f = float(v)
+                return d if f != f else f  # NaN check
+            except (TypeError, ValueError):
+                return d
+
+        last  = _num(r.get('pDrCotVal') or r.get('last'))
+        close = _num(r.get('pcl') or r.get('pClosing'))
+        yday  = _num(r.get('py') or r.get('priceYesterday') or r.get('yesterday'))
+        po    = _num(r.get('pOpening') or r.get('priceFirst'))
+        vol   = _num(r.get('qTotTran5J') or r.get('Volume'))
+        tno   = _num(r.get('zTotTran') or r.get('TradeCount'))
+
+        # --- High / Low: قیمت معامله‌شده امروز ---
+        high = _num(r.get('pmax'))
+        low  = _num(r.get('pmin'))
+        if high <= 0 and last > 0:
+            high = last
+        if low <= 0 and last > 0:
+            low = last
+
+        # --- Allowed limits: اول priceMax/priceMin ---
+        allowed_max = _num(r.get('priceMax'))
+        allowed_min = _num(r.get('priceMin'))
+        ref = close if close > 0 else last
+        # Sanity: باید داخل ±15% قیمت پایه باشه، وگرنه صفر
+        if ref > 0:
+            if not (allowed_max > 0 and 0.85 * ref <= allowed_max <= 1.15 * ref):
+                allowed_max = 0
+            if not (allowed_min > 0 and 0.85 * ref <= allowed_min <= 1.15 * ref):
+                allowed_min = 0
+        # Fallback: از Close ±5% بساز
+        if allowed_max <= 0 and ref > 0:
+            allowed_max = round(ref * 1.05)
+        if allowed_min <= 0 and ref > 0:
+            allowed_min = round(ref * 0.95)
+
+        # --- Bid / Ask from bestLimits (سرخط تقاضا/عرضه) ---
+        bid_p, bid_v, ask_p, ask_v = 0.0, 0.0, 0.0, 0.0
+        bl = r.get('bestLimits')
+        if isinstance(bl, list) and bl:
+            l0 = bl[0]
+            bid_p = _num(l0.get('bd') or l0.get('bid') or l0.get('bidPrice'))
+            bid_v = _num(l0.get('bq') or l0.get('bidVol') or l0.get('bidVolume'))
+            ask_p = _num(l0.get('od') or l0.get('ask') or l0.get('askPrice'))
+            ask_v = _num(l0.get('oq') or l0.get('askVol') or l0.get('askVolume'))
+        if bid_p <= 0:
+            bid_p = _num(r.get('pd1') or r.get('pMeDem'))
+        if ask_p <= 0:
+            ask_p = _num(r.get('po1') or r.get('pMeOf'))
+        if bid_p > 0 and ask_p > 0 and bid_p > ask_p:
+            bid_p, ask_p = ask_p, bid_p
+            bid_v, ask_v = ask_v, bid_v
+
+        # --- درصد تغییر نسبت به Close دیروز ---
+        pct_last = 0.0
+        pct_close = 0.0
+        if yday > 0:
+            if last > 0:
+                pct_last = (last / yday - 1) * 100
+            if close > 0:
+                pct_close = (close / yday - 1) * 100
+
         return {
             'Symbol': sym,
             'Last': last,
@@ -279,14 +439,24 @@ def _tsetmc_row_to_live(r):
             'pl': last,
             'Open': po,
             'pf': po,
-            'MaxAllowed': pmax,
-            'tmax': pmax,
-            'MinAllowed': pmin,
-            'tmin': pmin,
+            'High': high,
+            'Low': low,
+            'MaxAllowed': allowed_max,
+            'tmax': allowed_max,
+            'MinAllowed': allowed_min,
+            'tmin': allowed_min,
             'Volume': vol,
             'tvol': vol,
             'TradeCount': tno,
             'tno': tno,
+            # bid/ask واقعی سهم پایه
+            'BidPrice': bid_p,
+            'BidVol': bid_v,
+            'AskPrice': ask_p,
+            'AskVol': ask_v,
+            # درصد سهم پایه
+            'LastPercent': pct_last,
+            'ClosePercent': pct_close,
         }
     except Exception:
         return None
@@ -294,20 +464,55 @@ def _tsetmc_row_to_live(r):
 
 @app.get('/live-market')
 def live_market():
-    """Snapshot live کل بازار (سهام پایه) from TSETMC MarketWatch."""
+    """Snapshot live کل بازار — Webgw (maxValue/minValue واقعی) + legacy fallback."""
+    from pipeline.tsetmc_client import get_client, TSETMCError
     try:
-        from pipeline.tsetmc_client import get_client, TSETMCError
         client = get_client()
-        mw = client.market_watch(paper_types=(1, 2, 3))
+
+        # ── ۱) Webgw: منبع اصلی برای سهام پایه (سقف/کف مجاز واقعی) ──
+        webgw_map = _fetch_webgw_map(client)
+
         records = []
-        for r in (mw or []):
-            norm = _tsetmc_row_to_live(r)
-            if norm:
-                records.append(norm)
+        seen_names = set()
+
+        for key, item in webgw_map.items():
+            rec = _webgw_to_live_record(item)
+            if not rec:
+                continue
+            nm = rec['Symbol']
+            if nm in seen_names:
+                continue
+            seen_names.add(nm)
+            records.append(rec)
+
+        # ── ۲) Legacy: برای آپشن‌ها یا هر نمادی که در Webgw نبود ──
+        try:
+            mw_legacy = client.market_watch(paper_types=(1, 2, 3))
+        except TSETMCError:
+            mw_legacy = []
+
+        for r in (mw_legacy or []):
+            sym = r.get('lva') or r.get('lVal18AFC') or r.get('symbol') or ''
+            if not sym or sym in seen_names:
+                continue
+            # اگر معادل نرمال‌شده‌اش در Webgw هست، نسخه Webgw رو نگه‌دار
+            if _norm_fa(sym) in webgw_map:
+                continue
+            seen_names.add(sym)
+            rec = _tsetmc_row_to_live(r)
+            if rec:
+                rec['Source'] = 'legacy'
+                records.append(rec)
+
+        src_counts = {'webgw': 0, 'legacy': 0}
+        for r in records:
+            src_counts[r.get('Source', 'legacy')] = src_counts.get(r.get('Source', 'legacy'), 0) + 1
+
         return {
             'count': len(records),
             'data': records,
             'at': datetime.now(timezone.utc).isoformat(),
+            'sources': src_counts,
         }
     except Exception as e:
         log('live_market_err', str(e))

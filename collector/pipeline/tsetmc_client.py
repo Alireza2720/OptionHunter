@@ -215,6 +215,26 @@ class TSETMCClient:
         d = self._json(url)
         return d.get("closingPriceDaily", []) or []
 
+    # ─── Webgw MarketWatchCash (سقف/کف مجاز واقعی) ───
+    def market_watch_cash(self, timeout=20):
+        """TSETMC Webgw — سهام پایه با maxValue/minValue واقعی.
+
+        این منبع برخلاف CDN/legacy، فیلدهای maxValue (سقف مجاز) و
+        minValue (کف مجاز) را به‌صورت plain number برمی‌گرداند.
+        """
+        url = "https://webgw.tse.ir/InstrumentProvider/api/v1/MarketWatch/MarketWatchCash/fa"
+        try:
+            d = self._json(url, timeout=timeout)
+        except Exception:
+            return []
+        if isinstance(d, dict):
+            items = d.get("Items") or d.get("items") or d.get("data") or []
+        elif isinstance(d, list):
+            items = d
+        else:
+            items = []
+        return items or []
+
     # ─── Live market ───
     def market_watch(self, paper_types=(1, 2, 3, 5, 6), with_best_limits=False):
         parts = "&".join(
