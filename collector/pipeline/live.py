@@ -32,7 +32,7 @@ _stats = {
 
 _last_snap = {}
 _last_snap_date = None
-OPTION_INTERVAL_SEC = 300
+OPTION_INTERVAL_SEC = 600  # R38: 10 min (was 5)
 
 
 def _tehran_today():

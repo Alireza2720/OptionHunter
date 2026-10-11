@@ -134,7 +134,7 @@ def _install_signal_handlers():
 # 🆕 R18: Coverage background refresh (pre-compute + Mongo cache)
 # ────────────────────────────────────────────────────────────
 _coverage_bg_thread = None
-_COVERAGE_REFRESH_SEC = 25 * 60  # 25 min
+_COVERAGE_REFRESH_SEC = 90 * 60  # R38: 90 min (was 25)
 
 
 def _coverage_background_loop():
@@ -163,11 +163,9 @@ def _coverage_background_loop():
             except Exception:
                 pass
             print(f'⚠️ coverage bg refresh failed: {e}')
-        # Sleep in 1s chunks to allow shutdown
-        for _ in range(_COVERAGE_REFRESH_SEC):
-            if _shutdown_event.is_set():
-                return
-            time.sleep(1)
+        # R38: single sleep, use event.wait for shutdown
+        if _shutdown_event.wait(_COVERAGE_REFRESH_SEC):
+            return
 
 
 def _start_coverage_background():
@@ -179,6 +177,11 @@ def _start_coverage_background():
     )
     _coverage_bg_thread.start()
     print('✅ coverage background thread started')
+
+def _active_thread_count():
+    """R38: diagnostic for thread leak detection."""
+    import threading as _th
+    return len(_th.enumerate())
 
 
 @app.on_event('startup')
@@ -1408,6 +1411,21 @@ def control_ticker(p: TickerIn):
     else:
         live_mod.stop_ticker()
         return {'ok': True}
+
+
+# R38: thread diagnostics
+@app.get('/debug/threads')
+def debug_threads():
+    import threading as _th
+    items = []
+    for t in _th.enumerate():
+        items.append({
+            'name': t.name,
+            'daemon': t.daemon,
+            'alive': t.is_alive(),
+            'id': t.ident,
+        })
+    return {'count': len(items), 'threads': items}
 
 
 # ---------- Wipe ----------
