@@ -340,6 +340,9 @@ function register(app, deps) {
         try {
             await settings.save(req.body || {});
             await deps.reloadEntryWindow();
+            if (deps.signalService && deps.signalService.triggerAutoTick) {
+                deps.signalService.triggerAutoTick('trading-settings-change');
+            }
             if (deps.options && deps.options.reloadFromSettings) {
                 deps.options.reloadFromSettings();
             }

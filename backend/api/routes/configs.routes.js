@@ -19,6 +19,9 @@ function register(app, deps) {
     app.post('/api/strategy-configs', async (req, res, next) => {
         try {
             const doc = await configService.create(req.body);
+            if (deps.signalService && deps.signalService.triggerAutoTick) {
+                deps.signalService.triggerAutoTick('config-create:' + doc._id);
+            }
             res.json(doc);
         } catch (e) {
             if (e.status) return res.status(e.status).json({ error: e.message });
@@ -30,6 +33,9 @@ function register(app, deps) {
     app.put('/api/strategy-configs/:id', async (req, res, next) => {
         try {
             const r = await configService.update(req.params.id, req.body || {});
+            if (deps.signalService && deps.signalService.triggerAutoTick) {
+                deps.signalService.triggerAutoTick('config-update:' + req.params.id);
+            }
             res.json(r);
         } catch (e) {
             if (e.status) return res.status(e.status).json({ error: e.message });
@@ -41,6 +47,9 @@ function register(app, deps) {
     app.delete('/api/strategy-configs/:id', async (req, res, next) => {
         try {
             const r = await configService.remove(req.params.id);
+            if (deps.signalService && deps.signalService.triggerAutoTick) {
+                deps.signalService.triggerAutoTick('config-remove:' + req.params.id);
+            }
             res.json(r);
         } catch (e) { next(e); }
     });
@@ -55,6 +64,9 @@ function register(app, deps) {
             if (patch.role === 'leader' || patch.role === 'confirmer') cleanPatch.role = patch.role;
             if (patch.pairSymbol !== undefined) cleanPatch.pairSymbol = patch.pairSymbol ? String(patch.pairSymbol) : null;
             const r = await configService.bulkUpdate(ids, Object.keys(cleanPatch).length ? cleanPatch : patch);
+            if (deps.signalService && deps.signalService.triggerAutoTick) {
+                deps.signalService.triggerAutoTick('bulk-update:' + ids.length + ' configs');
+            }
             res.json(r);
         } catch (e) {
             if (e.status) return res.status(e.status).json({ error: e.message });

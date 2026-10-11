@@ -308,10 +308,39 @@ function getHealth() { return { ...health }; }
 function getLastQuotes() { return new Map(lastQuotes); }
 function isTickRunning() { return tickRunning; }
 
+// 🆕 R37: auto-tick بعد از تغییرات config/settings
+let _autoTickTimer = null;
+function triggerAutoTick(reason) {
+    if (_autoTickTimer) clearTimeout(_autoTickTimer);
+    _autoTickTimer = setTimeout(async () => {
+        try {
+            // فقط در ساعات بازار
+            const t = deps.dataService.getTehranParts();
+            const mins = deps.dataService.minuteOfDay(t);
+            const isTradingDay = ['Sat','Sun','Mon','Tue','Wed'].includes(t.weekday);
+            const isMarketOpen = isTradingDay && mins >= 9 * 60 + 30 && mins <= 12 * 60 + 30;
+            if (!isMarketOpen) {
+                deps.logger && deps.logger.info('auto-tick skipped (market closed): ' + reason);
+                return;
+            }
+            // اگه tick در جریانه، skip
+            if (tickRunning) {
+                deps.logger && deps.logger.info('auto-tick skipped (tick running): ' + reason);
+                return;
+            }
+            deps.logger && deps.logger.info('auto-tick triggered: ' + reason);
+            await tick();
+        } catch (e) {
+            deps.logger && deps.logger.warn('auto-tick: ' + e.message);
+        }
+    }, 5000);
+}
+
 module.exports = {
     init,
     tick,
     markHoliday, clearHoliday, loadHoliday, getHoliday,
     getHealth, getLastQuotes, isTickRunning,
+    triggerAutoTick,
     todayDateStr
 };
