@@ -2369,6 +2369,136 @@ async function s36_optionDebug() {
     }
 }
 
+async function s58_candleFresh() {
+    section(58, 'CANDLE FRESHNESS PER TIMEFRAME');
+    try {
+        const pathMod = require('path');
+        const env = require(pathMod.join(ROOT, 'backend', 'config', 'env'));
+        env.load();
+        const mongo = require(pathMod.join(ROOT, 'backend', 'infra', 'mongo'));
+        await mongo.connect(env.get().MONGO_URI);
+        const db = mongo.getDB();
+        const dataService = require(pathMod.join(ROOT, 'backend', 'services', 'data.service'));
+        dataService.init({ getDB: () => db, algotik: null, logger: console });
+        const symResp = await httpGet(CONF.backend + '/api/monitored-symbols');
+        const syms = (symResp.ok && Array.isArray(symResp.json)) ? symResp.json.slice(0, 5).map(s => s.symbol) : [];
+        if (!syms.length) return info('no symbols');
+        const tfs = ['15m', '30m', '1h', '1d'];
+        const tfMinMap = { '15m': 15, '30m': 30, '1h': 60, '1d': 1440 };
+        w('  ' + 'symbol'.padEnd(12) + tfs.map(t => t.padEnd(9)).join(''));
+        w('  ' + '-'.repeat(55));
+        let stale = 0;
+        for (const sym of syms) {
+            let line = '  ' + sym.padEnd(12);
+            for (const tf of tfs) {
+                try {
+                    const candles = await dataService.getCandles(sym, tf, { limit: 2 });
+                    if (!candles.length) { line += 'EMPTY'.padEnd(9); continue; }
+                    const last = candles[candles.length - 1];
+                    const ageMin = Math.round((Date.now() - last.time * 1000) / 60000);
+                    const tfMin = tfMinMap[tf];
+                    if (ageMin > tfMin * 24) stale++;
+                    line += (ageMin + 'm').padEnd(9);
+                } catch (_) { line += 'ERR'.padEnd(9); }
+            }
+            w(line);
+        }
+        if (stale > 3) warn(stale + " candles older than 24x timeframe — check backfill");
+        else ok('all candles fresh');
+    } catch (e) { fail('S58: ' + e.message); }
+}
+
+async function s59_strategyDryRun() {
+    section(59, 'STRATEGY DRY RUN (SIGNAL PRODUCTION)');
+    try {
+        const pathMod = require('path');
+        const env = require(pathMod.join(ROOT, 'backend', 'config', 'env'));
+        env.load();
+        const mongo = require(pathMod.join(ROOT, 'backend', 'infra', 'mongo'));
+        await mongo.connect(env.get().MONGO_URI);
+        const db = mongo.getDB();
+        const strategies = require(pathMod.join(ROOT, 'backend', 'strategies'));
+        const dataService = require(pathMod.join(ROOT, 'backend', 'services', 'data.service'));
+        dataService.init({ getDB: () => db, algotik: null, logger: console });
+        const symResp = await httpGet(CONF.backend + '/api/monitored-symbols');
+        const syms = (symResp.ok && Array.isArray(symResp.json)) ? symResp.json.slice(0, 3).map(s => s.symbol) : [];
+        if (!syms.length) return info('no symbols');
+        const testStrat = ['smc_unicorn', 'ob_sweep', 'donchian'];
+        let errCount = 0, sigCount = 0;
+        for (const sym of syms) {
+            for (const sid of testStrat) {
+                try {
+                    const def = strategies.STRATEGIES[sid];
+                    if (!def) continue;
+                    const req = strategies.getRequiredCandles(sid, def.defaultParams) || 100;
+                    const candles = dataService.closedOnly(await dataService.getCandles(sym, def.defaultTimeframe, { limit: 2000 }), def.defaultTimeframe);
+                    const htf = dataService.closedOnly(await dataService.getCandles(sym, def.htfTimeframe || '1d', { limit: 500 }), def.htfTimeframe || '1d');
+                    if (candles.length < req) { w('  ' + sym + '/' + sid + ': insufficient ' + candles.length + '/' + req); continue; }
+                    const result = def.run(candles, def.defaultParams, { htfCandles: htf, htfTimeframe: def.htfTimeframe || '1d', entryWindow: { start: 570, end: 720 } });
+                    const last = result.signals[result.signals.length - 1];
+                    const lastTime = last ? new Date(last.time * 1000).toISOString().slice(0, 16) : '-';
+                    const lastType = last ? (last.signalType || 'null') : '-';
+                    const pos = last ? (last.position || '-') : '-';
+                    const ageHr = last ? Math.round((Date.now() - last.time * 1000) / 3600000) : 999;
+                    wc('  ' + sym + '/' + sid + ': total=' + result.signals.length + ' last=' + lastType + ' pos=' + pos + ' at ' + lastTime + ' (' + ageHr + 'h)', C.green);
+                    if (result.signals.length > 0) sigCount++;
+                } catch (e) { errCount++; fail('  ' + sym + '/' + sid + ': ' + e.message); }
+            }
+        }
+        if (errCount === 0 && sigCount > 0) ok('dry run ok — ' + sigCount + ' pairs produce signals');
+        else if (errCount > 0) fail(errCount + ' errors');
+    } catch (e) { fail('S59: ' + e.message); }
+}
+
+async function s60_signalPipeline() {
+    section(60, 'SIGNAL PIPELINE STATE');
+    try {
+        const statusResp = await httpGet(CONF.backend + '/api/status');
+        const states = (statusResp.ok && Array.isArray(statusResp.json)) ? statusResp.json : [];
+        const longs = states.filter(s => s.position === 'LONG');
+        const now = Math.floor(Date.now() / 1000);
+        const staleLongs = longs.filter(s => {
+            const lct = s.lastCandleTime || 0;
+            return (now - lct) > 5 * 86400;
+        });
+        kv('total states', states.length);
+        kv('in LONG', longs.length);
+        kv('stale LONG >5d', staleLongs.length, staleLongs.length > 5 ? C.yellow : C.green);
+        const histResp = await httpGet(CONF.backend + "/api/signal-history?limit=5");
+        if (histResp.ok && Array.isArray(histResp.json)) {
+            for (const s of histResp.json.slice(0, 3)) {
+                const ca = s.createdAt || '?';
+                const ageHr = ca !== '?' ? Math.round((Date.now() - new Date(ca).getTime()) / 3600000) : -1;
+                wc('  last signal: ' + (s.symbol || '?') + ' ' + (s.signalType || '?') + ' ' + ageHr + 'h ago', ageHr > 48 ? C.yellow : C.green);
+            }
+        }
+        if (staleLongs.length > 10) warn(staleLongs.length + ' stale LONG — reset via /api/reset-signals-state');
+        else ok('signal pipeline state ok');
+    } catch (e) { fail('S60: ' + e.message); }
+}
+
+async function s61_backfillDetail() {
+    section(61, 'BACKFILL DETAILED');
+    try {
+        const r = await httpGet(CONF.collector + '/jobs?limit=10');
+        if (!r.ok || !Array.isArray(r.json)) return warn('jobs list unavailable');
+        const active = r.json.filter(j => j.status === 'RUNNING' || j.status === 'QUEUED' || j.status === 'PAUSED');
+        kv('active jobs', active.length);
+        for (const j of active.slice(0, 3)) {
+            const phases = j.phases || {};
+            const phaseNames = Object.keys(phases);
+            const done = phaseNames.filter(k => phases[k] && phases[k].current >= phases[k].total).length;
+            kv('  ' + (j.type || '?'), j.status + ' - ' + done + '/' + phaseNames.length + ' phases, phase=' + (j.phase || '-'));
+            if (j.started_at) {
+                const ageMin = Math.round((Date.now() - new Date(j.started_at).getTime()) / 60000);
+                if (ageMin > 120) warn('    running for ' + ageMin + ' min — may be stuck');
+            }
+        }
+        if (active.length === 0) ok('no active backfill');
+        else info('backfill active — will block tick during market hours');
+    } catch (e) { fail('S61: ' + e.message); }
+}
+
 async function s34_report() {
     section(34, 'FINAL REPORT');
 
@@ -3042,6 +3172,10 @@ async function runDoctor() {
     await run(55, 'ENV', s55_envIntegrity);
     await run(56, 'EGRESS', s56_networkEgress, true);
     await run(57, 'DEPLOY', s57_deployStatus);
+    await run(58, 'CANDLE-FRESH', s58_candleFresh, true);
+    await run(59, 'DRY-RUN', s59_strategyDryRun, true);
+    await run(60, 'SIGNAL-PIPE', s60_signalPipeline, true);
+    await run(61, 'BACKFILL', s61_backfillDetail, true);
     await run(34, 'REPORT', s34_report, true);
     stopSafetyWatchdog();
 

@@ -73,6 +73,10 @@ async function ensureIndexes() {
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { time: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { symbol: 1, time: 1 }, { unique: true });
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { source: 1 });
+    // 🆕 R36: descending index for _fresh query in getCandles (limit optimization)
+    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { time: -1 });
+    // 🆕 R36: descending index for _fresh query in getCandles (limit optimization)
+    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { time: -1 });
 
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_DAILY), { symbol: 1, time: 1 }, { unique: true });
 

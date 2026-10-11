@@ -264,7 +264,7 @@ async function getCandles(symbol, tf, opts = {}) {
         const perm = await db.collection(COLLECTIONS.CANDLES_TF)
             .find({ symbol, tf }).sort({ time: -1 }).limit(limit).toArray();
         const _lastPerm = perm[0] ? perm[0].time.getTime() : 0;
-        const _fresh = await db.collection(COLLECTIONS.CANDLES_BASE).find({ symbol: symbol, time: { $gt: new Date(_lastPerm) } }).limit(1000).toArray();
+        const _fresh = await db.collection(COLLECTIONS.CANDLES_BASE).find({ symbol: symbol, time: { $gt: new Date(_lastPerm) } }, { projection: { time: 1, open: 1, high: 1, low: 1, close: 1, volume: 1, source: 1 } }).sort({ time: -1 }).limit(500).toArray();
         const _hasNew = _fresh.length > 0;
         if (perm.length >= limit && !_hasNew) {
             return perm.reverse().map(c => ({
