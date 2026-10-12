@@ -63,3 +63,6 @@ patch-*.js
 servicepy-fix-backup-*/
 _*bk-*/
 _bak-*
+# Patch script backups
+*.bak-*
+*.bak
