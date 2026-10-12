@@ -26,9 +26,9 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
-      max_memory_restart: '900M',
+      max_memory_restart: '2000M',
       // 🆕 V8 aware of the limit — خودش GC می‌کنه قبل از اینکه kill بشه
-      node_args: '--max-old-space-size=850 --expose-gc',
+      node_args: '--max-old-space-size=2000 --expose-gc',
       env: {
         NODE_ENV: 'production',
         PORT: 3000,

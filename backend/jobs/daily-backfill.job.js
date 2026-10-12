@@ -48,7 +48,7 @@ function dateToJalaliStr(d) {
 async function run() {
     try {
         const today = new Date();
-        const from = new Date(today.getTime() - 3 * 86400 * 1000);   // 3 روز عقب برای امنیت
+        const from = new Date(today.getTime() - 1 * 86400 * 1000);   // 3 روز عقب برای امنیت
 
         const fromJ = dateToJalaliStr(from);
         const toJ = dateToJalaliStr(today);

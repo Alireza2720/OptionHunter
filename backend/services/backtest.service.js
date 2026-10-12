@@ -203,7 +203,7 @@ async function processQueue() {
         const db = deps.getDB();
         while (true) {
             // job queue limit: max 2 concurrent RUNNING
-            const MAX_CONCURRENT = 2;
+            const MAX_CONCURRENT = 4;
             const _runningCount = await deps.getDB().collection(COLLECTIONS.BACKTEST_JOBS).countDocuments({
                 status: JOB_STATUS.RUNNING
             });
