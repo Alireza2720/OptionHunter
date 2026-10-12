@@ -256,7 +256,7 @@ async function bootstrap() {
         todayDateString: () => signalService.todayDateStr(),
         getQuote: (sym) => signalService.getLastQuotes().get(sym),
         getUnderlyingNames,
-        getChain: async () => optionsChain.fetchChain(60000)
+        getChain: async () => optionsChain.fetchChain()
     });
 
     // 7.5) paper trading service

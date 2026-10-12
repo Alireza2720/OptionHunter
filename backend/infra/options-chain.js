@@ -127,7 +127,18 @@ function parseContract(r) {
 }
 
 // ---------- Public API (kept compatible with callers) ----------
-async function fetchChain(maxAgeMs = cacheTtlMs) {
+async function fetchChain(maxAgeMs = null) {
+    if (maxAgeMs === null || maxAgeMs === undefined) {
+        try {
+            const settings = require('../settings');
+            const raw = settings.get()['OPTION_CHAIN_CACHE_TTL_SEC'];
+            const n = parseFloat(raw);
+            const sec = Number.isFinite(n) ? Math.max(5, Math.min(600, n)) : 15;
+            maxAgeMs = sec * 1000;
+        } catch (_) {
+            maxAgeMs = cacheTtlMs;
+        }
+    }
     const now = Date.now();
     if (maxAgeMs > 0 && cache.list && (now - cache.at) < maxAgeMs) {
         return cache.list;

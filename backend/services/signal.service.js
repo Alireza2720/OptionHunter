@@ -44,7 +44,7 @@ let tickStartTime = 0;
 const TICK_TIMEOUT_MS = 90 * 1000;
 const lastSnap = new Map();
 const lastQuotes = new Map();
-let inactiveTicks = 0;
+let _inactiveSince = 0;
 let holidayDate = null;
 // (حذف شد — بدون استفاده)
 
@@ -214,12 +214,13 @@ async function tick() {
             const totalSymbols = monitored.length || 1;
             const activeRatio = activeCount / totalSymbols;
             if (activeRatio < 0.3) {
-                if (++inactiveTicks >= 12) {
+                if (!_inactiveSince) _inactiveSince = Date.now();
+                if (Date.now() - _inactiveSince >= 15 * 60 * 1000) {
                     await markHoliday(tehran);
                     return;
                 }
             } else {
-                inactiveTicks = 0;
+                _inactiveSince = 0;
             }
         }
 
@@ -294,7 +295,7 @@ async function markHoliday(t) {
 
 async function clearHoliday() {
     holidayDate = null;
-    inactiveTicks = 0;
+    _inactiveSince = 0;
     await deps.getDB().collection(COLLECTIONS.META).deleteOne({ _id: 'holiday' });
 }
 

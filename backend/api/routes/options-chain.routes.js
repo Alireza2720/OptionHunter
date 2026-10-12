@@ -41,7 +41,7 @@ function register(app, deps) {
                 optionsChain.clearCache();
             }
 
-            const maxAgeMs = fresh ? 0 : (CACHE_TTL.OPTION_CHAIN || 60000);
+            const maxAgeMs = fresh ? 0 : undefined;
 
             const t0 = Date.now();
             const list = await optionsChain.fetchChain(maxAgeMs);

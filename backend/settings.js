@@ -84,6 +84,9 @@ const DEFAULTS = {
     // ---- فاصله تیک زنده (ثانیه) — 10 تا 600 ----
     TICK_INTERVAL_SEC: 60,
 
+    // ---- Cache TTL for option chain (seconds) - 5 to 600 ----
+    OPTION_CHAIN_CACHE_TTL_SEC: 15,
+
     // ---- Option contract quality level (A+ / A / B / C / D) ----
     // Controls which contracts are eligible in BOTH backtest AND live.
     OPTION_QUALITY_LEVEL: 'B',
@@ -212,6 +215,12 @@ async function save(partial) {
         if (k === 'TICK_INTERVAL_SEC') {
             const n = parseFloat(partial[k]);
             if (!Number.isFinite(n) || n < 10 || n > 600) continue;
+            clean[k] = Math.round(n);
+            continue;
+        }
+        if (k === 'OPTION_CHAIN_CACHE_TTL_SEC') {
+            const n = parseFloat(partial[k]);
+            if (!Number.isFinite(n) || n < 5 || n > 600) continue;
             clean[k] = Math.round(n);
             continue;
         }
