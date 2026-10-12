@@ -43,7 +43,7 @@ const pipelineService = require('./services/pipeline.service');
 const backtestOrchestrator = require('./services/backtest-orchestrator.service');
 const dualStageService = require('./services/dual-stage-pipeline.service');
 const paperTradingService = require('./services/paper-trading.service');
-// R27: // R27: const sweepService = require('./services/strategy-sweep.service');
+// R27: const sensitivityService = require('./services/sensitivity.service');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
