@@ -462,8 +462,16 @@ def _tsetmc_row_to_live(r):
         return None
 
 
+_live_market_cache = {'at': 0.0, 'data': None}
+_LIVE_MARKET_TTL = 10
+
+
 @app.get('/live-market')
 def live_market():
+    import time as _t
+    _now = _t.time()
+    if _live_market_cache['data'] is not None and (_now - _live_market_cache['at']) < _LIVE_MARKET_TTL:
+        return _live_market_cache['data']
     """Snapshot live کل بازار — Webgw (maxValue/minValue واقعی) + legacy fallback."""
     from pipeline.tsetmc_client import get_client, TSETMCError
     try:
@@ -508,7 +516,7 @@ def live_market():
         for r in records:
             src_counts[r.get('Source', 'legacy')] = src_counts.get(r.get('Source', 'legacy'), 0) + 1
 
-_result = {
+        _result = {
             'count': len(records),
             'data': records,
             'at': datetime.now(timezone.utc).isoformat(),
