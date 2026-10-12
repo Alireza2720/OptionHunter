@@ -209,6 +209,20 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
         if last > 0:
             spot_map[normalize_fa(sym)] = last
 
+    # 🆕 Fallback: last daily close from candles_daily (for halted symbols like شپنا)
+    fallback_spot = {}
+    try:
+        for sym in underlyings:
+            row = db['candles_daily'].find_one(
+                {'symbol': sym},
+                sort=[('time', -1)],
+                projection={'close': 1}
+            )
+            if row and row.get('close', 0) > 0:
+                fallback_spot[normalize_fa(sym)] = row['close']
+    except Exception as _fe:
+        log('og_fallback_spot_err', str(_fe)[:200])
+
     # ── Parallel BestLimits: fetch 5-level order book for all contracts ──
     _best_limits_map = {}
     _all_ins = [cc.get('insCode') for cc in contracts_all if cc.get('insCode')]
@@ -251,6 +265,8 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
 
         ua_norm = normalize_fa(ua)
         S = spot_map.get(ua_norm)
+        if not S or S <= 0:
+            S = fallback_spot.get(ua_norm)
         if not S or S <= 0:
             continue
 
