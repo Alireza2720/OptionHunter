@@ -47,15 +47,9 @@ function push(level, msg) {
     // 🆕 هر event مهم (tick, option, trade) به DB می‌ره
     const str = String(msg);
     const persist = level !== 'info'
-        || str.startsWith('tick |')
-        || str.startsWith('tick_ok')
-        || str.startsWith('option_ok')
         || str.startsWith('tick_err')
         || str.startsWith('option_loop')
-        || str.startsWith('evaluateAll')
         || str.startsWith('signal ')
-        || str.startsWith('no-signal ')
-        || str.startsWith('duplicate ')
         || str.startsWith('tick skipped');
 
     if (dbAccessor && persist) {

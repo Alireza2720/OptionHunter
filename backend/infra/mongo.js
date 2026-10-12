@@ -82,6 +82,7 @@ async function ensureIndexes() {
 
     // --- سیگنال‌ها ---
     await safeCreateIndex(db.collection(COLLECTIONS.SIGNAL_HISTORY), { createdAt: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.SIGNAL_HISTORY), { configId: 1, createdAt: -1 });
     await safeCreateIndex(db.collection(COLLECTIONS.SIGNAL_HISTORY), { symbol: 1, createdAt: -1 });
     // 🆕 TTL: 30 days
     await safeCreateIndex(
