@@ -115,7 +115,7 @@ let task = null;
 function start() {
     if (task) return;
     // هر شب 13:30 تهران (بعد از بازار و gap از بازار جدید)
-    task = cron.schedule('30 13 * * 6,0,1,2,3', checkAndFix, { timezone: 'Asia/Tehran' });
+    task = cron.schedule('0 14 * * 6,0,1,2,3', checkAndFix, { timezone: 'Asia/Tehran' });
     deps.logger && deps.logger.info('gap-detector.job started');
 }
 function stop() { if (task) { task.stop(); task = null; } }

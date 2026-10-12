@@ -200,14 +200,15 @@ async function tick() {
 
         // 🆕 Invalidate candle cache BEFORE evaluateAll
         // (candles just got written; must read fresh)
-        if (_updatedThisTick.size && deps.dataService.invalidateCandleCache) {
-            try {
+        try {
+            if (_updatedThisTick.size && deps.dataService.invalidateCandleCache) {
                 for (const sym of _updatedThisTick) {
-                    deps.dataService.invalidateCandleCache(sym);
+                    try { deps.dataService.invalidateCandleCache(sym); } catch (_) {}
                 }
-            } catch (_) {}
+            }
+        } finally {
+            _updatedThisTick.clear();
         }
-        _updatedThisTick.clear();
 
         // تشخیص تعطیلی: فقط در ساعت بازار — نسبت به تعداد کل
         if (isWithinMarketWindow) {
