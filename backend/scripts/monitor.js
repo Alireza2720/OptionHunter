@@ -41,6 +41,7 @@ const CONF = {
 
     // 🆕 قیدهای زمانی و job
     forceHours: ARGV.includes('--force-hours') || ARGV.includes('--unsafe') || ARGV.includes('--force'),
+    coreOnly: ARGV.includes('--core'),
     // ↑ اجبار به اجرا حتی در ساعات بازار
     waitForIdle: ARGV.includes('--wait-for-idle'),
     // ↑ اگر job فعال بود، منتظر بمان (پیش‌فرض: رد کن)
@@ -50,6 +51,8 @@ const CONF = {
     })(),
     // ↑ حداکثر زمان انتظار برای job ها (دقیقه)
 };
+// R30: --core mode — only critical sections for fast checks
+const CORE_SECTIONS = new Set([1, 2, 3, 8, 9, 10, 12, 30, 31, 32]);
 const secArg = ARGV.find((a) => a.startsWith('--sections='));
 if (secArg) {
     CONF.sections = secArg.split('=')[1].split(',').map((s) => +s.trim()).filter((n) => Number.isInteger(n) && n > 0);
@@ -324,7 +327,7 @@ function _sectionInc(type) {
     const k = Object.keys(R.sectionResults).pop();
     if (k !== undefined) R.sectionResults[k][type]++;
 }
-function sectionEnabled(n) { return !CONF.sections || CONF.sections.includes(n); }
+function sectionEnabled(n) { if (CONF.coreOnly && !CORE_SECTIONS.has(n)) return false; return !CONF.sections || CONF.sections.includes(n); }
 
 // ============================================================
 // UTILS

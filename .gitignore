@@ -90,3 +90,6 @@ _bak-*
 
 # Group 7 backups
 *.g7-*
+
+# Group 8 backups
+*.g8-*

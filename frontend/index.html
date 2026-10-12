@@ -1558,10 +1558,12 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
     <span style="display:flex; gap:4px;">
       <button class="btn tiny" id="dashTabPaper" onclick="switchDashTab('paper')">معاملات دمو</button>
       <button class="btn tiny outline" id="dashTabLive" onclick="switchDashTab('live')">داشبورد زنده</button>
+      <button class="btn tiny outline" id="dashTabJournal" onclick="switchDashTab('journal')">ژورنال</button>
     </span>
     <button class="btn tiny outline" onclick="refreshActiveDash(this)" style="margin-right:auto;">رفرش</button>
   </h2> <div id="dashboardContent" style="display:none;"><div class="empty-note">در حال بارگذاری...</div></div>
-  <div id="paperDashboardContent"><div class="empty-note">برای مشاهده، روی تب «معاملات دمو» کلیک کن</div></div> </div> <div class="card collapsible open" id="cardPipeline"> <h2 onclick="toggleCard('cardPipeline')"><span class="h2-title">خط لوله داده</span><span class="chev">▼</span></h2> <div class="card-body">  <div id="ptab-backfill"> <div class="pipeline-block"> <h3>Backfill کامل</h3> <div class="form-row" style="align-items:end; margin-bottom:8px;"> <div class="field" style="min-width:150px;"> <label>از تاریخ</label> <input type="text" id="algotikFromDate" placeholder="1405/01/01" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div class="field" style="min-width:150px;"> <label>تا تاریخ</label> <input type="text" id="algotikToDate" placeholder="1405/06/30" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div id="backfillSymbolsFilter" style="margin:8px 0; padding:8px 12px; background:var(--bg-elev-2); border:1px solid var(--border); border-radius:var(--r-md);">
+  <div id="paperDashboardContent"><div class="empty-note">برای مشاهده، روی تب «معاملات دمو» کلیک کن</div></div>
+  <div id="journalDashboardContent" style="display:none;"><div class="empty-note">برای مشاهده، روی تب «ژورنال» کلیک کن</div></div> </div> <div class="card collapsible open" id="cardPipeline"> <h2 onclick="toggleCard('cardPipeline')"><span class="h2-title">خط لوله داده</span><span class="chev">▼</span></h2> <div class="card-body">  <div id="ptab-backfill"> <div class="pipeline-block"> <h3>Backfill کامل</h3> <div class="form-row" style="align-items:end; margin-bottom:8px;"> <div class="field" style="min-width:150px;"> <label>از تاریخ</label> <input type="text" id="algotikFromDate" placeholder="1405/01/01" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div class="field" style="min-width:150px;"> <label>تا تاریخ</label> <input type="text" id="algotikToDate" placeholder="1405/06/30" data-jdp data-jdp-only-date style="direction:ltr; text-align:center;"> </div> <div id="backfillSymbolsFilter" style="margin:8px 0; padding:8px 12px; background:var(--bg-elev-2); border:1px solid var(--border); border-radius:var(--r-md);">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
     <b style="font-size:12px;">انتخاب نمادها برای Backfill</b>
     <div style="display:flex; gap:4px;">
@@ -2752,17 +2754,79 @@ function switchDashTab(tab) {
     _activeDashTab = tab;
     const liveEl = document.getElementById('dashboardContent');
     const paperEl = document.getElementById('paperDashboardContent');
+    const journalEl = document.getElementById('journalDashboardContent');
     const liveBtn = document.getElementById('dashTabLive');
     const paperBtn = document.getElementById('dashTabPaper');
+    const journalBtn = document.getElementById('dashTabJournal');
     if (liveEl) liveEl.style.display = tab === 'live' ? 'block' : 'none';
     if (paperEl) paperEl.style.display = tab === 'paper' ? 'block' : 'none';
+    if (journalEl) journalEl.style.display = tab === 'journal' ? 'block' : 'none';
     if (liveBtn) liveBtn.className = 'btn tiny' + (tab === 'live' ? '' : ' outline');
     if (paperBtn) paperBtn.className = 'btn tiny' + (tab === 'paper' ? '' : ' outline');
+    if (journalBtn) journalBtn.className = 'btn tiny' + (tab === 'journal' ? '' : ' outline');
     if (tab === 'paper') loadPaperDashboard();
+    if (tab === 'journal') loadJournalDashboard();
 }
 function refreshActiveDash(btn) {
     if (_activeDashTab === 'live') loadLiveDashboard(btn);
+    else if (_activeDashTab === 'journal') loadJournalDashboard(btn);
     else loadPaperDashboard(btn);
+}
+async function loadJournalDashboard(btn) {
+    const el = document.getElementById('journalDashboardContent');
+    if (!el) return;
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    try {
+        const r = await apiFetch(BACKEND_URL + '/api/journal?limit=300', {}, 0);
+        const s = r.stats || {};
+        const statBox = (l, v, cls) => '<div class="stat ' + (cls||'') + '"><small>' + l + '</small><b>' + v + '</b></div>';
+        const fmtT = (ts) => ts ? new Date(ts).toLocaleString('fa-IR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+        const rows = (r.trades || []).map(t => {
+            const e = t.entry || {};
+            const x = t.exit || {};
+            const closed = t.status === 'closed';
+            const pnl = x.pnlPct;
+            const pnlCls = pnl == null ? '' : (pnl >= 0 ? 'pos' : 'neg');
+            const pnlTxt = pnl == null ? '—' : (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '%';
+            return '<tr> <td>' + fmtT(e.time) + '</td> <td><b>' + esc(t.symbol || '-') + '</b></td> <td>' + esc(t.strategyId || '-') + '</td> <td>' + esc(t.contract ? t.contract.symbol : '-') + '</td> <td>' + (e.positionSize || 0) + '</td> <td>' + fmtN(e.optionAsk) + '</td> <td>' + (closed ? fmtN(x.optionBid) : '<span class="badge warn">باز</span>') + '</td> <td class="' + pnlCls + '">' + pnlTxt + '</td> <td style="font-size:11px;">' + esc(x.reason || '-') + '</td> </tr>';
+        }).join('');
+        el.innerHTML =
+            '<div class="stats-grid">' +
+                statBox('کل', s.total || 0) +
+                statBox('باز', s.open || 0) +
+                statBox('بسته', s.closed || 0) +
+                statBox('وین ریت', (s.winRate || 0) + '%', s.winRate >= 50 ? 'highlight-good' : '') +
+                statBox('میانگین', (s.avgPnl != null ? (s.avgPnl >= 0 ? '+' : '') + s.avgPnl.toFixed(2) + '%' : '—')) +
+                statBox('PF', s.pf != null ? (s.pf === 999 ? '∞' : s.pf.toFixed(2)) : '-', s.pf >= 2 ? 'highlight-good' : '') +
+            '</div>' +
+            '<div style="display:flex;gap:8px;margin:10px 0;">' +
+                '<button class="btn tiny outline" onclick="loadJournalDashboard(this)">🔄 رفرش</button>' +
+                '<button class="btn tiny outline" onclick="syncJournalDashboard(this)">📥 همگام‌سازی</button>' +
+            '</div>' +
+            '<div class="table-responsive" style="max-height:500px;overflow-y:auto;">' +
+                '<table class="data-table">' +
+                    '<thead><tr><th>ورود</th><th>نماد</th><th>استراتژی</th><th>قرارداد</th><th>حجم</th><th>Ask</th><th>Bid</th><th>بازده</th><th>دلیل</th></tr></thead>' +
+                    '<tbody>' + (rows || '<tr class="empty-row"><td colspan="9">معامله‌ای ثبت نشده</td></tr>') + '</tbody>' +
+                '</table>' +
+            '</div>';
+    } catch (e) {
+        el.innerHTML = '<div class="empty-note">خطا: ' + esc(e.message) + '</div>';
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'رفرش'; }
+    }
+}
+
+async function syncJournalDashboard(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    try {
+        const r = await apiFetch(BACKEND_URL + '/api/journal/sync', { method: 'POST' }, 0);
+        showAlert('✅ ' + (r.created || 0) + ' جدید، ' + (r.updated || 0) + ' به‌روزرسانی', 'success', 4000);
+        await loadJournalDashboard();
+    } catch (e) {
+        showAlert('خطا: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'همگام‌سازی'; }
+    }
 }
 async function loadPaperDashboard(btn) {
     const el = document.getElementById('paperDashboardContent');
