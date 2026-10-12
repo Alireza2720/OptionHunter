@@ -34,7 +34,8 @@ function computeRegimeDistribution(trades, dailyCandles, emaPeriod = 200) {
         return {
             distribution: null,
             totalTrades: trades.length,
-            error: `daily candles کم (${dailyCandles ? dailyCandles.length : 0} < ${emaPeriod + 20})`
+            error: `daily candles کم (${dailyCandles ? dailyCandles.length : 0} < ${emaPeriod + 20})`,
+            diverse: true  // R28: unknown regime → do not block
         };
     }
 

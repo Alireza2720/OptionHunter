@@ -301,11 +301,12 @@ async function generate() {
         { $set: { ...report, generatedAt: new Date() } },
         { upsert: true }
     );
-    // آرشیو
-    await db.collection(COLLECTIONS.META).insertOne({
-        _id: `monthly_report_${now.toISOString().slice(0, 7)}`,
-        ...report
-    }).catch(() => {}); // ممکنه دوباره اجرا بشه
+    // آرشیو (R28: idempotent upsert)
+    await db.collection(COLLECTIONS.META).updateOne(
+        { _id: `monthly_report_${now.toISOString().slice(0, 7)}` },
+        { $set: { ...report, generatedAt: new Date() } },
+        { upsert: true }
+    ).catch(() => {});
 
     return report;
 }
@@ -441,7 +442,8 @@ let task = null;
 function start() {
     if (task) return;
     // 🆕 اول هر ماه ساعت 10:30 (جلوگیری از تداخل با weeklyBackup)
-    task = cron.schedule('30 10 1 * *', run, { timezone: 'Asia/Tehran' });
+    // R28: weekly refresh (پنجشنبه ۱۰:۰۰)
+    task = cron.schedule('0 10 * * 4', run, { timezone: 'Asia/Tehran' });
     deps.logger && deps.logger.info('monthly-report.job started');
 }
 function stop() { if (task) { task.stop(); task = null; } }

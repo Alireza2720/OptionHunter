@@ -72,3 +72,6 @@ _bak-*
 *.broken2-*
 *.beforefix3-*
 *.fix4bak-*
+
+# Group 2 backups
+*.g2-*

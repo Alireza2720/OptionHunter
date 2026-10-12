@@ -75,7 +75,7 @@ function computeGlobalStats(trades) {
     const avgLoss = losses.length ? Math.abs(losses.reduce((s, x) => s + x, 0) / losses.length) : 0;
 
     // 🆕 Kelly فقط با نمونه کافی (N ≥ 30) — وگرنه fallback به riskPct ثابت
-    const MIN_KELLY_TRADES = 30;
+    const MIN_KELLY_TRADES = 20;  // R28: dynamic threshold
     let halfKelly = 0;
     let kellyReliable = false;
     if (pnls.length >= MIN_KELLY_TRADES && avgLoss > 0 && avgWin > 0 && winRate > 0 && winRate < 1) {
