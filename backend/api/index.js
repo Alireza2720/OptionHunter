@@ -42,7 +42,7 @@ const paperTradingRoutes = require('./routes/paper-trading.routes');
 const rollbackRoutes = require('./routes/rollback.routes');
 // R27: sweep removed
 // // R27: sweep removed
-// const sensitivityRoutes = require('./routes/sensitivity.routes');
+const sensitivityRoutes = require('./routes/sensitivity.routes');
 
 function createApp(deps) {
     const app = express();
