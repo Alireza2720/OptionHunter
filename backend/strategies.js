@@ -2264,6 +2264,7 @@ function runHHHL(candles, params, ctx) {
         'low_vol_anomaly', 'tsmom',
         'opening_drive', 'vw_breakout', 'nr7',
         'vwap_reclaim', 'rsi_divergence', 'ib_breakout',
+        'vcp', 'gap_continuation', 'three_bar_reversal', 'hhhl',
     ];
     for (let _i = 0; _i < PRO_ELIGIBLE.length; _i++) {
         const _bid = PRO_ELIGIBLE[_i];
@@ -2290,6 +2291,7 @@ function runHHHL(candles, params, ctx) {
         ORB_PRO_DEFAULTS, GAP_GO_DEFAULTS,
         OPENING_DRIVE_DEFAULTS, VW_BREAKOUT_DEFAULTS, NR7_DEFAULTS,
         VWAP_RECLAIM_DEFAULTS, RSI_DIV_DEFAULTS, IB_BREAKOUT_DEFAULTS,
+        VCP_DEFAULTS, GAP_CONT_DEFAULTS, THREE_BAR_DEFAULTS, HHHL_DEFAULTS,
         // === registry ===
         STRATEGIES
     };

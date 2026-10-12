@@ -102,3 +102,6 @@ _bak-*
 
 # Group 9-C backups
 *.g9c-*
+
+# Group 9-C-FIX backups
+*.g9cfix-*
