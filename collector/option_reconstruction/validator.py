@@ -53,7 +53,7 @@ def validate(db, holdout_pct=0.20, log_fn=None, seed=42):
         if real_bid <= 0 or real_ask <= 0:
             continue
         # Skip low-premium outliers (MAPE explodes on tiny bases)
-        MIN_PREMIUM_FOR_MAPE = 10.0
+        MIN_PREMIUM_FOR_MAPE = 500.0  # R31: for Iranian options (prices in Rial, 500 = ~50 Toman minimum)
         MAX_PREMIUM_FOR_MAPE = 1e7
         if real_bid < MIN_PREMIUM_FOR_MAPE or real_ask < MIN_PREMIUM_FOR_MAPE:
             continue

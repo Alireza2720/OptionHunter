@@ -30,6 +30,11 @@ ENRICHER_VERSION = "v3"
 
 
 def _classify(row):
+    # R31: force-classify if dataQuality missing
+    dq = row.get("dataQuality")
+    if dq is None and not row.get("enrichedMethod"):
+        # will fall through to bid/ask/close check below
+        pass
     src = str(row.get("source") or "").lower()
 
     # Previously enriched → rebuild with current model (model may improve)
