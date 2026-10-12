@@ -25,12 +25,17 @@ from .spread_model import (
 REAL_SOURCES = {"algotik", "algotik_snapshot", "tsetmc_live"}
 SYNTHETIC_SOURCES = {"synthetic_daily"}
 
+# R29: version tag — bump to force re-enrichment of all rows
+ENRICHER_VERSION = "v3"
+
 
 def _classify(row):
     src = str(row.get("source") or "").lower()
 
     # Previously enriched → rebuild with current model (model may improve)
     if row.get("enrichedMethod"):
+        if row.get("enricherVersion") == ENRICHER_VERSION:
+            return "real"  # R29: already current version
         return "needs_rebuild"
 
     if src in SYNTHETIC_SOURCES:
@@ -127,6 +132,7 @@ def enrich_row(row, spread_model, symbol=None):
         "bid": round(bid, 4),
         "ask": round(ask, 4),
         "bidFilled": True,
+        "enricherVersion": ENRICHER_VERSION,
         "askFilled": True,
         "dataQuality": "enriched",
         "enrichedAt": datetime.now(timezone.utc),
@@ -194,6 +200,22 @@ def enrich_collection(db, symbol=None, dry_run=False, log_fn=None, batch_size=10
         else:
             patch = enrich_row(row, spread_model, symbol=row.get("underlying"))
             if patch and patch.get("dataQuality") == "enriched":
+                # R29: compute IV from mid price if missing
+                if not row.get("ivApi") and patch.get("bid") and patch.get("ask"):
+                    try:
+                        from .pricing import implied_vol, get_risk_free_rate
+                        _S = _safe_float(row.get("S"))
+                        _K = _safe_float(row.get("strike"))
+                        _D = _safe_float(row.get("daysLeft"))
+                        if _S > 0 and _K > 0 and _D > 0:
+                            _T = max(_D, 0.5) / 365.0
+                            _mid = (patch["bid"] + patch["ask"]) / 2.0
+                            _rf = get_risk_free_rate(_safe_float(row.get("riskFreeRate")) or None)
+                            _iv = implied_vol(_mid, _S, _K, _T, _rf, is_call=bool(row.get("isCall")))
+                            if _iv and 0.01 <= _iv <= 5.0:
+                                patch["ivApi"] = round(_iv, 6)
+                    except Exception:
+                        pass
                 if classification == "needs_rebuild":
                     stats["rebuilt"] += 1
                 else:

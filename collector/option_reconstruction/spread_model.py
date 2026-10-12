@@ -143,11 +143,14 @@ def build_spread_model(db, log_fn=None, sample_limit=500000):
     rejected_delta = 0
     used = 0
 
+    # R29: 60/40 time-split — train on oldest 60% of data
+    _total = coll.count_documents(query)
+    _train_limit = max(1, int(_total * 0.6)) if _total > 100 else sample_limit
     cursor = coll.find(query, {
         "underlying": 1, "S": 1, "strike": 1, "daysLeft": 1,
         "ivApi": 1, "deltaApi": 1, "riskFreeRate": 1, "isCall": 1,
         "bid": 1, "ask": 1,
-    }).limit(sample_limit)
+    }).sort("time", 1).limit(_train_limit)
 
     for row in cursor:
         scanned += 1

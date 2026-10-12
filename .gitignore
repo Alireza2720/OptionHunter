@@ -75,3 +75,6 @@ _bak-*
 
 # Group 2 backups
 *.g2-*
+
+# Group 3 backups
+*.g3-*
