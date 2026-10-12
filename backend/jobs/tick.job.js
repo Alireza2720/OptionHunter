@@ -151,7 +151,7 @@ function start() {
     );
 
     // cron هر ۱۰ ثانیه چک می‌کند ولی effective interval از Settings خوانده می‌شود
-    task = cron.schedule('*/10 * * * * *', async () => {
+    task = cron.schedule('*/5 * * * * *', async () => {
         try {
             await _refreshTickInterval();
             const now = Date.now();

@@ -5,7 +5,7 @@
 const os = require('os');
 
 const SAFETY_MARGIN_MB = 300;   // حداقل RAM آزاد مورد نیاز
-const MAX_RSS_MB = 1800;          // حداکثر RSS مجاز برای Node
+const MAX_RSS_MB = 2200;          // حداکثر RSS مجاز برای Node
 
 function getMemoryStatus() {
     const total = os.totalmem() / 1048576;
