@@ -289,7 +289,12 @@ async function bootstrap() {
     });
 
     // 9.3) sweep service (R23)
-    // R27: sweepService.init disabled
+    sensitivityService.init({
+        getDB: mongo.getDB,
+        logger,
+        backtest: backtestCore,
+        strategies: strategiesModule,
+    });
 
     // 9.5) regime service — قبل از signalsCore
     regimeService.init({
@@ -645,7 +650,7 @@ async function bootstrap() {
         pipelineService,      // 🆕
         backtestOrchestrator, // 🆕
         dualStageService,     // 🆕
-        // R27: sweep removed
+        sensitivityService,
     };
 }
 

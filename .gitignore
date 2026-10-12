@@ -96,3 +96,6 @@ _bak-*
 
 # Group 9-A backups
 *.g9a-*
+
+# Group 9-B backups
+*.g9b-*

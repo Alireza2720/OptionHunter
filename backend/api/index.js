@@ -42,7 +42,7 @@ const paperTradingRoutes = require('./routes/paper-trading.routes');
 const rollbackRoutes = require('./routes/rollback.routes');
 // R27: sweep removed
 // // R27: sweep removed
-// const sweepRoutes = require('./routes/sweep.routes');
+// const sensitivityRoutes = require('./routes/sensitivity.routes');
 
 function createApp(deps) {
     const app = express();
@@ -91,7 +91,7 @@ function createApp(deps) {
     doctorRoutes.register(app, deps);
     paperTradingRoutes.register(app, deps);
     rollbackRoutes.register(app, deps);
-    // R27: sweepRoutes.register(app, deps);
+    sensitivityRoutes.register(app, deps);
 
     // ---- 404 + error ----
     app.use(errorMw.notFoundHandler);
