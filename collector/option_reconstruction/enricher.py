@@ -35,7 +35,7 @@ def _classify(row):
     # Previously enriched → rebuild with current model (model may improve)
     if row.get("enrichedMethod"):
         if row.get("enricherVersion") == ENRICHER_VERSION:
-            return "real"  # R29: already current version
+            return "current"  # R29: already current version
         return "needs_rebuild"
 
     if src in SYNTHETIC_SOURCES:
@@ -89,7 +89,9 @@ def _has_delta(row):
 def enrich_row(row, spread_model, symbol=None):
     classification = _classify(row)
 
-    if classification == "real":
+    if classification == "current":
+        stats["skipped_current"] = stats.get("skipped_current", 0) + 1
+    elif classification == "real":
         return {"dataQuality": "real"}
     if classification == "missing_price":
         return {"dataQuality": "missing_price"}
@@ -160,6 +162,7 @@ def enrich_collection(db, symbol=None, dry_run=False, log_fn=None, batch_size=10
     stats = {
         "scanned": 0,
         "skipped_real": 0,
+        "skipped_current": 0,
         "skipped_missing": 0,
         "enriched": 0,
         "rebuilt": 0,

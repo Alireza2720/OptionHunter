@@ -1297,18 +1297,6 @@
 
         // ───── چند-نمادی / صنعت ─────
 
-        sector_momentum: {
-            id: 'sector_momentum',
-            name: 'Sector Momentum',
-            nameFa: 'مومنتوم صنعت',
-            category: 'pairs',
-            regime: { macro: ['bull'], vol: ['normal', 'high'] },
-            defaultTimeframe: '1h',
-            htfTimeframe: '1d',
-            defaultParams: SECTOR_DEFAULTS,
-            indicators: ['atr'],
-            run: runSectorMomentum
-        },
 
         // ───── ترکیبی ─────
 };
@@ -1456,7 +1444,6 @@
     }
 
     const PRO_ELIGIBLE = [
-        'smc_unicorn', 'ob_sweep', 'ob_after_sweep',
         'donchian', 'momentum_12_1', 'short_term_reversal',
         'low_vol_anomaly', 'tsmom'
     ];
