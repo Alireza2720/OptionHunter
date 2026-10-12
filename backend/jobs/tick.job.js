@@ -31,7 +31,7 @@ let task = null;
 let _effectiveTickIntervalMs = 60 * 1000;
 let _lastTickAt = 0;
 let _intervalLastReadAt = 0;
-const INTERVAL_READ_MS = 60 * 1000;
+const INTERVAL_READ_MS = 10 * 1000;
 
 async function _refreshTickInterval() {
     var now = Date.now();

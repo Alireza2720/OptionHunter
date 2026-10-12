@@ -75,8 +75,6 @@ async function ensureIndexes() {
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { source: 1 });
     // 🆕 R36: descending index for _fresh query in getCandles (limit optimization)
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { time: -1 });
-    // 🆕 R36: descending index for _fresh query in getCandles (limit optimization)
-    await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_BASE), { time: -1 });
 
     await safeCreateIndex(db.collection(COLLECTIONS.CANDLES_DAILY), { symbol: 1, time: 1 }, { unique: true });
 
@@ -85,6 +83,12 @@ async function ensureIndexes() {
     // --- سیگنال‌ها ---
     await safeCreateIndex(db.collection(COLLECTIONS.SIGNAL_HISTORY), { createdAt: -1 });
     await safeCreateIndex(db.collection(COLLECTIONS.SIGNAL_HISTORY), { symbol: 1, createdAt: -1 });
+    // 🆕 TTL: 30 days
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.SIGNAL_HISTORY),
+        { createdAt: 1 },
+        { expireAfterSeconds: 30 * 86400, name: 'signal_history_ttl' }
+    );
     await safeCreateIndex(db.collection(COLLECTIONS.SIGNALS_STATE), { configId: 1 }, { unique: true });
 
     // --- کانفیگ‌ها ---

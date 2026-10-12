@@ -10,9 +10,10 @@ function init(d) { deps = { ...deps, ...d }; }
 const RETENTION = {
     option_snapshots: 90,     // ۹۰ روز
     stock_ticks: 90,
-    logs: 30,
+    logs: 7,                  // 7 روز (با tick 15s، لاگ‌ها سریع پر می‌شوند)
     collector_log: 60,
     telegram_outbox: 14,
+    signal_history: 30,       // 30 روز برای حفظ تاریخچه
 };
 
 async function run() {
@@ -27,6 +28,7 @@ async function run() {
                        : colName === 'collector_log' ? 'at'
                        : colName === 'telegram_outbox' ? 'sentAt'
                        : colName === 'option_snapshots' ? 'timestamp'
+                       : colName === 'signal_history' ? 'createdAt'
                        : 'time';
             const q = { [field]: { $lt: cutoff } };
             if (colName === 'telegram_outbox') q.sentAt = { $ne: null, $lt: cutoff };
