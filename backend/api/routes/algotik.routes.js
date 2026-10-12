@@ -29,6 +29,14 @@ function register(app, deps) {
         res.json(out);
     });
 
+// 🆕 live-market proxy (for OptionStrategist — reads collector once, serves both)
+    app.get('/api/algotik/live-market', async (req, res, next) => {
+        try {
+            const data = await algotik.getLiveMarket();
+            res.json({ count: data.length, data, at: new Date().toISOString() });
+        } catch (e) { next(e); }
+    });
+
     // ---- Health / Status ----
     app.get('/api/algotik/health', async (req, res) => {
         try { res.json({ online: await algotik.isOnline() }); }

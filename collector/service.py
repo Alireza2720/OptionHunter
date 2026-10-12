@@ -508,12 +508,15 @@ def live_market():
         for r in records:
             src_counts[r.get('Source', 'legacy')] = src_counts.get(r.get('Source', 'legacy'), 0) + 1
 
-        return {
+_result = {
             'count': len(records),
             'data': records,
             'at': datetime.now(timezone.utc).isoformat(),
             'sources': src_counts,
         }
+        _live_market_cache['data'] = _result
+        _live_market_cache['at'] = _now
+        return _result
     except Exception as e:
         log('live_market_err', str(e))
         return {'count': 0, 'data': [], 'error': str(e)}

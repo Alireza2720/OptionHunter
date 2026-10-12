@@ -114,6 +114,11 @@ function register(app, deps) {
     // 🆕 Cache for chart-data (کلید: configId + lastCandleTime)
     const _chartCache = new Map();
     const CHART_TTL = 3 * 60 * 1000;
+    // 🆕 periodic cleanup — prevents unbounded growth when no one fetches
+    setInterval(() => {
+        const cutoff = Date.now() - CHART_TTL;
+        for (const [k, v] of _chartCache) if (v.at < cutoff) _chartCache.delete(k);
+    }, 5 * 60 * 1000).unref();
 
     app.get('/api/chart-data/:configId', async (req, res, next) => {
         try {
