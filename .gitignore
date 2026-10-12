@@ -66,3 +66,9 @@ _bak-*
 # Patch script backups
 *.bak-*
 *.bak
+
+# Group 1 backups
+*.bak-*
+*.broken2-*
+*.beforefix3-*
+*.fix4bak-*

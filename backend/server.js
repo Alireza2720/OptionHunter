@@ -55,7 +55,7 @@ async function start() {
             backtestOrchestrator: deps.backtestOrchestrator, // 🆕
             // 🆕
             paperTradingService: deps.paperTradingService || deps.paperTrading,
-            sweepService: deps.sweepService,   // R23 fix   // 🆕 fallback
+            // R27: sweep removed
 
             // config
             adminToken: env.ADMIN_TOKEN,
