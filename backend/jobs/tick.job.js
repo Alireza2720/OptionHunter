@@ -27,6 +27,26 @@ function init(d) { deps = { ...deps, ...d }; }
 
 let task = null;
 
+// فاصله‌ی واقعی بین tick ها (از Settings)
+let _effectiveTickIntervalMs = 60 * 1000;
+let _lastTickAt = 0;
+let _intervalLastReadAt = 0;
+const INTERVAL_READ_MS = 60 * 1000;
+
+async function _refreshTickInterval() {
+    var now = Date.now();
+    if (now - _intervalLastReadAt < INTERVAL_READ_MS) return;
+    _intervalLastReadAt = now;
+    try {
+        var settings = require('../settings');
+        var v = settings.get()['TICK_INTERVAL_SEC'];
+        var sec = parseFloat(v);
+        if (!Number.isFinite(sec)) sec = 60;
+        sec = Math.max(10, Math.min(600, sec));
+        _effectiveTickIntervalMs = sec * 1000;
+    } catch (_) {}
+}
+
 function isTradingDay(t) {
     return ['Sat', 'Sun', 'Mon', 'Tue', 'Wed'].includes(t.weekday);
 }
@@ -130,12 +150,15 @@ function start() {
         deps.logger && deps.logger.warn('startup ticker: ' + e.message)
     );
 
-    // هر ۱۰ ثانیه
-    task = cron.schedule('0 */2 * * * *', async () => {
+    // cron هر ۱۰ ثانیه چک می‌کند ولی effective interval از Settings خوانده می‌شود
+    task = cron.schedule('*/10 * * * * *', async () => {
         try {
+            await _refreshTickInterval();
+            const now = Date.now();
+            if (now - _lastTickAt < _effectiveTickIntervalMs) return;
             const t = deps.dataService.getTehranParts();
             if (!isMarketOpen(t)) return;
-            // 🆕 اطمینان از روشن بودن ticker جمع‌آورنده
+            _lastTickAt = now;
             await ensureCollectorTickerRunning();
             await runTick();
         } catch (e) {
@@ -150,4 +173,5 @@ function stop() {
     if (task) { task.stop(); task = null; }
 }
 
-module.exports = { init, start, stop, runTick, isMarketOpen, isTradingDay };
+module.exports = { init, start, stop, runTick, isMarketOpen, isTradingDay,
+    getTickIntervalMs: function () { return _effectiveTickIntervalMs; } };

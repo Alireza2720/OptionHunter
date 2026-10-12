@@ -81,6 +81,9 @@ const DEFAULTS = {
     // ---- فیلتر هدف سهم ----
     MIN_TARGET_PCT: 4.5,
 
+    // ---- فاصله تیک زنده (ثانیه) — 10 تا 600 ----
+    TICK_INTERVAL_SEC: 60,
+
     // ---- Option contract quality level (A+ / A / B / C / D) ----
     // Controls which contracts are eligible in BOTH backtest AND live.
     OPTION_QUALITY_LEVEL: 'B',
@@ -205,6 +208,13 @@ async function save(partial) {
     for (const k of Object.keys(DEFAULTS)) {
         if (k === "SCORE_SIZE_MAP" || k === "SCORE_SIZE_ENABLED") continue;
         if (partial[k] === undefined || partial[k] === null || partial[k] === '') continue;
+        // tickIntervalSec → TICK_INTERVAL_SEC (تبدیل camel → UPPER)
+        if (k === 'TICK_INTERVAL_SEC') {
+            const n = parseFloat(partial[k]);
+            if (!Number.isFinite(n) || n < 10 || n > 600) continue;
+            clean[k] = Math.round(n);
+            continue;
+        }
         if (k === 'ENTRY_START' || k === 'ENTRY_END') {
             const s = String(partial[k]).trim();
             if (!/^\d{1,2}:\d{2}$/.test(s)) throw new Error(`${k} باید به شکل HH:MM باشد`);
