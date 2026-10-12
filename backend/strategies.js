@@ -1444,7 +1444,6 @@
     }
 
     const PRO_ELIGIBLE = [
-        'donchian', 'momentum_12_1', 'short_term_reversal',
         'low_vol_anomaly', 'tsmom'
     ];
     for (let _i = 0; _i < PRO_ELIGIBLE.length; _i++) {

@@ -81,3 +81,6 @@ _bak-*
 
 # Group 4 backups
 *.g4-*
+
+# Group 5 backups
+*.g5-*

@@ -674,13 +674,23 @@ async function computeFullResult(job, jobId) {
 // ------------------------------------------------------------
 // Auto-Config Suggestion (فقط پیشنهاد، بدون ذخیره در DB)
 // ------------------------------------------------------------
-function getDynamicMinTrades(days) {
+function getDynamicMinTrades(days, mode, optionRows) {
     const d = Number.isFinite(days) ? days : 180;
-    if (d < 90)  return 3;
-    if (d < 180) return 5;
-    if (d < 365) return 8;
-    if (d < 730) return 15;
-    return 20;
+    let base;
+    if (d < 90)       base = 3;
+    else if (d < 180) base = 5;
+    else if (d < 365) base = 8;
+    else if (d < 730) base = 15;
+    else              base = 20;
+    if (mode === 'stock') return base;
+    if (mode === 'option') {
+        const rows = Number.isFinite(optionRows) ? optionRows : 0;
+        if (rows < 50)       return 2;
+        else if (rows < 200) return 3;
+        else if (rows < 500) return 4;
+        else                 return 5;
+    }
+    return base;
 }
 
 function computeLosingStrategies(details, mode) {
@@ -734,10 +744,11 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
 
         // In option mode, option coverage is inherently partial (~30-80%).
         // Use a lower dynMin so auto-config doesn't reject every candidate.
-        const baseDyn = getDynamicMinTrades(result._dateRangeDays || 180);
+        const _allOptRows = rows.reduce((s, r) => s + ((r.optionStats && r.optionStats.count) || 0), 0);
+    const baseDyn = getDynamicMinTrades(result._dateRangeDays || 180, 'stock', 0);
         const dynMin = mode === 'stock'
             ? baseDyn
-            : Math.max(2, Math.round(baseDyn * 0.20));
+            : getDynamicMinTrades(result._dateRangeDays || 180, 'option', _allOptRows);
         const losingSet = result._losingStrategies instanceof Set ? result._losingStrategies : new Set();
         const scored = rows.map(d => {
             const target = mode === 'stock' ? (d.stockStats || {}) : (d.optionStats || d.stockStats || {});
