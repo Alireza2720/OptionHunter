@@ -387,6 +387,8 @@ async function computeFullResult(job, jobId) {
             'trades.stockEntry': 1, 'trades.stockExit': 1,
             'trades.optionEntry': 1, 'trades.optionExit': 1,
             'trades.delta': 1, 'trades.iv': 1, 'trades.source': 1, 'trades.exitReason': 1,
+            'trades.atr': 1, 'trades.rsiFast': 1, 'trades.rsiSlow': 1,
+            'trades.htfTrend': 1, 'trades.signalReason': 1,
             optimalTargetPct: 1,
             'stockTrades.entryTime': 1, 'stockTrades.exitTime': 1, 'stockTrades.pnlPct': 1,
             'stockTrades.entryPrice': 1, 'stockTrades.exitPrice': 1,

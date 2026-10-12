@@ -169,6 +169,7 @@ async function simulateFromJob(jobId, opts = {}) {
                 const sc = scoreMod.computeHistoricalScore(t, regimeMap[t.symbol]);
                 if (sc && typeof sc.score === 'number' && Number.isFinite(sc.score)) {
                     t.signalScore = sc.score;
+                    if (!t.confluenceEffective && t.confluence) t.confluenceEffective = t.confluence;
                     sumScore += sc.score;
                     scoreStats.computed++;
                 } else {
