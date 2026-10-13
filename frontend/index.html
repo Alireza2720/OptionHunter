@@ -1553,6 +1553,49 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
   body.mode-stock .bt-opt-only { display: none !important; }
 .btn.busy { position: relative; pointer-events: none; opacity: 0.65; }
 .btn.busy::after { content: ''; display: inline-block; width: 11px; height: 11px; margin-right: 6px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
+/* UX-MOBILE v2 */
+@media (max-width: 480px) {
+  body { padding: 8px !important; font-size: 13px; }
+  .brand { font-size: 32px !important; }
+  .brand-sub { font-size: 16px !important; }
+  .menu-panel { width: 100vw !important; right: -100vw !important; border-left: none !important; padding: 14px !important; }
+  .menu-panel.open { right: 0 !important; }
+  .menu-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .menu-tab { flex-shrink: 0; padding: 8px 12px; font-size: 12px; }
+  .modal { padding: 14px !important; margin: 0 !important; max-height: 96vh !important; border-radius: var(--r-md) !important; }
+  .modal h3 { font-size: 14px !important; flex-wrap: wrap; gap: 6px; }
+  .card { padding: 12px !important; margin-bottom: 10px !important; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 6px !important; }
+  .sys-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 6px !important; }
+  .stat b { font-size: 14px !important; }
+  .stat small { font-size: 9.5px !important; }
+  .form-row { flex-direction: column; align-items: stretch; }
+  .form-row .field { min-width: 100% !important; }
+  .field input, .field select { font-size: 14px !important; padding: 10px !important; }
+  .btn { font-size: 13px !important; padding: 10px 14px !important; }
+  .btn.tiny { font-size: 10.5px !important; padding: 5px 9px !important; }
+  .tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .tab { flex-shrink: 0; }
+  .subtabs { overflow-x: auto; flex-wrap: nowrap; }
+  .subtab { flex-shrink: 0; }
+  #alertContainer { left: 8px; right: 8px; max-width: none; }
+  .table-responsive { font-size: 11px; }
+  .data-table th, .data-table td { padding: 6px 8px !important; font-size: 11px !important; }
+  .symbol-item { flex-wrap: wrap; padding: 8px !important; }
+  .sym-body { flex: 1 1 100%; margin-top: 6px; }
+  .sym-actions { flex: 1 1 100%; justify-content: flex-end; }
+  .date-range-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .adv-header { font-size: 12px; padding: 10px 12px !important; }
+  .hamburger-btn { top: 10px !important; right: 10px !important; width: 42px; height: 42px; }
+  .brand { margin-top: 40px; }
+  #bootOverlay .brand { font-size: 26px !important; }
+}
+@media (max-width: 768px) and (min-width: 481px) {
+  body { padding: 12px; }
+  .menu-panel { width: 340px; right: -360px; }
+  .stats-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
 </style>
 </head>
 <body data-theme="dark">
@@ -1607,7 +1650,7 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 </div> <div class="modal-bg" id="modalBg"
      onclick="if(event.target===this) closeModal()"
      onmousedown="if(document.querySelector('.jobs-panel-container')) _jobsPanelUserActive=true;"
-     onmouseup="setTimeout(()=>{_jobsPanelUserActive=false;}, 2000);"> <div class="modal"> <h3><span id="modalTitle"></span><button class="btn small outline" onclick="closeModal()">بستن</button></h3> <div id="modalBody"></div> </div>
+     onmouseup="setTimeout(()=>{_jobsPanelUserActive=false;}, 2000);"> <div class="modal"> <h3><span id="modalTitle"></span><button class="btn small outline" onclick="closeModal()" aria-label="بستن">بستن</button></h3> <div id="modalBody"></div> </div>
 </div> <div class="container"> <header> <div class="brand">OptionHunter</div> <div class="brand-sub">شکارچی آپشن · بورس تهران</div> </header> <div class="card" id="cardLiveDashboard"> <h2 style="flex-wrap:wrap;">
     <span style="display:flex; gap:4px;">
       <button class="btn tiny" id="dashTabPaper" onclick="switchDashTab('paper')">معاملات دمو</button>
@@ -2236,6 +2279,58 @@ function backfillGetSelectedSymbols() {
   if (checked.length === all.length) return null;
   return checked;
 }
+
+function _backfillShowPreview(fromJ, toJ, symbols) {
+  const est = _estimateBackfill(symbols);
+  const el = document.getElementById('algotikBackfillJobArea');
+  if (!el) return;
+  const symLabel = (symbols === null || !symbols.length)
+    ? 'همه نمادهای فعال (' + monitoredSymbols.filter(s => s.enabled !== false).length + ')'
+    : symbols.length + ' نماد انتخاب‌شده';
+  el.innerHTML =
+    '<div style="background:var(--accent-subtle);border:1px solid var(--accent);border-radius:var(--r-md);padding:12px 14px;margin-top:10px;">'
+    + '<div style="font-size:12.5px;line-height:1.9;">'
+    + '<b>📋 پیش‌نمایش Backfill</b><br>'
+    + '<span style="color:var(--text-dim);">بازه:</span> <b>' + esc(fromJ) + '</b> تا <b>' + esc(toJ) + '</b><br>'
+    + '<span style="color:var(--text-dim);">نمادها:</span> <b>' + esc(symLabel) + '</b><br>'
+    + '<span style="color:var(--text-dim);">تخمین:</span> <b>~' + est.minutes + ' دقیقه</b> · ~' + est.records.toLocaleString() + ' رکورد جدید<br>'
+    + '<span style="color:var(--text-dim);font-size:11px;">⚠️ در ساعات بازار کند می‌شه. می‌تونی متوقف/ادامه کنی.</span>'
+    + '</div></div>';
+}
+
+function _estimateBackfill(symbols) {
+  const n = (symbols === null || !symbols.length)
+    ? monitoredSymbols.filter(s => s.enabled !== false).length
+    : symbols.length;
+  // Rough: 1min ≈ 250 candles/day per symbol + daily + options
+  const records = n * 250 * 30;
+  const minutes = Math.max(2, Math.round(n * 1.5));
+  return { records, minutes };
+}
+
+// UX-BACKFILL: preview when user picks dates
+(function () {
+  const _backfillPreviewHooked = true;
+  function tryHook() {
+    const from = document.getElementById('algotikFromDate');
+    const to = document.getElementById('algotikToDate');
+    if (!from || !to) return setTimeout(tryHook, 500);
+    function update() {
+      const f = (from.value || '').trim();
+      const tt = (to.value || '').trim();
+      if (!f || !tt) return;
+      try {
+        const symbols = backfillGetSelectedSymbols();
+        _backfillShowPreview(f.replace(/\//g, '-'), tt.replace(/\//g, '-'), symbols);
+      } catch (_) {}
+    }
+    from.addEventListener('change', update);
+    to.addEventListener('change', update);
+    from.addEventListener('blur', update);
+    to.addEventListener('blur', update);
+  }
+  tryHook();
+})();
 
 async function algotikStartBackfill(btn) {
   const from = jdpNormalize(document.getElementById('algotikFromDate').value);
