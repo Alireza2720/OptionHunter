@@ -21,8 +21,9 @@ function register(app, deps) {
     app.post('/api/ga/start', async (req, res, next) => {
         try {
             const body = req.body || {};
-            if (!body.allStrategies && !body.strategyId) {
-                return res.status(400).json({ error: 'allStrategies یا strategyId لازم است' });
+            const hasList = Array.isArray(body.strategies) && body.strategies.length > 0;
+            if (!body.allStrategies && !body.strategyId && !hasList) {
+                return res.status(400).json({ error: 'allStrategies یا strategyId یا strategies[] لازم است' });
             }
 
             // Memory guard
