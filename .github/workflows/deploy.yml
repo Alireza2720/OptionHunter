@@ -3,10 +3,12 @@ name: Deploy to VPS
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -15,41 +17,39 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          command_timeout: 10m
+          command_timeout: 12m
           script: |
             set -e
             cd ~/apps/OptionHunter
 
-            # .env backup
+            # Backup .env
             if [ -f .env ]; then
               cp .env /tmp/optionhunter.env.backup
-              echo ".env backed up"
+              echo "  .env backed up"
             fi
 
-            # Save current commit BEFORE fetch (for manual rollback)
+            # Save previous commit for rollback
             PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "none")
-            echo "$PREV_COMMIT" > /tmp/oh_prev_commit.txt
-            echo "Previous commit: $PREV_COMMIT"
+            echo "  Previous: $PREV_COMMIT"
 
-            echo "=== Fetch ==="
+            echo ""
+            echo "=== [1/7] Fetch + Reset ==="
             git fetch origin main
             git reset --hard origin/main
+            git clean -fd -e .env -e node_modules -e logs -e '*.b1-*' -e '*.b2a-*' -e '*.b2b-*' -e '*.g1-*' -e '*.g2-*' -e '*.g3-*' -e '*.g4-*' -e '*.g5-*' -e '*.g6-*' -e '*.g7-*' -e '*.g8-*' -e '*.g9a-*' -e '*.g9b-*' -e '*.g9c-*' -e '*.g9cfix-*' -e '*.sync-*' -e '*.b1-*'
 
-            echo "=== Clean ==="
-            git clean -fd -e .env -e package-lock.json -e node_modules -e logs
-
-            # .env restore
+            # Restore .env if missing
             if [ ! -f .env ] && [ -f /tmp/optionhunter.env.backup ]; then
               cp /tmp/optionhunter.env.backup .env
               chmod 600 .env
             fi
             if [ ! -f .env ]; then
-              echo "ERROR: .env MISSING - deploy aborted"
+              echo "  ERROR: .env missing — abort"
               exit 1
             fi
 
-            # === SYNTAX CHECK (abort if broken) ===
-            echo "=== Syntax Check ==="
+            echo ""
+            echo "=== [2/7] Syntax Check ==="
             SYNTAX_FAIL=0
             for f in $(find backend -name "*.js" -not -path "*/node_modules/*"); do
               if ! node --check "$f" 2>/dev/null; then
@@ -58,34 +58,42 @@ jobs:
               fi
             done
             if [ "$SYNTAX_FAIL" = "1" ]; then
-              echo "SYNTAX CHECK FAILED - aborting deploy"
-              echo "Manual rollback: cd ~/apps/OptionHunter && git reset --hard $PREV_COMMIT && pm2 restart OptionHunter"
+              echo "  SYNTAX CHECK FAILED — aborting"
+              echo "  Rollback: cd ~/apps/OptionHunter && git reset --hard $PREV_COMMIT && pm2 restart OptionHunter"
               exit 1
             fi
-            echo "All JS valid"
+            echo "  All JS valid"
 
-            echo "=== npm install ==="
-            npm install --no-audit --no-fund --prefer-offline
+            echo ""
+            echo "=== [3/7] npm install ==="
+            npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -3
 
-            echo "=== PM2 flush + restart ==="
+            echo ""
+            echo "=== [4/7] PM2 restart (clean) ==="
+            # Delete first to avoid duplicate processes; start fresh
+            pm2 delete OptionHunter 2>/dev/null || true
+            sleep 2
             pm2 flush OptionHunter 2>/dev/null || true
-            pm2 startOrRestart ecosystem.config.js --update-env
+            pm2 start ecosystem.config.js --only OptionHunter --update-env
             pm2 save
+            sleep 5
 
-            echo "=== Health check (polling 90s) ==="
+            echo ""
+            echo "=== [5/7] Health check (polling 60s) ==="
             HEALTH_OK=0
-            for i in $(seq 1 30); do
+            for i in $(seq 1 20); do
               sleep 3
               if curl -sfS --max-time 2 http://127.0.0.1:3000/ping > /tmp/oh_health.txt 2>/dev/null; then
                 HEALTH_OK=1
-                echo "Deploy OK after $((i * 3))s"
+                echo "  ✅ Up after $((i * 3))s"
                 break
               fi
+              # bail early if PM2 reports errored
               if pm2 jlist 2>/dev/null | grep -q '"status":"errored"'; then
-                echo "PM2 status errored - skip polling"
+                echo "  PM2 errored — stopping poll"
                 break
               fi
-              echo "  attempt $i/30..."
+              echo "  attempt $i/20..."
             done
 
             echo ""
@@ -93,28 +101,35 @@ jobs:
             pm2 status || true
 
             if [ "$HEALTH_OK" != "1" ]; then
-              echo "Health check failed - NOT rolling back automatically (manual decision required)"
-              echo "To rollback manually: cd ~/apps/OptionHunter && git reset --hard $PREV_COMMIT && pm2 restart OptionHunter"
-              echo "--- PM2 logs (last 50 lines) ---"
-              pm2 logs OptionHunter --lines 50 --nostream || true
+              echo ""
+              echo "❌ HEALTH CHECK FAILED"
+              echo "  Manual rollback:"
+              echo "    cd ~/apps/OptionHunter && git reset --hard $PREV_COMMIT && pm2 restart OptionHunter"
+              echo ""
+              echo "--- PM2 logs (last 40) ---"
+              pm2 logs OptionHunter --lines 40 --nostream || true
               exit 1
             fi
 
             echo ""
-            echo "=== SMOKE TEST (post-deploy) ==="
-            # Quick API checks - fail loudly but do not rollback
+            echo "=== [6/7] Smoke test ==="
             SMOKE_FAIL=0
             for ep in /ping /api/strategies /api/monitored-symbols; do
               code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:3000$ep" || echo "000")
               if [ "$code" = "200" ]; then
-                echo "  [OK] $ep -> 200"
+                echo "  ✅ $ep → 200"
               else
-                echo "  [WARN] $ep -> $code"
+                echo "  ⚠️  $ep → $code"
                 SMOKE_FAIL=1
               fi
             done
             if [ "$SMOKE_FAIL" = "1" ]; then
-              echo "Some endpoints failed but app is up. Check manually."
+              echo "  Some endpoints failed but app is up. Check manually."
             fi
 
-            echo "Deploy fully OK"
+            echo ""
+            echo "=== [7/7] Strategies count ==="
+            curl -s http://127.0.0.1:3000/api/strategies 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  Loaded: {len(d)} strategies')" || echo "  (strategy count check skipped)"
+
+            echo ""
+            echo "✅ Deploy complete at $(date -u +%Y-%m-%dT%H:%M:%SZ)"

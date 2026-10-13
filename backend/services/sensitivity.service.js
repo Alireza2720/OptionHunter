@@ -13,6 +13,11 @@ let deps = { getDB: null, logger: null, backtest: null, strategies: null };
 function init(d) { deps = { ...deps, ...d }; }
 
 const KEY_PARAMS = {
+    vol_regime_bo: ['atrPctThreshold', 'breakoutBufferPct'],
+    dual_tf_mom: ['ltfLookback', 'htfLookback'],
+    keltner_bo: ['kcMult', 'minVolMult'],
+    adx_trend: ['adxPeriod', 'adxMin'],
+    mr_volume: ['dropPct', 'minVolMult'],
     ma_crossover: ['fastMA', 'slowMA'],
     volume_rsi: ['rsiPeriod', 'rsiBuy'],
     turn_of_month: ['daysBeforeEOM', 'daysAfterBOM'],
