@@ -43,8 +43,8 @@ function computeFitness(stats) {
     const elig = isEligible(stats);
     if (!elig.ok) return 0;
 
-    const sharpe = _num(stats.sharpe);
-    const totalReturn = _num(stats.totalReturnPct != null ? stats.totalReturnPct : stats.totalPnl);
+    const sharpeRaw = _num(stats.sharpe);
+    const totalReturnRaw = _num(stats.totalReturnPct != null ? stats.totalReturnPct : stats.totalPnl);
     const winRate = _num(stats.winRate);
     const maxDD = Math.abs(_num(stats.maxDrawdownPct != null ? stats.maxDrawdownPct : stats.maxDD));
     const n = _num(stats.totalTrades != null ? stats.totalTrades : stats.count);
@@ -54,6 +54,18 @@ function computeFitness(stats) {
     const windowsProfitable = _num(stats.windowsProfitable);
     const windowsTotal = Math.max(1, _num(stats.windowsTotal, 1));
 
+    // FIX GA-15: cap to avoid small-N explosion
+    const SHARPE_CAP = 5;
+    const RETURN_CAP = 300;
+    const sharpe = Math.min(sharpeRaw, SHARPE_CAP);
+    const totalReturn = Math.min(totalReturnRaw, RETURN_CAP);
+
+    // N-penalty: harsh on tiny samples
+    let nPenalty = 1.0;
+    if (n < 20) nPenalty = 0.25;
+    else if (n < 40) nPenalty = 0.6;
+    else if (n < 60) nPenalty = 0.85;
+
     const safeDD = Math.max(maxDD, 1);
     const safeLogN = Math.log(Math.max(n, 2));
 
@@ -61,8 +73,8 @@ function computeFitness(stats) {
     const pfPenalty = pf > PF_PENALTY_THRESHOLD ? 0.7 : 1.0;
     const consistencyBonus = windowsProfitable / windowsTotal;
 
-    const fitness = base * pfPenalty * (0.5 + 0.5 * consistencyBonus);
+    const fitness = base * pfPenalty * (0.5 + 0.5 * consistencyBonus) * nPenalty;
     return Number.isFinite(fitness) ? Math.max(0, fitness) : 0;
 }
 
-module.exports = { computeFitness, isEligible, MIN_TRADES, MIN_SHARPE, MIN_PF };
+module.exports = { computeFitness, isEligible, MIN_TRADES, MIN_SHARPE, MIN_PF, SHARPE_CAP: 5, RETURN_CAP: 300 };
