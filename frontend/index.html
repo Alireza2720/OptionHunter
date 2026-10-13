@@ -2664,7 +2664,12 @@ function _cfgFilterTerm(s) {
   return String(s || '').replace(/ي/g, 'ی').replace(/ك/g, 'ک').toLowerCase().trim();
 }
 
-async function loadConfigs() { try { const [c, st] = await Promise.all([apiFetch(`${BACKEND_URL}/api/strategy-configs`, {}, 0), apiFetch(`${BACKEND_URL}/api/status`, {}, 0)]); configs = c; statusMap = {}; st.forEach(x => statusMap[x.configId] = x); renderConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function loadConfigs() {
+  const _tb = document.getElementById("configsBody");
+  if (_tb && !_tb.querySelector("tr:not(.empty-row)") && !_tb.querySelector(".skeleton-row")) {
+    _tb.innerHTML = _skeletonRows(7, 4);
+  }
+  try { const [c, st] = await Promise.all([apiFetch(`${BACKEND_URL}/api/strategy-configs`, {}, 0), apiFetch(`${BACKEND_URL}/api/status`, {}, 0)]); configs = c; statusMap = {}; st.forEach(x => statusMap[x.configId] = x); renderConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 function renderConfigs() {
   // UX-FILTERS: apply search+filter
   configs = (window._allConfigs || configs);
@@ -2936,6 +2941,10 @@ async function uiConfirmClear(what, opts) {
 }
 
 async function loadSignalHistory() {
+  const _tb = document.getElementById("signalHistoryBody");
+  if (_tb && !_tb.querySelector("tr:not(.empty-row)") && !_tb.querySelector(".skeleton-row")) {
+    _tb.innerHTML = _skeletonRows(9, 4);
+  }
   try {
     const _isFirst = signalHistoryCache === null;
     signalHistoryCache = await apiFetch(`${BACKEND_URL}/api/signal-history?limit=100`, {}, 0);
@@ -7651,6 +7660,9 @@ async function gaLoadSmartPreview() {
 }
 
 async function gaStartSmart() {
+  const _btn = document.getElementById("gaStartSmart");
+  const _restore = _btnBusy(_btn, "در حال شروع...");
+  setTimeout(() => _restore(), 4000);
   const cfg = window._gaSmartCfg || { maxGenerations: 10, trialsPerGeneration: 2, numWindows: 3, symbolsLimit: 0, mode: 'both' };
   const gEl = document.getElementById('ga_maxGen');
   const tEl = document.getElementById('ga_trials');
@@ -7671,6 +7683,9 @@ async function gaStartSmart() {
 }
 
 async function gaStartAll() {
+  const _btn = document.getElementById("gaStartAll");
+  const _restore = _btn && _btnBusy(_btn, "در حال شروع...");
+  setTimeout(() => _restore && _restore(), 4000);
   if (!confirm("GA روی همه " + strategiesInfo.length + " استراتژی؟\nممکن است چند ساعت طول بکشد. در ساعات بازار خودکار pause می‌شود.")) return;
   const body = {
     allStrategies: true,
@@ -7960,20 +7975,107 @@ async function gaApply(sid) {
   } catch (e) { hideLoader(); showAlert("خطا: " + e.message, "error"); }
 }
 
+function _btnBusy(btn, label) {
+  if (!btn) return function () {};
+  const orig = btn.textContent;
+  const origDisabled = btn.disabled;
+  btn.classList.add('busy');
+  btn.disabled = true;
+  if (label !== undefined) btn.textContent = label;
+  return function () {
+    btn.classList.remove('busy');
+    btn.disabled = origDisabled;
+    btn.textContent = orig;
+  };
+}
+
+function _skeletonRows(cols, rows) {
+  cols = cols || 6; rows = rows || 4;
+  let html = '';
+  for (let i = 0; i < rows; i++) {
+    html += '<tr class="skeleton-row">';
+    for (let j = 0; j < cols; j++) {
+      const w = 40 + ((i * 7 + j * 13) % 45);
+      html += '<td><span class="skeleton-bar" style="width:' + w + '%;"></span></td>';
+    }
+    html += '</tr>';
+  }
+  return html;
+}
+
+function _renderBeforeAfter(title, pairs, onConfirm) {
+  // pairs: [{ label, old, neu, format }]
+  const rows = pairs.map(function (p) {
+    const fmt = p.format || function (v) { return v == null ? '—' : String(v); };
+    const o = fmt(p.old);
+    const nv = fmt(p.neu);
+    let delta = '';
+    let cls = '';
+    if (typeof p.old === 'number' && typeof p.neu === 'number' && p.old !== p.neu) {
+      const d = p.neu - p.old;
+      const pct = p.old !== 0 ? (d / Math.abs(p.old)) * 100 : 0;
+      delta = (d > 0 ? '+' : '') + d.toFixed(2) + ' (' + (pct > 0 ? '+' : '') + pct.toFixed(0) + '%)';
+      cls = d > 0 ? 'pos' : 'neg';
+    }
+    const changed = String(p.old) !== String(p.neu);
+    return '<tr' + (changed ? ' style="background:var(--accent-subtle);"' : '') + '>'
+      + '<td><b>' + esc(p.label) + '</b></td>'
+      + '<td style="font-family:var(--font-mono);direction:ltr;text-align:left;">' + esc(o) + '</td>'
+      + '<td style="font-family:var(--font-mono);direction:ltr;text-align:left;font-weight:600;">' + esc(nv) + '</td>'
+      + '<td class="' + cls + '">' + esc(delta) + '</td>'
+      + '</tr>';
+  }).join('');
+  const html = '<div class="hint" style="margin-bottom:10px;">مقایسه پارامترهای فعلی با پارامترهای بهینه‌شده. ردیف‌های آبی = تغییرکرده.</div>'
+    + '<div class="table-responsive" style="max-height:400px;overflow-y:auto;">'
+    + '<table class="data-table"><thead><tr><th>پارامتر</th><th>فعلی</th><th>جدید</th><th>تغییر</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>'
+    + '<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">'
+    + '<button class="btn outline" id="_baCancel">انصراف</button>'
+    + '<button class="btn success" id="_baConfirm">✅ اعمال</button>'
+    + '</div>';
+  openModal(title, html, true);
+  const confirmBtn = document.getElementById('_baConfirm');
+  const cancelBtn = document.getElementById('_baCancel');
+  confirmBtn.onclick = async function () {
+    const restore = _btnBusy(confirmBtn, 'در حال اعمال...');
+    try { await onConfirm(); } finally { restore(); }
+  };
+  cancelBtn.onclick = function () { closeModal(); };
+}
+
 async function _gaDoApply(sid, params) {
-  if (!confirm("اعمال روی " + sid + "؟\n" + JSON.stringify(params, null, 2).slice(0, 400))) return;
-  showLoader("در حال اعمال...");
+  // Fetch current defaults to show before/after
+  let cur = {};
   try {
-    const r = await apiFetch(BACKEND_URL + "/api/ga/apply/" + encodeURIComponent(sid), {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ params })
-    }, 0);
-    hideLoader();
-    window._gaApplyData[sid] = { archiveId: r.archiveId };
-    showAlert("✅ اعمال شد روی " + r.updated + " config", "success", 5000);
-    await loadConfigs();
-    await openGAPanel();
-  } catch (e) { hideLoader(); showAlert("خطا: " + e.message, "error"); }
+    const sd = await apiFetch(BACKEND_URL + '/api/strategy-defaults', {}, 0);
+    const all = (sd && sd.defaults) || {};
+    cur = all[sid] || {};
+  } catch (_) {}
+
+  const pairs = Object.keys(params).map(function (k) {
+    return {
+      label: k,
+      old: cur[k] !== undefined ? cur[k] : null,
+      neu: params[k],
+      format: function (v) { return typeof v === 'number' ? v.toFixed(4).replace(/\.?0+$/, '') : String(v == null ? '—' : v); }
+    };
+  });
+
+  _renderBeforeAfter('اعمال پارامترهای ' + sid, pairs, async function () {
+    showLoader('در حال اعمال...');
+    try {
+      const r = await apiFetch(BACKEND_URL + '/api/ga/apply/' + encodeURIComponent(sid), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params })
+      }, 0);
+      hideLoader();
+      window._gaApplyData[sid] = { archiveId: r.archiveId };
+      closeModal();
+      showAlert('✅ اعمال شد روی ' + r.updated + ' config', 'success', 5000);
+      await loadConfigs();
+      await openGAPanel();
+    } catch (e) { hideLoader(); showAlert('خطا: ' + e.message, 'error'); }
+  });
 }
 
 async function gaResume(sid) {
