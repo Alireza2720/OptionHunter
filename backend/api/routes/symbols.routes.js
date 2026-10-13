@@ -68,32 +68,42 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
-    // ─── Last dates for monitored symbols (BG1 fix) ───
+    // ─── Last dates for monitored symbols (BG1 fix v2) ───
+    // Uses findOne with sort+limit (indexed, <500ms for 23 symbols)
+    let _lastDatesCache = null;
+    let _lastDatesAt = 0;
+    const _LAST_DATES_TTL = 60 * 1000;
     app.get('/api/symbols/last-dates', async (req, res, next) => {
         try {
+            const fresh = req.query.fresh === '1';
+            if (!fresh && _lastDatesCache && (Date.now() - _lastDatesAt) < _LAST_DATES_TTL) {
+                return res.json(_lastDatesCache);
+            }
             const db = getDB();
             const symbols = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
             const symList = symbols.map(s => s.symbol);
             if (!symList.length) return res.json({});
-            const [dailyAgg, intradayAgg, optionsAgg] = await Promise.all([
-                db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
-                    { $match: { symbol: { $in: symList } } },
-                    { $group: { _id: '$symbol', last: { $max: '$time' } } }
-                ]).toArray(),
-                db.collection(COLLECTIONS.CANDLES_BASE).aggregate([
-                    { $match: { symbol: { $in: symList } } },
-                    { $group: { _id: '$symbol', last: { $max: '$time' } } }
-                ], { maxTimeMS: 15000 }).toArray(),
-                db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
-                    { $match: { underlying: { $in: symList } } },
-                    { $group: { _id: '$underlying', last: { $max: '$time' } } }
-                ], { maxTimeMS: 15000 }).toArray()
-            ]);
+
             const out = {};
-            for (const s of symList) out[s] = { daily: null, intraday: null, options: null };
-            for (const r of dailyAgg) if (out[r._id]) out[r._id].daily = r.last;
-            for (const r of intradayAgg) if (out[r._id]) out[r._id].intraday = r.last;
-            for (const r of optionsAgg) if (out[r._id]) out[r._id].options = r.last;
+            const projection = { time: 1, _id: 0 };
+            const sort = { time: -1 };
+
+            // Run in parallel (23 symbols × 3 = 69 indexed queries)
+            await Promise.all(symList.map(async (s) => {
+                const [d, i, o] = await Promise.all([
+                    db.collection(COLLECTIONS.CANDLES_DAILY).findOne({ symbol: s }, { sort, projection }).catch(() => null),
+                    db.collection(COLLECTIONS.CANDLES_BASE).findOne({ symbol: s }, { sort, projection }).catch(() => null),
+                    db.collection(COLLECTIONS.OPTION_HISTORY).findOne({ underlying: s }, { sort, projection }).catch(() => null)
+                ]);
+                out[s] = {
+                    daily: d ? d.time : null,
+                    intraday: i ? i.time : null,
+                    options: o ? o.time : null
+                };
+            }));
+
+            _lastDatesCache = out;
+            _lastDatesAt = Date.now();
             res.json(out);
         } catch (e) { next(e); }
     });
