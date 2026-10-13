@@ -24,7 +24,7 @@ const DEFAULTS = {
     maxGenerations: 30,
     trialsPerGeneration: 4,
     numWindows: 3,
-    symbolsLimit: 8,
+    symbolsLimit: 0,   // 0 = all monitored symbols
     patience: 8,
     mode: 'stock',
     lightMode: true,

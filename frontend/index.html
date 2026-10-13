@@ -7160,7 +7160,7 @@ function renderGAPanel(states, jobs, syms) {
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
     + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="ga_mode" value="stock" checked> سهم</label>'
     + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="ga_mode" value="option"> آپشن</label>'
-    + '<div class="field" style="min-width:120px;margin:0;"><label style="font-size:11px;">نماد (۸ پیشنهاد)</label><input type="number" id="ga_symLimit" value="8" min="1" max="30"></div>'
+    + '<div class="field" style="min-width:120px;margin:0;"><label style="font-size:11px;">نماد (0 = همه)</label><input type="number" id="ga_symLimit" value="0" min="1" max="30"></div>'
     + '<div class="field" style="min-width:130px;margin:0;"><label style="font-size:11px;">maxGen</label><input type="number" id="ga_maxGen" value="30" min="3" max="200"></div>'
     + '<div class="field" style="min-width:130px;margin:0;"><label style="font-size:11px;">trials/gen</label><input type="number" id="ga_trials" value="4" min="1" max="10"></div>'
     + '<div class="field" style="min-width:130px;margin:0;"><label style="font-size:11px;">windows</label><input type="number" id="ga_windows" value="3" min="2" max="6"></div>'
@@ -7189,7 +7189,7 @@ async function gaStartAll() {
   const body = {
     allStrategies: true,
     mode: (document.querySelector("input[name=ga_mode]:checked") || {}).value || "stock",
-    symbolsLimit: +document.getElementById("ga_symLimit").value || 8,
+    symbolsLimit: +document.getElementById("ga_symLimit").value || 0,
     maxGenerations: +document.getElementById("ga_maxGen").value || 30,
     trialsPerGeneration: +document.getElementById("ga_trials").value || 4,
     numWindows: +document.getElementById("ga_windows").value || 3
@@ -7205,7 +7205,7 @@ async function gaStartSelected() {
     strategyId: sel[0],
     strategies: sel,
     mode: (document.querySelector("input[name=ga_mode]:checked") || {}).value || "stock",
-    symbolsLimit: +document.getElementById("ga_symLimit").value || 8,
+    symbolsLimit: +document.getElementById("ga_symLimit").value || 0,
     maxGenerations: +document.getElementById("ga_maxGen").value || 30,
     trialsPerGeneration: +document.getElementById("ga_trials").value || 4,
     numWindows: +document.getElementById("ga_windows").value || 3
