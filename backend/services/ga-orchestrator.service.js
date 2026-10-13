@@ -139,10 +139,12 @@ async function _evalParams(strategyId, params, symbols, opts) {
                 mode: opts.mode,
                 lightMode: opts.lightMode
             });
+            console.log('[DBG] ' + sym + ' btDep=' + (!!deps.backtest) + ' r=' + (r ? 'obj' : 'null') + ' rErr=' + (r && r.error) + ' rN=' + (r && r.stats && r.stats.totalTrades) + ' rSh=' + (r && r.stats && r.stats.sharpe) + ' rPf=' + (r && r.stats && r.stats.profitFactor) + ' rWins=' + (r && r.windows && r.windows.length));
             if (r && r.stats && r.stats.totalTrades > 0) {
                 return { symbol: sym, stats: r.stats, windows: r.windows };
             }
         } catch (e) {
+            console.log('[DBG] ' + sym + ' ERR: ' + e.message);
             deps.logger && deps.logger.warn('[ga] eval ' + sym + ': ' + e.message);
         }
         return null;
@@ -179,6 +181,7 @@ async function _evalParams(strategyId, params, symbols, opts) {
         }
     }
 
+    console.log('[DBG] _evalParams perSymbol=' + perSymbol.length);
     if (!perSymbol.length) return { stats: null, fitness: 0, perSymbol: [] };
 
     // Merge across symbols (weighted by N)
@@ -209,9 +212,11 @@ async function _evalParams(strategyId, params, symbols, opts) {
         windowsProfitable: profWin,
         windowsTotal: totWin
     };
+    const _fit = fitness.computeFitness(merged);
+    console.log('[DBG] merged N=' + merged.totalTrades + ' sh=' + merged.sharpe + ' pf=' + merged.profitFactor + ' dd=' + merged.maxDrawdownPct + ' wins=' + merged.windowsProfitable + '/' + merged.windowsTotal + ' fit=' + _fit);
     return {
         stats: merged,
-        fitness: fitness.computeFitness(merged),
+        fitness: _fit,
         perSymbol: perSymbol
     };
 }
