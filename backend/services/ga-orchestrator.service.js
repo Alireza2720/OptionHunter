@@ -273,6 +273,7 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
     const allSyms = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({ enabled: true }).toArray();
     const symbols = allSyms
         .map(s => s.symbol)
+        .sort()
         .slice(0, opts.symbolsLimit > 0 ? opts.symbolsLimit : allSyms.length);
 
     if (!symbols.length) return { strategyId: strategyId, error: 'no symbols' };
@@ -319,6 +320,7 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
 
         generation++;
         let genBest = bestFitness;
+        const _bestAtGenStart = bestFitness;
 
         for (let t = 0; t < opts.trialsPerGeneration; t++) {
             const params = sampler.sample();
@@ -360,8 +362,6 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
                     }
                 }
                 patienceLeft = opts.patience;
-            } else {
-                patienceLeft--;
             }
 
             // Pruner update: reduced space
@@ -373,6 +373,13 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
                     + ' | trial ' + (t + 1) + '/' + opts.trialsPerGeneration
                     + ' | best=' + bestFitness.toFixed(3)
             });
+        }
+
+        // FIX GA-9: per-generation patience
+        if (bestFitness <= _bestAtGenStart * (1 + 0.01)) {
+            patienceLeft--;
+        } else {
+            patienceLeft = opts.patience;
         }
 
         // Save state
@@ -415,13 +422,21 @@ async function runGA(jobDbId, opts) {
         return { error: 'deps not initialized' };
     }
 
+    const EXCLUDED = new Set(['pairs_spread', 'sector_momentum', 'ensemble', 'dual_thrust', 'rsi2_mr', 'orb_pro', 'gap_and_go']);
     let strategyIds = [];
     if (opts.allStrategies) {
-        strategyIds = Object.keys(deps.strategies.STRATEGIES);
+        strategyIds = Object.keys(deps.strategies.STRATEGIES).filter(id => {
+            const def = deps.strategies.STRATEGIES[id];
+            if (EXCLUDED.has(id)) return false;
+            if (def && def.deprecated) return false;
+            return true;
+        });
     } else if (opts.strategyId) {
         strategyIds = [opts.strategyId];
+    } else if (Array.isArray(opts.strategies) && opts.strategies.length) {
+        strategyIds = opts.strategies.filter(id => !EXCLUDED.has(id));
     }
-    if (!strategyIds.length) return { error: 'no strategies selected' };
+    if (!strategyIds.length) return { error: 'no strategies selected (all excluded?)' };
 
     // Default date range: from first option data or 1 year back
     if (!opts.dateFrom || !opts.dateTo) {
@@ -466,7 +481,11 @@ async function runGA(jobDbId, opts) {
         }
         // If paused/cancelled/budget, stop processing rest
         const last = results[results.length - 1];
-        if (last && (last.paused || last.cancelled || last.budgetOut)) break;
+        if (last && last.cancelled) break;   // user cancelled → stop everything
+        // paused / budgetOut: keep going so remaining strategies at least try
+        if (last && (last.paused || last.budgetOut)) {
+            deps.logger && deps.logger.info('[ga] ' + sid + ' ' + (last.paused ? 'paused' : 'budget') + ' — continuing');
+        }
     }
 
     return {
@@ -482,29 +501,27 @@ async function resumeReady() {
     if (stopResume.isDangerWindow()) return { resumed: 0, inDanger: true };
     const paused = await stopResume.listPaused(deps.getDB);
     let resumed = 0;
+    // FIX GA-8: sequential, one at a time
     for (const st of paused) {
         if (st.resumeAfter && new Date(st.resumeAfter) > new Date()) continue;
-        // Mark as running, then kick off a background GA run for this strategy
+        if (stopResume.isDangerWindow()) break;
         await stopResume.saveState(deps.getDB, st.strategyId, Object.assign({}, st, { status: 'running' }));
-        // Fire-and-forget: run GA for this single strategy
-        (async () => {
-            try {
-                const db = deps.getDB();
-                const jobDoc = {
-                    type: 'ga', payload: { strategyId: st.strategyId, resume: true },
-                    status: 'RUNNING', progress: { current: 0, total: 1, message: 'resume' },
-                    createdAt: new Date(), updatedAt: new Date(), startedAt: new Date()
-                };
-                const ins = await db.collection(COLLECTIONS.BACKTEST_JOBS).insertOne(jobDoc);
-                const r = await runGA(String(ins.insertedId), { strategyId: st.strategyId });
-                await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
-                    { _id: ins.insertedId },
-                    { $set: { status: 'DONE', result: r, finishedAt: new Date() } }
-                );
-            } catch (e) {
-                deps.logger && deps.logger.warn('[ga] resume ' + st.strategyId + ': ' + e.message);
-            }
-        })();
+        try {
+            const db = deps.getDB();
+            const jobDoc = {
+                type: 'ga', payload: { strategyId: st.strategyId, resume: true },
+                status: 'RUNNING', progress: { current: 0, total: 1, message: 'resume' },
+                createdAt: new Date(), updatedAt: new Date(), startedAt: new Date()
+            };
+            const ins = await db.collection(COLLECTIONS.BACKTEST_JOBS).insertOne(jobDoc);
+            const r = await runGA(String(ins.insertedId), { strategyId: st.strategyId });
+            await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+                { _id: ins.insertedId },
+                { $set: { status: 'DONE', result: r, finishedAt: new Date() } }
+            );
+        } catch (e) {
+            deps.logger && deps.logger.warn('[ga] resume ' + st.strategyId + ': ' + e.message);
+        }
         resumed++;
     }
     return { resumed: resumed, inDanger: false };
