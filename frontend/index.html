@@ -1547,6 +1547,7 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 <div class="menu-divider"></div>
 <div class="menu-label">ابزارها</div> <button class="menu-item" onclick="openBacktestPanel(); toggleMenu();">بک‌تست</button>  <!-- R20: dual-stage menu removed --> <button class="menu-item" onclick="openDoctorPanel(); toggleMenu();">دکتر سیستم</button>
 <button class="menu-item" onclick="openSensitivityPanel(); toggleMenu();">🔬 حساسیت پارامتر</button> <button class="menu-item" onclick="openEnrichmentPanel(); toggleMenu();">غنی‌سازی دیتا آپشن</button> <button class="menu-item" onclick="openMonthlyReport(); toggleMenu();">گزارش ماهانه</button> <button class="menu-item" onclick="openPortfolioAnalysis(); toggleMenu();">تحلیل پرتفولیو</button> <button class="menu-item" onclick="openRegimePanel(); toggleMenu();">رژیم بازار</button> <div class="menu-divider"></div> <div class="menu-label">تنظیمات سیستم</div> <button class="menu-item" onclick="openAdvancedSettings(); toggleMenu();">تنظیمات پیشرفته</button> <button class="menu-item" onclick="openStrategyDefaults(); toggleMenu();">پیش‌فرض استراتژی‌ها</button> </div> <div class="menu-tab-content" id="menuTab-status" style="display:none;"> <div id="r21_status_ticker"> <div class="menu-label">تیک زنده</div> <div class="menu-status-row" style="margin-bottom:6px;"> <span>وضعیت</span> <span id="menuTickerStatus" style="font-size:11px;">در حال بررسی...</span> </div> <div style="display:flex;gap:6px;margin-bottom:10px;"> <button class="btn tiny success" onclick="algotikTickerStart()" style="flex:1;">شروع تیک</button> <button class="btn tiny danger" onclick="algotikTickerStop()" style="flex:1;">توقف</button> </div> <button class="btn tiny outline" onclick="openTickerHistory()" style="width:100%;margin-bottom:10px;">تاریخچه تیک</button> </div> <div id="r21_status_dynamic"></div> <div class="menu-label">وضعیت سرور</div> <div class="menu-status-grid"> <div class="menu-status-row"><span>سرور</span><b id="backendStatus">-</b></div> <div class="menu-status-row"><span>Collector</span><b id="collectorStatus">-</b></div> <div class="menu-status-row"><span>بازار</span><b id="marketStatus">-</b></div> <div class="menu-status-row"><span>سلامت</span><b id="healthStatus">-</b></div> </div> <div class="menu-divider"></div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="loadSystemStats(this)">رفرش سیستم</button> <button class="btn tiny outline" onclick="loadActiveJobs(this)">رفرش فعالیت</button> </div> <div id="menuSysStats" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">فعالیت‌ها</div> <div style="display:flex; gap:6px; margin-bottom:8px;"> <button class="btn tiny outline" onclick="refreshMenuStatus(this)">رفرش</button> <button class="btn tiny outline" onclick="openJobsPanel(); toggleMenu();" style="flex:1;">تاریخچه</button> </div> <div id="menuActiveJobs" style="font-size:12px;"></div> <div class="menu-divider"></div> <div class="menu-label">پروسه‌ها</div> <div id="menuProcesses" style="font-size:12px;"></div> </div> <div class="menu-tab-content" id="menuTab-guide" style="display:none;"> <div style="display:flex; gap:8px; margin-bottom:14px;"> <button class="btn small outline" style="flex:1;" onclick="openLogs('memory')">لاگ سیستم</button> <button class="btn small outline" style="flex:1;" onclick="testTelegram()">تست پیام‌رسان</button> </div>
+<button class="menu-item" onclick="openGAPanel(); toggleMenu();">🧬 بهینه‌سازی GA</button>
     <div style="display:flex; gap:8px; margin-bottom:14px;">
       <button class="btn small outline" style="flex:1;" onclick="promptToken()">توکن ادمین</button>
       <button class="btn small outline" style="flex:1;" onclick="runBackupNow()">دریافت بکاپ</button>
@@ -7090,6 +7091,287 @@ function _r24ApplyMode() {
     };
   }
 })();
+
+// ═══════════════════════════════════════════════════════════
+// GA / Parameter Tuning Panel (B-4-3b)
+// ═══════════════════════════════════════════════════════════
+let _gaPollTimer = null;
+let _gaJobId = null;
+let _gaApplyData = {};
+
+async function openGAPanel() {
+  if (!strategiesInfo || !strategiesInfo.length) {
+    showAlert("ابتدا استراتژی‌ها بارگذاری شوند", "warn");
+    return;
+  }
+  openModal("بهینه‌سازی پارامترها (GA)", '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
+  try {
+    const [states, jobs, symsResp] = await Promise.all([
+      apiFetch(BACKEND_URL + "/api/ga/states", {}, 0).catch(() => ({ states: [] })),
+      apiFetch(BACKEND_URL + "/api/ga/jobs/list?limit=10", {}, 0).catch(() => ({ jobs: [] })),
+      apiFetch(BACKEND_URL + "/api/monitored-symbols", {}, 0).catch(() => [])
+    ]);
+    renderGAPanel(states.states || [], jobs.jobs || [], symsResp || []);
+  } catch (e) {
+    openModal("بهینه‌سازی GA", '<div class="empty-note">خطا: ' + esc(e.message) + '</div>');
+  }
+}
+
+function renderGAPanel(states, jobs, syms) {
+  const stateMap = {};
+  for (const s of states) stateMap[s.strategyId] = s;
+
+  const stratRows = strategiesInfo.map(s => {
+    const st = stateMap[s.id];
+    const badge = !st ? '<span class="badge none">—</span>'
+      : st.status === "done" ? '<span class="badge long">✓</span>'
+      : st.status === "running" ? '<span class="badge warn">در حال اجرا</span>'
+      : st.status === "paused" ? '<span class="badge warn">pause</span>'
+      : '<span class="badge short">' + esc(st.status || "?") + '</span>';
+    const fit = (st && st.best && Number.isFinite(st.best.fitness)) ? st.best.fitness.toFixed(3) : "—";
+    const gen = st ? (st.generation || 0) : "—";
+    return '<tr>'
+      + '<td><input type="checkbox" class="ga-strat-chk" value="' + esc(s.id) + '">'
+      + ' <b>' + esc(s.name) + '</b></td>'
+      + '<td>' + badge + '</td>'
+      + '<td><b>' + fit + '</b></td>'
+      + '<td>' + gen + '</td>'
+      + '<td>'
+      + (st && st.status === "done" ? '<button class="btn tiny success" onclick="gaApply(\'' + esc(s.id) + '\')">اعمال</button> ' : "")
+      + (st && (st.status === "paused") ? '<button class="btn tiny warn" onclick="gaResume(\'' + esc(s.id) + '\')">ادامه</button> ' : "")
+      + (st ? '<button class="btn tiny outline" onclick="gaViewState(\'' + esc(s.id) + '\')">جزئیات</button>' : "")
+      + '</td></tr>';
+  }).join("");
+
+  const jobRows = jobs.slice(0, 5).map(j => {
+    const sid = (j.payload && j.payload.strategyId) || (j.payload && j.payload.allStrategies ? "همه" : "?");
+    const dt = j.createdAt ? new Date(j.createdAt).toLocaleString("fa-IR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+    const cls = j.status === "DONE" ? "long" : j.status === "FAILED" ? "short" : "warn";
+    return '<tr><td><span class="badge ' + cls + '">' + esc(j.status) + '</span></td>'
+      + '<td>' + esc(sid) + '</td>'
+      + '<td style="font-size:11px;">' + dt + '</td>'
+      + '<td><button class="btn tiny outline" onclick="gaViewJob(\'' + j._id + '\')">مشاهده</button></td></tr>';
+  }).join("");
+
+  const symCount = (syms || []).length;
+  const html = '<div class="hint" style="padding:8px 12px;background:var(--accent-subtle);border-radius:var(--r-md);margin-bottom:12px;">'
+    + '🧬 TPE Sampler + Median Pruner + 6-window walk-forward + GT-Score. در ساعات بازار خودکار pause می‌شود.'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="ga_mode" value="stock" checked> سهم</label>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="ga_mode" value="option"> آپشن</label>'
+    + '<div class="field" style="min-width:120px;margin:0;"><label style="font-size:11px;">نماد (۸ پیشنهاد)</label><input type="number" id="ga_symLimit" value="8" min="1" max="30"></div>'
+    + '<div class="field" style="min-width:130px;margin:0;"><label style="font-size:11px;">maxGen</label><input type="number" id="ga_maxGen" value="30" min="3" max="200"></div>'
+    + '<div class="field" style="min-width:130px;margin:0;"><label style="font-size:11px;">trials/gen</label><input type="number" id="ga_trials" value="4" min="1" max="10"></div>'
+    + '<div class="field" style="min-width:130px;margin:0;"><label style="font-size:11px;">windows</label><input type="number" id="ga_windows" value="3" min="2" max="6"></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'
+    + '<button class="btn success" id="gaStartAll" onclick="gaStartAll()">⚡ شروع روی همه (' + strategiesInfo.length + ')</button>'
+    + '<button class="btn" id="gaStartSel" onclick="gaStartSelected()">▶ شروع انتخاب‌شده‌ها</button>'
+    + '<button class="btn danger" id="gaCancelBtn" style="display:none;" onclick="gaCancelJob()">✖ لغو</button>'
+    + '<button class="btn outline" onclick="openGAPanel()">🔄 رفرش</button>'
+    + '</div>'
+    + '<div id="gaProgress" style="margin-bottom:12px;"></div>'
+    + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📊 وضعیت استراتژی‌ها (' + strategiesInfo.length + ')</h4>'
+    + '<div style="max-height:300px;overflow-y:auto;"><table class="data-table"><thead><tr><th>استراتژی</th><th>وضعیت</th><th>Best Fit</th><th>Gen</th><th></th></tr></thead><tbody>'
+    + (stratRows || '<tr class="empty-row"><td colspan="5">—</td></tr>')
+    + '</tbody></table></div>'
+    + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📜 آخرین اجراها</h4>'
+    + '<div style="max-height:200px;overflow-y:auto;"><table class="data-table"><thead><tr><th>وضعیت</th><th>هدف</th><th>زمان</th><th></th></tr></thead><tbody>'
+    + (jobRows || '<tr class="empty-row"><td colspan="4">—</td></tr>')
+    + '</tbody></table></div>';
+
+  openModal("بهینه‌سازی پارامترها (GA)", html);
+}
+
+async function gaStartAll() {
+  if (!confirm("GA روی همه " + strategiesInfo.length + " استراتژی؟\nممکن است چند ساعت طول بکشد. در ساعات بازار خودکار pause می‌شود.")) return;
+  const body = {
+    allStrategies: true,
+    mode: (document.querySelector("input[name=ga_mode]:checked") || {}).value || "stock",
+    symbolsLimit: +document.getElementById("ga_symLimit").value || 8,
+    maxGenerations: +document.getElementById("ga_maxGen").value || 30,
+    trialsPerGeneration: +document.getElementById("ga_trials").value || 4,
+    numWindows: +document.getElementById("ga_windows").value || 3
+  };
+  await _gaKickoff(body);
+}
+
+async function gaStartSelected() {
+  const sel = Array.from(document.querySelectorAll(".ga-strat-chk:checked")).map(c => c.value);
+  if (!sel.length) return showAlert("حداقل یک استراتژی انتخاب کن", "warn");
+  if (!confirm("GA روی " + sel.length + " استراتژی انتخاب‌شده؟")) return;
+  const body = {
+    strategyId: sel[0],
+    strategies: sel,
+    mode: (document.querySelector("input[name=ga_mode]:checked") || {}).value || "stock",
+    symbolsLimit: +document.getElementById("ga_symLimit").value || 8,
+    maxGenerations: +document.getElementById("ga_maxGen").value || 30,
+    trialsPerGeneration: +document.getElementById("ga_trials").value || 4,
+    numWindows: +document.getElementById("ga_windows").value || 3
+  };
+  await _gaKickoff(body);
+}
+
+async function _gaKickoff(body) {
+  const btnAll = document.getElementById("gaStartAll");
+  const btnSel = document.getElementById("gaStartSel");
+  const btnCan = document.getElementById("gaCancelBtn");
+  if (btnAll) btnAll.disabled = true;
+  if (btnSel) btnSel.disabled = true;
+  if (btnCan) btnCan.style.display = "inline-block";
+  try {
+    const r = await apiFetch(BACKEND_URL + "/api/ga/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }, 0);
+    _gaJobId = r.jobId;
+    showAlert("GA شروع شد — job " + r.jobId.slice(0, 8), "success", 5000);
+    if (_gaPollTimer) clearInterval(_gaPollTimer);
+    _gaPollTimer = setInterval(gaPoll, 5000);
+    gaPoll();
+  } catch (e) {
+    showAlert("خطا: " + e.message, "error");
+    if (btnAll) btnAll.disabled = false;
+    if (btnSel) btnSel.disabled = false;
+    if (btnCan) btnCan.style.display = "none";
+  }
+}
+
+async function gaPoll() {
+  if (!_gaJobId) return;
+  const el = document.getElementById("gaProgress");
+  if (!el) { if (_gaPollTimer) clearInterval(_gaPollTimer); return; }
+  try {
+    const j = await apiFetch(BACKEND_URL + "/api/ga/jobs/" + _gaJobId, {}, 0);
+    const p = j.progress || {};
+    const pct = p.total > 0 ? Math.round((p.current || 0) / p.total * 100) : 0;
+    el.innerHTML = '<div class="job-card"><div class="job-header"><span class="job-type">GA</span>'
+      + '<span class="job-status ' + j.status + '">' + j.status + '</span></div>'
+      + '<div class="job-msg">' + esc(p.message || "") + '</div>'
+      + '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div></div>';
+    if (j.status === "DONE" || j.status === "FAILED" || j.status === "CANCELLED") {
+      if (_gaPollTimer) clearInterval(_gaPollTimer);
+      _gaPollTimer = null;
+      const btnAll = document.getElementById("gaStartAll");
+      const btnSel = document.getElementById("gaStartSel");
+      const btnCan = document.getElementById("gaCancelBtn");
+      if (btnAll) btnAll.disabled = false;
+      if (btnSel) btnSel.disabled = false;
+      if (btnCan) btnCan.style.display = "none";
+      if (j.status === "DONE") {
+        showAlert("GA تمام شد — رفرش کن", "success", 5000);
+      }
+    }
+  } catch (e) {}
+}
+
+async function gaCancelJob() {
+  if (!_gaJobId) return;
+  if (!confirm("لغو کنم؟")) return;
+  try {
+    await apiFetch(BACKEND_URL + "/api/ga/cancel/" + _gaJobId, { method: "POST" }, 0);
+    showAlert("درخواست لغو ارسال شد", "info", 4000);
+  } catch (e) { showAlert("خطا: " + e.message, "error"); }
+}
+
+async function gaViewJob(id) {
+  showLoader("در حال بارگذاری...");
+  try {
+    const j = await apiFetch(BACKEND_URL + "/api/ga/jobs/" + id, {}, 0);
+    hideLoader();
+    const r = j.result || {};
+    const rows = (r.results || []).map(x => {
+      const fit = (x.best && Number.isFinite(x.best.fitness)) ? x.best.fitness.toFixed(3) : "—";
+      const status = x.error ? '<span class="badge short">' + esc(x.error) + '</span>'
+        : x.done ? '<span class="badge long">انجام شد</span>'
+        : x.paused ? '<span class="badge warn">pause</span>'
+        : x.cancelled ? '<span class="badge short">لغو</span>'
+        : '<span class="badge none">?' + '</span>';
+      return '<tr><td><b>' + esc(x.strategyId) + '</b></td><td>' + status + '</td><td>' + fit + '</td><td>' + (x.generation || 0) + '</td></tr>';
+    }).join("");
+    openModal("نتیجه GA — " + id.slice(0, 8),
+      '<div class="stats-grid"><div class="stat"><small>کل</small><b>' + (r.totalStrategies || 0) + '</b></div>'
+      + '<div class="stat highlight-good"><small>کامل</small><b>' + (r.completed || 0) + '</b></div>'
+      + '<div class="stat"><small>pause</small><b>' + (r.paused || 0) + '</b></div></div>'
+      + '<div class="table-responsive" style="max-height:400px;overflow-y:auto;"><table class="data-table">'
+      + '<thead><tr><th>استراتژی</th><th>وضعیت</th><th>Best Fit</th><th>Gen</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table></div>', true);
+  } catch (e) {
+    hideLoader();
+    showAlert("خطا: " + e.message, "error");
+  }
+}
+
+async function gaViewState(sid) {
+  showLoader("در حال بارگذاری...");
+  try {
+    const st = await apiFetch(BACKEND_URL + "/api/ga/state/" + encodeURIComponent(sid), {}, 0);
+    hideLoader();
+    const best = st.best || {};
+    const stats = best.stats || {};
+    const params = best.params || {};
+    const paramRows = Object.entries(params).map(([k, v]) => '<tr><td>' + esc(k) + '</td><td>' + (typeof v === "number" ? v.toFixed(4) : esc(String(v))) + '</td></tr>').join("");
+    const statBox = (l, v) => '<div class="stat"><small>' + l + '</small><b>' + v + '</b></div>';
+    openModal("GA — " + sid,
+      '<div class="stats-grid">'
+      + statBox("Fitness", (Number.isFinite(best.fitness) ? best.fitness.toFixed(3) : "—"))
+      + statBox("Gen", st.generation || 0)
+      + statBox("PF", (stats.profitFactor != null ? (Number.isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : "∞") : "—"))
+      + statBox("Sharpe", (stats.sharpe != null ? stats.sharpe.toFixed(2) : "—"))
+      + statBox("N", stats.totalTrades || 0)
+      + statBox("MaxDD", (stats.maxDrawdownPct || 0).toFixed(1) + "%")
+      + '</div>'
+      + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">پارامترهای بهینه</h4>'
+      + '<table class="data-table"><thead><tr><th>پارامتر</th><th>مقدار</th></tr></thead><tbody>' + paramRows + '</tbody></table>'
+      + '<div style="margin-top:14px;"><button class="btn success" onclick="gaApplyFromState(\'' + esc(sid) + '\')">✅ اعمال روی تنظیمات</button></div>', true);
+    window._gaStateTemp = st;
+  } catch (e) {
+    hideLoader();
+    showAlert("خطا: " + e.message, "error");
+  }
+}
+
+async function gaApplyFromState(sid) {
+  const st = window._gaStateTemp;
+  if (!st || !st.best || !st.best.params) return showAlert("پارامتری نیست", "warn");
+  await _gaDoApply(sid, st.best.params);
+}
+
+async function gaApply(sid) {
+  showLoader("در حال دریافت state...");
+  try {
+    const st = await apiFetch(BACKEND_URL + "/api/ga/state/" + encodeURIComponent(sid), {}, 0);
+    hideLoader();
+    if (!st.best || !st.best.params) return showAlert("پارامتری نیست", "warn");
+    await _gaDoApply(sid, st.best.params);
+  } catch (e) { hideLoader(); showAlert("خطا: " + e.message, "error"); }
+}
+
+async function _gaDoApply(sid, params) {
+  if (!confirm("اعمال روی " + sid + "؟\n" + JSON.stringify(params, null, 2).slice(0, 400))) return;
+  showLoader("در حال اعمال...");
+  try {
+    const r = await apiFetch(BACKEND_URL + "/api/ga/apply/" + encodeURIComponent(sid), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ params })
+    }, 0);
+    hideLoader();
+    window._gaApplyData[sid] = { archiveId: r.archiveId };
+    showAlert("✅ اعمال شد روی " + r.updated + " config", "success", 5000);
+    await loadConfigs();
+    await openGAPanel();
+  } catch (e) { hideLoader(); showAlert("خطا: " + e.message, "error"); }
+}
+
+async function gaResume(sid) {
+  try {
+    await apiFetch(BACKEND_URL + "/api/ga/resume/" + encodeURIComponent(sid), { method: "POST" }, 0);
+    showAlert("روی صف resume قرار گرفت (تا ۵ دقیقه)", "info", 5000);
+  } catch (e) { showAlert("خطا: " + e.message, "error"); }
+}
+
 </script>
 </body>
 </html>
