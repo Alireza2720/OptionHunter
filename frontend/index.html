@@ -5196,11 +5196,37 @@ async function applySelectedSuggestions() {
     }
 }
 async function applyBacktestSelections(fromSuggestion) {
+  // BG4/BG5 fix: read roles from UI; allow multiple leaders per symbol
   if (!_btJobId || !_btLastResult) {
     return showAlert('نتیجه‌ای وجود ندارد', 'warn');
   }
-  let selections = [];
-  if (fromSuggestion) {
+  const selections = [];
+  const bySymbol = {};
+  const cards = document.querySelectorAll('.auto-plan-card');
+  if (cards.length) {
+    cards.forEach(card => {
+      const sym = card.dataset.symbol;
+      const rows = card.querySelectorAll('.auto-role-row');
+      const list = [];
+      rows.forEach(row => {
+        const cb = row.querySelector('.ac-sel');
+        const sel = row.querySelector('.ac-role');
+        if (!cb || !cb.checked || !sel) return;
+        const role = sel.value;
+        if (role === 'skip') return;
+        const sid = row.dataset.sid;
+        if (sid) list.push({ strategyId: sid, role });
+      });
+      if (list.length && !list.some(x => x.role === 'leader')) {
+        list[0].role = 'leader';
+      }
+      if (list.length) bySymbol[sym] = list;
+    });
+    for (const [sym, pairs] of Object.entries(bySymbol)) {
+      selections.push({ symbol: sym, pairs });
+    }
+  }
+  if (!selections.length && fromSuggestion) {
     for (const sug of (_btLastResult.autoConfigSuggestion || [])) {
       if (sug.error) continue;
       const pairs = [
@@ -5209,32 +5235,17 @@ async function applyBacktestSelections(fromSuggestion) {
       ];
       selections.push({ symbol: sug.symbol, pairs });
     }
-  } else {
-    const grouped = {};
-    document.querySelectorAll('.bt3-sel:checked').forEach(c => {
-      const sym = c.dataset.symbol;
-      const sid = c.dataset.strategy;
-      if (!grouped[sym]) grouped[sym] = [];
-      grouped[sym].push(sid);
-    });
-    for (const [sym, sids] of Object.entries(grouped)) {
-      const pairs = sids.map((sid, idx) => ({
-        strategyId: sid,
-        role: idx === 0 ? 'leader' : 'confirmer'
-      }));
-      selections.push({ symbol: sym, pairs });
-    }
   }
   if (!selections.length) return showAlert('هیچ موردی انتخاب نشده', 'warn');
-  if (!confirm(`اعمال ${selections.length} نماد؟ configهای قبلی این نمادها جایگزین می‌شوند.`)) return;
+  if (!confirm('اعمال ' + selections.length + ' نماد؟ configهای قبلی این نمادها جایگزین می‌شوند.')) return;
   showLoader('در حال اعمال...');
   try {
-    const r = await apiFetch(`${BACKEND_URL}/api/backtest/apply`, {
+    const r = await apiFetch(BACKEND_URL + '/api/backtest/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId: _btJobId, selections })
     }, 0);
-    showAlert(` ${r.applied.length} نماد اعمال شد`, 'success', 6000);
+    showAlert(' ' + r.applied.length + ' نماد اعمال شد', 'success', 6000);
     await loadConfigs();
   } catch (e) {
     showAlert('خطا: ' + e.message, 'error');
@@ -5242,6 +5253,7 @@ async function applyBacktestSelections(fromSuggestion) {
     hideLoader();
   }
 }
+
 async function openAdvancedSettings() {
   openModal('تنظیمات پیشرفته', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
   try {

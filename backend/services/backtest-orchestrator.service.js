@@ -588,7 +588,8 @@ async function computeFullResult(job, jobId) {
     }
 
     // ---- Auto-Config Suggestion ----
-    result.autoConfigSuggestion = buildAutoConfigSuggestion(result, symbols);
+    const _mc = (job.payload && Number.isInteger(job.payload.maxConfirmers)) ? job.payload.maxConfirmers : 2;
+    result.autoConfigSuggestion = buildAutoConfigSuggestion(result, symbols, _mc);
 
 
     // 🆕 Compare to previous PF and alert on drop
@@ -732,7 +733,7 @@ function computeLosingStrategies(details, mode) {
     return { losers, agg, pairs };
 }
 
-function buildAutoConfigSuggestion(result, symbolsInput) {
+function buildAutoConfigSuggestion(result, symbolsInput, maxConfirmers = 2) {
     const symbols = symbolsInput && symbolsInput.length
         ? symbolsInput
         : [...new Set((result.details || []).map(d => d.symbol))];
@@ -791,7 +792,7 @@ function buildAutoConfigSuggestion(result, symbolsInput) {
         }
 
         const leader = scored[0];
-        const confirmers = scored.slice(1, 1 + (result._maxConfirmers || 2)).filter(c => c._pf >= 1.0);
+        const confirmers = scored.slice(1, 1 + Math.max(0, maxConfirmers)).filter(c => c._pf >= 1.0);
 
         suggestions.push({
             symbol: sym,
