@@ -2036,7 +2036,7 @@ async function syncSymbolsFromConfigs(btn) {
   }
 }
 async function bulkCollectToggle(enabled) { const ids = monitoredSymbols.map(s => s._id); if (!ids.length) return showAlert('نمادی وجود ندارد', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/bulk-collect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, collectEnabled: enabled }) }); showAlert('به‌روز شد.', 'success', 3000); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function deleteMonitoredSymbol(id, sym) { if (!confirm(`نماد «${sym}» حذف شود؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function deleteMonitoredSymbol(id, sym) { if (!(await uiConfirmDelete('نماد «' + sym + '»'))) return; try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols/${id}`, { method:'DELETE' }); showAlert('نماد حذف شد', 'success', 3000); await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function algotikRefresh(btn) {
   const orig = btn ? btn.textContent : null;
   if (btn) { btn.disabled = true; btn.textContent = ' ...'; }
@@ -2581,10 +2581,10 @@ function updateBulkToolbar() { const tb = document.getElementById('bulkToolbar')
 function clearSelection() { selectedConfigs.clear(); renderConfigs(); }
 async function bulkToggleEnabled(en) { if (!selectedConfigs.size) return; if (!confirm(`${selectedConfigs.size} مورد ${en ? 'فعال' : 'غیرفعال'}؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs), enabled: en }) }); showAlert('به‌روز شد.', 'success', 3000); selectedConfigs.clear(); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function bulkSetRole(role) { if (!selectedConfigs.size) return; if (!confirm(`تغییر نقش ${selectedConfigs.size} مورد؟`)) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs), role }) }); showAlert('به‌روز شد.', 'success', 3000); selectedConfigs.clear(); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function bulkDelete() { if (!selectedConfigs.size) return; if (!confirm(`حذف ${selectedConfigs.size}؟`)) return; try { const r = await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs) }) }); showAlert(`${r.deleted} حذف شد.`, 'success', 3000); selectedConfigs.clear(); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function bulkDelete() { if (!selectedConfigs.size) return; if (!(await uiConfirmDelete(selectedConfigs.size + ' تنظیم انتخاب‌شده', { requireType: 'حذف' }))) return; try { const r = await apiFetch(`${BACKEND_URL}/api/strategy-configs/bulk-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: Array.from(selectedConfigs) }) }); showAlert(`${r.deleted} حذف شد.`, 'success', 3000); selectedConfigs.clear(); await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 function showInsufficientReason(id) { const it = configs.find(c => c._id === id); if (!it) return showAlert('config یافت نشد.'); const st = statusMap[id]; if (!st) return showAlert('وضعیت نشده.'); const s = strategiesInfo.find(x => x.id === it.strategyId); const tfLabel = TF_LABELS[it.timeframe] || it.timeframe; const htfLabel = TF_LABELS[it.htfTimeframe || '1d'] || '1d'; const cc = Number(st.candleCount) || 0, rq = Number(st.requiredCandles) || 0; const hc = Number(st.htfCandleCount) || 0, hr = Number(st.requiredHtfCandles) || 0; const cOk = cc >= rq, hOk = hc >= hr; openModal(`داده ناکافی - ${it.symbol}`, `<div class="hint">${esc(s?s.name:it.strategyId)} - ${tfLabel}  ${htfLabel}</div><div class="stats-grid"><div class="stat"><small>${tfLabel}</small><b>${cc} / ${rq}</b></div><div class="stat"><small>${htfLabel}</small><b>${hc} / ${hr}</b></div></div><div class="hint">${!hOk ? 'دیتای بیشتر از Pipeline دریافت کن.' : ''} ${!cOk ? 'صبر کن.' : ''}</div>`); }
 async function toggleConfigEnabled(id, en) { try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: en }) }); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function deleteConfig(id) { if (!confirm('حذف شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'DELETE' }); if (selectedConfigId === id) selectedConfigId = null; await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function deleteConfig(id) { if (!(await uiConfirmDelete('این تنظیم'))) return; try { await apiFetch(`${BACKEND_URL}/api/strategy-configs/${id}`, { method:'DELETE' }); if (selectedConfigId === id) selectedConfigId = null; await loadConfigs(); } catch (e) { showAlert('خطا: ' + e.message); } }
 function editConfig(id) {
   const it = configs.find(c => c._id === id);
   if (!it) return showAlert('config یافت نشد', 'warn');
@@ -2739,6 +2739,73 @@ async function triggerEvaluateNow(btn) {
   }
 }
 
+function uiConfirm(opts) {
+  // opts: { title, message, confirmText, danger, requireType }
+  return new Promise(function (resolve) {
+    const title = opts.title || 'تأیید';
+    const msg = opts.message || '';
+    const ctext = opts.confirmText || 'تأیید';
+    const danger = opts.danger !== false;
+    const requireType = opts.requireType || null;
+    const id = 'uiConfirm_' + Date.now();
+    const btnCls = danger ? 'btn danger' : 'btn success';
+    const extra = requireType
+      ? '<div class="field" style="margin-top:10px;"><label style="font-size:11.5px;">برای تأیید عبارت <b style="color:var(--danger);font-family:var(--font-mono);">' + esc(requireType) + '</b> را تایپ کنید:</label><input type="text" id="' + id + '_input" autocomplete="off" style="direction:ltr;"></div>'
+      : '';
+    const html = '<div style="text-align:center;padding:8px 0;">'
+      + '<div style="font-size:40px;margin-bottom:8px;">' + (danger ? '⚠️' : '❓') + '</div>'
+      + '<div style="font-size:14px;line-height:1.8;">' + msg + '</div>'
+      + extra
+      + '</div>'
+      + '<div style="display:flex;gap:8px;margin-top:16px;justify-content:center;">'
+      + '<button class="' + btnCls + '" id="' + id + '_ok">' + ctext + '</button>'
+      + '<button class="btn outline" id="' + id + '_cancel">انصراف</button>'
+      + '</div>';
+    openModal(title, html, true);
+    const input = document.getElementById(id + '_input');
+    const okBtn = document.getElementById(id + '_ok');
+    const cancelBtn = document.getElementById(id + '_cancel');
+    if (input) input.focus();
+    okBtn.onclick = function () {
+      if (requireType && (!input || input.value.trim() !== requireType)) {
+        if (input) { input.style.borderColor = 'var(--danger)'; input.focus(); }
+        return;
+      }
+      closeModal();
+      resolve(true);
+    };
+    cancelBtn.onclick = function () {
+      closeModal();
+      resolve(false);
+    };
+    if (input) input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') okBtn.click();
+    });
+  });
+}
+
+async function uiConfirmDelete(what, opts) {
+  opts = opts || {};
+  return uiConfirm({
+    title: 'حذف ' + what,
+    message: 'آیا مطمئنی می‌خواهی ' + what + ' را حذف کنی؟<br><span style="color:var(--text-dim);font-size:12px;">این عمل قابل بازگشت نیست.</span>',
+    confirmText: '🗑 حذف کن',
+    danger: true,
+    requireType: opts.requireType || null
+  });
+}
+
+async function uiConfirmClear(what, opts) {
+  opts = opts || {};
+  return uiConfirm({
+    title: 'پاک کردن ' + what,
+    message: 'آیا مطمئنی می‌خواهی ' + what + ' را پاک کنی؟<br><span style="color:var(--text-dim);font-size:12px;">این عمل قابل بازگشت نیست.</span>',
+    confirmText: 'پاک کن',
+    danger: true,
+    requireType: opts.requireType || null
+  });
+}
+
 async function loadSignalHistory() {
   try {
     const _isFirst = signalHistoryCache === null;
@@ -2769,7 +2836,7 @@ function renderSignalHistory() {
     return `<tr><td>${esc(x.symbol)}${pairTag}</td><td>${fmtT(x.time)}</td><td>${esc(x.strategyName||x.strategyId)} - ${TF_LABELS[x.timeframe]||''}</td><td>${roleTag}</td><td>${SIGNAL_LABELS[x.signalType]||x.signalType} ${rejectedTag}</td><td>${x.price?x.price.toLocaleString():'-'}</td><td>${trendBadge(x.htfTrend)}</td><td style="font-size:11px;">${esc(x.reason||x.rejectionReason||'-')}</td><td>${badges}</td></tr>`;
   }).join('');
 }
-async function clearSignalHistory() { if (!confirm('کل تاریخچه پاک شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/signal-history`, { method:'DELETE' }); await loadSignalHistory(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function clearSignalHistory() { if (!(await uiConfirmClear('کل تاریخچه سیگنال‌ها', { requireType: 'پاک کن' }))) return; try { await apiFetch(`${BACKEND_URL}/api/signal-history`, { method:'DELETE' }); showAlert('تاریخچه پاک شد', 'success', 4000); await loadSignalHistory(); } catch (e) { showAlert('خطا: ' + e.message); } }
 let _activeDashTab = 'paper';
 function switchDashTab(tab) {
     _activeDashTab = tab;
@@ -3618,7 +3685,7 @@ function switchJobsTab(w, btn) {
   document.getElementById('jobsTab-done').style.display = w === 'done' ? 'block' : 'none';
 }
 async function clearJobsHistory() {
-  if (!confirm('کل تاریخچه فعالیت‌ها پاک شود؟\n\n⚠️ فقط نمایش پاک می‌شود — داده‌های واقعی (بک‌تست، غنی‌سازی، backfill) حفظ می‌شوند.')) return;
+  if (!(await uiConfirm({ title: 'پاک کردن تاریخچه', message: 'کل تاریخچه فعالیت‌ها پاک شود؟<br><span style="color:var(--text-dim);font-size:12px;">⚠️ فقط نمایش پاک می‌شود — داده‌های واقعی (بک‌تست، غنی‌سازی، backfill) حفظ می‌شوند.</span>', confirmText: 'پاک کن', danger: true }))) return;
   showLoader('در حال پاک کردن...');
   try {
     const r = await apiFetch(BACKEND_URL + '/api/jobs/clear-history', { method: 'POST' }, 0);
@@ -3631,9 +3698,9 @@ async function clearJobsHistory() {
   }
 }
 
-async function cancelActiveJob(id) { if (!confirm('لغو شود؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function cancelActiveJob(id) { if (!(await uiConfirm({ title: 'لغو Job', message: 'این Job لغو شود؟', confirmText: 'لغو کن', danger: true }))) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}/cancel`, { method: 'POST' }); showAlert('درخواست لغو.', 'info', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function cancelDoctorJobById(jobId) {
-  if (!confirm('دکتر سیستم متوقف شود؟')) return;
+  if (!(await uiConfirm({ title: 'توقف دکتر سیستم', message: 'دکتر سیستم متوقف شود؟', confirmText: 'توقف', danger: true }))) return;
   try {
     const r = await apiFetch(`${BACKEND_URL}/api/doctor/kill`, {
       method: 'POST',
@@ -3692,14 +3759,14 @@ async function resumeAnyJob(id) {
 }
 
 async function cancelCollectorJob(id) {
-  if (!confirm('لغو شود؟')) return;
+  if (!(await uiConfirm({ title: 'لغو', message: 'لغو شود؟', confirmText: 'لغو', danger: true }))) return;
   try {
     await apiFetch(BACKEND_URL + '/api/algotik/jobs/' + id + '/cancel', { method: 'POST' });
     showAlert('درخواست لغو ارسال شد', 'info', 4000);
     setTimeout(function() { refreshJobsPanel(); }, 1000);
   } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
 }
-async function deleteJob(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, { method: 'DELETE' }); refreshJobsPanel(); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function deleteJob(id) { if (!(await uiConfirmDelete('این Job'))) return; try { await apiFetch(`${BACKEND_URL}/api/jobs/${id}`, { method: 'DELETE' }); refreshJobsPanel(); } catch (e) { showAlert('خطا: ' + e.message); } }
 function downloadJob(id) {
   const url = `${BACKEND_URL}/api/jobs/${id}/download`;
   apiFetch(url, {}, 0).then(data => {
@@ -4274,7 +4341,7 @@ function downloadCompareDetail(jobId, symbol, strategyId) {
     URL.revokeObjectURL(burl);
   }).catch(e => showAlert('خطا: ' + e.message, 'error'));
 }
-async function deleteOptionPosition(id) { if (!confirm('حذف؟')) return; try { await apiFetch(`${BACKEND_URL}/api/options/positions/${id}`, { method:'DELETE' }); ; } catch (e) { showAlert('خطا: ' + e.message); } }
+async function deleteOptionPosition(id) { if (!(await uiConfirmDelete('این پوزیشن'))) return; try { await apiFetch(`${BACKEND_URL}/api/options/positions/${id}`, { method:'DELETE' }); ; } catch (e) { showAlert('خطا: ' + e.message); } }
 async function explainSymbol(sym) {
   openModal('دیباگ آپشن: ' + sym, '<div style="text-align:center;padding:30px;">در حال دریافت...</div>', true);
   try {
@@ -6500,7 +6567,7 @@ async function runDoctor() {
   }
 }
 async function killDoctor() {
-  if (!confirm('دکتر سیستم متوقف شود؟')) return;
+  if (!(await uiConfirm({ title: 'توقف دکتر سیستم', message: 'دکتر سیستم متوقف شود؟', confirmText: 'توقف', danger: true }))) return;
   try {
     const body = _doctorDbJobId ? { jobId: _doctorDbJobId } : {};
     const r = await apiFetch(`${BACKEND_URL}/api/doctor/kill`, {
