@@ -7,7 +7,7 @@
 //   + consistency bonus based on profitable-window ratio
 // ============================================================
 
-const MIN_TRADES = 20;
+const MIN_TRADES = 10;
 const MIN_SHARPE = 0.5;
 const MIN_PF = 1.0;
 const PF_PENALTY_THRESHOLD = 5;
@@ -25,9 +25,16 @@ function isEligible(stats) {
     if (!Number.isFinite(sharpe) || sharpe < MIN_SHARPE) {
         return { ok: false, reason: 'Sharpe=' + sharpe + ' < ' + MIN_SHARPE };
     }
-    const pf = _num(stats.profitFactor, NaN);
-    if (!Number.isFinite(pf) || pf < MIN_PF) {
-        return { ok: false, reason: 'PF=' + pf + ' < ' + MIN_PF };
+    // PF: null/undefined means "no losses" → treat as infinite (eligible)
+    let pf = stats.profitFactor;
+    if (pf === null || pf === undefined) {
+        const avgLoss = _num(stats.avgLoss);
+        if (avgLoss > 0) return { ok: false, reason: 'PF=null with losses (' + avgLoss + ')' };
+        pf = 999;  // no losses → very good
+    }
+    const pfNum = _num(pf, NaN);
+    if (!Number.isFinite(pfNum) || pfNum < MIN_PF) {
+        return { ok: false, reason: 'PF=' + pfNum + ' < ' + MIN_PF };
     }
     return { ok: true };
 }
@@ -41,7 +48,9 @@ function computeFitness(stats) {
     const winRate = _num(stats.winRate);
     const maxDD = Math.abs(_num(stats.maxDrawdownPct != null ? stats.maxDrawdownPct : stats.maxDD));
     const n = _num(stats.totalTrades != null ? stats.totalTrades : stats.count);
-    const pf = _num(stats.profitFactor);
+    let _pfRaw = stats.profitFactor;
+    if (_pfRaw === null || _pfRaw === undefined) _pfRaw = 999;
+    const pf = _num(_pfRaw, 1);
     const windowsProfitable = _num(stats.windowsProfitable);
     const windowsTotal = Math.max(1, _num(stats.windowsTotal, 1));
 
