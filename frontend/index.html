@@ -7103,6 +7103,100 @@ let _gaPollTimer = null;
 let _gaJobId = null;
 let _gaApplyData = {};
 
+
+function _gaFmtEta(sec) {
+  if (sec == null || !isFinite(sec)) return "—";
+  if (sec < 60) return Math.round(sec) + " ثانیه";
+  if (sec < 3600) return Math.round(sec / 60) + " دقیقه";
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  return h + " ساعت" + (m > 0 ? " و " + m + " دقیقه" : "");
+}
+
+function _gaRenderLiveProgress(j) {
+  const el = document.getElementById("gaLiveProgress");
+  if (!el) return;
+  const p = j.progress || {};
+  const msg = p.message || "";
+  const payload = j.payload || {};
+  const maxGen = +payload.maxGenerations || 10;
+  const maxTrial = +payload.trialsPerGeneration || 2;
+  const stratIdx = +p.current || 0;
+  const totalStrats = +p.total || 1;
+
+  const stratMatch = msg.match(/GA:?\s*([\w_\u0600-\u06FF]+)/);
+  const stratName = stratMatch ? stratMatch[1] : "در حال آماده‌سازی";
+  const genMatch = msg.match(/gen\s+(\d+)\/(\d+)/);
+  const trialMatch = msg.match(/trial\s+(\d+)\/(\d+)/);
+  const gen = genMatch ? +genMatch[1] : 0;
+  const genMax = genMatch ? +genMatch[2] : maxGen;
+  const trial = trialMatch ? +trialMatch[1] : 0;
+  const trialMax = trialMatch ? +trialMatch[2] : maxTrial;
+
+  const startedAt = j.startedAt ? new Date(j.startedAt).getTime() : Date.now();
+  const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
+
+  let doneFraction = 0;
+  if (totalStrats > 0 && genMax > 0 && trialMax > 0) {
+    const prevStrats = Math.max(0, stratIdx - 1);
+    const prevTrials = prevStrats * genMax * trialMax;
+    const currTrials = Math.max(0, (gen - 1) * trialMax + (trial - 1));
+    const totalTrials = totalStrats * genMax * trialMax;
+    doneFraction = totalTrials > 0 ? (prevTrials + currTrials) / totalTrials : 0;
+  }
+  const pct = Math.min(99, Math.round(doneFraction * 100));
+  const etaSec = doneFraction > 0.03 ? (elapsed / doneFraction - elapsed) : null;
+
+  const now = new Date();
+  const tehran = new Date(now.getTime() + 3.5 * 3600 * 1000);
+  const wd = tehran.getUTCDay();
+  const mins = tehran.getUTCHours() * 60 + tehran.getUTCMinutes();
+  const isTradingDay = [6, 0, 1, 2, 3].indexOf(wd) >= 0;
+  const SAFE_START = 8 * 60 + 45;
+  const SAFE_END = 12 * 60 + 45;
+  let pauseNotice = "";
+  if (isTradingDay && mins >= SAFE_START && mins <= SAFE_END) {
+    pauseNotice = "<div style=\"background:var(--danger-subtle);padding:8px 12px;border-radius:var(--r-md);margin-top:8px;color:var(--danger);font-size:12px;\">🚫 بازار باز است — GA موقتاً متوقف شده</div>";
+  } else if (isTradingDay && mins < SAFE_START && mins >= SAFE_START - 15) {
+    const left = SAFE_START - mins;
+    pauseNotice = "<div style=\"background:var(--warn-subtle);padding:8px 12px;border-radius:var(--r-md);margin-top:8px;color:var(--warn);font-size:12px;\">⏰ " + left + " دقیقه دیگه خودکار متوقف می‌شه (شروع بازار)</div>";
+  }
+
+  el.style.display = "block";
+  el.innerHTML = "<div style=\"background:var(--accent-subtle);border:1px solid var(--accent);border-radius:var(--r-lg);padding:14px;\">"
+    + "<div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;\">"
+    + "<div><b>🔄 " + esc(stratName) + "</b> <span class=\"hint\" style=\"font-size:11px;\">(" + stratIdx + " از " + totalStrats + ")</span></div>"
+    + "<div class=\"hint\" style=\"font-size:11px;\">⏱ ETA: <b>" + _gaFmtEta(etaSec) + "</b></div>"
+    + "</div>"
+    + "<div class=\"progress-bar\" style=\"height:8px;\"><div class=\"progress-fill\" style=\"width:" + pct + "%;\"></div></div>"
+    + "<div style=\"display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--text-dim);\">"
+    + "<span>نسل " + gen + "/" + genMax + " · trial " + trial + "/" + trialMax + "</span>"
+    + "<span>" + pct + "%</span>"
+    + "</div>"
+    + pauseNotice
+    + "<div style=\"display:flex;gap:6px;margin-top:10px;\">"
+    + "<button class=\"btn tiny danger\" onclick=\"gaCancelJob()\">✖ لغو</button>"
+    + "</div>"
+    + "</div>";
+}
+
+async function _gaLiveTick() {
+  if (!_gaJobId) return;
+  const el = document.getElementById("gaLiveProgress");
+  if (!el) { if (_gaPollTimer) clearInterval(_gaPollTimer); _gaPollTimer = null; return; }
+  try {
+    const j = await apiFetch(BACKEND_URL + "/api/ga/jobs/" + _gaJobId, {}, 0);
+    _gaRenderLiveProgress(j);
+    if (["DONE","FAILED","CANCELLED"].indexOf(j.status) >= 0) {
+      if (_gaPollTimer) clearInterval(_gaPollTimer);
+      _gaPollTimer = null;
+      _gaJobId = null;
+      setTimeout(function () {
+        try { openGAPanel(); } catch (_) {}
+      }, 3000);
+    }
+  } catch (_) {}
+}
 async function openGAPanel() {
   if (!strategiesInfo || !strategiesInfo.length) {
     showAlert("ابتدا استراتژی‌ها بارگذاری شوند", "warn");
@@ -7175,7 +7269,7 @@ function renderGAPanel(states, jobs, syms) {
     + '<button class="btn danger" id="gaCancelBtn" style="display:none;" onclick="gaCancelJob()">✖ لغو</button>'
     + '<button class="btn outline" onclick="openGAPanel()">🔄 رفرش</button>'
     + '</div>'
-    + '<div id="gaProgress" style="margin-bottom:12px;"></div>'
+    + '<div id="gaLiveProgress" style="margin-bottom:12px;"></div>' + '<div id="gaProgress" style="margin-bottom:12px;"></div>'
     + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📊 وضعیت استراتژی‌ها (' + strategiesInfo.length + ')</h4>'
     + '<div style="max-height:300px;overflow-y:auto;"><table class="data-table"><thead><tr><th>استراتژی</th><th>وضعیت</th><th>Best Fit</th><th>Gen</th><th></th></tr></thead><tbody>'
     + (stratRows || '<tr class="empty-row"><td colspan="5">—</td></tr>')
@@ -7186,6 +7280,20 @@ function renderGAPanel(states, jobs, syms) {
     + '</tbody></table></div>';
 
   openModal("بهینه‌سازی پارامترها (GA)", html);
+  setTimeout(function () {
+    try {
+      const runningJob = (jobs || []).find(j => j.status === 'RUNNING' || j.status === 'QUEUED');
+      if (runningJob) {
+        _gaJobId = runningJob._id;
+        _gaRenderLiveProgress(runningJob);
+        if (_gaPollTimer) clearInterval(_gaPollTimer);
+        _gaPollTimer = setInterval(_gaLiveTick, 5000);
+      } else {
+        const el = document.getElementById('gaLiveProgress');
+        if (el) el.style.display = 'none';
+      }
+    } catch (_) {}
+  }, 100);
 }
 
 async function gaStartAll() {
