@@ -38,6 +38,7 @@ const monthlyReportJob = require('./jobs/monthly-report.job');
 const retentionJob = require('./jobs/retention.job');
 const journalService = require('./services/journal.service');
 const journalUpdaterJob = require('./jobs/journal-updater.job');
+const gaResumeJob = require('./jobs/ga-resume.job');
 const executionGuard = require('./core/execution-guard');
 const pipelineService = require('./services/pipeline.service');
 const backtestOrchestrator = require('./services/backtest-orchestrator.service');
