@@ -1719,7 +1719,30 @@ function closeModal() {
 function showLoader(text, sub) { document.getElementById('loaderText').textContent = text || 'در حال پردازش...'; document.getElementById('loaderSub').textContent = sub || ''; document.getElementById('globalLoader').classList.add('show'); }
 function hideLoader() { document.getElementById('globalLoader').classList.remove('show'); }
 const activeAlerts = new Set();
-function showAlert(msg, type='error', dur=7000) { if (activeAlerts.has(msg)) return; activeAlerts.add(msg); const box = document.createElement('div'); box.className = `alert-box ${type}`; box.textContent = msg; const rm = () => { box.remove(); activeAlerts.delete(msg); }; box.onclick = rm; document.getElementById('alertContainer').appendChild(box); setTimeout(rm, dur); }
+function dismissAllAlerts() {
+  const c = document.getElementById('alertContainer');
+  if (!c) return;
+  const boxes = c.querySelectorAll('.alert-box');
+  boxes.forEach(b => b.remove());
+  if (typeof activeAlerts !== 'undefined' && activeAlerts.clear) activeAlerts.clear();
+}
+
+function _ensureAlertCloseAll() {
+  const c = document.getElementById('alertContainer');
+  if (!c) return;
+  let btn = c.querySelector('.alert-close-all');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.className = 'alert-close-all btn tiny outline';
+    btn.textContent = '✖ بستن همه';
+    btn.style.cssText = 'align-self:flex-end;margin-bottom:4px;';
+    btn.onclick = dismissAllAlerts;
+    c.insertBefore(btn, c.firstChild);
+  }
+  btn.style.display = c.querySelectorAll('.alert-box').length > 1 ? 'inline-block' : 'none';
+}
+
+function showAlert(msg, type='error', dur=7000) { if (activeAlerts.has(msg)) return; activeAlerts.add(msg); const box = document.createElement('div'); box.className = `alert-box ${type}`; box.textContent = msg; const rm = () => { box.remove(); activeAlerts.delete(msg); try { _ensureAlertCloseAll(); } catch(_) {} }; box.onclick = rm; document.getElementById('alertContainer').appendChild(box); setTimeout(rm, dur); try { _ensureAlertCloseAll(); } catch(_) {} }
 const clientLogs = [];
 function clog(level, msg) { clientLogs.push({ level, msg: String(msg), at: new Date() }); if (clientLogs.length >200) clientLogs.shift(); }
 window.addEventListener('error', e => clog('error', `${e.message}`));
@@ -5498,6 +5521,22 @@ async function openTickerHistory() {
     openModal('تاریخچه تیک', `<div class="empty-note">خطا: ${esc(e.message)}</div>`);
   }
 }
+
+// UX-MODAL-ESC: ESC closes topmost modal, prevent default for chain
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  const modal = document.getElementById('modalBg');
+  if (!modal || !modal.classList.contains('open')) return;
+  const active = document.activeElement;
+  // If user is in an input with text, first ESC clears it
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.value) {
+    active.value = '';
+    return;
+  }
+  e.preventDefault();
+  try { closeModal(); } catch (_) {}
+});
+
 window.addEventListener('load', async () => {
   // R21: call move helper after boot
   try { _r21MoveElements(); } catch (_) {}
@@ -5531,6 +5570,13 @@ window.addEventListener('load', async () => {
   startSystemPolling();
   startUnifiedPolling();
   startDataPipelinePolling();
+
+  // UX-DASH: ensure dashboard loads on startup
+  try {
+    if (typeof switchDashTab === 'function' && document.getElementById('dashTabPaper')) {
+      setTimeout(function () { try { switchDashTab('paper'); } catch (_) {} }, 300);
+    }
+  } catch (_) {}
 
   // 🆕 R24: safety — force-hide boot overlay after 30s regardless of errors
   setTimeout(function() {
@@ -6810,11 +6856,26 @@ function renderMonitoredSymbols() {
     const rows = monitoredSymbols.map(s => {
         const q = window._symbolQuotes && window._symbolQuotes[s.symbol];
         const marketOpen = isMarketOpenNow();
-        const priceHtml = q && q.price
-            ? '<span style="font-weight:600;">' + q.price.toLocaleString() + '</span>' +
+        let priceHtml;
+        if (q && q.price) {
+            const qTime = q.at ? new Date(q.at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '';
+            priceHtml = '<span style="font-weight:600;">' + q.price.toLocaleString() + '</span>' +
+              (qTime ? ' <span style="font-size:10px;color:var(--text-muted);">' + qTime + '</span>' : '') +
               (q.queue === 'buy' ? ' <span class="badge warn">صف خرید</span>' : '') +
-              (q.queue === 'sell' ? ' <span class="badge short">صف فروش</span>' : '')
-            : (marketOpen ? '<span style="opacity:.5;font-size:10.5px;">دریافت...</span>' : '<span style="opacity:.4;font-size:10.5px;">بسته</span>');
+              (q.queue === 'sell' ? ' <span class="badge short">صف فروش</span>' : '');
+        } else {
+            // Fall back to last daily close
+            const cov = (typeof covMap !== 'undefined' && covMap[s.symbol]) || {};
+            const lastClose = s.lastClose || (cov.lastClose) || null;
+            if (lastClose) {
+                priceHtml = '<span style="font-weight:600;">' + Number(lastClose).toLocaleString() + '</span>' +
+                  ' <span class="badge none">آخرین بسته</span>';
+            } else if (marketOpen) {
+                priceHtml = '<span style="opacity:.5;font-size:10.5px;">دریافت...</span>';
+            } else {
+                priceHtml = '<span style="opacity:.4;font-size:10.5px;">—</span>';
+            }
+        }
         const r = (window._regimeMap && window._regimeMap[s.symbol]) || null;
         const regimeHtml = r
             ? '<span class="badge ' + (r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none') + '">' + (r.macro === 'bull' ? 'صعودی' : r.macro === 'bear' ? 'نزولی' : 'رنج') + '</span>'
