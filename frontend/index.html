@@ -3903,6 +3903,11 @@ async function viewJobDetail(id) {
       }, 80);
       return;
     }
+    if (job.type === 'ga' && job.result) {
+      gaViewJob(job._id);
+      return;
+    }
+
     renderJobDetailModal(job);
   } catch (e) {
     hideLoader();
@@ -7277,59 +7282,147 @@ async function gaCancelJob() {
 }
 
 async function gaViewJob(id) {
-  showLoader("در حال بارگذاری...");
+  showLoader('در حال بارگذاری نتیجه GA...');
   try {
-    const j = await apiFetch(BACKEND_URL + "/api/ga/jobs/" + id, {}, 0);
+    const j = await apiFetch(BACKEND_URL + '/api/ga/jobs/' + id, {}, 0);
     hideLoader();
     const r = j.result || {};
-    const rows = (r.results || []).map(x => {
-      const fit = (x.best && Number.isFinite(x.best.fitness)) ? x.best.fitness.toFixed(3) : "—";
-      const status = x.error ? '<span class="badge short">' + esc(x.error) + '</span>'
-        : x.done ? '<span class="badge long">انجام شد</span>'
-        : x.paused ? '<span class="badge warn">pause</span>'
-        : x.cancelled ? '<span class="badge short">لغو</span>'
-        : '<span class="badge none">?' + '</span>';
-      return '<tr><td><b>' + esc(x.strategyId) + '</b></td><td>' + status + '</td><td>' + fit + '</td><td>' + (x.generation || 0) + '</td></tr>';
-    }).join("");
-    openModal("نتیجه GA — " + id.slice(0, 8),
-      '<div class="stats-grid"><div class="stat"><small>کل</small><b>' + (r.totalStrategies || 0) + '</b></div>'
-      + '<div class="stat highlight-good"><small>کامل</small><b>' + (r.completed || 0) + '</b></div>'
-      + '<div class="stat"><small>pause</small><b>' + (r.paused || 0) + '</b></div></div>'
-      + '<div class="table-responsive" style="max-height:400px;overflow-y:auto;"><table class="data-table">'
-      + '<thead><tr><th>استراتژی</th><th>وضعیت</th><th>Best Fit</th><th>Gen</th></tr></thead>'
-      + '<tbody>' + rows + '</tbody></table></div>', true);
+    const results = (r.results || []);
+    let totalDone = 0, totalPaused = 0, totalCancelled = 0, totalError = 0;
+    for (const x of results) {
+      if (x.error) totalError++;
+      else if (x.cancelled) totalCancelled++;
+      else if (x.paused) totalPaused++;
+      else if (x.done) totalDone++;
+    }
+    const sorted = results.slice().sort((a, b) => {
+      const fa = (a.best && a.best.fitness) || 0;
+      const fb = (b.best && b.best.fitness) || 0;
+      return fb - fa;
+    });
+    let rows = '';
+    for (const x of sorted) {
+      const b = x.best || {};
+      const s = b.stats || {};
+      let statusBadge;
+      if (x.error) statusBadge = '<span class="badge short">خطا</span>';
+      else if (x.cancelled) statusBadge = '<span class="badge short">لغو</span>';
+      else if (x.paused) statusBadge = '<span class="badge warn">pause</span>';
+      else if (x.done) statusBadge = '<span class="badge long">انجام</span>';
+      else statusBadge = '<span class="badge none">?</span>';
+      const fit = (b.fitness || 0).toFixed(1);
+      const nv = s.totalTrades || 0;
+      const wr = (s.winRate || 0).toFixed(0) + '%';
+      const pf = (s.profitFactor || 0).toFixed(2);
+      const sh = (s.sharpe || 0).toFixed(2);
+      const dd = (s.maxDrawdownPct || 0).toFixed(1) + '%';
+      const applyBtn = (x.done && b.params)
+        ? '<button class="btn tiny success" onclick="gaApplyFromState(\'' + esc(x.strategyId) + '\')">اعمال</button>'
+        : '';
+      const stateBtn = '<button class="btn tiny outline" onclick="gaViewState(\'' + esc(x.strategyId) + '\')">جزئیات</button>';
+      rows += '<tr>'
+        + '<td><b>' + esc(x.strategyId) + '</b></td>'
+        + '<td>' + statusBadge + '</td>'
+        + '<td>' + (x.generation || 0) + '</td>'
+        + '<td><b>' + fit + '</b></td>'
+        + '<td>' + nv + '</td>'
+        + '<td>' + wr + '</td>'
+        + '<td>' + pf + '</td>'
+        + '<td>' + sh + '</td>'
+        + '<td>' + dd + '</td>'
+        + '<td><div class="action-btns">' + applyBtn + ' ' + stateBtn + '</div></td>'
+        + '</tr>';
+    }
+    const html =
+      '<div class="hint">Job: <code>' + esc(id) + '</code> | ساخته: ' + new Date(j.createdAt).toLocaleString('fa-IR') + '</div>'
+      + '<div class="stats-grid" style="margin:12px 0;">'
+      + '<div class="stat"><small>کل</small><b>' + (r.totalStrategies || results.length) + '</b></div>'
+      + '<div class="stat highlight-good"><small>تکمیل</small><b>' + totalDone + '</b></div>'
+      + '<div class="stat"><small>pause</small><b>' + totalPaused + '</b></div>'
+      + '<div class="stat"><small>لغو</small><b>' + totalCancelled + '</b></div>'
+      + (totalError > 0 ? '<div class="stat highlight-bad"><small>خطا</small><b>' + totalError + '</b></div>' : '')
+      + '</div>'
+      + '<div style="margin:10px 0; display:flex; gap:6px;"><button class="btn tiny outline" onclick="exportGATableToCSV(\'' + esc(id) + '\')">📥 CSV</button></div>'
+      + '<div class="table-responsive" style="max-height:500px;overflow-y:auto;">'
+      + '<table class="data-table" id="gaResultTable">'
+      + '<thead><tr><th>استراتژی</th><th>وضعیت</th><th>Gen</th><th>Fit</th><th>N</th><th>WR</th><th>PF</th><th>Sharpe</th><th>DD</th><th></th></tr></thead>'
+      + '<tbody>' + (rows || '<tr class="empty-row"><td colspan="10">نتیجه‌ای نیست</td></tr>') + '</tbody>'
+      + '</table></div>'
+      + '<div style="margin-top:14px;"><button class="btn outline" onclick="closeModal()">بستن</button></div>';
+    openModal('نتیجه GA — ' + id.slice(0, 8), html, true);
   } catch (e) {
     hideLoader();
-    showAlert("خطا: " + e.message, "error");
+    showAlert('خطا: ' + e.message, 'error');
   }
 }
 
 async function gaViewState(sid) {
-  showLoader("در حال بارگذاری...");
+  showLoader('در حال بارگذاری...');
   try {
-    const st = await apiFetch(BACKEND_URL + "/api/ga/state/" + encodeURIComponent(sid), {}, 0);
+    const st = await apiFetch(BACKEND_URL + '/api/ga/state/' + encodeURIComponent(sid), {}, 0);
     hideLoader();
     const best = st.best || {};
     const stats = best.stats || {};
     const params = best.params || {};
-    const paramRows = Object.entries(params).map(([k, v]) => '<tr><td>' + esc(k) + '</td><td>' + (typeof v === "number" ? v.toFixed(4) : esc(String(v))) + '</td></tr>').join("");
+    const curve = st.bestEquityCurve || [];
+    const history = st.history || [];
+    const paramRows = Object.entries(params).map(([k, v]) =>
+      '<tr><td>' + esc(k) + '</td><td style="font-family:var(--font-mono); direction:ltr; text-align:left;">' + (typeof v === 'number' ? v.toFixed(6) : esc(String(v))) + '</td></tr>'
+    ).join('');
     const statBox = (l, v) => '<div class="stat"><small>' + l + '</small><b>' + v + '</b></div>';
-    openModal("GA — " + sid,
+    let curveSvg = '';
+    if (curve.length >= 2) {
+      const vals = curve.map(x => x.equity);
+      const minE = Math.min.apply(null, vals);
+      const maxE = Math.max.apply(null, vals);
+      const rangeE = Math.max(1, maxE - minE);
+      const W = 600, H = 180;
+      const pts = curve.map((x, i) => {
+        const px = (i / (curve.length - 1)) * W;
+        const py = H - ((x.equity - minE) / rangeE) * H;
+        return px.toFixed(1) + ',' + py.toFixed(1);
+      }).join(' ');
+      curveSvg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%; height:180px; background:var(--bg-elev-2); border-radius:var(--r-md); margin:8px 0;">'
+        + '<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="' + pts + '"/>'
+        + '</svg>'
+        + '<div class="hint" style="font-size:10.5px;">شروع 100 → پایان ' + vals[vals.length-1].toFixed(2) + ' (' + curve.length + ' نقطه)</div>';
+    }
+    const histRows = history.slice(-50).reverse().map((h, i) => {
+      const ps = Object.entries(h.params || {}).slice(0, 5).map(([k, v]) => k + '=' + (typeof v === 'number' ? v.toFixed(2) : v)).join(', ');
+      const fit = h.fitness || 0;
+      const bCls = fit > (best.fitness || 0) * 0.9 ? 'long' : fit > 0 ? 'warn' : 'none';
+      return '<tr><td>' + (history.length - i) + '</td><td style="font-size:11px; direction:ltr; text-align:left;">' + esc(ps) + '</td><td><span class="badge ' + bCls + '">' + fit.toFixed(2) + '</span></td></tr>';
+    }).join('');
+    const html =
       '<div class="stats-grid">'
-      + statBox("Fitness", (Number.isFinite(best.fitness) ? best.fitness.toFixed(3) : "—"))
-      + statBox("Gen", st.generation || 0)
-      + statBox("PF", (stats.profitFactor != null ? (Number.isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : "∞") : "—"))
-      + statBox("Sharpe", (stats.sharpe != null ? stats.sharpe.toFixed(2) : "—"))
-      + statBox("N", stats.totalTrades || 0)
-      + statBox("MaxDD", (stats.maxDrawdownPct || 0).toFixed(1) + "%")
+      + statBox('Fitness', (best.fitness || 0).toFixed(1))
+      + statBox('Gen', st.generation || 0)
+      + statBox('N', stats.totalTrades || 0)
+      + statBox('WR', (stats.winRate || 0).toFixed(0) + '%')
+      + statBox('PF', (stats.profitFactor || 0).toFixed(2))
+      + statBox('Sharpe', (stats.sharpe || 0).toFixed(2))
+      + statBox('Return', (stats.totalReturnPct || 0).toFixed(1) + '%')
+      + statBox('MaxDD', (stats.maxDrawdownPct || 0).toFixed(1) + '%')
       + '</div>'
-      + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">پارامترهای بهینه</h4>'
-      + '<table class="data-table"><thead><tr><th>پارامتر</th><th>مقدار</th></tr></thead><tbody>' + paramRows + '</tbody></table>'
-      + '<div style="margin-top:14px;"><button class="btn success" onclick="gaApplyFromState(\'' + esc(sid) + '\')">✅ اعمال روی تنظیمات</button></div>', true);
+      + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">بهترین پارامترها</h4>'
+      + '<div class="table-responsive"><table class="data-table"><thead><tr><th>پارامتر</th><th>مقدار</th></tr></thead><tbody>'
+      + (paramRows || '<tr class="empty-row"><td colspan="2">—</td></tr>')
+      + '</tbody></table></div>'
+      + (curveSvg ? '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">Equity Curve</h4>' + curveSvg : '')
+      + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">تاریخچه trials (' + history.length + ')</h4>'
+      + '<div class="table-responsive" style="max-height:300px;overflow-y:auto;"><table class="data-table">'
+      + '<thead><tr><th>#</th><th>پارامترها</th><th>Fitness</th></tr></thead><tbody>'
+      + (histRows || '<tr class="empty-row"><td colspan="3">—</td></tr>')
+      + '</tbody></table></div>'
+      + '<div style="margin-top:14px; display:flex; gap:8px;">'
+      + '<button class="btn success" onclick="gaApplyFromState(\'' + esc(sid) + '\')">✅ اعمال</button>'
+      + '<button class="btn outline" onclick="closeModal()">بستن</button>'
+      + '</div>';
+    openModal('GA — ' + sid, html, true);
     window._gaStateTemp = st;
   } catch (e) {
     hideLoader();
-    showAlert("خطا: " + e.message, "error");
+    showAlert('خطا: ' + e.message, 'error');
   }
 }
 
@@ -7370,6 +7463,13 @@ async function gaResume(sid) {
     await apiFetch(BACKEND_URL + "/api/ga/resume/" + encodeURIComponent(sid), { method: "POST" }, 0);
     showAlert("روی صف resume قرار گرفت (تا ۵ دقیقه)", "info", 5000);
   } catch (e) { showAlert("خطا: " + e.message, "error"); }
+}
+
+
+function exportGATableToCSV(jobId) {
+  const tbl = document.getElementById('gaResultTable');
+  if (!tbl) return showAlert('جدولی نیست', 'warn');
+  tableToCSV(tbl, 'ga-result-' + String(jobId).slice(0, 8) + '.csv');
 }
 
 </script>
