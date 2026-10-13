@@ -67,6 +67,10 @@ function _mergeStats(list) {
         : null;
     const ddVals = list.map(s => s.maxDrawdownPct).filter(Number.isFinite);
     const maxDD = ddVals.length ? Math.max(...ddVals) : 0;
+    const winsCount = totalTrades > 0 ? (wins || 0) : 0;
+    const lossesCount = Math.max(0, totalTrades - winsCount);
+    const avgWinVal = winsCount > 0 ? gp / winsCount : 0;
+    const avgLossVal = lossesCount > 0 ? gl / lossesCount : 0;
     return {
         totalTrades: totalTrades,
         winRate: winRate,
@@ -76,7 +80,14 @@ function _mergeStats(list) {
         sharpe: avgSharpe,
         maxDrawdownPct: maxDD,
         profitableWindows: profitableWindows,
-        windowsTotal: list.length
+        windowsTotal: list.length,
+        // FIX GA-14: pass through for downstream merging
+        avgWin: avgWinVal,
+        avgLoss: avgLossVal,
+        grossWin: gp,
+        grossLoss: gl,
+        wins: winsCount,
+        losses: lossesCount
     };
 }
 
