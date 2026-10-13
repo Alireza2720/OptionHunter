@@ -13,6 +13,8 @@ let deps = { getDB: null, logger: null, backtest: null, strategies: null };
 function init(d) { deps = { ...deps, ...d }; }
 
 const KEY_PARAMS = {
+    hhhl: ['swingLength', 'minPivotDistance'],
+    vcp: ['contractionWindow', 'minBreakoutVolMult'],
     smc_unicorn: ['swingLength', 'atrMult'],
     smc_unicorn_pro: ['swingLength', 'atrMult'],
     ob_sweep: ['swingLength', 'minSweepPct'],
@@ -27,16 +29,6 @@ const KEY_PARAMS = {
     donchian_pro: ['entryPeriod', 'atrMult'],
     nr7: ['nrWindow', 'atrMult'],
     nr7_pro: ['nrWindow', 'atrMult'],
-    opening_drive: ['rangeMinutes', 'minVolMult'],
-    opening_drive_pro: ['rangeMinutes', 'minVolMult'],
-    vw_breakout: ['lookbackHigh', 'minVolMult'],
-    vw_breakout_pro: ['lookbackHigh', 'minVolMult'],
-    vwap_reclaim: ['minVolumeMult', 'atrMult'],
-    vwap_reclaim_pro: ['minVolumeMult', 'atrMult'],
-    rsi_divergence: ['rsiPeriod', 'minRsiDelta'],
-    rsi_divergence_pro: ['rsiPeriod', 'minRsiDelta'],
-    ib_breakout: ['atrMult', 'maxHoldBars'],
-    ib_breakout_pro: ['atrMult', 'maxHoldBars'],
     low_vol_anomaly: ['volWindow', 'volPct'],
     low_vol_anomaly_pro: ['volWindow', 'volPct'],
     short_term_reversal: ['lookbackDays', 'atrMult'],

@@ -47,6 +47,7 @@ function push(level, msg) {
     // 🆕 هر event مهم (tick, option, trade) به DB می‌ره
     const str = String(msg);
     const persist = level !== 'info'
+        || (str.startsWith('tick ') && str.includes(' | '))
         || str.startsWith('tick_err')
         || str.startsWith('option_loop')
         || str.startsWith('signal ')

@@ -105,3 +105,6 @@ _bak-*
 
 # Group 9-C-FIX backups
 *.g9cfix-*
+
+# Phase B-1 backups
+*.b1-*

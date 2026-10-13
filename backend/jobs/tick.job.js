@@ -57,6 +57,7 @@ function isMarketOpen(t) {
 }
 
 async function runTick() {
+    deps.logger && deps.logger.info('[DBG] runTick START _eff=' + _effectiveTickIntervalMs + 'ms last=' + _lastTickAt + ' now=' + Date.now());
     // 🆕 اگه backfill در جریانه، این tick رو skip کن
     if (await isBackfillRunning()) {
         deps.logger && deps.logger.info('tick skipped: backfill در جریان است');
@@ -151,13 +152,17 @@ function start() {
     );
 
     // cron هر ۱۰ ثانیه چک می‌کند ولی effective interval از Settings خوانده می‌شود
-    task = cron.schedule('*/10 * * * * *', async () => {
+    task = cron.schedule('*/5 * * * * *', async () => {
         try {
             await _refreshTickInterval();
             const now = Date.now();
             if (now - _lastTickAt < _effectiveTickIntervalMs) return;
             const t = deps.dataService.getTehranParts();
-            if (!isMarketOpen(t)) return;
+            deps.logger && deps.logger.info('[DBG] cron fired - checking market open');
+            if (!isMarketOpen(t)) {
+                deps.logger && deps.logger.info('[DBG] cron skip: market closed');
+                return;
+            }
             _lastTickAt = now;
             await ensureCollectorTickerRunning();
             await runTick();

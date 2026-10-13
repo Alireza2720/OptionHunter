@@ -700,6 +700,7 @@ async function evaluateAll(marketInfo) {
 
     // 🆕 timing per config
     const _configTimings = [];
+    const CONFIG_TIMEOUT_MS = 8000;
     const evaluateOne = async (c, roleLabel) => {
         const cid = c._id.toString();
         const st = stateMap.get(cid);
@@ -719,21 +720,17 @@ async function evaluateAll(marketInfo) {
 
         const _t0 = Date.now();
         try {
-            await evaluateConfig(c, marketInfo);
+            const _to = new Promise((_, rej) => setTimeout(() => rej(new Error('config timeout ' + CONFIG_TIMEOUT_MS + 'ms')), CONFIG_TIMEOUT_MS));
+            await Promise.race([evaluateConfig(c, marketInfo), _to]);
             evaluated++;
             _configTimings.push({ sym: c.symbol, sid: c.strategyId, ms: Date.now() - _t0 });
         } catch (e) {
             deps.logger && deps.logger.warn(`eval ${roleLabel} ${c.symbol}: ${e.message}`);
-            try {
-                if (deps.notify) {
-                    deps.notify(`eval ${roleLabel} ${c.symbol}: ${e.message}`).catch(() => {});
-                }
-            } catch (_) {}
         }
     };
 
     // 🆕 بودجه + rotation
-    const TOTAL_BUDGET_MS = 20000;
+    const TOTAL_BUDGET_MS = 10000;
     // rotation pointer در حافظه‌ی پروسه
     if (!global.__evalAllPointer) global.__evalAllPointer = 0;
     const startedAt = Date.now();

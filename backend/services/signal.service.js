@@ -128,7 +128,8 @@ async function buildMarketInfo(monitored) {
 
         const prev = lastSnap.get(m.symbol);
         const traded = !prev || tno !== prev.tno;
-        const volDelta = prev && tvol >= prev.tvol ? tvol - prev.tvol : tvol;
+        let volDelta = prev && tvol >= prev.tvol ? tvol - prev.tvol : tvol;
+        if (volDelta > 100_000_000) volDelta = 0;  // R33: bad snapshot guard
         lastSnap.set(m.symbol, { tno, tvol });
 
         marketInfo.set(m.symbol, { price, queue });
