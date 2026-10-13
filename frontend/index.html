@@ -1551,6 +1551,8 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 
 <style id="r24-stock-hide">
   body.mode-stock .bt-opt-only { display: none !important; }
+.btn.busy { position: relative; pointer-events: none; opacity: 0.65; }
+.btn.busy::after { content: ''; display: inline-block; width: 11px; height: 11px; margin-right: 6px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
 </style>
 </head>
 <body data-theme="dark">
@@ -1601,7 +1603,7 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
     <div style="display:flex; gap:8px; margin-bottom:14px;">
       <button class="btn small outline" style="flex:1;" onclick="promptToken()">توکن ادمین</button>
       <button class="btn small outline" style="flex:1;" onclick="runBackupNow()">دریافت بکاپ</button>
-    </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div> </div>
+    </div> <div id="guideContentInMenu" style="font-size:12px; line-height:1.8;"></div><div id="glossaryBlock" style="margin-top:16px;"></div> </div>
 </div> <div class="modal-bg" id="modalBg"
      onclick="if(event.target===this) closeModal()"
      onmousedown="if(document.querySelector('.jobs-panel-container')) _jobsPanelUserActive=true;"
@@ -1709,7 +1711,7 @@ function toggleMenu() { const p=document.getElementById('menuPanel'), b=document
 function switchMenuTab(which, btn) {
   document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
   ['settings','status','guide'].forEach(k => { const el = document.getElementById('menuTab-'+k); if (el) el.style.display = k === which ? 'block' : 'none'; });
-  if (which === 'guide') { document.getElementById('guideContentInMenu').innerHTML = guideFull(); }
+  if (which === 'guide') { document.getElementById('guideContentInMenu').innerHTML = guideFull(); try { renderGlossary(); } catch (_) {} }
   if (which === 'status') refreshMenuStatus();
   if (which === 'settings') { loadTickInterval(); loadCacheTtl(); }
 }
@@ -4564,6 +4566,39 @@ async function explainSymbol(sym) {
 async function viewChain(sym) { openModal(`زنجیره ${sym}`, '<div style="text-align:center;padding:30px;">...</div>'); try { const d = await apiFetch(`${BACKEND_URL}/api/options/chain/${encodeURIComponent(sym)}`, {}, 1); if (!d.rows.length) return openModal(`زنجیره ${sym}`, `<div class="empty-note">قراردادی نیست. (${d.totalMatched || 0} تطبیق)</div>`); const rows = d.rows.map(r => { const ivA = r.ivApi ? (r.ivApi*100).toFixed(1)+'%' : '-'; const delta = r.deltaApi ? r.deltaApi.toFixed(2) : (r.delta ? r.delta.toFixed(2) : '-'); return `<tr style="${r.reject.length?'opacity:.55':''}"><td>${esc(r.symbol)}</td><td>${fmtN(r.strike)}</td><td>${r.expiry}</td><td>${r.daysLeft}</td><td>${fmtN(r.bid)}/${fmtN(r.ask)}</td><td>${r.spreadPct===null?'-':r.spreadPct.toFixed(1)+'%'}</td><td>${ivA}</td><td>${delta}</td><td>${r.oi}</td><td style="font-size:11px;">${r.reject.length?esc(r.reject.join('، ')):'<span class="badge long">OK</span>'}</td></tr>`; }).join(''); openModal(`زنجیره ${sym}`, `<div class="hint">تطبیق: ${d.matchedNames.join(', ')}</div><div class="table-responsive"><table class="data-table"><thead><tr><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>روز</th><th>خرید/فروش</th><th>اسپرد</th><th>IV</th><th>Δ</th><th>OI</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function recommendOption(id) { const it = configs.find(c => c._id === id); if (!it) return; openModal(`پیشنهاد آپشن ${it.symbol}`, '<div style="text-align:center;padding:30px;">...</div>'); try { const r = await apiFetch(`${BACKEND_URL}/api/options/recommend/${id}`, {}, 1); const sc = r.scenario; const head = `<div class="hint">ورود ${fmtN(sc.entry)} | SL ${fmtN(sc.stop)} | TP ${fmtN(sc.target)} | ${sc.horizonDays} روز</div>`; const picks = r.picks.length ? r.picks.map((p,i) => `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)}</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.oi}</td><td>${p.rr.toFixed(2)}</td></tr>`).join('') : `<tr class="empty-row"><td colspan="9">قراردادی نیست</td></tr>`; openModal(`پیشنهاد ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>خرید</th><th>IV</th><th>Δ</th><th>OI</th><th>RR</th></tr></thead><tbody>${picks}</tbody></table></div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function openLogs(source='memory') { openModal('لاگ سیستم', '<div style="text-align:center;padding:30px;">...</div>'); try { let rows; if (source === 'client') rows = clientLogs.slice().reverse(); else { const r = await apiFetch(`${BACKEND_URL}/api/logs?source=${source}&limit=300`, {}, 1); rows = r.logs; } const tab = (k, l) => `<button class="btn small ${source===k?'':'outline'}" onclick="openLogs('${k}')">${l}</button>`; const tabs = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${tab('memory','سرور')}${tab('db','خطاها')}${tab('client','مرورگر')}</div>`; const body = rows.length ? rows.map(l => `<div style="font-family:var(--font-mono);font-size:11px;direction:ltr;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-subtle);color:${l.level==='error'?'var(--danger)':l.level==='warn'?'var(--warn)':'var(--text-dim)'}">${new Date(l.at).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})} [${l.level}] ${esc(l.msg)}</div>`).join('') : '<div class="empty-note">لاگی نیست</div>'; openModal(`لاگ (${rows.length})`, tabs + body); } catch (e) { openModal('لاگ', `<div class="empty-note">${esc(e.message)}</div>`); } }
+function renderGlossary() {
+  const el = document.getElementById('glossaryBlock');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+  const terms = [
+    { icon: '📊', name: 'Bک‌تست', desc: 'تست یک استراتژی روی دیتای گذشته. نتیجه: PF، وین‌ریت، بازده، MaxDD.' },
+    { icon: '🧬', name: 'GA (بهینه‌سازی پارامتر)', desc: 'سیستم خودکار که پارامترهای استراتژی رو تست می‌کنه و بهترین رو پیدا می‌کنه.' },
+    { icon: '📈', name: 'PF (Profit Factor)', desc: 'نسبت کل سود به کل ضرر. > 1 = سودده، > 2 = خوب، > 3 = عالی.' },
+    { icon: '📉', name: 'MaxDD (حداکثر افت)', desc: 'بیشترین افت سرمایه از سقف. مثلاً 20% = بدترین حالت 20% ضرر.' },
+    { icon: '⚡', name: 'تیک (Tick)', desc: 'هر ۶۰ ثانیه یک بار از TSETMC قیمت‌ها گرفته می‌شه و سیگنال‌ها بررسی می‌شن.' },
+    { icon: '✨', name: 'غنی‌سازی (Enrichment)', desc: 'پر کردن bid/ask گم‌شده آپشن‌ها با مدل اسپرد (فقط تخمین).' },
+    { icon: '🔬', name: 'حساسیت پارامتر', desc: 'تست ۹ ترکیب پارامتر برای یافتن حساسیت استراتژی به تغییرات.' },
+    { icon: '🎯', name: 'Walk-Forward', desc: 'اعتبارسنجی زمانی: پارامتر روی گذشته تست، روی آینده verify.' },
+    { icon: '💼', name: 'پرتفولیو', desc: 'چند استراتژی/نماد همزمان با محدودیت سرمایه و ریسک.' },
+    { icon: '📈', name: 'رژیم بازار', desc: 'صعودی/نزولی/رنج. در هر رژیم، بعضی استراتژی‌ها بهتر کار می‌کنن.' },
+    { icon: '🔄', name: 'Backfill', desc: 'دانلود دیتای تاریخی از TSETMC (سهام + آپشن).' },
+    { icon: '📸', name: 'Snapshot', desc: 'عکس لحظه‌ای زنجیره آپشن (هر ۵ دقیقه).' },
+    { icon: '🩺', name: 'دکتر سیستم', desc: 'بررسی جامع سرور (RAM, MongoDB, API, logs) در ۳۶ بخش.' }
+  ];
+  let html = '<div class="menu-label">📚 واژه‌نامه</div>';
+  html += '<div style="display:flex;flex-direction:column;gap:6px;font-size:11.5px;">';
+  for (const t of terms) {
+    html += '<details style="background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;">'
+      + '<summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;font-weight:600;">'
+      + '<span>' + t.icon + '</span> <span>' + esc(t.name) + '</span>'
+      + '</summary>'
+      + '<div class="hint" style="margin-top:6px;padding-right:22px;line-height:1.7;">' + esc(t.desc) + '</div>'
+      + '</details>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
 function guideFull() {
   const sb = (name, desc, tf, good) => `<div class="guide-block"><div class="g-name">${name}</div><div class="g-desc">${desc}</div><div class="g-meta">مناسب: ${good} | TF: ${tf}</div></div>`;
   return `
@@ -7570,7 +7605,7 @@ function renderGAPanel(states, jobs, syms) {
     +   '<button class="btn success" id="gaStartSmart" onclick="gaStartSmart()" style="font-weight:600;font-size:14px;padding:12px 24px;">🚀 شروع بهینه‌سازی هوشمند</button>'
     +   '<button class="btn outline" id="gaStartSel" onclick="gaStartSelected()">▶ اجرای انتخاب‌شده‌ها</button>'
     +   '<button class="btn danger" id="gaCancelBtn" style="display:none;" onclick="gaCancelJob()">✖ لغو</button>'
-    +   '<button class="btn outline" onclick="openGAPanel()">🔄 رفرش</button>'
+    +   '<button class="btn outline" onclick="openGAPanel()">🔄 رفرش</button>' + '<button class="btn outline" onclick="gaShowPareto()" id="gaParetoBtn">📊 نمودار Pareto</button>'
     + '</div>'
     + '<div class="adv-accordion" style="margin-top:10px;">'
     +   '<div class="adv-header" onclick="this.parentNode.classList.toggle(&apos;open&apos;)">'
@@ -7657,6 +7692,118 @@ async function gaLoadSmartPreview() {
   } catch (e) {
     el.innerHTML = '<span class="hint" style="color:var(--warn);">⚠️ تحلیل داده ناموفق: ' + esc(e.message) + ' — از تنظیمات پیش‌فرض استفاده می‌شه</span>';
   }
+}
+
+function gaShowPareto() {
+  // Collect all GA states with valid fitness
+  const cmd = apiFetch(BACKEND_URL + '/api/ga/states', {}, 0);
+  cmd.then(function (r) {
+    const list = (r.states || []).filter(function (s) {
+      const b = s.best || {};
+      const st = b.stats || {};
+      return Number.isFinite(b.fitness) && b.fitness > 0 && Number.isFinite(st.totalReturnPct);
+    });
+    if (!list.length) {
+      openModal('نمودار Pareto', '<div class="empty-state"><span class="es-icon">📊</span><div class="es-title">هنوز داده‌ای نیست</div><div class="es-desc">بعد از اجرای GA، اینجا نمودار trade-off بین بازده و ریسک می‌بینی</div></div>');
+      return;
+    }
+    // Find Pareto front (return vs maxDD): maximize return, minimize DD
+    function isPareto(a, list) {
+      const rA = a.best.stats.totalReturnPct;
+      const ddA = a.best.stats.maxDrawdownPct || 0;
+      for (const b of list) {
+        if (b === a) continue;
+        const rB = b.best.stats.totalReturnPct;
+        const ddB = b.best.stats.maxDrawdownPct || 0;
+        if (rB >= rA && ddB <= ddA && (rB > rA || ddB < ddA)) return false;
+      }
+      return true;
+    }
+    const front = list.filter(function (s) { return isPareto(s, list); });
+
+    // Chart dimensions
+    const returns = list.map(s => s.best.stats.totalReturnPct);
+    const dds = list.map(s => s.best.stats.maxDrawdownPct || 0);
+    const maxR = Math.max.apply(null, returns) * 1.15;
+    const minR = Math.min.apply(null, [0].concat(returns));
+    const maxDD = Math.max.apply(null, dds) * 1.15 || 1;
+    const W = 640, H = 400, PAD = 50;
+
+    const sx = function (r) { return PAD + (r - minR) / (maxR - minR) * (W - 2 * PAD); };
+    const sy = function (dd) { return H - PAD - (dd / maxDD) * (H - 2 * PAD); };
+
+    // Axes
+    const axisX = '<line x1="' + PAD + '" y1="' + (H - PAD) + '" x2="' + (W - PAD) + '" y2="' + (H - PAD) + '" stroke="var(--border-strong)" stroke-width="1"/>';
+    const axisY = '<line x1="' + PAD + '" y1="' + PAD + '" x2="' + PAD + '" y2="' + (H - PAD) + '" stroke="var(--border-strong)" stroke-width="1"/>';
+
+    // Grid
+    let grid = '';
+    for (let i = 1; i <= 4; i++) {
+      const y = H - PAD - (i / 4) * (H - 2 * PAD);
+      grid += '<line x1="' + PAD + '" y1="' + y + '" x2="' + (W - PAD) + '" y2="' + y + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>';
+      grid += '<text x="' + (PAD - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="10" fill="var(--text-dim)">' + ((i / 4) * maxDD).toFixed(0) + '%</text>';
+    }
+    for (let i = 1; i <= 5; i++) {
+      const x = PAD + (i / 5) * (W - 2 * PAD);
+      grid += '<line x1="' + x + '" y1="' + PAD + '" x2="' + x + '" y2="' + (H - PAD) + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>';
+      grid += '<text x="' + x + '" y="' + (H - PAD + 16) + '" text-anchor="middle" font-size="10" fill="var(--text-dim)">' + (minR + (i / 5) * (maxR - minR)).toFixed(0) + '%</text>';
+    }
+
+    // Points
+    const pointsHtml = list.map(function (s) {
+      const b = s.best;
+      const x = sx(b.stats.totalReturnPct);
+      const y = sy(b.stats.maxDrawdownPct || 0);
+      const isFront = front.indexOf(s) !== -1;
+      const color = isFront ? 'var(--success)' : 'var(--accent)';
+      const radius = isFront ? 8 : 5;
+      const title = s.strategyId + '\nReturn: ' + b.stats.totalReturnPct.toFixed(1) + '%\nMaxDD: ' + (b.stats.maxDrawdownPct || 0).toFixed(1) + '%\nPF: ' + (b.stats.profitFactor || 0).toFixed(2) + '\nN: ' + (b.stats.totalTrades || 0);
+      return '<circle cx="' + x + '" cy="' + y + '" r="' + radius + '" fill="' + color + '" fill-opacity="0.7" stroke="' + color + '" stroke-width="2"><title>' + esc(title) + '</title></circle>';
+    }).join('');
+
+    // Labels for Pareto front points
+    const frontLabels = front.map(function (s) {
+      const b = s.best;
+      const x = sx(b.stats.totalReturnPct);
+      const y = sy(b.stats.maxDrawdownPct || 0);
+      return '<text x="' + (x + 10) + '" y="' + (y - 8) + '" font-size="10" fill="var(--text)" font-weight="600">' + esc(s.strategyId) + '</text>';
+    }).join('');
+
+    // Axis labels
+    const axisLabels = '<text x="' + (W / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="var(--text-dim)" font-weight="600">بازده % (بیشتر بهتر)</text>'
+      + '<text x="15" y="' + (H / 2) + '" text-anchor="middle" font-size="12" fill="var(--text-dim)" font-weight="600" transform="rotate(-90 15 ' + (H / 2) + ')">حداکثر افت % (کمتر بهتر)</text>';
+
+    const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%; height:auto; max-height:420px; background:var(--bg-elev-2); border-radius:var(--r-md); margin-top:8px;">'
+      + grid + axisX + axisY + pointsHtml + frontLabels + axisLabels + '</svg>';
+
+    // Table for Pareto front
+    const frontRows = front
+      .sort(function (a, b) { return b.best.stats.totalReturnPct - a.best.stats.totalReturnPct; })
+      .map(function (s) {
+        const b = s.best;
+        return '<tr><td><b>' + esc(s.strategyId) + '</b></td>'
+          + '<td>' + b.stats.totalReturnPct.toFixed(1) + '%</td>'
+          + '<td>' + (b.stats.maxDrawdownPct || 0).toFixed(1) + '%</td>'
+          + '<td>' + (b.stats.profitFactor || 0).toFixed(2) + '</td>'
+          + '<td>' + (b.stats.totalTrades || 0) + '</td>'
+          + '<td><button class="btn tiny success" onclick="closeModal(); gaViewState(\'' + esc(s.strategyId) + '\')">مشاهده</button></td>'
+          + '</tr>';
+      }).join('');
+
+    const html = '<div class="hint" style="margin-bottom:12px;">'
+      + '<b>نمودار Pareto:</b> هر نقطه = یک استراتژی. <b style="color:var(--success);">نقاط سبز</b> = Pareto-optimal (بهترین trade-off بین بازده و ریسک). هر چی بالاتر و چپ‌تر = بهتر.'
+      + '</div>'
+      + svg
+      + '<h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">استراتژی‌های Pareto-Optimal (' + front.length + ')</h4>'
+      + '<div class="table-responsive" style="max-height:280px;overflow-y:auto;">'
+      + '<table class="data-table"><thead><tr><th>استراتژی</th><th>بازده</th><th>MaxDD</th><th>PF</th><th>N</th><th></th></tr></thead>'
+      + '<tbody>' + (frontRows || '<tr class="empty-row"><td colspan="6">—</td></tr>') + '</tbody></table></div>'
+      + '<div style="margin-top:14px;text-align:right;"><button class="btn outline" onclick="closeModal()">بستن</button></div>';
+
+    openModal('نمودار Pareto — trade-off بازده/ریسک', html, true);
+  }).catch(function (e) {
+    showAlert('خطا در بارگذاری: ' + e.message, 'error');
+  });
 }
 
 async function gaStartSmart() {
