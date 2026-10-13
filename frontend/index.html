@@ -1795,6 +1795,17 @@ function closeModal() {
   if (_modalEl) _modalEl.style.maxWidth = '';
   document.getElementById('modalBg').classList.remove('open');
   document.body.classList.remove('modal-open');
+  // BUG-NEW-20: stop GA timers on close
+  try {
+    if (typeof _gaAutoRefreshTimer !== 'undefined' && _gaAutoRefreshTimer) {
+      clearInterval(_gaAutoRefreshTimer);
+      _gaAutoRefreshTimer = null;
+    }
+    if (typeof _gaPollTimer !== 'undefined' && _gaPollTimer) {
+      clearInterval(_gaPollTimer);
+      _gaPollTimer = null;
+    }
+  } catch (_) {}
 }
 function showLoader(text, sub) { document.getElementById('loaderText').textContent = text || 'در حال پردازش...'; document.getElementById('loaderSub').textContent = sub || ''; document.getElementById('globalLoader').classList.add('show'); }
 function hideLoader() { document.getElementById('globalLoader').classList.remove('show'); }
@@ -7632,6 +7643,8 @@ function _gaStartAutoRefresh() {
     if (document.querySelector('#modalBody .adv-accordion.open')) return;
     // Skip if select is focused (dropdown)
     if (active && active.tagName === 'SELECT') return;
+    // BUG-NEW-21: skip if user is in a nested modal (state detail, pareto, etc.)
+    if (typeof _modalStack !== 'undefined' && _modalStack.length > 0) return;
     // Silently reload panel
     openGAPanel().catch(function () {});
   }, 10000);
@@ -7741,32 +7754,45 @@ function renderGAPanel(states, jobs, syms) {
   _gaStartAutoRefresh();
   setTimeout(function () {
     try {
-      const runningJob = (jobs || []).find(j => j.status === 'RUNNING' || j.status === 'QUEUED');
-      if (runningJob) {
-        _gaJobId = runningJob._id;
-        _gaRenderLiveProgress(runningJob);
+      // BUG-NEW-15a: prefer running from list, else localStorage fallback
+      let runningJob = (jobs || []).find(j => j.status === 'RUNNING' || j.status === 'QUEUED');
+      const _hookLive = function (job) {
+        _gaJobId = job._id;
+        try { localStorage.setItem('ga_last_running', job._id); } catch (_) {}
+        _gaRenderLiveProgress(job);
         if (_gaPollTimer) clearInterval(_gaPollTimer);
         _gaPollTimer = setInterval(_gaLiveTick, 5000);
-      } else {
+      };
+      const _hideLive = function () {
         const el = document.getElementById('gaLiveProgress');
         if (el) el.style.display = 'none';
-        // BUG-42 fix: reset job id and stop poll
         _gaJobId = null;
         if (_gaPollTimer) { clearInterval(_gaPollTimer); _gaPollTimer = null; }
+      };
+      if (runningJob) {
+        _hookLive(runningJob);
+      } else {
+        let _savedId = null;
+        try { _savedId = localStorage.getItem('ga_last_running'); } catch (_) {}
+        if (_savedId && /^[a-f0-9]{24}$/.test(_savedId)) {
+          apiFetch(BACKEND_URL + '/api/ga/jobs/' + _savedId, {}, 0).then(function (j) {
+            if (j && (j.status === 'RUNNING' || j.status === 'QUEUED')) {
+              _hookLive(j);
+            } else {
+              try { localStorage.removeItem('ga_last_running'); } catch (_) {}
+              _hideLive();
+            }
+          }).catch(function () {
+            try { localStorage.removeItem('ga_last_running'); } catch (_) {}
+            _hideLive();
+          });
+        } else {
+          _hideLive();
+        }
       }
     } catch (_) {}
   }, 100);
-  // UX-1: hook preset cards
-  setTimeout(function () {
-    try {
-      const _gaPresetHook = true;
-      document.querySelectorAll('.ga-mode-card').forEach(function (card) {
-        card.addEventListener('click', function () {
-          _gaApplyPreset(card.dataset.mode);
-        });
-      });
-    } catch (_) {}
-  }, 50);
+  // BUG-NEW-33: preset cards removed from UI, hook deleted
 
 }
 

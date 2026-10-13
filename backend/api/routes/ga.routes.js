@@ -124,15 +124,18 @@ function register(app, deps) {
             if (!/^[a-f0-9]{24}$/i.test(req.params.jobId)) {
                 return res.status(400).json({ error: 'jobId نامعتبر' });
             }
+            // BUG-NEW-38: only return result if status is DONE
             const j = await getDB().collection(COLLECTIONS.BACKTEST_JOBS)
                 .findOne({ _id: new ObjectId(req.params.jobId) });
             if (!j) return res.status(404).json({ error: 'not found' });
+            const _isRunning = (j.status === 'RUNNING' || j.status === 'QUEUED');
             res.json({
                 _id: String(j._id),
                 status: j.status,
                 payload: j.payload,
                 progress: j.progress,
-                result: j.result,
+                // Only include heavy result if done
+                result: _isRunning ? null : j.result,
                 error: j.error,
                 createdAt: j.createdAt,
                 startedAt: j.startedAt,
