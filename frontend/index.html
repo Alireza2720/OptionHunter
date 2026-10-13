@@ -1509,6 +1509,11 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
     radial-gradient(circle at 70% 80%, var(--success-subtle) 0%, transparent 50%);
 }
 #bootOverlay >* { position: relative; z-index: 1; }
+.empty-state { text-align: center; padding: 30px 20px; color: var(--text-dim); }
+.empty-state .es-icon { font-size: 42px; margin-bottom: 10px; opacity: 0.5; display: block; }
+.empty-state .es-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.empty-state .es-desc { font-size: 12.5px; margin-bottom: 14px; line-height: 1.7; max-width: 400px; margin-left: auto; margin-right: auto; }
+.empty-state .es-cta { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
 </style>
 <style id="r24-stock-hide">
   body.mode-stock .bt-opt-only { display: none !important; }
@@ -2538,7 +2543,7 @@ async function loadConfigs() { try { const [c, st] = await Promise.all([apiFetch
 function renderConfigs() {
   const tb = document.getElementById('configsBody'); if (!tb) return;
   document.getElementById('configsCountLabel').textContent = configs.length;
-  if (!configs.length) { tb.innerHTML = '<tr class="empty-row"><td colspan="10">تنظیمی ایجاد نشده است</td></tr>'; updateBulkToolbar(); return; }
+  if (!configs.length) { tb.innerHTML = '<tr class="empty-row"><td colspan="10">' + '<div class="empty-state">' + '<span class="es-icon">📋</span>' + '<div class="es-title">هنوز استراتژی‌ای ساخته نشده</div>' + '<div class="es-desc">می‌تونی از بک‌تست مقایسه‌ای شروع کنی یا از تنظیم خودکار استفاده کنی</div>' + '<div class="es-cta">' + '<button class="btn small" onclick="openBacktestPanel()">🎯 شروع بک‌تست</button>' + '<button class="btn small outline" onclick="openAutoConfigure()">⚙️ تنظیم خودکار</button>' + '</div>' + '</div>' + '</td></tr>'; updateBulkToolbar(); return; }
   const groups = {}; configs.forEach(c => { if (!groups[c.symbol]) groups[c.symbol] = []; groups[c.symbol].push(c); });
   const validIds = new Set(configs.map(c => c._id)); for (const id of Array.from(selectedConfigs)) if (!validIds.has(id)) selectedConfigs.delete(id);
   let html = '';
@@ -2720,6 +2725,20 @@ function renderBtResult(r) {
 }
 function switchBtTab(which, btn) { ['overview','rolling','mc','robust','monthly','hourly','dow','regime','trades'].forEach(w => { const el = document.getElementById('btTab-' + w); if (el) el.style.display = w === which ? 'block' : 'none'; }); document.querySelectorAll('#btResultArea .tabs .tab').forEach(t => t.classList.remove('active')); btn.classList.add('active'); }
 let signalHistoryLimit = 5, signalHistoryCache = null;
+async function triggerEvaluateNow(btn) {
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'در حال اجرا...'; }
+  try {
+    await apiFetch(BACKEND_URL + '/api/evaluate-now', { method: 'POST' }, 0);
+    showAlert('ارزیابی تمام شد — پس از چند ثانیه رفرش کن', 'success', 5000);
+    setTimeout(() => loadSignalHistory(), 3000);
+  } catch (e) {
+    showAlert('خطا: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
+}
+
 async function loadSignalHistory() {
   try {
     const _isFirst = signalHistoryCache === null;
@@ -2735,7 +2754,7 @@ async function loadSignalHistory() {
 function renderSignalHistory() {
   const tb = document.getElementById('signalHistoryBody'); if (!tb) return;
   const list = signalHistoryCache || [];
-  if (!list.length) { tb.innerHTML = '<tr class="empty-row"><td colspan="9">سیگنالی نیست</td></tr>'; return; }
+  if (!list.length) { tb.innerHTML = '<tr class="empty-row"><td colspan="9">' + '<div class="empty-state">' + '<span class="es-icon">🔔</span>' + '<div class="es-title">هنوز سیگنالی ثبت نشده</div>' + '<div class="es-desc">سیگنال‌ها بعد از هر tick (در ساعات بازار) یا از اجرای دستی ذخیره می‌شن</div>' + '<div class="es-cta">' + '<button class="btn small" onclick="triggerEvaluateNow(this)">⚡ اجرای دستی حالا</button>' + '</div>' + '</div>' + '</td></tr>'; return; }
   tb.innerHTML = list.map(x => {
     let roleTag = '<span class="role-badge leader">لیدر</span>';
     if (x.role === 'confirmer') roleTag = '<span class="role-badge confirmer">تایید</span>';
@@ -7221,7 +7240,7 @@ function renderGAPanel(states, jobs, syms) {
 
   const stratRows = strategiesInfo.map(s => {
     const st = stateMap[s.id];
-    const badge = !st ? '<span class="badge none">—</span>'
+    const badge = !st ? '<span class="badge none">⏳ در انتظار</span>'
       : st.status === "done" ? '<span class="badge long">✓</span>'
       : st.status === "running" ? '<span class="badge warn">در حال اجرا</span>'
       : st.status === "paused" ? '<span class="badge warn">pause</span>'
@@ -7235,6 +7254,7 @@ function renderGAPanel(states, jobs, syms) {
       + '<td><b>' + fit + '</b></td>'
       + '<td>' + gen + '</td>'
       + '<td>'
+      + (!st ? '<button class="btn tiny success" onclick="gaStartSingle(\'' + esc(s.id) + '\')">▶ اجرا</button> ' : "")
       + (st && st.status === "done" ? '<button class="btn tiny success" onclick="gaApply(\'' + esc(s.id) + '\')">اعمال</button> ' : "")
       + (st && (st.status === "paused") ? '<button class="btn tiny warn" onclick="gaResume(\'' + esc(s.id) + '\')">ادامه</button> ' : "")
       + (st ? '<button class="btn tiny outline" onclick="gaViewState(\'' + esc(s.id) + '\')">جزئیات</button>' : "")
@@ -7321,6 +7341,19 @@ async function gaStartSelected() {
     maxGenerations: +document.getElementById("ga_maxGen").value || 30,
     trialsPerGeneration: +document.getElementById("ga_trials").value || 4,
     numWindows: +document.getElementById("ga_windows").value || 3
+  };
+  await _gaKickoff(body);
+}
+
+async function gaStartSingle(strategyId) {
+  const modeEl = document.querySelector('input[name=ga_mode]:checked');
+  const body = {
+    strategyId: strategyId,
+    mode: modeEl ? modeEl.value : 'stock',
+    symbolsLimit: +((document.getElementById('ga_symLimit') || {}).value || 0),
+    maxGenerations: +((document.getElementById('ga_maxGen') || {}).value || 30),
+    trialsPerGeneration: +((document.getElementById('ga_trials') || {}).value || 4),
+    numWindows: +((document.getElementById('ga_windows') || {}).value || 3)
   };
   await _gaKickoff(body);
 }
