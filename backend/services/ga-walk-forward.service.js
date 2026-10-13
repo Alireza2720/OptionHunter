@@ -102,7 +102,7 @@ async function evaluate(cfg, opts) {
                 wantRobustness: false
             });
             const st = mode === 'option' ? (r.optionStats || r.stats) : r.stockStats;
-            windowResults.push({ idx: w.idx, from: w.from, to: w.to, days: w.days, stats: st || null });
+            windowResults.push({ idx: w.idx, from: w.from, to: w.to, days: w.days, stats: st || null, advanced: r.advanced || null });
         } catch (e) {
             windowResults.push({ idx: w.idx, from: w.from, to: w.to, days: w.days, stats: null, error: e.message });
         }

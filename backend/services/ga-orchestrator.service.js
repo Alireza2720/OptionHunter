@@ -108,7 +108,7 @@ function _buildSearchSpace(strategyId, defaults) {
             space[p] = Object.assign({}, SPECIAL_RANGES[p]);
         }
     }
-    const keys = Object.keys(space).slice(0, 5);
+    const keys = Object.keys(space).slice(0, 6);
     const out = {};
     for (const k of keys) out[k] = space[k];
     return out;
@@ -120,7 +120,40 @@ async function _evalParams(strategyId, params, symbols, opts) {
     const mergedParams = Object.assign({}, def.defaultParams, params);
 
     const perSymbol = [];
-    for (const sym of symbols) {
+    const _CONCURRENCY = 2;
+    const _evalOne = async (sym) => {
+        const _def = deps.strategies.STRATEGIES[strategyId];
+        const _cfg = {
+            symbol: sym, strategyId: strategyId,
+            timeframe: _def.defaultTimeframe,
+            htfTimeframe: _def.htfTimeframe || '1d',
+            candleType: 'heikin',
+            params: mergedParams
+        };
+        try {
+            const r = await wfMod.evaluate(_cfg, {
+                backtest: deps.backtest,
+                dateFrom: opts.dateFrom,
+                dateTo: opts.dateTo,
+                numWindows: opts.numWindows,
+                mode: opts.mode,
+                lightMode: opts.lightMode
+            });
+            if (r && r.stats && r.stats.totalTrades > 0) {
+                return { symbol: sym, stats: r.stats, windows: r.windows };
+            }
+        } catch (e) {
+            deps.logger && deps.logger.warn('[ga] eval ' + sym + ': ' + e.message);
+        }
+        return null;
+    };
+    for (let _i = 0; _i < symbols.length; _i += _CONCURRENCY) {
+        const _batch = symbols.slice(_i, _i + _CONCURRENCY);
+        const _res = await Promise.all(_batch.map(s => _evalOne(s)));
+        for (const r of _res) if (r) perSymbol.push(r);
+    }
+    // legacy loop removed
+    if (false) for (const sym of symbols) {
         const cfg = {
             symbol: sym,
             strategyId: strategyId,
@@ -289,7 +322,18 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
 
         for (let t = 0; t < opts.trialsPerGeneration; t++) {
             const params = sampler.sample();
-            const ev = await _evalParams(strategyId, params, symbols, opts);
+            const _toMs = 120000;
+            let ev;
+            try {
+                ev = await Promise.race([
+                    _evalParams(strategyId, params, symbols, opts),
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('eval timeout ' + _toMs + 'ms')), _toMs))
+                ]);
+            } catch (_te) {
+                deps.logger && deps.logger.warn('[ga] trial timeout: ' + _te.message);
+                sampler.addPoint(params, 0);
+                continue;
+            }
 
             if (!ev.stats) {
                 sampler.addPoint(params, 0);
@@ -302,19 +346,22 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             // Sampler update
             sampler.addPoint(params, ev.fitness);
 
-            if (ev.fitness > genBest) {
-                genBest = ev.fitness;
-                if (ev.fitness > bestFitness * (1 + 0.01)) {
-                    bestFitness = ev.fitness;
-                    bestParams = Object.assign({}, def.defaultParams, params);
-                    bestStats = ev.stats;
-                    bestEquityCurve = (ev.perSymbol[0] && ev.perSymbol[0].windows && ev.perSymbol[0].windows[0] && ev.perSymbol[0].windows[0].stats && ev.perSymbol[0].windows[0].stats.equityCurve)
-                        ? ev.perSymbol[0].windows[0].stats.equityCurve
-                        : null;
-                    patienceLeft = opts.patience;
-                } else {
-                    patienceLeft--;
+            if (ev.fitness > genBest) genBest = ev.fitness;
+            if (ev.fitness > bestFitness * (1 + 0.01)) {
+                bestFitness = ev.fitness;
+                bestParams = Object.assign({}, def.defaultParams, params);
+                bestStats = ev.stats;
+                // FIX: equity curve is in advanced, not stats
+                const _ws = ev.perSymbol[0] && ev.perSymbol[0].windows;
+                for (let _wi = 0; _wi < (_ws ? _ws.length : 0); _wi++) {
+                    if (_ws[_wi] && _ws[_wi].advanced && Array.isArray(_ws[_wi].advanced.equityCurve) && _ws[_wi].advanced.equityCurve.length) {
+                        bestEquityCurve = _ws[_wi].advanced.equityCurve;
+                        break;
+                    }
                 }
+                patienceLeft = opts.patience;
+            } else {
+                patienceLeft--;
             }
 
             // Pruner update: reduced space
