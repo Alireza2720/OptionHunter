@@ -68,6 +68,36 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // ─── Last dates for monitored symbols (BG1 fix) ───
+    app.get('/api/symbols/last-dates', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const symbols = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
+            const symList = symbols.map(s => s.symbol);
+            if (!symList.length) return res.json({});
+            const [dailyAgg, intradayAgg, optionsAgg] = await Promise.all([
+                db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
+                    { $match: { symbol: { $in: symList } } },
+                    { $group: { _id: '$symbol', last: { $max: '$time' } } }
+                ]).toArray(),
+                db.collection(COLLECTIONS.CANDLES_BASE).aggregate([
+                    { $match: { symbol: { $in: symList } } },
+                    { $group: { _id: '$symbol', last: { $max: '$time' } } }
+                ], { maxTimeMS: 15000 }).toArray(),
+                db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
+                    { $match: { underlying: { $in: symList } } },
+                    { $group: { _id: '$underlying', last: { $max: '$time' } } }
+                ], { maxTimeMS: 15000 }).toArray()
+            ]);
+            const out = {};
+            for (const s of symList) out[s] = { daily: null, intraday: null, options: null };
+            for (const r of dailyAgg) if (out[r._id]) out[r._id].daily = r.last;
+            for (const r of intradayAgg) if (out[r._id]) out[r._id].intraday = r.last;
+            for (const r of optionsAgg) if (out[r._id]) out[r._id].options = r.last;
+            res.json(out);
+        } catch (e) { next(e); }
+    });
+
     // ---- Monitored symbols list ----
     app.get('/api/monitored-symbols', async (req, res, next) => {
         try {

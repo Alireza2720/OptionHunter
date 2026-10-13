@@ -116,3 +116,6 @@ _bak-*
 
 # Phase B-2b backups
 *.b2b-*
+
+# Phase B-3a backups
+*.b3a-*

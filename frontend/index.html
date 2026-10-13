@@ -1897,6 +1897,7 @@ async function loadMonitoredSymbols() {
   try {
     monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, {}, 0);
     try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); } catch (e) {}
+    try { window._lastDates = await apiFetch(`${BACKEND_URL}/api/symbols/last-dates`, {}, 0); } catch (e) { window._lastDates = {}; }
     try { await loadRegimeMap(); } catch (e) {}
     renderMonitoredSymbols();
     renderConfigSymbolOptions();
@@ -5621,6 +5622,14 @@ async function openSensitivityPanel() {
         showAlert('ابتدا استراتژی‌ها بارگذاری شوند', 'warn');
         return;
     }
+    // BG2 fix: ensure symbols are loaded
+    if (!monitoredSymbols || !monitoredSymbols.length) {
+        try { await loadMonitoredSymbols(); } catch (_) {}
+    }
+    if (!monitoredSymbols || !monitoredSymbols.length) {
+        showAlert('هیچ نمادی برای پایش وجود ندارد — ابتدا از خط لوله داده اضافه کنید', 'warn', 6000);
+        return;
+    }
     const stratOpts = strategiesInfo.map(s => '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>').join('');
     const symCheckboxes = monitoredSymbols.map(s =>
         '<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;">' +
@@ -5700,7 +5709,13 @@ async function ssRun() {
     const to = Math.floor(new Date(toGreg + 'T23:59:59Z').getTime() / 1000);
 
     let syms = Array.from(document.querySelectorAll('.ss_sym:checked')).map(c => c.value);
-    if (!syms.length) syms = monitoredSymbols.map(s => s.symbol);
+    if (!syms.length) {
+        if (!monitoredSymbols || !monitoredSymbols.length) {
+            try { await loadMonitoredSymbols(); } catch (_) {}
+        }
+        syms = (monitoredSymbols || []).map(s => s.symbol);
+    }
+    if (!syms.length) return showAlert('هیچ نمادی انتخاب نشده', 'warn');
 
     if (!confirm('بررسی حساسیت روی ' + syms.length + ' نماد؟\nاین ممکنه چند دقیقه طول بکشه.')) return;
 
@@ -6668,9 +6683,10 @@ function renderMonitoredSymbols() {
             ? '<span class="badge ' + (r.macro === 'bull' ? 'long' : r.macro === 'bear' ? 'short' : 'none') + '">' + (r.macro === 'bull' ? 'صعودی' : r.macro === 'bear' ? 'نزولی' : 'رنج') + '</span>'
             : '<span class="badge none">-</span>';
         const cov = covMap[s.symbol] || {};
-        const d1m = (cov.stock_base && cov.stock_base.to) || null;
-        const dDaily = (cov.stock_daily && cov.stock_daily.to) || null;
-        const dOpt = (cov.options && cov.options.to) || null;
+        const ld = (window._lastDates && window._lastDates[s.symbol]) || {};
+        const d1m = (cov.stock_base && cov.stock_base.to) || ld.intraday || null;
+        const dDaily = (cov.stock_daily && cov.stock_daily.to) || ld.daily || null;
+        const dOpt = (cov.options && cov.options.to) || ld.options || null;
         const bfNow = window._backfillRunning ? '<span class="badge warn" title="backfill در جریان">⏳</span>' : '';
         return '<tr>' +
             '<td><b>' + esc(s.symbol) + '</b> ' + bfNow + '</td>' +
