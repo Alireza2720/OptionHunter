@@ -7749,6 +7749,9 @@ function renderGAPanel(states, jobs, syms) {
       } else {
         const el = document.getElementById('gaLiveProgress');
         if (el) el.style.display = 'none';
+        // BUG-42 fix: reset job id and stop poll
+        _gaJobId = null;
+        if (_gaPollTimer) { clearInterval(_gaPollTimer); _gaPollTimer = null; }
       }
     } catch (_) {}
   }, 100);
@@ -7766,11 +7769,21 @@ function renderGAPanel(states, jobs, syms) {
 
 }
 
+let _gaSmartCache = null;
+let _gaSmartCacheAt = 0;
 async function gaLoadSmartPreview() {
   const el = document.getElementById('gaPreviewContent');
   if (!el) return;
   try {
-    const r = await apiFetch(BACKEND_URL + '/api/ga/smart-config', { method: 'POST' }, 0);
+    // BUG-43 fix: cache 5min
+    let r = null;
+    if (_gaSmartCache && (Date.now() - _gaSmartCacheAt) < 5 * 60 * 1000) {
+      r = _gaSmartCache;
+    } else {
+      r = await apiFetch(BACKEND_URL + '/api/ga/smart-config', { method: 'POST' }, 0);
+      _gaSmartCache = r;
+      _gaSmartCacheAt = Date.now();
+    }
     const st = r.stats || {};
     el.innerHTML =
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:8px;">'
@@ -7970,8 +7983,8 @@ async function gaStartSingle(strategyId) {
     strategyId: strategyId,
     mode: modeEl ? modeEl.value : 'stock',
     symbolsLimit: +((document.getElementById('ga_symLimit') || {}).value || 0),
-    maxGenerations: +((document.getElementById('ga_maxGen') || {}).value || 30),
-    trialsPerGeneration: +((document.getElementById('ga_trials') || {}).value || 4),
+    maxGenerations: +((document.getElementById('ga_maxGen') || {}).value || 10),
+    trialsPerGeneration: +((document.getElementById('ga_trials') || {}).value || 2),
     numWindows: +((document.getElementById('ga_windows') || {}).value || 3)
   };
   await _gaKickoff(body);
@@ -8286,6 +8299,7 @@ function _renderBeforeAfter(title, pairs, onConfirm) {
   openModal(title, html, true);
   const confirmBtn = document.getElementById('_baConfirm');
   const cancelBtn = document.getElementById('_baCancel');
+  if (!confirmBtn || !cancelBtn) return;
   confirmBtn.onclick = async function () {
     const restore = _btnBusy(confirmBtn, 'در حال اعمال...');
     try { await onConfirm(); } finally { restore(); }

@@ -77,6 +77,8 @@ ParamPruner.prototype.reducedSpace = function () {
     const out = {};
     for (const k of Object.keys(this.space)) {
         const range = this.space[k];
+        // BUG-40 fix: apply banned to int/float (was only choice)
+        const banned = Array.from(this.pruned[k] || []);
         if (range.type === 'choice') {
             const vals = (range.values || []).filter(v => !this.pruned[k].has(v));
             if (vals.length < 2) {
@@ -84,6 +86,8 @@ ParamPruner.prototype.reducedSpace = function () {
             } else {
                 out[k] = Object.assign({}, range, { values: vals });
             }
+        } else if (banned.length) {
+            out[k] = Object.assign({}, range, { banned: banned });
         } else {
             out[k] = Object.assign({}, range);
         }

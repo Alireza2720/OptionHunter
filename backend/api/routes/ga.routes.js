@@ -319,16 +319,18 @@ function register(app, deps) {
             const since = new Date(Date.now() - 180 * 86400 * 1000);
             let symbolsWithOption = 0;
             let totalOptRows = 0;
-            for (const s of symList) {
+            // BUG-33 fix: parallelize counts
+            const _counts = await Promise.all(symList.map(async (s) => {
                 try {
-                    const cnt = await db.collection(COLLECTIONS.OPTION_HISTORY).countDocuments({
+                    return await db.collection(COLLECTIONS.OPTION_HISTORY).countDocuments({
                         underlying: s, time: { $gte: since },
                         bid: { $gt: 0 }, ask: { $gt: 0 }
                     });
-                    // BUG-13 fix: relative threshold
-                    if (cnt >= 30) symbolsWithOption++;
-                    totalOptRows += cnt;
-                } catch (_) {}
+                } catch (_) { return 0; }
+            }));
+            for (const cnt of _counts) {
+                if (cnt >= 30) symbolsWithOption++;
+                totalOptRows += cnt;
             }
             const optionRatio = symList.length > 0 ? symbolsWithOption / symList.length : 0;
             let maxGen, trials, windows, reason;

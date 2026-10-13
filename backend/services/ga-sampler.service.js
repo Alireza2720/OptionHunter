@@ -13,15 +13,31 @@ const N_CANDIDATES = 24;
 
 function sampleUniform(range) {
     if (!range) return null;
+    // BUG-40 fix: support banned values (from ParamPruner)
+    const banned = range.banned || [];
+    const bannedSet = banned.length ? new Set(banned.map(String)) : null;
+
+    if (range.type === 'choice') {
+        const arr = (range.values || []).filter(v => !bannedSet || !bannedSet.has(String(v)));
+        if (!arr.length) return null;
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
     if (range.type === 'float') {
+        if (!bannedSet) return range.min + Math.random() * (range.max - range.min);
+        for (let k = 0; k < 30; k++) {
+            const v = range.min + Math.random() * (range.max - range.min);
+            if (!bannedSet.has(v.toFixed(6)) && !bannedSet.has(String(v))) return v;
+        }
         return range.min + Math.random() * (range.max - range.min);
     }
     if (range.type === 'int') {
-        return Math.floor(range.min + Math.random() * (range.max - range.min + 1));
-    }
-    if (range.type === 'choice') {
-        const arr = range.values || [];
-        return arr[Math.floor(Math.random() * arr.length)];
+        const span = range.max - range.min + 1;
+        if (!bannedSet) return Math.floor(range.min + Math.random() * span);
+        for (let k = 0; k < 50; k++) {
+            const v = Math.floor(range.min + Math.random() * span);
+            if (!bannedSet.has(String(v))) return v;
+        }
+        return Math.floor(range.min + Math.random() * span);
     }
     return null;
 }

@@ -320,8 +320,20 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             return { strategyId: strategyId, cancelled: true };
         }
 
-        // -- check market hours
-        if (stopResume.isDangerWindow()) {
+        // -- BUG-10: also check holiday
+        let _isHoliday = false;
+        try {
+            const _hol = await deps.getDB().collection('meta').findOne({ _id: 'holiday' });
+            if (_hol && _hol.date) {
+                const _now = new Date();
+                const _teh = new Date(_now.getTime() + 3.5 * 3600 * 1000);
+                const _todayStr = _teh.getUTCFullYear() + '-' + String(_teh.getUTCMonth() + 1).padStart(2, '0') + '-' + String(_teh.getUTCDate()).padStart(2, '0');
+                if (String(_hol.date) === _todayStr) _isHoliday = true;
+            }
+        } catch (_) {}
+
+        // -- check market hours (skip if holiday)
+        if (!_isHoliday && stopResume.isDangerWindow()) {
             const resumeAt = stopResume.nextSafeTime();
             const _savedOpts = { mode: opts.mode, maxGenerations: opts.maxGenerations, trialsPerGeneration: opts.trialsPerGeneration, numWindows: opts.numWindows, patience: opts.patience, symbolsLimit: opts.symbolsLimit, dateFrom: opts.dateFrom, dateTo: opts.dateTo, lightMode: opts.lightMode, softMaxMinutes: opts.softMaxMinutes };
             await stopResume.saveState(deps.getDB, strategyId, {
