@@ -44,20 +44,22 @@ function buildWindows(dateFrom, dateTo, numWindows) {
     return out;
 }
 
-function _mergeStats(list) {
+function _mergeStats(list, weights) {
     let totalTrades = 0, wins = 0, totalPnl = 0, gp = 0, gl = 0;
     let profitableWindows = 0;
-    for (const s of list) {
+    for (let _i = 0; _i < list.length; _i++) {
+        const s = list[_i];
+        const wt = (weights && Number.isFinite(weights[_i])) ? weights[_i] : 1.0;
         if (!s || !s.count) continue;
         const n = s.count;
         const w = n * (s.winRate || 0) / 100;
         const l = n - w;
-        totalTrades += n;
-        wins += w;
-        totalPnl += s.totalPnl || 0;
-        gp += w * Math.abs(s.avgWin || 0);
-        gl += l * Math.abs(s.avgLoss || 0);
-        if ((s.totalPnl || 0) > 0) profitableWindows++;
+        totalTrades += n * wt;
+        wins += w * wt;
+        totalPnl += (s.totalPnl || 0) * wt;
+        gp += w * Math.abs(s.avgWin || 0) * wt;
+        gl += l * Math.abs(s.avgLoss || 0) * wt;
+        if ((s.totalPnl || 0) > 0) profitableWindows += wt;
     }
     const pf = gl > 0 ? gp / gl : (gp > 0 ? 999 : 0);
     const winRate = totalTrades > 0 ? wins / totalTrades * 100 : 0;
@@ -79,7 +81,7 @@ function _mergeStats(list) {
         profitFactor: pf,
         sharpe: avgSharpe,
         maxDrawdownPct: maxDD,
-        profitableWindows: profitableWindows,
+        profitableWindows: Math.round(profitableWindows),
         windowsTotal: list.length,
         // FIX GA-14: pass through for downstream merging
         avgWin: avgWinVal,
@@ -120,7 +122,11 @@ async function evaluate(cfg, opts) {
     }
 
     const valid = windowResults.filter(w => w.stats && w.stats.count > 0);
-    const merged = _mergeStats(valid.map(w => w.stats));
+    const _validWeights = valid.map(w => {
+        const idx = w.idx;
+        return (weights && weights[idx] != null) ? weights[idx] : 1.0;
+    });
+    const merged = _mergeStats(valid.map(w => w.stats), _validWeights);
     return {
         windows: windowResults,
         weights: weights,

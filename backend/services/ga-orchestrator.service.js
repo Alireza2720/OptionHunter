@@ -11,7 +11,7 @@ const { COLLECTIONS } = require('../config/constants');
 const fitness = require('./ga-fitness.service');
 const wfMod = require('./ga-walk-forward.service');
 const { TPESampler } = require('./ga-sampler.service');
-const { ParamPruner } = require('./ga-pruner.service');
+const { MedianPruner, ParamPruner } = require('./ga-pruner.service');
 const stopResume = require('./ga-stop-resume.service');
 
 let deps = {
@@ -175,12 +175,16 @@ async function _evalParams(strategyId, params, symbols, opts) {
             if (r) out.push(r);
         } else {
             const stockR = await _evalOneMode(sym, 'stock');
-            if (stockR) out.push(stockR);
             const optCount = _optCounts[sym] || 0;
-            if (optCount >= 30) {
+            const hasOption = optCount >= 30;
+            if (stockR) {
+                stockR.optWeight = hasOption ? 0.5 : 1.0;
+                out.push(stockR);
+            }
+            if (hasOption) {
                 const optR = await _evalOneMode(sym, 'option');
                 if (optR) {
-                    optR.optWeight = Math.min(1, optCount / 500);
+                    optR.optWeight = 0.5 * Math.min(1, optCount / 500);
                     optR.optCount = optCount;
                     out.push(optR);
                 }
@@ -277,6 +281,7 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
     const pruner = prev && prev.prunerState
         ? ParamPruner.import(prev.prunerState)
         : new ParamPruner(space);
+    const medianPruner = new MedianPruner();
 
     let bestFitness = (prev && prev.best && prev.best.fitness) || 0;
     let bestParams = (prev && prev.best && prev.best.params) || Object.assign({}, def.defaultParams);
@@ -290,10 +295,16 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
     // Load symbols
     const db = deps.getDB();
     const allSyms = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({ enabled: true }).toArray();
+    const HARD_SYMBOL_CAP = 30;
+    let _limit = opts.symbolsLimit > 0 ? opts.symbolsLimit : allSyms.length;
+    if (_limit > HARD_SYMBOL_CAP) {
+        deps.logger && deps.logger.warn('[ga] hard-capping symbols to ' + HARD_SYMBOL_CAP + ' (requested ' + _limit + ')');
+        _limit = HARD_SYMBOL_CAP;
+    }
     const symbols = allSyms
         .map(s => s.symbol)
         .sort()
-        .slice(0, opts.symbolsLimit > 0 ? opts.symbolsLimit : allSyms.length);
+        .slice(0, _limit);
     if (!symbols.length) return { strategyId: strategyId, error: 'no symbols' };
 
     while (generation < opts.maxGenerations) {
@@ -336,6 +347,7 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             return { strategyId: strategyId, budgetOut: true };
         }
 
+        try { require('../infra/memory-guard').maybeGC(); } catch (_) {}
         generation++;
         let genBest = bestFitness;
         const _bestAtGenStart = bestFitness;
@@ -363,6 +375,9 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             // Pruner update
             pruner.report(params, ev.fitness);
 
+            // BUG-1 fix: also track for median pruning
+            medianPruner.shouldPrune(t, ev.fitness);
+
             // Sampler update
             sampler.addPoint(params, ev.fitness);
 
@@ -372,12 +387,18 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
                 bestParams = Object.assign({}, def.defaultParams, params);
                 bestStats = ev.stats;
                 // FIX: equity curve is in advanced, not stats
-                const _ws = ev.perSymbol[0] && ev.perSymbol[0].windows;
-                for (let _wi = 0; _wi < (_ws ? _ws.length : 0); _wi++) {
-                    if (_ws[_wi] && _ws[_wi].advanced && Array.isArray(_ws[_wi].advanced.equityCurve) && _ws[_wi].advanced.equityCurve.length) {
-                        bestEquityCurve = _ws[_wi].advanced.equityCurve;
-                        break;
+                for (const _ps of (ev.perSymbol || [])) {
+                    const _ws = _ps.windows;
+                    if (!_ws) continue;
+                    let found = false;
+                    for (let _wi = 0; _wi < _ws.length; _wi++) {
+                        if (_ws[_wi] && _ws[_wi].advanced && Array.isArray(_ws[_wi].advanced.equityCurve) && _ws[_wi].advanced.equityCurve.length) {
+                            bestEquityCurve = _ws[_wi].advanced.equityCurve;
+                            found = true;
+                            break;
+                        }
                     }
+                    if (found) break;
                 }
                 patienceLeft = opts.patience;
             }

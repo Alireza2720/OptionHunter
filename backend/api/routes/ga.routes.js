@@ -25,6 +25,11 @@ function register(app, deps) {
             if (!body.allStrategies && !body.strategyId && !hasList) {
                 return res.status(400).json({ error: 'allStrategies یا strategyId یا strategies[] لازم است' });
             }
+            // BUG-4 fix: validate mode
+            const _VALID_MODES = ['stock', 'option', 'both'];
+            if (body.mode && !_VALID_MODES.includes(body.mode)) {
+                return res.status(400).json({ error: 'mode باید یکی از: ' + _VALID_MODES.join(', ') });
+            }
 
             // Memory guard
             try {
@@ -52,9 +57,25 @@ function register(app, deps) {
                         { $set: { status: 'RUNNING', startedAt: new Date() } }
                     );
                     const result = await gaOrch.runGA(jobId, body);
+                    // BUG-3 fix: trim large arrays before saving
+                    const _trimmedResult = {
+                        totalStrategies: result.totalStrategies,
+                        completed: result.completed,
+                        paused: result.paused,
+                        results: (result.results || []).map(function (x) {
+                            return {
+                                strategyId: x.strategyId,
+                                done: x.done, paused: x.paused, cancelled: x.cancelled,
+                                error: x.error, generation: x.generation,
+                                best: x.best ? { params: x.best.params, fitness: x.best.fitness, stats: x.best.stats } : null,
+                                bestEquityCurve: x.bestEquityCurve ? x.bestEquityCurve.slice(0, 300) : null,
+                                pruner: x.pruner ? { prunedCount: x.pruner.prunedCount, historySize: x.pruner.historySize, pruned: x.pruner.pruned } : null
+                            };
+                        })
+                    };
                     await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
                         { _id: r.insertedId },
-                        { $set: { status: 'DONE', result, finishedAt: new Date(), updatedAt: new Date() } }
+                        { $set: { status: 'DONE', result: _trimmedResult, finishedAt: new Date(), updatedAt: new Date() } }
                     );
                     if (deps.notify) {
                         const doneCount = (result && result.completed) || 0;
@@ -157,10 +178,34 @@ function register(app, deps) {
             if (!/^[a-f0-9]{24}$/i.test(req.params.jobId)) {
                 return res.status(400).json({ error: 'jobId نامعتبر' });
             }
-            await getDB().collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
+            const db = getDB();
+            const _job = await db.collection(COLLECTIONS.BACKTEST_JOBS).findOne({ _id: new ObjectId(req.params.jobId) });
+            await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
                 { _id: new ObjectId(req.params.jobId) },
-                { $set: { cancelRequested: true, updatedAt: new Date() } }
+                { $set: { cancelRequested: true, status: 'CANCELLED', finishedAt: new Date(), updatedAt: new Date() } }
             );
+            // BUG-2 fix: also cancel any paused states
+            if (_job) {
+                const _pl = _job.payload || {};
+                if (_pl.allStrategies) {
+                    await db.collection('meta').updateMany(
+                        { _id: { $regex: '^ga_state_' }, status: 'paused' },
+                        { $set: { status: 'cancelled', updatedAt: new Date() } }
+                    );
+                } else if (_pl.strategyId) {
+                    await db.collection('meta').updateOne(
+                        { _id: 'ga_state_' + _pl.strategyId },
+                        { $set: { status: 'cancelled', updatedAt: new Date() } }
+                    );
+                } else if (Array.isArray(_pl.strategies)) {
+                    for (const _sid of _pl.strategies) {
+                        await db.collection('meta').updateOne(
+                            { _id: 'ga_state_' + _sid },
+                            { $set: { status: 'cancelled', updatedAt: new Date() } }
+                        );
+                    }
+                }
+            }
             res.json({ ok: true });
         } catch (e) { next(e); }
     });
@@ -274,6 +319,7 @@ function register(app, deps) {
                         underlying: s, time: { $gte: since },
                         bid: { $gt: 0 }, ask: { $gt: 0 }
                     });
+                    // BUG-13 fix: relative threshold
                     if (cnt >= 30) symbolsWithOption++;
                     totalOptRows += cnt;
                 } catch (_) {}

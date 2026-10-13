@@ -7781,8 +7781,9 @@ async function gaLoadSmartPreview() {
     const tEl = document.getElementById('ga_trials'); if (tEl && !tEl.dataset.user) tEl.value = r.trialsPerGeneration;
     const wEl = document.getElementById('ga_windows'); if (wEl && !wEl.dataset.user) wEl.value = r.numWindows;
     const sEl = document.getElementById('ga_symLimit'); if (sEl && !sEl.dataset.user) sEl.value = r.symbolsLimit;
-    const rBoth = document.querySelector('input[name=ga_mode][value="both"]');
-    if (rBoth && !document.querySelector('input[name=ga_mode]:checked')) rBoth.checked = true;
+    // BUG-14 fix: apply smart mode to radio
+    const _rMode = document.querySelector('input[name=ga_mode][value="' + r.mode + '"]');
+    if (_rMode) _rMode.checked = true;
     window._gaSmartCfg = r;
   } catch (e) {
     el.innerHTML = '<span class="hint" style="color:var(--warn);">⚠️ تحلیل داده ناموفق: ' + esc(e.message) + ' — از تنظیمات پیش‌فرض استفاده می‌شه</span>';
@@ -7896,7 +7897,10 @@ function gaShowPareto() {
       + '<div style="margin-top:14px;text-align:right;"><button class="btn outline" onclick="closeModal()">بستن</button></div>';
 
     openModal('نمودار Pareto — trade-off بازده/ریسک', html, true);
+    if (_pbtn) { _pbtn.disabled = false; _pbtn.textContent = '📊 نمودار Pareto'; }
   }).catch(function (e) {
+    // BUG-15 fix: re-enable button on error
+    if (_pbtn) { _pbtn.disabled = false; _pbtn.textContent = '📊 نمودار Pareto'; }
     showAlert('خطا در بارگذاری: ' + e.message, 'error');
   });
 }
