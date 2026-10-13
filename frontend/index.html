@@ -7298,59 +7298,36 @@ function renderGAPanel(states, jobs, syms) {
     + '🧬 TPE Sampler + Median Pruner + 6-window walk-forward + GT-Score. در ساعات بازار خودکار pause می‌شود.'
     + '</div>'
     + '<div style="background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);padding:14px;margin-bottom:12px;">'
-    + '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">'
-    + '<b style="font-size:13px;">حالت اجرا:</b>'
-    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="radio" name="ga_mode" value="stock" checked> 📈 سهم</label>'
-    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="radio" name="ga_mode" value="option"> 🎯 آپشن</label>'
+    + '<div id="gaSmartPreview" style="background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);padding:14px;margin-bottom:12px;">'
+    + '<div id="gaPreviewContent" style="font-size:12.5px;line-height:1.9;">'
+    +   '<span class="hint">در حال تحلیل داده...</span>'
     + '</div>'
-    + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">'
-    + '<label class="ga-mode-card" style="cursor:pointer;padding:12px;border:2px solid var(--border);border-radius:var(--r-md);text-align:center;transition:all .15s;" data-mode="fast">'
-    +   '<input type="radio" name="ga_preset" value="fast" style="display:none;">'
-    +   '<div style="font-size:20px;">⚡</div>'
-    +   '<b style="display:block;margin-top:4px;font-size:13px;">سریع</b>'
-    +   '<div class="hint" style="font-size:10.5px;margin-top:2px;">~۳۰ دقیقه</div>'
-    +   '<div class="hint" style="font-size:9.5px;opacity:.7;">۵ نسل · ۲ trial</div>'
-    + '</label>'
-    + '<label class="ga-mode-card ga-selected" style="cursor:pointer;padding:12px;border:2px solid var(--accent);border-radius:var(--r-md);text-align:center;background:var(--accent-subtle);transition:all .15s;" data-mode="balanced">'
-    +   '<input type="radio" name="ga_preset" value="balanced" checked style="display:none;">'
-    +   '<div style="font-size:20px;">⚙️</div>'
-    +   '<b style="display:block;margin-top:4px;font-size:13px;">متعادل</b>'
-    +   '<div class="hint" style="font-size:10.5px;margin-top:2px;">~۲ ساعت</div>'
-    +   '<div class="hint" style="font-size:9.5px;opacity:.7;">۱۰ نسل · ۲ trial</div>'
-    + '</label>'
-    + '<label class="ga-mode-card" style="cursor:pointer;padding:12px;border:2px solid var(--border);border-radius:var(--r-md);text-align:center;transition:all .15s;" data-mode="deep">'
-    +   '<input type="radio" name="ga_preset" value="deep" style="display:none;">'
-    +   '<div style="font-size:20px;">🔬</div>'
-    +   '<b style="display:block;margin-top:4px;font-size:13px;">عمیق</b>'
-    +   '<div class="hint" style="font-size:10.5px;margin-top:2px;">~۶ ساعت</div>'
-    +   '<div class="hint" style="font-size:9.5px;opacity:.7;">۳۰ نسل · ۴ trial</div>'
-    + '</label>'
-    + '</div>'
-    + '<div class="hint" style="margin-top:8px;font-size:11px;">'
-    +   'روی همه‌ی نمادهای پایش‌شده اجرا می‌شه. در ساعات بازار خودکار pause و بعدش ادامه می‌ده.'
+    + '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">'
+    +   '<button class="btn success" id="gaStartSmart" onclick="gaStartSmart()" style="font-weight:600;font-size:14px;padding:12px 24px;">🚀 شروع بهینه‌سازی هوشمند</button>'
+    +   '<button class="btn outline" id="gaStartSel" onclick="gaStartSelected()">▶ اجرای انتخاب‌شده‌ها</button>'
+    +   '<button class="btn danger" id="gaCancelBtn" style="display:none;" onclick="gaCancelJob()">✖ لغو</button>'
+    +   '<button class="btn outline" onclick="openGAPanel()">🔄 رفرش</button>'
     + '</div>'
     + '<div class="adv-accordion" style="margin-top:10px;">'
-    +   '<div class="adv-header" onclick="this.parentNode.classList.toggle('open')">'
-    +     '<span style="font-size:12px;">🔧 تنظیمات پیشرفته</span><span class="chev">▼</span>'
+    +   '<div class="adv-header" onclick="this.parentNode.classList.toggle(&apos;open&apos;)">'
+    +     '<span style="font-size:11.5px;">🔧 کنترل پیشرفته (اختیاری)</span><span class="chev">▼</span>'
     +   '</div>'
     +   '<div class="adv-body" style="padding:10px;">'
+    +     '<div class="hint" style="font-size:11px;margin-bottom:8px;">این مقادیر به‌طور خودکار از تحلیل داده تعیین می‌شن. اگه می‌خوای دستی تغییر بدی:</div>'
     +     '<div class="form-row">'
-    +       '<div class="field" style="min-width:120px;"><label style="font-size:11px;">تعداد نماد (0 = همه)</label><input type="number" id="ga_symLimit" value="0" min="0" max="30"></div>'
-    +       '<div class="field" style="min-width:120px;"><label style="font-size:11px;">حداکثر نسل</label><input type="number" id="ga_maxGen" value="10" min="3" max="200"></div>'
-    +       '<div class="field" style="min-width:120px;"><label style="font-size:11px;">trial در هر نسل</label><input type="number" id="ga_trials" value="2" min="1" max="10"></div>'
-    +       '<div class="field" style="min-width:120px;"><label style="font-size:11px;">تعداد پنجره</label><input type="number" id="ga_windows" value="3" min="2" max="6"></div>'
+    +       '<div class="field" style="min-width:110px;"><label style="font-size:11px;">نماد (0=همه)</label><input type="number" id="ga_symLimit" value="0" min="0" max="30"></div>'
+    +       '<div class="field" style="min-width:110px;"><label style="font-size:11px;">حداکثر نسل</label><input type="number" id="ga_maxGen" value="10" min="3" max="200"></div>'
+    +       '<div class="field" style="min-width:110px;"><label style="font-size:11px;">trial/نسل</label><input type="number" id="ga_trials" value="2" min="1" max="10"></div>'
+    +       '<div class="field" style="min-width:110px;"><label style="font-size:11px;">پنجره</label><input type="number" id="ga_windows" value="3" min="2" max="6"></div>'
     +     '</div>'
-    +     '<div class="hint" style="font-size:11px;">این اعداد با انتخاب حالت بالا خودکار به‌روزرسانی می‌شن.</div>'
+    +     '<div class="form-row" style="margin-top:6px;">'
+    +       '<label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="ga_mode" value="stock"> فقط سهم</label>'
+    +       '<label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="ga_mode" value="option"> فقط آپشن</label>'
+    +       '<label style="display:flex;align-items:center;gap:6px;font-size:12px;"><input type="radio" name="ga_mode" value="both" checked> ترکیبی (پیشنهادی)</label>'
+    +     '</div>'
     +   '</div>'
     + '</div>'
-    + '</div>'
-    + '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'
-    + '<button class="btn success" id="gaStartAll" onclick="gaStartAll()">⚡ شروع روی همه (' + strategiesInfo.length + ')</button>'
-    + '<button class="btn" id="gaStartSel" onclick="gaStartSelected()">▶ شروع انتخاب‌شده‌ها</button>'
-    + '<button class="btn danger" id="gaCancelBtn" style="display:none;" onclick="gaCancelJob()">✖ لغو</button>'
-    + '<button class="btn outline" onclick="openGAPanel()">🔄 رفرش</button>'
-    + '</div>'
-    + '<div id="gaLiveProgress" style="margin-bottom:12px;"></div>' + '<div id="gaProgress" style="margin-bottom:12px;"></div>'
+    + '</div>'"></div>' + '<div id="gaProgress" style="margin-bottom:12px;"></div>'
     + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📊 وضعیت استراتژی‌ها (' + strategiesInfo.length + ')</h4>'
     + '<div style="max-height:300px;overflow-y:auto;"><table class="data-table"><thead><tr><th>استراتژی</th><th>وضعیت</th><th>Best Fit</th><th>Gen</th><th></th></tr></thead><tbody>'
     + (stratRows || '<tr class="empty-row"><td colspan="5">—</td></tr>')
@@ -7361,6 +7338,7 @@ function renderGAPanel(states, jobs, syms) {
     + '</tbody></table></div>';
 
   openModal("بهینه‌سازی پارامترها (GA)", html);
+  setTimeout(function () { try { gaLoadSmartPreview(); } catch (_) {} }, 100);
   _gaStartAutoRefresh();
   setTimeout(function () {
     try {
@@ -7388,6 +7366,53 @@ function renderGAPanel(states, jobs, syms) {
     } catch (_) {}
   }, 50);
 
+}
+
+async function gaLoadSmartPreview() {
+  const el = document.getElementById('gaPreviewContent');
+  if (!el) return;
+  try {
+    const r = await apiFetch(BACKEND_URL + '/api/ga/smart-config', { method: 'POST' }, 0);
+    const st = r.stats || {};
+    el.innerHTML =
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:8px;">'
+      + '<div style="text-align:center;padding:6px;background:var(--accent-subtle);border-radius:var(--r-sm);"><div style="font-size:10px;color:var(--text-dim);">نمادها</div><div style="font-size:16px;font-weight:700;">' + st.totalSymbols + '</div></div>'
+      + '<div style="text-align:center;padding:6px;background:var(--accent-subtle);border-radius:var(--r-sm);"><div style="font-size:10px;color:var(--text-dim);">با آپشن</div><div style="font-size:16px;font-weight:700;">' + st.symbolsWithOption + '</div></div>'
+      + '<div style="text-align:center;padding:6px;background:var(--accent-subtle);border-radius:var(--r-sm);"><div style="font-size:10px;color:var(--text-dim);">نسل</div><div style="font-size:16px;font-weight:700;">' + r.maxGenerations + '</div></div>'
+      + '<div style="text-align:center;padding:6px;background:var(--accent-subtle);border-radius:var(--r-sm);"><div style="font-size:10px;color:var(--text-dim);">پنجره</div><div style="font-size:16px;font-weight:700;">' + r.numWindows + '</div></div>'
+      + '</div>'
+      + '<div class="hint" style="font-size:11.5px;">' + esc(r.reason) + '</div>'
+      + '<div class="hint" style="font-size:11px;opacity:.7;margin-top:4px;">سیستم خودکار تنظیمات بهینه رو انتخاب می‌کنه — نیازی به پارامتر نیست. اگه خواستی می‌تونی از «کنترل پیشرفته» تغییر بدی.</div>';
+    const gEl = document.getElementById('ga_maxGen'); if (gEl && !gEl.dataset.user) gEl.value = r.maxGenerations;
+    const tEl = document.getElementById('ga_trials'); if (tEl && !tEl.dataset.user) tEl.value = r.trialsPerGeneration;
+    const wEl = document.getElementById('ga_windows'); if (wEl && !wEl.dataset.user) wEl.value = r.numWindows;
+    const sEl = document.getElementById('ga_symLimit'); if (sEl && !sEl.dataset.user) sEl.value = r.symbolsLimit;
+    const rBoth = document.querySelector('input[name=ga_mode][value="both"]');
+    if (rBoth && !document.querySelector('input[name=ga_mode]:checked')) rBoth.checked = true;
+    window._gaSmartCfg = r;
+  } catch (e) {
+    el.innerHTML = '<span class="hint" style="color:var(--warn);">⚠️ تحلیل داده ناموفق: ' + esc(e.message) + ' — از تنظیمات پیش‌فرض استفاده می‌شه</span>';
+  }
+}
+
+async function gaStartSmart() {
+  const cfg = window._gaSmartCfg || { maxGenerations: 10, trialsPerGeneration: 2, numWindows: 3, symbolsLimit: 0, mode: 'both' };
+  const gEl = document.getElementById('ga_maxGen');
+  const tEl = document.getElementById('ga_trials');
+  const wEl = document.getElementById('ga_windows');
+  const sEl = document.getElementById('ga_symLimit');
+  const modeEl = document.querySelector('input[name=ga_mode]:checked');
+  const body = {
+    allStrategies: true,
+    mode: modeEl ? modeEl.value : 'both',
+    symbolsLimit: +((sEl && sEl.value) || 0),
+    maxGenerations: +((gEl && gEl.value) || cfg.maxGenerations),
+    trialsPerGeneration: +((tEl && tEl.value) || cfg.trialsPerGeneration),
+    numWindows: +((wEl && wEl.value) || cfg.numWindows),
+    patience: 5
+  };
+  if (!confirm('شروع بهینه‌سازی هوشمند روی همه ' + strategiesInfo.length + ' استراتژی؟\n\nحالت: ' + (body.mode === 'both' ? 'ترکیبی سهم+آپشن (وزن پویا)' : body.mode) + '\n' + body.maxGenerations + ' نسل × ' + body.trialsPerGeneration + ' trial روی همه نمادها\n\nممکن است چند ساعت طول بکشد. در ساعات بازار خودکار pause می‌شود.')) return;
+  await _gaKickoff(body);
 }
 
 async function gaStartAll() {

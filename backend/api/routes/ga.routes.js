@@ -258,6 +258,60 @@ function register(app, deps) {
     });
 
     // ----------------------------------------------------------
+    // POST /api/ga/smart-config — analyze data & recommend settings
+    // ----------------------------------------------------------
+    app.post('/api/ga/smart-config', async (req, res, next) => {
+        try {
+            const db = getDB();
+            const symbols = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({ enabled: true }).toArray();
+            const symList = symbols.map(s => s.symbol);
+            const since = new Date(Date.now() - 180 * 86400 * 1000);
+            let symbolsWithOption = 0;
+            let totalOptRows = 0;
+            for (const s of symList) {
+                try {
+                    const cnt = await db.collection(COLLECTIONS.OPTION_HISTORY).countDocuments({
+                        underlying: s, time: { $gte: since },
+                        bid: { $gt: 0 }, ask: { $gt: 0 }
+                    });
+                    if (cnt >= 30) symbolsWithOption++;
+                    totalOptRows += cnt;
+                } catch (_) {}
+            }
+            const optionRatio = symList.length > 0 ? symbolsWithOption / symList.length : 0;
+            let maxGen, trials, windows, reason;
+            if (optionRatio >= 0.7 && totalOptRows >= 5000) {
+                maxGen = 12; trials = 2; windows = 3;
+                reason = '📊 ' + symbolsWithOption + ' از ' + symList.length + ' نماد آپشن کامل دارن — ترکیبی با وزن کامل';
+            } else if (optionRatio >= 0.3 || totalOptRows >= 2000) {
+                maxGen = 10; trials = 2; windows = 3;
+                reason = '📊 ' + symbolsWithOption + ' از ' + symList.length + ' نماد آپشن دارن — ترکیبی با وزن پویا';
+            } else if (totalOptRows > 0) {
+                maxGen = 8; trials = 2; windows = 2;
+                reason = '📊 داده آپشن محدود — سهم کامل، آپشن فقط برای نمادهای موجود';
+            } else {
+                maxGen = 10; trials = 2; windows = 3;
+                reason = '📊 داده آپشن هنوز موجود نیست — فعلاً روی سهم، آپشن خودکار اضافه می‌شه';
+            }
+            res.json({
+                mode: 'both',
+                symbolsLimit: 0,
+                maxGenerations: maxGen,
+                trialsPerGeneration: trials,
+                numWindows: windows,
+                patience: 5,
+                reason: reason,
+                stats: {
+                    totalSymbols: symList.length,
+                    symbolsWithOption: symbolsWithOption,
+                    totalOptRows: totalOptRows,
+                    optionRatio: Math.round(optionRatio * 100) / 100
+                }
+            });
+        } catch (e) { next(e); }
+    });
+
+    // ----------------------------------------------------------
     // POST /api/ga/redundancy
     // body: { threshold? } — default 0.95
     // ----------------------------------------------------------

@@ -26,7 +26,7 @@ const DEFAULTS = {
     numWindows: 3,
     symbolsLimit: 0,   // 0 = all monitored symbols
     patience: 8,
-    mode: 'stock',
+    mode: 'both',
     lightMode: true,
     softMaxMinutes: 90,
     dateFrom: null,
@@ -118,15 +118,16 @@ async function _evalParams(strategyId, params, symbols, opts) {
     const def = deps.strategies.STRATEGIES[strategyId];
     if (!def) return { error: 'unknown strategy', stats: null };
     const mergedParams = Object.assign({}, def.defaultParams, params);
+    const mode = opts.mode || 'both';
 
     const perSymbol = [];
     const _CONCURRENCY = 2;
-    const _evalOne = async (sym) => {
-        const _def = deps.strategies.STRATEGIES[strategyId];
+
+    const _evalOneMode = async (sym, m) => {
         const _cfg = {
             symbol: sym, strategyId: strategyId,
-            timeframe: _def.defaultTimeframe,
-            htfTimeframe: _def.htfTimeframe || '1d',
+            timeframe: def.defaultTimeframe,
+            htfTimeframe: def.htfTimeframe || '1d',
             candleType: 'heikin',
             params: mergedParams
         };
@@ -136,90 +137,101 @@ async function _evalParams(strategyId, params, symbols, opts) {
                 dateFrom: opts.dateFrom,
                 dateTo: opts.dateTo,
                 numWindows: opts.numWindows,
-                mode: opts.mode,
+                mode: m,
                 lightMode: opts.lightMode
             });
             if (r && r.stats && r.stats.totalTrades > 0) {
-                return { symbol: sym, stats: r.stats, windows: r.windows };
+                return { symbol: sym, mode: m, stats: r.stats, windows: r.windows };
             }
         } catch (e) {
-            deps.logger && deps.logger.warn('[ga] eval ' + sym + ': ' + e.message);
+            deps.logger && deps.logger.warn('[ga] eval ' + sym + '/' + m + ': ' + e.message);
         }
         return null;
     };
+
+    let _optCounts = {};
+    if (mode === 'both') {
+        const db = deps.getDB();
+        const since = opts.dateFrom ? new Date(opts.dateFrom * 1000) : new Date(Date.now() - 365 * 86400 * 1000);
+        const until = opts.dateTo ? new Date(opts.dateTo * 1000) : new Date();
+        await Promise.all(symbols.map(async (s) => {
+            try {
+                _optCounts[s] = await db.collection('option_history').countDocuments({
+                    underlying: s,
+                    time: { $gte: since, $lte: until },
+                    bid: { $gt: 0 }, ask: { $gt: 0 }
+                });
+            } catch (_) { _optCounts[s] = 0; }
+        }));
+    }
+
+    const _evalSymbol = async (sym) => {
+        const out = [];
+        if (mode === 'stock') {
+            const r = await _evalOneMode(sym, 'stock');
+            if (r) out.push(r);
+        } else if (mode === 'option') {
+            const r = await _evalOneMode(sym, 'option');
+            if (r) out.push(r);
+        } else {
+            const stockR = await _evalOneMode(sym, 'stock');
+            if (stockR) out.push(stockR);
+            const optCount = _optCounts[sym] || 0;
+            if (optCount >= 30) {
+                const optR = await _evalOneMode(sym, 'option');
+                if (optR) {
+                    optR.optWeight = Math.min(1, optCount / 500);
+                    optR.optCount = optCount;
+                    out.push(optR);
+                }
+            }
+        }
+        return out;
+    };
+
     for (let _i = 0; _i < symbols.length; _i += _CONCURRENCY) {
         const _batch = symbols.slice(_i, _i + _CONCURRENCY);
-        const _res = await Promise.all(_batch.map(s => _evalOne(s)));
-        for (const r of _res) if (r) perSymbol.push(r);
+        const _res = await Promise.all(_batch.map(s => _evalSymbol(s)));
+        for (const arr of _res) for (const r of arr) perSymbol.push(r);
     }
-    // legacy loop removed
-    if (false) for (const sym of symbols) {
-        const cfg = {
-            symbol: sym,
-            strategyId: strategyId,
-            timeframe: def.defaultTimeframe,
-            htfTimeframe: def.htfTimeframe || '1d',
-            candleType: 'heikin',
-            params: mergedParams
-        };
-        try {
-            const r = await wfMod.evaluate(cfg, {
-                backtest: deps.backtest,
-                dateFrom: opts.dateFrom,
-                dateTo: opts.dateTo,
-                numWindows: opts.numWindows,
-                mode: opts.mode,
-                lightMode: opts.lightMode
-            });
-            if (r && r.stats && r.stats.totalTrades > 0) {
-                perSymbol.push({ symbol: sym, stats: r.stats, windows: r.windows });
-            }
-        } catch (e) {
-            deps.logger && deps.logger.warn('[ga] eval ' + sym + ': ' + e.message);
-        }
-    }
+
     if (!perSymbol.length) return { stats: null, fitness: 0, perSymbol: [] };
 
-    // Merge across symbols (weighted by N)
     let totalN = 0, wins = 0, totalPnl = 0, gp = 0, gl = 0, profWin = 0, totWin = 0;
     let ddMax = 0; const sharpes = [];
     for (const x of perSymbol) {
         const s = x.stats;
-        totalN += s.totalTrades;
-        wins += s.totalTrades * s.winRate / 100;
-        totalPnl += s.totalPnl;
+        const weight = x.optWeight != null ? x.optWeight : 1.0;
+        totalN += s.totalTrades * weight;
+        wins += s.totalTrades * s.winRate / 100 * weight;
+        totalPnl += s.totalPnl * weight;
         const w = s.totalTrades * s.winRate / 100;
         const l = s.totalTrades - w;
-        // FIX GA-14: prefer explicit gross values if present
         if (Number.isFinite(s.grossWin) && Number.isFinite(s.grossLoss)) {
-            gp += s.grossWin;
-            gl += s.grossLoss;
+            gp += s.grossWin * weight;
+            gl += s.grossLoss * weight;
         } else {
-            gp += w * Math.abs(s.avgWin || 0);
-            gl += l * Math.abs(s.avgLoss || 0);
+            gp += w * Math.abs(s.avgWin || 0) * weight;
+            gl += l * Math.abs(s.avgLoss || 0) * weight;
         }
-        profWin += s.profitableWindows || 0;
-        totWin += s.windowsTotal || 0;
+        profWin += (s.profitableWindows || 0) * weight;
+        totWin += (s.windowsTotal || 0) * weight;
         if (Number.isFinite(s.maxDrawdownPct)) ddMax = Math.max(ddMax, s.maxDrawdownPct);
         if (Number.isFinite(s.sharpe)) sharpes.push(s.sharpe);
     }
     const merged = {
-        totalTrades: totalN,
+        totalTrades: Math.round(totalN),
         winRate: totalN > 0 ? wins / totalN * 100 : 0,
         totalReturnPct: totalPnl,
         totalPnl: totalPnl,
         profitFactor: gl > 0 ? gp / gl : (gp > 0 ? 999 : 0),
         sharpe: sharpes.length ? sharpes.reduce((a, b) => a + b, 0) / sharpes.length : null,
         maxDrawdownPct: ddMax,
-        windowsProfitable: profWin,
-        windowsTotal: totWin
+        windowsProfitable: Math.round(profWin),
+        windowsTotal: Math.round(totWin)
     };
     const _fit = fitness.computeFitness(merged);
-    return {
-        stats: merged,
-        fitness: _fit,
-        perSymbol: perSymbol
-    };
+    return { stats: merged, fitness: _fit, perSymbol: perSymbol };
 }
 
 async function _updateJobProgress(jobDbId, patch) {
