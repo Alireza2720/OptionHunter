@@ -1514,7 +1514,41 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 .empty-state .es-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
 .empty-state .es-desc { font-size: 12.5px; margin-bottom: 14px; line-height: 1.7; max-width: 400px; margin-left: auto; margin-right: auto; }
 .empty-state .es-cta { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
-</style>
+/* UX-BTNs hierarchy */
+.btn.destructive {
+  background: transparent;
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+}
+.btn.destructive:hover {
+  background: var(--danger);
+  color: white;
+  box-shadow: 0 4px 12px var(--danger-border);
+}
+.btn.tiny { padding: 4px 10px; font-size: 11px; border-radius: var(--r-sm); }
+.btn.tiny.success { background: var(--success); color: white; }
+.btn.tiny.warn { background: var(--warn); color: white; }
+.btn.tiny.outline { background: transparent; border: 1px solid var(--border-strong); color: var(--text-dim); }
+.btn.tiny.outline:hover { color: var(--text); border-color: var(--accent); }
+.btn.tiny.outline.destructive { background: transparent; border: 1px solid var(--danger-border); color: var(--danger); }
+.btn.tiny.outline.destructive:hover { background: var(--danger-subtle); border-color: var(--danger); color: var(--danger); }
+
+/* Primary button emphasis */
+.btn:not(.outline):not(.destructive):not(.danger):not(.warn) {
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+.btn:not(.outline):not(.destructive):not(.danger):not(.warn):hover {
+  box-shadow: 0 6px 16px var(--accent-glow);
+}
+
+/* Secondary (outline) — softer */
+.btn.outline {
+  box-shadow: none;
+}
+.btn.outline:hover {
+  box-shadow: 0 2px 6px rgba(0,0,0,.15);
+}
+
 <style id="r24-stock-hide">
   body.mode-stock .bt-opt-only { display: none !important; }
 </style>
@@ -7394,7 +7428,7 @@ function renderGAPanel(states, jobs, syms) {
     +     '</div>'
     +   '</div>'
     + '</div>'
-    + '</div>'"></div>' + '<div id="gaProgress" style="margin-bottom:12px;"></div>'
+    + '</div>' + '</div>' + '<div id="gaProgress" style="margin-bottom:12px;"></div>'
     + '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">📊 وضعیت استراتژی‌ها (' + strategiesInfo.length + ')</h4>'
     + '<div style="max-height:300px;overflow-y:auto;"><table class="data-table"><thead><tr><th>استراتژی</th><th>وضعیت</th><th>Best Fit</th><th>Gen</th><th></th></tr></thead><tbody>'
     + (stratRows || '<tr class="empty-row"><td colspan="5">—</td></tr>')
