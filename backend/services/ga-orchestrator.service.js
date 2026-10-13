@@ -323,13 +323,15 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
         // -- check market hours
         if (stopResume.isDangerWindow()) {
             const resumeAt = stopResume.nextSafeTime();
+            const _savedOpts = { mode: opts.mode, maxGenerations: opts.maxGenerations, trialsPerGeneration: opts.trialsPerGeneration, numWindows: opts.numWindows, patience: opts.patience, symbolsLimit: opts.symbolsLimit, dateFrom: opts.dateFrom, dateTo: opts.dateTo, lightMode: opts.lightMode, softMaxMinutes: opts.softMaxMinutes };
             await stopResume.saveState(deps.getDB, strategyId, {
                 status: 'paused', generation: generation,
                 best: { params: bestParams, fitness: bestFitness, stats: bestStats },
                 bestEquityCurve: bestEquityCurve,
                 tpeState: sampler.export(),
                 prunerState: pruner.export(),
-                resumeAfter: resumeAt
+                resumeAfter: resumeAt,
+                savedOpts: _savedOpts
             });
             deps.logger && deps.logger.info('[ga] paused ' + strategyId + ' at gen ' + generation);
             return { strategyId: strategyId, paused: true, resumeAt: resumeAt };
@@ -337,12 +339,14 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
 
         // -- check soft budget
         if (Date.now() - t0 > softMs) {
+            const _savedOptsB = { mode: opts.mode, maxGenerations: opts.maxGenerations, trialsPerGeneration: opts.trialsPerGeneration, numWindows: opts.numWindows, patience: opts.patience, symbolsLimit: opts.symbolsLimit, dateFrom: opts.dateFrom, dateTo: opts.dateTo, lightMode: opts.lightMode, softMaxMinutes: opts.softMaxMinutes };
             await stopResume.saveState(deps.getDB, strategyId, {
                 status: 'paused', generation: generation,
                 best: { params: bestParams, fitness: bestFitness, stats: bestStats },
                 bestEquityCurve: bestEquityCurve,
                 tpeState: sampler.export(),
-                prunerState: pruner.export()
+                prunerState: pruner.export(),
+                savedOpts: _savedOptsB
             });
             return { strategyId: strategyId, budgetOut: true };
         }
@@ -516,6 +520,13 @@ async function runGA(jobDbId, opts) {
             results.push(r);
         } catch (e) {
             deps.logger && deps.logger.error('[ga] ' + sid + ': ' + e.message);
+            // BUG-39 fix: save error state
+            try {
+                await stopResume.saveState(deps.getDB, sid, {
+                    status: 'error', error: String(e.message || ''),
+                    updatedAt: new Date()
+                });
+            } catch (_) {}
             results.push({ strategyId: sid, error: e.message });
         }
         // If paused/cancelled/budget, stop processing rest
@@ -553,7 +564,8 @@ async function resumeReady() {
                 createdAt: new Date(), updatedAt: new Date(), startedAt: new Date()
             };
             const ins = await db.collection(COLLECTIONS.BACKTEST_JOBS).insertOne(jobDoc);
-            const r = await runGA(String(ins.insertedId), { strategyId: st.strategyId, resume: true });
+            const _resumeOpts = Object.assign({}, st.savedOpts || {}, { strategyId: st.strategyId, resume: true });
+        const r = await runGA(String(ins.insertedId), _resumeOpts);
             await db.collection(COLLECTIONS.BACKTEST_JOBS).updateOne(
                 { _id: ins.insertedId },
                 { $set: { status: 'DONE', result: r, finishedAt: new Date() } }

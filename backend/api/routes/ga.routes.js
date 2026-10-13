@@ -162,7 +162,13 @@ function register(app, deps) {
                 .project({
                     strategyId: 1, status: 1,
                     generation: 1,
-                    'best.fitness': 1, 'best.params': 1, 'best.stats': 1,
+                    'best.fitness': 1,
+                    'best.stats.totalTrades': 1,
+                    'best.stats.winRate': 1,
+                    'best.stats.profitFactor': 1,
+                    'best.stats.sharpe': 1,
+                    'best.stats.maxDrawdownPct': 1,
+                    'best.stats.totalReturnPct': 1,
                     startedAt: 1, stoppedAt: 1, updatedAt: 1, resumeAfter: 1
                 })
                 .toArray();

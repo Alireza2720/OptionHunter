@@ -7627,6 +7627,10 @@ function _gaStartAutoRefresh() {
     // Skip if user is typing in a field
     const active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    // BUG-29 fix: skip if any accordion is open
+    if (document.querySelector('#modalBody .adv-accordion.open')) return;
+    // Skip if select is focused (dropdown)
+    if (active && active.tagName === 'SELECT') return;
     // Silently reload panel
     openGAPanel().catch(function () {});
   }, 10000);
