@@ -139,6 +139,7 @@ async function _evalParams(strategyId, params, symbols, opts) {
                 mode: opts.mode,
                 lightMode: opts.lightMode
             });
+            console.log('[GA-DBG] eval ' + sym + ' → error=' + (r && r.error) + ' hasStats=' + !!(r && r.stats) + ' N=' + (r && r.stats && r.stats.totalTrades) + ' windowsLen=' + (r && r.windows && r.windows.length));
             if (r && r.stats && r.stats.totalTrades > 0) {
                 return { symbol: sym, stats: r.stats, windows: r.windows };
             }
@@ -276,6 +277,7 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
         .sort()
         .slice(0, opts.symbolsLimit > 0 ? opts.symbolsLimit : allSyms.length);
 
+    console.log('[GA-DBG] _runSingleStrategy ' + strategyId + ' | symbols=' + symbols.length + ' | dateFrom=' + opts.dateFrom + ' | dateTo=' + opts.dateTo + ' | backtestDep=' + (!!deps.backtest) + ' | strategiesDep=' + (!!deps.strategies) + ' | symbolsList=' + JSON.stringify(symbols.slice(0,3)));
     if (!symbols.length) return { strategyId: strategyId, error: 'no symbols' };
 
     while (generation < opts.maxGenerations) {
@@ -453,17 +455,22 @@ async function runGA(jobDbId, opts) {
                     Math.floor(new Date(earliest.time).getTime() / 1000),
                     to - oneYear
                 );
+                console.log('[GA-DBG] dates computed: from=' + from + ' to=' + to);
                 opts.dateFrom = opts.dateFrom || from;
                 opts.dateTo = opts.dateTo || to;
             }
         } catch (_) {}
     }
     if (!opts.dateFrom || !opts.dateTo) {
+        console.log('[GA-DBG] fallback dates used');
         const now = Math.floor(Date.now() / 1000);
         opts.dateFrom = now - 365 * 86400;
         opts.dateTo = now;
+    } else {
+        console.log('[GA-DBG] dates already set: ' + opts.dateFrom + ' / ' + opts.dateTo);
     }
 
+    console.log('[GA-DBG] runGA opts: dateFrom=' + opts.dateFrom + ' dateTo=' + opts.dateTo + ' mode=' + opts.mode + ' symbolsLimit=' + opts.symbolsLimit + ' strategies=' + strategyIds.length);
     const results = [];
     for (let i = 0; i < strategyIds.length; i++) {
         const sid = strategyIds[i];
