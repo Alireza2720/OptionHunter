@@ -1410,7 +1410,333 @@ function runHHHL(candles, params, ctx) {
     }
     return { ha, signals, trades, htfTrend: lastTrend };
 }
-    // ==================== رجیستری ====================
+    
+// ==================== N1: MA Crossover 5/60 ====================
+const MA_CROSS_DEFAULTS = {
+    htfEma: 20, htfRsiPeriod: 14,
+    fastMA: 5, slowMA: 60, filterPct: 1.0,
+    atrPeriod: 14, atrMult: 1.5, maxHoldBars: 30, cooldownBars: 3,
+    tp1R: 2.0, tp2R: 4.0
+};
+function runMACrossover(candles, params, ctx) {
+    const p = { ...MA_CROSS_DEFAULTS, ...(params || {}) };
+    const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+    const closes = candles.map(c => c.close);
+    const fastEMA = calculateEMA(closes, p.fastMA);
+    const slowEMA = calculateEMA(closes, p.slowMA);
+    const atr = calculateATR(candles, p.atrPeriod);
+    const htf = buildHtf(ctx, p);
+    const signals = [], trades = [];
+    let position = null, entry = null, cooldown = 0, lastTrend = null;
+    for (let i = 0; i < candles.length; i++) {
+        const c = candles[i], h = ha[i];
+        const row = htf.forTime(c.time), trend = row ? row.trend : null;
+        if (trend) lastTrend = trend;
+        const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+        if (i < Math.max(p.slowMA, p.atrPeriod) + 5 || fastEMA[i] === null || slowEMA[i] === null || atr[i] === null) {
+            signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue;
+        }
+        const diffPct = ((fastEMA[i] - slowEMA[i]) / slowEMA[i]) * 100;
+        const crossUp = fastEMA[i-1] !== null && slowEMA[i-1] !== null && fastEMA[i-1] <= slowEMA[i-1] && diffPct > p.filterPct;
+        let signalType = null, reason = null;
+        if (position === 'LONG') {
+            const bars = i - entry.idx, R = entry.risk;
+            if (c.close < entry.stop) reason = 'حد ضرر';
+            else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+            else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+            else if (fastEMA[i] < slowEMA[i]) reason = 'MA cross down';
+            else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+            if (reason) {
+                position = null; signalType = 'EXIT_LONG';
+                const tr = trades[trades.length - 1];
+                if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                entry = null; cooldown = p.cooldownBars;
+            }
+        } else if (cooldown > 0) cooldown--;
+        else if (crossUp && h.bullish && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+            const entryPrice = c.close;
+            const stopPrice = slowEMA[i] - p.atrMult * atr[i];
+            const risk = entryPrice - stopPrice;
+            if (risk > 0) {
+                position = 'LONG'; signalType = 'BUY';
+                entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                ind.stop = round(stopPrice);
+                reason = 'MA Cross (' + p.fastMA + '/' + p.slowMA + ')';
+                trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+            }
+        }
+        signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+    }
+    return { ha, signals, trades, htfTrend: lastTrend };
+}
+
+// ==================== N2: Volume-Weighted RSI ====================
+const VWRSI_DEFAULTS = {
+    htfEma: 20, htfRsiPeriod: 14, rsiPeriod: 14,
+    volWindow: 20, rsiBuy: 30, rsiSell: 70,
+    atrPeriod: 14, atrMult: 1.5, maxHoldBars: 20, cooldownBars: 3,
+    tp1R: 1.5, tp2R: 3.0
+};
+function runVolumeWeightedRSI(candles, params, ctx) {
+    const p = { ...VWRSI_DEFAULTS, ...(params || {}) };
+    const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+    const atr = calculateATR(candles, p.atrPeriod);
+    const htf = buildHtf(ctx, p);
+    const signals = [], trades = [];
+    let position = null, entry = null, cooldown = 0, lastTrend = null;
+    // Compute volume-weighted RSI
+    const vwRsi = new Array(candles.length).fill(null);
+    let avgGain = 0, avgLoss = 0;
+    for (let i = 1; i < candles.length; i++) {
+        const vol = candles[i].volume || 1;
+        const d = candles[i].close - candles[i-1].close;
+        const gain = d > 0 ? d * vol : 0;
+        const loss = d < 0 ? -d * vol : 0;
+        if (i <= p.rsiPeriod) {
+            avgGain += gain; avgLoss += loss;
+            if (i === p.rsiPeriod) {
+                avgGain /= p.rsiPeriod; avgLoss /= p.rsiPeriod;
+                vwRsi[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+            }
+        } else {
+            avgGain = (avgGain * (p.rsiPeriod - 1) + gain) / p.rsiPeriod;
+            avgLoss = (avgLoss * (p.rsiPeriod - 1) + loss) / p.rsiPeriod;
+            vwRsi[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+        }
+    }
+    for (let i = 0; i < candles.length; i++) {
+        const c = candles[i], h = ha[i];
+        const row = htf.forTime(c.time), trend = row ? row.trend : null;
+        if (trend) lastTrend = trend;
+        const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null, rsi: vwRsi[i] !== null ? round(vwRsi[i]) : null };
+        if (i < Math.max(p.rsiPeriod, p.atrPeriod) + 5 || vwRsi[i] === null || atr[i] === null) {
+            signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue;
+        }
+        let signalType = null, reason = null;
+        if (position === 'LONG') {
+            const bars = i - entry.idx, R = entry.risk;
+            if (c.close < entry.stop) reason = 'حد ضرر';
+            else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+            else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+            else if (vwRsi[i] > p.rsiSell) reason = 'RSI اشباع خرید';
+            else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+            if (reason) {
+                position = null; signalType = 'EXIT_LONG';
+                const tr = trades[trades.length - 1];
+                if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                entry = null; cooldown = p.cooldownBars;
+            }
+        } else if (cooldown > 0) cooldown--;
+        else if (vwRsi[i] < p.rsiBuy && h.bullish && (trend === 'صعودی' || trend === 'خنثی') && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+            const entryPrice = c.close;
+            const stopPrice = c.low - p.atrMult * atr[i];
+            const risk = entryPrice - stopPrice;
+            if (risk > 0) {
+                position = 'LONG'; signalType = 'BUY';
+                entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                ind.stop = round(stopPrice);
+                reason = 'VW-RSI Oversold (' + vwRsi[i].toFixed(0) + ')';
+                trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+            }
+        }
+        signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+    }
+    return { ha, signals, trades, htfTrend: lastTrend };
+}
+
+// ==================== N3: Turn-of-Month Effect ====================
+const TOM_DEFAULTS = {
+    htfEma: 20, htfRsiPeriod: 14,
+    daysBeforeEOM: 2, daysAfterBOM: 3,
+    atrPeriod: 14, atrMult: 1.5, maxHoldBars: 10, cooldownBars: 2,
+    tp1R: 1.5, tp2R: 2.5
+};
+function runTurnOfMonth(candles, params, ctx) {
+    const p = { ...TOM_DEFAULTS, ...(params || {}) };
+    const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+    const atr = calculateATR(candles, p.atrPeriod);
+    const htf = buildHtf(ctx, p);
+    const signals = [], trades = [];
+    let position = null, entry = null, cooldown = 0, lastTrend = null;
+    // Pre-compute day-of-month in Gregorian (simplified: use getTehranParts)
+    const dayOfMonth = candles.map(c => {
+        const t = getTehranParts(new Date(c.time * 1000));
+        return { day: t.day, month: t.month, year: t.year };
+    });
+    // Compute last day of each Gregorian month
+    const lastDayOfMonth = {};
+    for (let i = 0; i < dayOfMonth.length; i++) {
+        const k = dayOfMonth[i].year + '-' + dayOfMonth[i].month;
+        if (!lastDayOfMonth[k] || dayOfMonth[i].day > lastDayOfMonth[k]) {
+            lastDayOfMonth[k] = dayOfMonth[i].day;
+        }
+    }
+    for (let i = 0; i < candles.length; i++) {
+        const c = candles[i], h = ha[i];
+        const row = htf.forTime(c.time), trend = row ? row.trend : null;
+        if (trend) lastTrend = trend;
+        const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+        if (i < Math.max(p.atrPeriod, 5) + 5 || atr[i] === null) {
+            signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue;
+        }
+        const dm = dayOfMonth[i];
+        const k = dm.year + '-' + dm.month;
+        const lastDay = lastDayOfMonth[k] || 30;
+        const isEndOfMonth = dm.day >= (lastDay - p.daysBeforeEOM + 1);
+        const isStartOfMonth = dm.day <= p.daysAfterBOM;
+        const inWindow = isEndOfMonth || isStartOfMonth;
+        let signalType = null, reason = null;
+        if (position === 'LONG') {
+            const bars = i - entry.idx, R = entry.risk;
+            if (c.close < entry.stop) reason = 'حد ضرر';
+            else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+            else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+            else if (!inWindow) reason = 'خروج از پنجره';
+            else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+            if (reason) {
+                position = null; signalType = 'EXIT_LONG';
+                const tr = trades[trades.length - 1];
+                if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                entry = null; cooldown = p.cooldownBars;
+            }
+        } else if (cooldown > 0) cooldown--;
+        else if (isEndOfMonth && h.bullish && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+            const entryPrice = c.close;
+            const stopPrice = c.low - p.atrMult * atr[i];
+            const risk = entryPrice - stopPrice;
+            if (risk > 0) {
+                position = 'LONG'; signalType = 'BUY';
+                entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                ind.stop = round(stopPrice);
+                reason = 'Turn-of-Month (' + dm.day + '/' + lastDay + ')';
+                trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+            }
+        }
+        signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+    }
+    return { ha, signals, trades, htfTrend: lastTrend };
+}
+
+// ==================== N4: Adaptive MA Envelope ====================
+const ADAPTIVE_MA_DEFAULTS = {
+    htfEma: 20, htfRsiPeriod: 14,
+    maPeriod: 20, atrPeriod: 14, atrMult: 2.0,
+    maxHoldBars: 20, cooldownBars: 3,
+    tp1R: 1.5, tp2R: 3.0
+};
+function runAdaptiveMAEnvelope(candles, params, ctx) {
+    const p = { ...ADAPTIVE_MA_DEFAULTS, ...(params || {}) };
+    const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+    const closes = candles.map(c => c.close);
+    const ma = calculateEMA(closes, p.maPeriod);
+    const atr = calculateATR(candles, p.atrPeriod);
+    const htf = buildHtf(ctx, p);
+    const signals = [], trades = [];
+    let position = null, entry = null, cooldown = 0, lastTrend = null;
+    for (let i = 0; i < candles.length; i++) {
+        const c = candles[i], h = ha[i];
+        const row = htf.forTime(c.time), trend = row ? row.trend : null;
+        if (trend) lastTrend = trend;
+        const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+        if (i < Math.max(p.maPeriod, p.atrPeriod) + 5 || ma[i] === null || atr[i] === null) {
+            signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue;
+        }
+        const upper = ma[i] + p.atrMult * atr[i];
+        const lower = ma[i] - p.atrMult * atr[i];
+        let signalType = null, reason = null;
+        if (position === 'LONG') {
+            const bars = i - entry.idx, R = entry.risk;
+            if (c.close < entry.stop) reason = 'حد ضرر';
+            else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+            else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+            else if (c.close > upper) reason = 'شکست سقف envelope';
+            else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+            if (reason) {
+                position = null; signalType = 'EXIT_LONG';
+                const tr = trades[trades.length - 1];
+                if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                entry = null; cooldown = p.cooldownBars;
+            }
+        } else if (cooldown > 0) cooldown--;
+        else if (c.close <= lower && h.bullish && (trend === 'صعودی' || trend === 'خنثی') && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+            const entryPrice = c.close;
+            const stopPrice = c.low - atr[i] * 0.5;
+            const risk = entryPrice - stopPrice;
+            if (risk > 0) {
+                position = 'LONG'; signalType = 'BUY';
+                entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                ind.stop = round(stopPrice);
+                reason = 'Adaptive MA Bounce';
+                trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+            }
+        }
+        signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+    }
+    return { ha, signals, trades, htfTrend: lastTrend };
+}
+
+// ==================== N5: ATR-Normalized Return ====================
+const ATR_NORM_DEFAULTS = {
+    htfEma: 20, htfRsiPeriod: 14,
+    lookback: 20, minZScore: 1.5,
+    atrPeriod: 14, atrMult: 1.5, maxHoldBars: 15, cooldownBars: 3,
+    tp1R: 1.5, tp2R: 3.0
+};
+function runATRNormalizedReturn(candles, params, ctx) {
+    const p = { ...ATR_NORM_DEFAULTS, ...(params || {}) };
+    const ha = getDisplayCandles(candles, p.candleType || 'heikin');
+    const atr = calculateATR(candles, p.atrPeriod);
+    const htf = buildHtf(ctx, p);
+    const signals = [], trades = [];
+    let position = null, entry = null, cooldown = 0, lastTrend = null;
+    // Compute ATR-normalized returns (like a z-score of the ATR-normalized return)
+    const normRet = new Array(candles.length).fill(null);
+    for (let i = p.lookback; i < candles.length; i++) {
+        if (atr[i] === null || atr[i - p.lookback] === null) continue;
+        const r = (candles[i].close - candles[i - p.lookback].close) / atr[i - p.lookback];
+        normRet[i] = r;
+    }
+    for (let i = 0; i < candles.length; i++) {
+        const c = candles[i], h = ha[i];
+        const row = htf.forTime(c.time), trend = row ? row.trend : null;
+        if (trend) lastTrend = trend;
+        const ind = { atr: round(atr[i]), stop: entry ? round(entry.stop) : null };
+        if (i < Math.max(p.lookback, p.atrPeriod) + 5 || atr[i] === null || normRet[i] === null) {
+            signals.push({ time: c.time, indicators: ind, signalType: null, position, reason: null }); continue;
+        }
+        let signalType = null, reason = null;
+        if (position === 'LONG') {
+            const bars = i - entry.idx, R = entry.risk;
+            if (c.close < entry.stop) reason = 'حد ضرر';
+            else if (!entry.tp1Hit && c.close >= entry.entry + R * p.tp1R) { entry.tp1Hit = true; entry.stop = entry.entry; }
+            else if (entry.tp1Hit && c.close >= entry.entry + R * p.tp2R) reason = 'هدف دوم';
+            else if (normRet[i] < -p.minZScore) reason = 'معکوس‌شدن momentum نرمال';
+            else if (bars >= p.maxHoldBars) reason = 'سقف زمانی';
+            if (reason) {
+                position = null; signalType = 'EXIT_LONG';
+                const tr = trades[trades.length - 1];
+                if (tr) { tr.exitDate = c.time; tr.exitPrice = c.close; tr.pnlPct = (c.close / tr.entryPrice - 1) * 100; tr.exitReason = reason; }
+                entry = null; cooldown = p.cooldownBars;
+            }
+        } else if (cooldown > 0) cooldown--;
+        else if (normRet[i] >= p.minZScore && h.bullish && (trend === 'صعودی' || trend === 'خنثی') && inEntryWindow(c.time, ctx && ctx.entryWindow)) {
+            const entryPrice = c.close;
+            const stopPrice = c.close - p.atrMult * atr[i];
+            const risk = entryPrice - stopPrice;
+            if (risk > 0) {
+                position = 'LONG'; signalType = 'BUY';
+                entry = { idx: i, price: entryPrice, stop: stopPrice, risk, entry: entryPrice, tp1Hit: false };
+                ind.stop = round(stopPrice);
+                reason = 'ATR-Normalized (' + normRet[i].toFixed(2) + 'σ)';
+                trades.push({ type: 'خرید', entryDate: c.time, entryPrice, stop: stopPrice, risk, reason });
+            }
+        }
+        signals.push({ time: c.time, indicators: ind, signalType, position, reason });
+    }
+    return { ha, signals, trades, htfTrend: lastTrend };
+}
+
+// ==================== رجیستری ====================
     // 🆕 فیلدهای nameFa / category / regime برای auto-derive در
     //     monthly-report.job.js و core/regime.js استفاده می‌شن.
     const STRATEGIES = {
@@ -1589,7 +1915,50 @@ function runHHHL(candles, params, ctx) {
             defaultParams: HHHL_DEFAULTS, indicators: ['atr'],
             run: runHHHL
         },
-        // ───── ترکیبی ─────
+        
+        // ==================== استراتژی‌های N (R35) ====================
+        ma_crossover: {
+            id: 'ma_crossover', name: 'MA Crossover 5/60', nameFa: 'کراس MA 5/60',
+            category: 'momentum',
+            regime: { macro: ['bull', 'range'], vol: ['normal', 'low'] },
+            defaultTimeframe: '1d', htfTimeframe: '1d',
+            defaultParams: MA_CROSS_DEFAULTS, indicators: ['ema', 'atr'],
+            run: runMACrossover
+        },
+        volume_rsi: {
+            id: 'volume_rsi', name: 'Volume-Weighted RSI', nameFa: 'RSI حجمی',
+            category: 'meanrev',
+            regime: { macro: ['bull', 'range'], vol: ['normal', 'high'] },
+            defaultTimeframe: '30m', htfTimeframe: '1d',
+            defaultParams: VWRSI_DEFAULTS, indicators: ['rsi', 'atr'],
+            run: runVolumeWeightedRSI
+        },
+        turn_of_month: {
+            id: 'turn_of_month', name: 'Turn-of-Month', nameFa: 'چرخش ماه',
+            category: 'calendar',
+            regime: { macro: ['bull', 'range'], vol: ['normal', 'low'] },
+            defaultTimeframe: '1d', htfTimeframe: '1d',
+            defaultParams: TOM_DEFAULTS, indicators: ['atr'],
+            run: runTurnOfMonth
+        },
+        adaptive_ma: {
+            id: 'adaptive_ma', name: 'Adaptive MA Envelope', nameFa: 'پاکت MA تطبیقی',
+            category: 'meanrev',
+            regime: { macro: ['bull', 'range'], vol: ['normal', 'high'] },
+            defaultTimeframe: '30m', htfTimeframe: '1d',
+            defaultParams: ADAPTIVE_MA_DEFAULTS, indicators: ['ema', 'atr'],
+            run: runAdaptiveMAEnvelope
+        },
+        atr_normalized: {
+            id: 'atr_normalized', name: 'ATR-Normalized Return', nameFa: 'مومنتوم نرمال‌شده ATR',
+            category: 'momentum',
+            regime: { macro: ['bull', 'range'], vol: ['normal', 'high'] },
+            defaultTimeframe: '1d', htfTimeframe: '1d',
+            defaultParams: ATR_NORM_DEFAULTS, indicators: ['atr'],
+            run: runATRNormalizedReturn
+        },
+
+// ───── ترکیبی ─────
 };
 
     function getRequiredCandles(id, params) {
@@ -1618,6 +1987,12 @@ function runHHHL(candles, params, ctx) {
         if (id === 'nr7') return Math.max((p.nrWindow || 7) * 40, p.atrPeriod) + 10;
         if (id === 'vcp') return Math.max(p.atrPeriod, 30) + 10;
         if (id === 'hhhl') return Math.max((p.swingLength || 3) * 30, p.atrPeriod) + 10;
+        if (id === 'ma_crossover') return Math.max(p.slowMA || 60, p.atrPeriod) + 10;
+        if (id === 'volume_rsi') return Math.max(p.rsiPeriod || 14, p.atrPeriod) + 10;
+        if (id === 'turn_of_month') return Math.max(p.atrPeriod, 10) + 10;
+        if (id === 'adaptive_ma') return Math.max(p.maPeriod || 20, p.atrPeriod) + 10;
+        if (id === 'atr_normalized') return Math.max((p.lookback || 20) * 2, p.atrPeriod) + 10;
+
         return 10;
     }
     function getRequiredHtfCandles(id, params) {
@@ -1631,110 +2006,6 @@ function runHHHL(candles, params, ctx) {
     // ═══════════════════════════════════════════════════════════
     // PRO STRATEGIES — base logic + enhancement filtering
     // ═══════════════════════════════════════════════════════════
-    function _tehranDateKeyForSignal(timeSec) {
-        const t = getTehranParts(new Date(timeSec * 1000));
-        return t.year + '-' + String(t.month).padStart(2, '0') + '-' + String(t.day).padStart(2, '0');
-    }
-
-    function _proScoreForSignal(sig, enh, params) {
-        let score = 1.0;
-        const tags = [];
-        const useCT = Number(params.useClientType) !== 0;
-        const usePC = Number(params.usePutCall) !== 0;
-
-        if (useCT && enh.clientTypeByDate) {
-            const key = _tehranDateKeyForSignal(sig.time);
-            const ct = enh.clientTypeByDate.get(key);
-            if (ct) {
-                const buyI = Number(ct.buy_I_Volume) || 0;
-                const buyN = Number(ct.buy_N_Volume) || 0;
-                const total = buyI + buyN;
-                if (total > 0) {
-                    const ratio = buyI / total;
-                    const pct = Math.round(ratio * 100);
-                    if (ratio > 0.75) { score *= 1.25; tags.push('CT:' + pct + '%'); }
-                    else if (ratio > 0.65) { score *= 1.15; tags.push('CT:' + pct + '%'); }
-                    else if (ratio < 0.30) { score *= 0.50; tags.push('CT-low:' + pct + '%'); }
-                    else if (ratio < 0.45) { score *= 0.75; tags.push('CT-weak:' + pct + '%'); }
-                }
-            }
-        }
-        if (usePC && enh.putCallSignal) {
-            if (enh.putCallSignal === 'bearish') { score *= 0.75; tags.push('PC:bear'); }
-            else if (enh.putCallSignal === 'bullish') { score *= 1.10; tags.push('PC:bull'); }
-        }
-        return { score, tags };
-    }
-
-    function _filterSignalsInPairs(signals, enh, params) {
-        const minScore = Number(params.proMinScore) || 0.60;
-        const result = signals.map(function(s) { return Object.assign({}, s); });
-        const pendingBuys = [];
-        let proKept = 0, proFiltered = 0;
-
-        for (let i = 0; i < result.length; i++) {
-            const s = result[i];
-            if (s.signalType === 'BUY') {
-                const sc = _proScoreForSignal(s, enh, params);
-                s.proScore = Math.round(sc.score * 100) / 100;
-                if (sc.tags.length) s.proTags = sc.tags;
-                pendingBuys.push(i);
-                if (sc.score < minScore) {
-                    s._filtered = true;
-                    s._origSignalType = 'BUY';
-                    s.reason = '[PRO-FILTERED score=' + s.proScore + '] ' + (s.reason || '');
-                    s.signalType = null;
-                    proFiltered++;
-                } else {
-                    proKept++;
-                }
-            } else if (s.signalType === 'EXIT_LONG') {
-                const buyIdx = pendingBuys.shift();
-                if (buyIdx !== undefined && result[buyIdx]._filtered) {
-                    s._filtered = true;
-                    s._origSignalType = 'EXIT_LONG';
-                    s.reason = '[PRO-PAIRED-FILTER] ' + (s.reason || '');
-                    s.signalType = null;
-                }
-            }
-        }
-        return { signals: result, proKept: proKept, proFiltered: proFiltered };
-    }
-
-    function _makeProStrategy(base) {
-        const baseId = base.id;
-        const baseRun = base.run;
-        return {
-            id: baseId + '_pro',
-            name: base.name + ' Pro',
-            nameFa: (base.nameFa || base.name) + ' پرو',
-            category: base.category || 'pro',
-            regime: base.regime,
-            defaultTimeframe: base.defaultTimeframe,
-            htfTimeframe: base.htfTimeframe,
-            defaultParams: Object.assign({}, base.defaultParams, {
-                useClientType: 1,
-                usePutCall: 1,
-                proMinScore: 0.60,
-            }),
-            indicators: (base.indicators || []).concat(['clientType', 'putCall']),
-            baseStrategyId: baseId,
-            isPro: true,
-            run: function(candles, params, ctx) {
-                const baseResult = baseRun(candles, params, ctx);
-                if (!ctx || !ctx.enhancements) return baseResult;
-                const enh = ctx.enhancements;
-                if (!enh.clientTypeByDate && !enh.putCallSignal) return baseResult;
-                const filtered = _filterSignalsInPairs(baseResult.signals, enh, params);
-                return Object.assign({}, baseResult, {
-                    signals: filtered.signals,
-                    proKept: filtered.proKept,
-                    proFiltered: filtered.proFiltered,
-                });
-            }
-        };
-    }
-
     // R34: PRO_ELIGIBLE removed — all _pro variants deprecated
 
     return {

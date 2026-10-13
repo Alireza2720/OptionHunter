@@ -13,6 +13,11 @@ let deps = { getDB: null, logger: null, backtest: null, strategies: null };
 function init(d) { deps = { ...deps, ...d }; }
 
 const KEY_PARAMS = {
+    ma_crossover: ['fastMA', 'slowMA'],
+    volume_rsi: ['rsiPeriod', 'rsiBuy'],
+    turn_of_month: ['daysBeforeEOM', 'daysAfterBOM'],
+    adaptive_ma: ['maPeriod', 'atrMult'],
+    atr_normalized: ['lookback', 'minZScore'],
     hhhl: ['swingLength', 'minPivotDistance'],
     vcp: ['contractionWindow', 'minBreakoutVolMult'],
     smc_unicorn: ['swingLength', 'atrMult'],

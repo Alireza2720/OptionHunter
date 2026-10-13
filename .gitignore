@@ -108,3 +108,8 @@ _bak-*
 
 # Phase B-1 backups
 *.b1-*
+# Phase B-2a
+*.sync-*
+
+# Phase B-2a backups
+*.b2a-*
