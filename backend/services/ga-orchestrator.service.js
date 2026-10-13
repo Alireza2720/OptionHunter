@@ -201,13 +201,17 @@ async function _evalParams(strategyId, params, symbols, opts) {
 
     if (!perSymbol.length) return { stats: null, fitness: 0, perSymbol: [] };
 
-    let totalN = 0, wins = 0, totalPnl = 0, gp = 0, gl = 0, profWin = 0, totWin = 0;
+    // BUG-NEW-11 fix: separate raw N from weighted fitness
+    let rawN = 0, rawWins = 0;
+    let totalPnl = 0, gp = 0, gl = 0, profWin = 0, totWin = 0;
     let ddMax = 0; const sharpes = [];
     for (const x of perSymbol) {
         const s = x.stats;
         const weight = x.optWeight != null ? x.optWeight : 1.0;
-        totalN += s.totalTrades * weight;
-        wins += s.totalTrades * s.winRate / 100 * weight;
+        // Raw counts (unweighted) — for MIN_TRADES gate
+        rawN += s.totalTrades;
+        rawWins += s.totalTrades * s.winRate / 100;
+        // Weighted totals — for fitness / PF
         totalPnl += s.totalPnl * weight;
         const w = s.totalTrades * s.winRate / 100;
         const l = s.totalTrades - w;
@@ -224,8 +228,8 @@ async function _evalParams(strategyId, params, symbols, opts) {
         if (Number.isFinite(s.sharpe)) sharpes.push(s.sharpe);
     }
     const merged = {
-        totalTrades: Math.round(totalN),
-        winRate: totalN > 0 ? wins / totalN * 100 : 0,
+        totalTrades: Math.round(rawN),
+        winRate: rawN > 0 ? rawWins / rawN * 100 : 0,
         totalReturnPct: totalPnl,
         totalPnl: totalPnl,
         profitFactor: gl > 0 ? gp / gl : (gp > 0 ? 999 : 0),
@@ -392,7 +396,10 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             pruner.report(params, ev.fitness);
 
             // BUG-1 fix: also track for median pruning
-            medianPruner.shouldPrune(t, ev.fitness);
+            const _medianBad = medianPruner.shouldPrune(t, ev.fitness);
+            if (!(_medianBad && sampler.history.length >= 15)) {
+                sampler.addPoint(params, ev.fitness);
+            }
 
             // Sampler update
             sampler.addPoint(params, ev.fitness);

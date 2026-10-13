@@ -94,8 +94,12 @@ TPESampler.prototype.sample = function () {
             continue;
         }
 
-        const goodVals = good.map(h => h.params[k]).filter(Number.isFinite);
-        const badVals = bad.map(h => h.params[k]).filter(Number.isFinite);
+        // BUG-NEW-14: filter banned values from history
+        const _banned = range.banned || [];
+        const _bannedSet = _banned.length ? new Set(_banned.map(String)) : null;
+        const _isBanned = (v) => _bannedSet && (_bannedSet.has(String(v)) || _bannedSet.has(Number(v).toFixed(6)));
+        const goodVals = good.map(h => h.params[k]).filter(Number.isFinite).filter(v => !_isBanned(v));
+        const badVals = bad.map(h => h.params[k]).filter(Number.isFinite).filter(v => !_isBanned(v));
 
         if (!goodVals.length) {
             out[k] = sampleUniform(range);

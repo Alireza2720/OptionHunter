@@ -7604,6 +7604,7 @@ async function _gaLiveTick() {
       if (_gaPollTimer) clearInterval(_gaPollTimer);
       _gaPollTimer = null;
       _gaJobId = null;
+      try { localStorage.removeItem('ga_last_running'); } catch (_) {}
       setTimeout(function () {
         try { openGAPanel(); } catch (_) {}
       }, 3000);
@@ -8070,11 +8071,13 @@ async function gaPoll() {
 
 async function gaCancelJob() {
   if (!_gaJobId) return;
-  if (!confirm("لغو کنم؟")) return;
+  if (!(await uiConfirm({ title: 'لغو بهینه‌سازی', message: 'بهینه‌سازی در حال اجرا لغو شود؟', confirmText: 'لغو کن', danger: true }))) return;
   try {
-    await apiFetch(BACKEND_URL + "/api/ga/cancel/" + _gaJobId, { method: "POST" }, 0);
-    showAlert("درخواست لغو ارسال شد", "info", 4000);
-  } catch (e) { showAlert("خطا: " + e.message, "error"); }
+    await apiFetch(BACKEND_URL + '/api/ga/cancel/' + _gaJobId, { method: 'POST' }, 0);
+    showAlert('درخواست لغو ارسال شد', 'info', 4000);
+    _gaJobId = null;
+    if (_gaPollTimer) { clearInterval(_gaPollTimer); _gaPollTimer = null; }
+  } catch (e) { showAlert('خطا: ' + e.message, 'error'); }
 }
 
 async function gaViewJob(id) {
