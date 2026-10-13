@@ -457,6 +457,7 @@ async function bootstrap() {
 
     journalService.init({ getDB: mongo.getDB, logger });
     journalUpdaterJob.init({ journalService, logger });
+    gaResumeJob.init({ getDB: mongo.getDB, logger });
 
     backtestOrchestrator.init({
         getDB: mongo.getDB,
@@ -646,6 +647,7 @@ async function bootstrap() {
         retentionJob,
         journalService,
         journalUpdaterJob,
+        gaResumeJob,
         // misc
         strategies: strategiesModule,
         pipelineService,      // 🆕
