@@ -72,6 +72,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
 /* ── DARK THEME (Default) ── */
 [data-theme="dark"] {
+  --bg-hover-solid: #1f232d;
   --bg: #0a0b0f;
   --bg-elev-1: #12141a;
   --bg-elev-2: #181b23;
@@ -121,6 +122,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
 /* ── LIGHT THEME ── */
 [data-theme="light"] {
+  --bg-hover-solid: #f0f2f7;
   --bg: #f7f8fc;
   --bg-elev-1: #ffffff;
   --bg-elev-2: #fafbfd;
@@ -170,6 +172,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
 /* ── MIDNIGHT THEME (Deep) ── */
 [data-theme="midnight"] {
+  --bg-hover-solid: #1a2236;
   --bg: #050814;
   --bg-elev-1: #0b1020;
   --bg-elev-2: #111827;
@@ -219,6 +222,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
 /* ── CREAM THEME ── */
 [data-theme="cream"] {
+  --bg-hover-solid: #f5efe4;
   --bg: #faf6ef;
   --bg-elev-1: #ffffff;
   --bg-elev-2: #fdfbf6;
@@ -960,7 +964,7 @@ table.data-table tbody tr:nth-child(even) td:first-child {
 }
 table.data-table tbody tr:hover td:first-child,
 table.data-table tbody tr:nth-child(even):hover td:first-child {
-  background: var(--bg-hover);
+  background: var(--bg-hover-solid);
 }
 
 /* 🎯 sticky-2col */
@@ -991,7 +995,7 @@ table.data-table.sticky-2col tbody tr:hover td:nth-child(1),
 table.data-table.sticky-2col tbody tr:hover td:nth-child(2),
 table.data-table.sticky-2col tbody tr:nth-child(even):hover td:nth-child(1),
 table.data-table.sticky-2col tbody tr:nth-child(even):hover td:nth-child(2) {
-  background: var(--bg-hover);
+  background: var(--bg-hover-solid);
 }
 
 table.data-table tbody tr { transition: background var(--t-fast) var(--ease); }
@@ -1750,6 +1754,12 @@ function setTheme(t) {
 }
 setTheme(currentTheme);
 function toggleMenu() { const p=document.getElementById('menuPanel'), b=document.getElementById('hamburgerBtn'), o=document.getElementById('menuOverlay'); const w=!p.classList.contains('open'); p.classList.toggle('open',w); o.classList.toggle('open',w); b.classList.toggle('hidden',w); document.body.classList.toggle('menu-open',w); if (w) refreshMenuStatus(); }
+function closeMenuIfOpen() {
+  try {
+    var p = document.getElementById("menuPanel");
+    if (p && p.classList.contains("open")) toggleMenu();
+  } catch (_) {}
+}
 function switchMenuTab(which, btn) {
   document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
   ['settings','status','guide'].forEach(k => { const el = document.getElementById('menuTab-'+k); if (el) el.style.display = k === which ? 'block' : 'none'; });
@@ -1929,11 +1939,11 @@ async function saveCacheTtl() {
     showAlert('ذخیره شد - کش زنجیره: ' + sec + 's', 'success', 4000);
   } catch (e) { showAlert('خطا: ' + e.message, 'error', 6000); }
 }
-function promptToken() { const current = getToken(); openModal(' وارد کردن توکن', `<div class="hint">توکن ادمین برای عملیات تغییر داده.</div><div class="form-row"><div class="field" style="flex:1;min-width:200px;"><label>توکن ادمین</label><input type="text" id="tokenInput" value="${esc(current)}" style="direction:ltr;text-align:left;"></div></div><div style="display:flex;gap:6px;margin-top:10px;"><button class="btn" onclick="saveToken()">ذخیره</button><button class="btn outline" onclick="clearToken()">پاک کردن</button></div>`); }
+function promptToken() { try { closeMenuIfOpen(); } catch(_) {} const current = getToken(); openModal(' وارد کردن توکن', `<div class="hint">توکن ادمین برای عملیات تغییر داده.</div><div class="form-row"><div class="field" style="flex:1;min-width:200px;"><label>توکن ادمین</label><input type="text" id="tokenInput" value="${esc(current)}" style="direction:ltr;text-align:left;"></div></div><div style="display:flex;gap:6px;margin-top:10px;"><button class="btn" onclick="saveToken()">ذخیره</button><button class="btn outline" onclick="clearToken()">پاک کردن</button></div>`); }
 async function saveToken() { const t = document.getElementById('tokenInput').value.trim(); if (!t) return showAlert('توکن خالی است.', 'warn'); try { const res = await fetch(`${BACKEND_URL}/api/auth/check`, { headers: { 'x-admin-token': t } }); const d = await res.json(); if (d.ok) { localStorage.setItem('adminToken', t); showAlert('ذخیره شد.', 'success', 4000); closeModal(); await checkBackendStatus(); } else showAlert('توکن نادرست.', 'error', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 function clearToken() { localStorage.removeItem('adminToken'); showAlert('پاک شد.', 'info', 3000); closeModal(); }
-async function testTelegram() { try { await apiFetch(`${BACKEND_URL}/api/telegram/test`, { method:'POST' }); showAlert('پیام تست ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
-async function runBackupNow() { try { await apiFetch(`${BACKEND_URL}/api/backup/run`, { method:'POST' }); showAlert('بکاپ ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function testTelegram() { try { closeMenuIfOpen(); } catch(_) {} try { await apiFetch(`${BACKEND_URL}/api/telegram/test`, { method:'POST' }); showAlert('پیام تست ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
+async function runBackupNow() { try { closeMenuIfOpen(); } catch(_) {} try { await apiFetch(`${BACKEND_URL}/api/backup/run`, { method:'POST' }); showAlert('بکاپ ارسال شد.', 'success', 5000); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function apiFetch(url, options={}, retries=2) {
   options.headers = { ...(options.headers||{}), 'x-admin-token': getToken() };
   let lastErr = null;
@@ -3094,7 +3104,15 @@ function _sigHookSearchInput() {
 function renderSignalHistory() {
   _sigHookSearchInput();
   const tb = document.getElementById('signalHistoryBody'); if (!tb) return;
-  const list = signalHistoryCache || [];
+  let list = signalHistoryCache || [];
+  if (_sigFilterType === "BUY") list = list.filter(function(x){return x.signalType === "BUY" && !x.rejected;});
+  else if (_sigFilterType === "EXIT_LONG") list = list.filter(function(x){return x.signalType === "EXIT_LONG";});
+  else if (_sigFilterType === "rejected") list = list.filter(function(x){return x.rejected === true;});
+  const _sigQ = String(_sigSearchTerm || "").trim().toLowerCase();
+  if (_sigQ) list = list.filter(function(x){return (String(x.symbol||"") + " " + String(x.strategyName||"") + " " + String(x.strategyId||"")).toLowerCase().indexOf(_sigQ) !== -1;});
+  const _sigCntEl = document.getElementById("sigFilterCount");
+  if (_sigCntEl) _sigCntEl.textContent = list.length + " / " + ((signalHistoryCache||[]).length);
+  if (!list.length && (_sigQ || _sigFilterType !== "all")) { tb.innerHTML = '<tr class="empty-row"><td colspan="9">هیچ سیگنالی با این فیلتر پیدا نشد</td></tr>'; return; }
   if (!list.length) { tb.innerHTML = '<tr class="empty-row"><td colspan="9">' + '<div class="empty-state">' + '<span class="es-icon">🔔</span>' + '<div class="es-title">هنوز سیگنالی ثبت نشده</div>' + '<div class="es-desc">سیگنال‌ها بعد از هر tick (در ساعات بازار) یا از اجرای دستی ذخیره می‌شن</div>' + '<div class="es-cta">' + '<button class="btn small" onclick="triggerEvaluateNow(this)">⚡ اجرای دستی حالا</button>' + '</div>' + '</div>' + '</td></tr>'; return; }
   tb.innerHTML = list.map(x => {
     let roleTag = '<span class="role-badge leader">لیدر</span>';
@@ -4678,7 +4696,7 @@ async function explainSymbol(sym) {
 
 async function viewChain(sym) { openModal(`زنجیره ${sym}`, '<div style="text-align:center;padding:30px;">...</div>'); try { const d = await apiFetch(`${BACKEND_URL}/api/options/chain/${encodeURIComponent(sym)}`, {}, 1); if (!d.rows.length) return openModal(`زنجیره ${sym}`, `<div class="empty-note">قراردادی نیست. (${d.totalMatched || 0} تطبیق)</div>`); const rows = d.rows.map(r => { const ivA = r.ivApi ? (r.ivApi*100).toFixed(1)+'%' : '-'; const delta = r.deltaApi ? r.deltaApi.toFixed(2) : (r.delta ? r.delta.toFixed(2) : '-'); return `<tr style="${r.reject.length?'opacity:.55':''}"><td>${esc(r.symbol)}</td><td>${fmtN(r.strike)}</td><td>${r.expiry}</td><td>${r.daysLeft}</td><td>${fmtN(r.bid)}/${fmtN(r.ask)}</td><td>${r.spreadPct===null?'-':r.spreadPct.toFixed(1)+'%'}</td><td>${ivA}</td><td>${delta}</td><td>${r.oi}</td><td style="font-size:11px;">${r.reject.length?esc(r.reject.join('، ')):'<span class="badge long">OK</span>'}</td></tr>`; }).join(''); openModal(`زنجیره ${sym}`, `<div class="hint">تطبیق: ${d.matchedNames.join(', ')}</div><div class="table-responsive"><table class="data-table"><thead><tr><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>روز</th><th>خرید/فروش</th><th>اسپرد</th><th>IV</th><th>Δ</th><th>OI</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
 async function recommendOption(id) { const it = configs.find(c => c._id === id); if (!it) return; openModal(`پیشنهاد آپشن ${it.symbol}`, '<div style="text-align:center;padding:30px;">...</div>'); try { const r = await apiFetch(`${BACKEND_URL}/api/options/recommend/${id}`, {}, 1); const sc = r.scenario; const head = `<div class="hint">ورود ${fmtN(sc.entry)} | SL ${fmtN(sc.stop)} | TP ${fmtN(sc.target)} | ${sc.horizonDays} روز</div>`; const picks = r.picks.length ? r.picks.map((p,i) => `<tr><td>${i+1}</td><td>${esc(p.symbol)}</td><td>${fmtN(p.strike)}</td><td>${p.expiry} (${p.daysLeft})</td><td>${fmtN(p.ask)}</td><td>${fmtIv(p.iv)}</td><td>${p.delta.toFixed(2)}</td><td>${p.oi}</td><td>${p.rr.toFixed(2)}</td></tr>`).join('') : `<tr class="empty-row"><td colspan="9">قراردادی نیست</td></tr>`; openModal(`پیشنهاد ${it.symbol}`, head + `<div class="table-responsive"><table class="data-table"><thead><tr><th>#</th><th>قرارداد</th><th>اعمال</th><th>سررسید</th><th>خرید</th><th>IV</th><th>Δ</th><th>OI</th><th>RR</th></tr></thead><tbody>${picks}</tbody></table></div>`); } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); } }
-async function openLogs(source='memory') { openModal('لاگ سیستم', '<div style="text-align:center;padding:30px;">...</div>'); try { let rows; if (source === 'client') rows = clientLogs.slice().reverse(); else { const r = await apiFetch(`${BACKEND_URL}/api/logs?source=${source}&limit=300`, {}, 1); rows = r.logs; } const tab = (k, l) => `<button class="btn small ${source===k?'':'outline'}" onclick="openLogs('${k}')">${l}</button>`; const tabs = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${tab('memory','سرور')}${tab('db','خطاها')}${tab('client','مرورگر')}</div>`; const body = rows.length ? rows.map(l => `<div style="font-family:var(--font-mono);font-size:11px;direction:ltr;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-subtle);color:${l.level==='error'?'var(--danger)':l.level==='warn'?'var(--warn)':'var(--text-dim)'}">${new Date(l.at).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})} [${l.level}] ${esc(l.msg)}</div>`).join('') : '<div class="empty-note">لاگی نیست</div>'; openModal(`لاگ (${rows.length})`, tabs + body); } catch (e) { openModal('لاگ', `<div class="empty-note">${esc(e.message)}</div>`); } }
+async function openLogs(source='memory') { try { closeMenuIfOpen(); } catch(_) {} openModal('لاگ سیستم', '<div style="text-align:center;padding:30px;">...</div>'); try { let rows; if (source === 'client') rows = clientLogs.slice().reverse(); else { const r = await apiFetch(`${BACKEND_URL}/api/logs?source=${source}&limit=300`, {}, 1); rows = r.logs; } const tab = (k, l) => `<button class="btn small ${source===k?'':'outline'}" onclick="openLogs('${k}')">${l}</button>`; const tabs = `<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${tab('memory','سرور')}${tab('db','خطاها')}${tab('client','مرورگر')}</div>`; const body = rows.length ? rows.map(l => `<div style="font-family:var(--font-mono);font-size:11px;direction:ltr;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-subtle);color:${l.level==='error'?'var(--danger)':l.level==='warn'?'var(--warn)':'var(--text-dim)'}">${new Date(l.at).toLocaleString('fa-IR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})} [${l.level}] ${esc(l.msg)}</div>`).join('') : '<div class="empty-note">لاگی نیست</div>'; openModal(`لاگ (${rows.length})`, tabs + body); } catch (e) { openModal('لاگ', `<div class="empty-note">${esc(e.message)}</div>`); } }
 function renderGlossary() {
   const el = document.getElementById('glossaryBlock');
   if (!el || el.dataset.rendered) return;
@@ -5753,7 +5771,7 @@ async function fixGapsNow(symbol) {
     if (area) area.innerHTML = `<div class="empty-note">خطا: ${esc(e.message)}</div>`;
   }
 }
-async function openTickerHistory() {
+async function openTickerHistory() { try { closeMenuIfOpen(); } catch(_) {}
   openModal('تاریخچه تیک زنده', '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
   try {
     const r = await apiFetch(`${BACKEND_URL}/api/algotik/ticker-log?limit=100`, {}, 0);
