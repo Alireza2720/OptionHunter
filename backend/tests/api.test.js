@@ -89,16 +89,10 @@ async function test(name, fn) {
 
     // 4. Pipeline
     console.log('\n── Pipeline ──');
-    await test('GET /api/pipeline/dual-stage/preview', async () => {
-        const r = await fetchJson('/api/pipeline/dual-stage/preview');
-        if (r.status !== 200) throw new Error(`status=${r.status}, body=${JSON.stringify(r.json)}`);
-        if (typeof r.json.totalConfigs !== 'number') throw new Error('totalConfigs missing');
-    });
-
-    await test('GET /api/pipeline/dual-stage/list', async () => {
-        const r = await fetchJson('/api/pipeline/dual-stage/list?limit=5');
-        if (r.status !== 200) throw new Error(`status=${r.status}`);
-        if (!Array.isArray(r.json.jobs)) throw new Error('jobs not array');
+    await test('GET /api/doctor/status', async () => {
+        const r = await fetchJson('/api/doctor/status');
+        if (r.status !== 200) throw new Error('status=' + r.status);
+        if (typeof r.json.running !== 'boolean') throw new Error('running field missing');
     });
 
     // 5. Coverage

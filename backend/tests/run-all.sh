@@ -49,6 +49,19 @@ echo ""
 echo "── 3) Smoke Test ──"
 node backend/tests/smoke.test.js
 
+# 3b. Unit tests (FIX 9.6a: previously missing)
+echo ""
+echo "── 3b) backtest.test.js ──"
+node backend/tests/backtest.test.js
+
+echo ""
+echo "── 3c) pit.test.js ──"
+node backend/tests/pit.test.js
+
+echo ""
+echo "── 3d) bs.test.js ──"
+node backend/tests/bs.test.js
+
 # 4. API test (اختیاری — نیاز به backend فعال)
 echo ""
 echo "── 4) API Test ──"
