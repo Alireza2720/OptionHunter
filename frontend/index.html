@@ -7719,12 +7719,16 @@ function renderGAPanel(states, jobs, syms) {
       : st.status === "paused" ? '<span class="badge warn">pause</span>'
       : '<span class="badge short">' + esc(st.status || "?") + '</span>';
     const fit = (st && st.best && Number.isFinite(st.best.fitness)) ? st.best.fitness.toFixed(3) : "—";
+    const _reason = (st && st.best && st.best.eligibilityReason) ? st.best.eligibilityReason : '';
+    const fitCell = _reason
+        ? '<span title="' + esc(_reason) + '" style="cursor:help;border-bottom:1px dotted var(--warn);">' + fit + ' ⚠️</span>'
+        : fit;
     const gen = st ? (st.generation || 0) : "—";
     return '<tr>'
       + '<td><input type="checkbox" class="ga-strat-chk" value="' + esc(s.id) + '">'
       + ' <b>' + esc(s.name) + '</b></td>'
       + '<td>' + badge + '</td>'
-      + '<td><b>' + fit + '</b></td>'
+      + '<td><b>' + fitCell + '</b></td>'
       + '<td>' + gen + '</td>'
       + '<td>'
       + (!st ? '<button class="btn tiny success" onclick="gaStartSingle(\'' + esc(s.id) + '\')">▶ اجرا</button> ' : "")
@@ -7747,6 +7751,22 @@ function renderGAPanel(states, jobs, syms) {
   const symCount = (syms || []).length;
   const html = '<div class="hint" style="padding:8px 12px;background:var(--accent-subtle);border-radius:var(--r-md);margin-bottom:12px;">'
     + '🧬 TPE Sampler + Median Pruner + 6-window walk-forward + GT-Score. در ساعات بازار خودکار pause می‌شود.'
+    + '</div>'
+    + '<div class="form-row" style="margin-bottom:10px;">'
+    +   '<div class="field" style="flex:1;min-width:140px;">'
+    +     '<label style="font-size:11px;">📅 از تاریخ</label>'
+    +     '<input type="text" id="ga_fromDate" data-jdp data-jdp-only-date placeholder="1400/01/01" style="direction:ltr;text-align:center;">'
+    +   '</div>'
+    +   '<div class="field" style="flex:1;min-width:140px;">'
+    +     '<label style="font-size:11px;">📅 تا تاریخ</label>'
+    +     '<input type="text" id="ga_toDate" data-jdp data-jdp-only-date placeholder="1405/07/22" style="direction:ltr;text-align:center;">'
+    +   '</div>'
+    +   '<div style="display:flex;gap:4px;align-self:end;padding-bottom:2px;">'
+    +     '<button class="btn tiny outline" onclick="_gaSetRange(1)">1Y</button>'
+    +     '<button class="btn tiny outline" onclick="_gaSetRange(2)">2Y</button>'
+    +     '<button class="btn tiny outline" onclick="_gaSetRange(3)">3Y</button>'
+    +     '<button class="btn tiny outline" onclick="_gaSetRange(5)">5Y</button>'
+    +   '</div>'
     + '</div>'
     + '<div style="background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);padding:14px;margin-bottom:12px;">'
     + '<div id="gaSmartPreview" style="background:var(--bg-elev-2);border:1px solid var(--border);border-radius:var(--r-md);padding:14px;margin-bottom:12px;">'
@@ -7790,6 +7810,17 @@ function renderGAPanel(states, jobs, syms) {
 
   openModal("بهینه‌سازی پارامترها (GA)", html);
   setTimeout(function () { try { gaLoadSmartPreview(); } catch (_) {} }, 100);
+  setTimeout(function () {
+      try {
+          const fromEl = document.getElementById('ga_fromDate');
+          const toEl = document.getElementById('ga_toDate');
+          if (fromEl && !fromEl.value) fromEl.value = jdpMonthsAgo(12);
+          if (toEl && !toEl.value) toEl.value = jdpTodayJalali();
+          if (typeof jalaliDatepicker !== 'undefined') {
+              jalaliDatepicker.startWatch({ selector: 'input[data-jdp]', minDate: '1390/01/01', maxDate: 'today', zIndex: 3000 });
+          }
+      } catch (_) {}
+  }, 200);
   _gaStartAutoRefresh();
   setTimeout(function () {
     try {
@@ -7834,6 +7865,43 @@ function renderGAPanel(states, jobs, syms) {
   // BUG-NEW-33: preset cards removed from UI, hook deleted
 
 }
+
+function _gaSetRange(years) {
+    try {
+        const to = jdpTodayJalali();
+        const d = new Date();
+        d.setFullYear(d.getFullYear() - years);
+        const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
+            timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+        const parts = {};
+        fmt.formatToParts(d).forEach(function (p) { parts[p.type] = p.value; });
+        const from = stripBidi(parts.year + '/' + parts.month + '/' + parts.day);
+        const fromEl = document.getElementById('ga_fromDate');
+        const toEl = document.getElementById('ga_toDate');
+        if (fromEl) fromEl.value = from;
+        if (toEl) toEl.value = to;
+    } catch (_) {}
+}
+window._gaSetRange = _gaSetRange;
+
+function _gaReadDateRange() {
+    try {
+        const fromEl = document.getElementById('ga_fromDate');
+        const toEl = document.getElementById('ga_toDate');
+        let fromTs = null, toTs = null;
+        if (fromEl && fromEl.value) {
+            const g = jalaliToGreg(fromEl.value);
+            if (g) fromTs = Math.floor(new Date(g + 'T00:00:00Z').getTime() / 1000);
+        }
+        if (toEl && toEl.value) {
+            const g = jalaliToGreg(toEl.value);
+            if (g) toTs = Math.floor(new Date(g + 'T23:59:59Z').getTime() / 1000);
+        }
+        return { from: fromTs, to: toTs };
+    } catch (_) { return { from: null, to: null }; }
+}
+window._gaReadDateRange = _gaReadDateRange;
 
 let _gaSmartCache = null;
 let _gaSmartCacheAt = 0;
@@ -8007,7 +8075,13 @@ async function gaStartSmart() {
     numWindows: +((wEl && wEl.value) || cfg.numWindows),
     patience: 5
   };
-  if (!confirm('شروع بهینه‌سازی هوشمند روی همه ' + strategiesInfo.length + ' استراتژی؟\n\nحالت: ' + (body.mode === 'both' ? 'ترکیبی سهم+آپشن (وزن پویا)' : body.mode) + '\n' + body.maxGenerations + ' نسل × ' + body.trialsPerGeneration + ' trial روی همه نمادها\n\nممکن است چند ساعت طول بکشد. در ساعات بازار خودکار pause می‌شود.')) return;
+  const _range = (typeof _gaReadDateRange === 'function') ? _gaReadDateRange() : { from: null, to: null };
+  if (_range.from) body.dateFrom = _range.from;
+  if (_range.to) body.dateTo = _range.to;
+  const _rangeStr = (_range.from && _range.to)
+      ? new Date(_range.from * 1000).toISOString().slice(0,10) + ' تا ' + new Date(_range.to * 1000).toISOString().slice(0,10)
+      : 'پیش‌فرض (۱ سال اخیر)';
+  if (!confirm('شروع بهینه‌سازی هوشمند روی همه ' + strategiesInfo.length + ' استراتژی؟\n\nحالت: ' + (body.mode === 'both' ? 'ترکیبی سهم+آپشن (وزن پویا)' : body.mode) + '\n' + body.maxGenerations + ' نسل × ' + body.trialsPerGeneration + ' trial روی همه نمادها\n\nبازه‌ی تاریخ: ' + _rangeStr + '\n\nممکن است چند ساعت طول بکشد. در ساعات بازار خودکار pause می‌شود.')) return;
   await _gaKickoff(body);
 }
 
@@ -8024,6 +8098,9 @@ async function gaStartAll() {
     trialsPerGeneration: +document.getElementById("ga_trials").value || 4,
     numWindows: +document.getElementById("ga_windows").value || 3
   };
+  const _r1 = (typeof _gaReadDateRange === 'function') ? _gaReadDateRange() : { from: null, to: null };
+  if (_r1.from) body.dateFrom = _r1.from;
+  if (_r1.to) body.dateTo = _r1.to;
   await _gaKickoff(body);
 }
 
@@ -8040,6 +8117,9 @@ async function gaStartSelected() {
     trialsPerGeneration: +document.getElementById("ga_trials").value || 4,
     numWindows: +document.getElementById("ga_windows").value || 3
   };
+  const _r2 = (typeof _gaReadDateRange === 'function') ? _gaReadDateRange() : { from: null, to: null };
+  if (_r2.from) body.dateFrom = _r2.from;
+  if (_r2.to) body.dateTo = _r2.to;
   await _gaKickoff(body);
 }
 
@@ -8053,6 +8133,9 @@ async function gaStartSingle(strategyId) {
     trialsPerGeneration: +((document.getElementById('ga_trials') || {}).value || 2),
     numWindows: +((document.getElementById('ga_windows') || {}).value || 3)
   };
+  const _r3 = (typeof _gaReadDateRange === 'function') ? _gaReadDateRange() : { from: null, to: null };
+  if (_r3.from) body.dateFrom = _r3.from;
+  if (_r3.to) body.dateTo = _r3.to;
   await _gaKickoff(body);
 }
 

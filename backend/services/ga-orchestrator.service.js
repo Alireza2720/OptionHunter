@@ -84,11 +84,34 @@ const SPECIAL_RANGES = {
     maxRangePct: { type: 'float', min: 1.5, max: 4.0, step: 0.1 }
 };
 
+// Internal key params (restored after Stage 2 removed sensitivity.service)
+const _GA_KEY_PARAMS = {
+    vol_regime_bo: ['atrPctThreshold', 'breakoutBufferPct'],
+    dual_tf_mom: ['ltfLookback', 'htfLookback'],
+    keltner_bo: ['kcMult', 'minVolMult'],
+    adx_trend: ['adxPeriod', 'adxMin'],
+    mr_volume: ['dropPct', 'minVolMult'],
+    ma_crossover: ['fastMA', 'slowMA'],
+    volume_rsi: ['rsiPeriod', 'rsiBuy'],
+    turn_of_month: ['daysBeforeEOM', 'daysAfterBOM'],
+    adaptive_ma: ['maPeriod', 'atrMult'],
+    atr_normalized: ['lookback', 'minZScore'],
+    hhhl: ['swingLength', 'minPivotDistance'],
+    vcp: ['contractionWindow', 'minBreakoutVolMult'],
+    smc_unicorn: ['swingLength', 'atrMult'],
+    ob_sweep: ['swingLength', 'minSweepPct'],
+    ob_after_sweep: ['sweepWithinBars', 'obLookback'],
+    tsmom: ['lookbackDays', 'atrMult'],
+    momentum_12_1: ['lookbackMonths', 'atrMult'],
+    donchian: ['entryPeriod', 'atrMult'],
+    nr7: ['nrWindow', 'atrMult'],
+    low_vol_anomaly: ['volWindow', 'volPct'],
+    short_term_reversal: ['lookbackDays', 'atrMult'],
+    sector_momentum: ['momentumLookback', 'atrMult']
+};
+
 function _buildSearchSpace(strategyId, defaults) {
-    let KEY_PARAMS = {};
-    try {
-        KEY_PARAMS = require('./sensitivity.service').KEY_PARAMS || {};
-    } catch (_) {}
+    const KEY_PARAMS = _GA_KEY_PARAMS;
     const kp = KEY_PARAMS[strategyId] || [];
     const space = {};
     for (const p of kp) {

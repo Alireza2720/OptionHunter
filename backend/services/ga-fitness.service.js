@@ -7,7 +7,7 @@
 //   + consistency bonus based on profitable-window ratio
 // ============================================================
 
-const MIN_TRADES = 8;
+const MIN_TRADES = 5;   // Stage 8: lowered 8 -> 5 for short WF windows
 const MIN_SHARPE = 0.5;
 const MIN_PF = 1.0;
 const PF_PENALTY_THRESHOLD = 5;

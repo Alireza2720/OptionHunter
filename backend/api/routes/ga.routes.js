@@ -198,6 +198,18 @@ function register(app, deps) {
                     startedAt: 1, stoppedAt: 1, updatedAt: 1, resumeAfter: 1
                 })
                 .toArray();
+            // Stage 8: for fitness=0 states, compute reason from current best.stats
+            try {
+                const _fitness = require('../../services/ga-fitness.service');
+                for (const s of list) {
+                    if (s && s.best && (s.best.fitness == null || s.best.fitness === 0) && s.best.stats) {
+                        try {
+                            const el = _fitness.isEligible(s.best.stats);
+                            if (!el.ok) s.best.eligibilityReason = el.reason;
+                        } catch (_) {}
+                    }
+                }
+            } catch (_) {}
             res.json({ count: list.length, states: list });
         } catch (e) { next(e); }
     });
