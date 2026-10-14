@@ -371,7 +371,8 @@ async function bootstrap() {
     wfService.init({
         getDB: mongo.getDB,
         logger,
-        signalFilterService
+        signalFilterService,
+        backtest: backtestCore   // FIX #9b v2
     });
 
     // 11.11) regime job

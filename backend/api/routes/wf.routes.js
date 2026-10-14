@@ -67,4 +67,17 @@ function register(app, deps) {
     });
 }
 
+// FIX #9b v2: real OOS walk-forward
+app.post('/api/wf/retrain/:jobId', async (req, res, next) => {
+    try {
+        const opts = req.body || {};
+        const r = await wfService.runWhitelistWithRetrain(req.params.jobId, {
+            numWindows: opts.windows || 4,
+            minTrades: opts.minTrades || 5,
+            numTrials: opts.numTrials || 234
+        });
+        res.json(r);
+    } catch (e) { next(e); }
+});
+
 module.exports = { register };

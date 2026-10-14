@@ -5,11 +5,13 @@
 
 const { COLLECTIONS } = require('../config/constants');
 const wfCore = require('../core/walk-forward');
+const wfRetrain = require('./wf-retrain.service');   // FIX #9b v2
 
 let deps = {
     getDB: null,
     logger: null,
-    signalFilterService: null
+    signalFilterService: null,
+    backtest: null   // FIX #9b v2
 };
 
 // ------------------------------------------------------------
@@ -67,7 +69,7 @@ async function getWfStrategyWhitelist() {
     const doc = await db.collection('meta').findOne({ _id: 'wf_strategy_whitelist' });
     return doc;
 }
-function init(d) { deps = { ...deps, ...d }; }
+function init(d) { deps = { ...deps, ...d }; wfRetrain.init(deps); }
 
 // ------------------------------------------------------------
 // Walk-forward یک pair
@@ -309,6 +311,8 @@ async function runAggregate(jobId, opts = {}) {
 
 module.exports = {
     init, runOnePair, runWhitelist, runAggregate,
+    runOnePairWithRetrain: wfRetrain.runOnePairWithRetrain,
+    runWhitelistWithRetrain: wfRetrain.runWhitelistWithRetrain,
     saveWfStrategyWhitelist,
     getWfStrategyWhitelist
 };
