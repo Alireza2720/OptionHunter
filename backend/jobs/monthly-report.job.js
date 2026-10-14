@@ -80,7 +80,7 @@ async function generate() {
     let details = [];
     if (btJobId) {
         details = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
-            .find({ jobId: btJobId }).toArray();
+            .find({ jobId: btJobId }).project({ symbol: 1, strategyId: 1, strategyName: 1, timeframe: 1, optionStats: 1, stockStats: 1, pairSymbol: 1 }).toArray();
     }
 
     // 🆕 فیلتر به configهای actually active

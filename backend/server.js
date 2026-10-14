@@ -55,7 +55,6 @@ async function start() {
             backtestOrchestrator: deps.backtestOrchestrator, // 🆕
             // 🆕
             paperTradingService: deps.paperTradingService || deps.paperTrading,
-            sensitivityService: deps.sensitivityService,
 
             // config
             adminToken: env.ADMIN_TOKEN,

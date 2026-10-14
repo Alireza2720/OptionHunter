@@ -45,7 +45,6 @@ const backtestOrchestrator = require('./services/backtest-orchestrator.service')
 const gaOrchestrator = require('./services/ga-orchestrator.service');
 const dualStageService = require('./services/dual-stage-pipeline.service');
 const paperTradingService = require('./services/paper-trading.service');
-const sensitivityService = require('./services/sensitivity.service');
 
 // settings (ساده — از فایل اصلی)
 const settingsModule = require('./settings');
@@ -288,14 +287,6 @@ async function bootstrap() {
         entryWindow: () => settingsModule.entryWindow(),
         getTehranParts: dataService.getTehranParts,
         logger   // 🆕
-    });
-
-    // 9.3) sweep service (R23)
-    sensitivityService.init({
-        getDB: mongo.getDB,
-        logger,
-        backtest: backtestCore,
-        strategies: strategiesModule,
     });
 
     // 9.5) regime service — قبل از signalsCore
@@ -665,7 +656,6 @@ async function bootstrap() {
         pipelineService,      // 🆕
         backtestOrchestrator, // 🆕
         dualStageService,     // 🆕
-        sensitivityService,
     };
 }
 
