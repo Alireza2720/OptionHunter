@@ -4913,6 +4913,7 @@ window._HINTS = {
   qualityLevel:  { title: 'کیفیت قرارداد آپشن', text: 'A+ سخت‌گیرانه (فقط دیتای واقعی، دلتا 0.45-0.65). B پیشنهادی. D حداکثر پوشش. روی بک‌تست و دمو و زنده اثر می‌گذارد.' }
 };
 function showHint(key) {
+  try { closeMenuIfOpen(); } catch(_) {}
   const h = (window._HINTS || {})[key];
   if (!h) return;
   openModal('راهنما — ' + esc(h.title), '<div style="line-height:2;font-size:13.5px;padding:8px 4px;">' + esc(h.text) + '</div><div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;"><button class="btn outline" onclick="closeModal()">فهمیدم</button></div>', true);
