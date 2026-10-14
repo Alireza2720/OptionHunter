@@ -1400,8 +1400,12 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
 
 
     // ---- 🆕 Slippage داینامیک (۱ قرارداد، نه multiplier) ----
+    // FIX #8: units are SHARES. 1 contract = `size` shares (typically 1000).
+    // `dailyVolume` (best.volume) is total SHARES traded today for this contract.
+    // orderSize = (numContracts × contractMultiplier), i.e., shares we want to trade.
+    const numContracts = 1; // backtest assumes 1 contract per trade
     const contractMultiplier = best.size || 1000;
-    const orderSize = 1 * contractMultiplier;
+    const orderSize = numContracts * contractMultiplier;
     const dailyVol = best.volume || 0;
     const dynSlip = computeDynamicSlippage(orderSize, dailyVol, p);
 

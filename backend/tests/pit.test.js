@@ -52,8 +52,14 @@ test('throws without asOfTime', () => {
     assert.throws(() => new PITContext(undefined), /requires asOfTime/);
 });
 
-test('handles null/undefined time gracefully', () => {
+test('fail-closed on null/undefined time (FIX #2)', () => {
     const pit = new PITContext('2024-06-01');
+    assert.strictEqual(pit.allows(null), false);
+    assert.strictEqual(pit.allows(undefined), false);
+});
+
+test('lenient mode allows null/undefined (opt-in)', () => {
+    const pit = new PITContext('2024-06-01', { lenient: true });
     assert.strictEqual(pit.allows(null), true);
     assert.strictEqual(pit.allows(undefined), true);
 });

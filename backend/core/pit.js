@@ -19,6 +19,9 @@ class PITContext {
         this.boundaries = options.boundaries || null; // [from, to]
         this.violations = [];
         this.strict = options.strict !== false;
+        // FIX #2: fail-closed by default for missing/invalid timestamps.
+        // Set lenient=true only for explicitly non-PIT contexts (e.g., UI debug).
+        this.lenient = options.lenient === true;
     }
 
     toUnix() {
@@ -26,13 +29,15 @@ class PITContext {
     }
 
     allows(time) {
-        if (time === null || time === undefined) return true;
+        // FIX #2: fail-closed — missing timestamp is rejected unless lenient
+        if (time === null || time === undefined) return this.lenient === true;
         let t;
         if (time instanceof Date) t = Math.floor(time.getTime() / 1000);
         else if (typeof time === 'number') t = time;
         else {
             const d = new Date(time);
-            if (isNaN(d.getTime())) return true;
+            // FIX #2: fail-closed — invalid date is rejected unless lenient
+            if (isNaN(d.getTime())) return this.lenient === true;
             t = Math.floor(d.getTime() / 1000);
         }
         return t <= this.toUnix();

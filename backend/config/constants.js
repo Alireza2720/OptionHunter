@@ -31,6 +31,11 @@ const TEHRAN_OFFSET_MINUTES = 210;         // UTC+3:30
 
 // ---- دیتای آپشن ----
 
+// ---- Option data coverage window ----
+// FIX #3: Real TSETMC option_history data starts around this date.
+// Backtests older than this produce ~0 option trades (data coverage limitation).
+const OPTION_DATA_CUTOFF = new Date('2026-06-09T00:00:00Z'); // 1405/03/19
+
 // ---- Job ----
 const JOB_STATUS = {
     QUEUED: 'QUEUED',
@@ -105,6 +110,7 @@ const LIMITS = {
 
 module.exports = {
     TIMEFRAME_MINUTES,
+    OPTION_DATA_CUTOFF,
     ALL_CHART_TIMEFRAMES,
     TF_LABELS_FA,
     SESSION_START_MIN,
