@@ -61,8 +61,11 @@ function createApp(deps) {
     app.use('/api/pipeline', rateLimit.heavyLimiter);
     app.use('/api/doctor/run', rateLimit.heavyLimiter);
 
-    // ---- Auth ----
-    app.use(authMw.makeAuth(deps.adminToken));
+    // ---- Auth (DB-backed runtime getter) ----
+    const _adminTokenGetter = (deps.adminToken && typeof deps.adminToken.get === 'function')
+        ? () => deps.adminToken.get()
+        : (() => deps.adminToken || '');
+    app.use(authMw.makeAuth(_adminTokenGetter));
 
     // ---- Error middleware init ----
     errorMw.init(deps.logger);

@@ -50,7 +50,7 @@ function register(app, deps) {
             status: 'ok',
             version: deps.version || 'v10.0',
             startedAt: deps.startedAt,
-            adminRequired: !!adminToken,
+            adminRequired: !!(adminToken && typeof adminToken.get === 'function' ? adminToken.get() : adminToken),
             telegramConfigured: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
             collectorOnline,                              // 🆕
             apiKeysConfigured: collectorOnline,           // 🆕 backward-compat
@@ -284,7 +284,8 @@ function register(app, deps) {
     // ---- Logs ----
     app.get('/api/logs', async (req, res, next) => {
         try {
-            if (adminToken && req.headers['x-admin-token'] !== adminToken) {
+            const _tok = (adminToken && typeof adminToken.get === 'function') ? adminToken.get() : adminToken;
+            if (_tok && req.headers['x-admin-token'] !== _tok) {
                 return res.status(401).json({ error: 'توکن ادمین نامعتبر' });
             }
             const limit = Math.min(+req.query.limit || 200, 1000);

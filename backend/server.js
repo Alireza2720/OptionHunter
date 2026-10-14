@@ -56,8 +56,8 @@ async function start() {
             // 🆕
             paperTradingService: deps.paperTradingService || deps.paperTrading,
 
-            // config
-            adminToken: env.ADMIN_TOKEN,
+            // config (DB-backed runtime)
+            adminToken: deps.adminToken,
             version: SERVER_VERSION,
             startedAt: new Date(),
             reloadEntryWindow: async () => {

@@ -1633,6 +1633,16 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
   <div class="hint" style="margin:6px 0 0; font-size:10.5px; line-height:1.6;">پیش‌فرض 15. کاهش ⇒ زنجیره سریع‌تر fresh می‌شود. استراتژیست از همین کش می‌خواند.</div>
 </div>
 <div class="menu-divider"></div>
+<div class="menu-label">🔒 امنیت و دسترسی</div>
+<div style="padding:10px 12px; background:var(--bg-elev-2); border:1px solid var(--border); border-radius:var(--r-md);">
+  <label style="font-size:11.5px; color:var(--text-dim); display:block; margin-bottom:6px;">توکن ادمین <span id="adminTokenState" style="font-size:10.5px; opacity:.7;"></span></label>
+  <div style="display:flex; gap:6px; align-items:center;">
+    <input type="password" id="adminTokenNew" placeholder="توکن جدید — خالی بگذار برای حذف" style="flex:1; padding:8px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--r-sm); color:var(--text); font-family:var(--font-mono); font-size:12px; direction:ltr;">
+    <button class="btn small success" id="adminTokenBtn" onclick="saveAdminToken(this)">ذخیره</button>
+  </div>
+  <div class="hint" style="margin:6px 0 0; font-size:10.5px; line-height:1.6;">توکن در DB ذخیره می‌شود. برای حذف، فیلد را خالی بگذار. حداقل ۶ کاراکتر.</div>
+</div>
+<div class="menu-divider"></div>
 <!-- UX-MENU: grouped tools -->
 <div class="menu-label">🧠 تحلیل و بهینه‌سازی</div>
 <button class="menu-item" onclick="openBacktestPanel(); toggleMenu();">🎯 بک‌تست</button>
@@ -1765,7 +1775,7 @@ function switchMenuTab(which, btn) {
   ['settings','status','guide'].forEach(k => { const el = document.getElementById('menuTab-'+k); if (el) el.style.display = k === which ? 'block' : 'none'; });
   if (which === 'guide') { document.getElementById('guideContentInMenu').innerHTML = guideFull(); try { renderGlossary(); } catch (_) {} }
   if (which === 'status') refreshMenuStatus();
-  if (which === 'settings') { loadTickInterval(); loadCacheTtl(); }
+  if (which === 'settings') { loadTickInterval(); loadCacheTtl(); loadAdminTokenState(); }
 }
 function toggleCard(id) { document.getElementById(id).classList.toggle('open'); }
 function switchPipelineTab() {}
@@ -4752,6 +4762,40 @@ function guideFull() {
     <div class="menu-label" style="margin-top:8px;">ترکیبی</div> ${sb('Ensemble', 'رای وزنی از 12 زیراستراتژی', '30m', 'همه رژیم‌ها')}
     <h4 class="guide-h">مدیریت سرمایه (Mode 2)</h4> <ul class="guide-ul"> <li><b>Duplicate Guard</b>: هر نماد در هر لحظه فقط یک پوزیشن</li> <li><b>Correlation Cluster</b>: نمادهای همبسته (corr >0.7) مجموع ≤ 30%</li> <li><b>Sector Limit</b>: هر صنعت ≤ 40% سرمایه</li> <li><b>Kelly Criterion</b>: حجم پویا بر اساس edge + fallback به risk%</li> <li><b>Signal Filter</b>: فقط pairهای تأییدشده توسط Bootstrap CI</li> </ul> <h4 class="guide-h">استراتژی‌های علمی (جدید)</h4> <ul class="guide-ul"> <li><b>TSMOM (Time Series Momentum)</b>: مومنتوم سری‌زمانی ۱۲ ماهه با فیلتر نوسان — Moskowitz et al. (2012).</li> <li><b>Momentum 12-1</b>: مومنتوم ۱۲ ماهه با skip یک ماه آخر — Jegadeesh &amp; Titman (1993).</li> <li><b>Short-Term Reversal</b>: بازگشت پس از افت ۵-۷ روزه — Lehmann (1990).</li> <li><b>Low Volatility Anomaly</b>: خرید در دوره‌های کم‌نوسان — Baker et al. (2011).</li></ul> <h4 class="guide-h">ابزارهای جدید</h4> <ul class="guide-ul"> <li><b>غنی‌سازی استراتژی (Sweep)</b>: تست ۳۰ ترکیب پارامتر در هر استراتژی و انتخاب بهترین بر اساس PF<sup>0.75</sup>×N<sup>0.25</sup>.</li> <li><b>Grade-Aware Option Sizing</b>: درجه‌بندی قرارداد آپشن از A+ تا F و تنظیم حجم پوزیشن متناسب با درجه.</li> <li><b>دکتر سیستم</b>: بررسی جامع سیستم در ۲۴ بخش با گزارش خودکار به Bale.</li> <li><b>معاملات دمو (Paper)</b>: ثبت خودکار سیگنال‌ها و پیگیری PnL بدون ریسک واقعی.</li></ul> `;
 }
+async function loadAdminTokenState() {
+  try {
+    const r = await apiFetch(BACKEND_URL + '/api/admin/token/state', {}, 0);
+    const el = document.getElementById('adminTokenState');
+    if (el) {
+      if (r && r.required) { el.textContent = '(تنظیم شده)'; el.style.color = 'var(--success)'; }
+      else { el.textContent = '(خالی — همه مجازند)'; el.style.color = 'var(--warn)'; }
+    }
+  } catch (_) {}
+}
+async function saveAdminToken(btn) {
+  const restore = _btnBusy(btn, '...');
+  try {
+    const input = document.getElementById('adminTokenNew');
+    const newToken = (input && input.value || '').trim();
+    const r = await apiFetch(BACKEND_URL + '/api/admin/token', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: newToken })
+    }, 0);
+    if (r && r.ok) {
+      showAlert(newToken ? 'توکن ادمین ذخیره شد' : 'توکن ادمین حذف شد', 'success', 4000);
+      if (input) input.value = '';
+      if (newToken) localStorage.setItem('adminToken', newToken);
+      await loadAdminTokenState();
+    } else {
+      showAlert('ذخیره ناموفق', 'error', 6000);
+    }
+  } catch (e) {
+    showAlert('خطا: ' + e.message, 'error', 8000);
+  } finally {
+    restore();
+  }
+}
 function jdpTodayJalali() {
   const now = new Date();
   const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
@@ -5829,6 +5873,9 @@ window.addEventListener('load', async () => {
     loadMonitoredSymbols(),
     loadConfigs(),
     loadSignalHistory(),
+    loadTickInterval(),
+    loadCacheTtl(),
+    loadAdminTokenState(),
     ]);
   Promise.allSettled([
     loadPaperDashboard(),

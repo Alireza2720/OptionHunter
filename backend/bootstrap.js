@@ -15,6 +15,7 @@ const logger = require('./infra/logger');
 const telegram = require('./infra/telegram');
 const algotik = require('./infra/algotik');
 const optionsChain = require('./infra/options-chain');
+const adminToken = require('./infra/admin-token');
 
 // core
 const optionsCore = require('./core/options');
@@ -231,6 +232,7 @@ async function bootstrap() {
     await mongo.connect(envConf.MONGO_URI);
 
     // 4) infra clients
+    await adminToken.init(() => mongo.getDB(), envConf.ADMIN_TOKEN);
     telegram.init(() => mongo.getDB());
     algotik.setBaseUrl(envConf.ALGOTIK_URL);
     // NOTE: optionsChain no longer fetches optionschool24 directly.
@@ -617,6 +619,7 @@ async function bootstrap() {
         telegram,
         algotik,
         optionsChain,
+        adminToken,
         // core
         options: optionsCore,
         signals: signalsCore,
