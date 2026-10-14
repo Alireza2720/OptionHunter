@@ -35,7 +35,7 @@ function makeCacheKey(parts) {
 }
 
 // FIX #10: bump to invalidate stale trade caches when logic/cost changes
-const BACKTEST_LOGIC_VERSION = 'v2-2026-10-14';
+const BACKTEST_LOGIC_VERSION = 'v3-2026-10-14';   // FIX #1: bump for fill-from-next-open
 const BACKTEST_COST_MODEL_VERSION = 'v1';
 
 function buildSignature(cfg, mode) {
@@ -180,7 +180,11 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
 
     // تبدیل به trades
     // تبدیل به trades
-    const closeAt = new Map(candles.map((c, i) => [c.time, { close: c.close, i }]));
+    const closeAt = new Map(candles.map((c, i) => [c.time, {
+        close: c.close,
+        i,
+        next: candles[i + 1] ? { time: candles[i + 1].time, open: candles[i + 1].open } : null
+    }]));
     const trades = [];
     let open = null;
 
@@ -199,13 +203,17 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
         const fillDelaySec = tfMin * 60 + LATENCY_SEC;   // 🆕 + Latency
 
         if (s.signalType === 'BUY' && !open) {
+            // FIX #1: fill from NEXT candle's open (no look-ahead bias)
+            const _nextBuy = c.next;
+            const _baseBuy = _nextBuy ? _nextBuy.open : c.close;
+            const _fillTimeBuy = _nextBuy ? _nextBuy.time : (s.time + tfMin * 60);
             const slipFactor = 1 + STOCK_SLIPPAGE_PCT + STOCK_HALF_SPREAD_PCT;
-            const fillPrice = c.close * slipFactor;
+            const fillPrice = _baseBuy * slipFactor;
             const ind = s.indicators || {};
 
             open = {
                 entryTime: s.time,
-                entryFillTime: s.time + fillDelaySec,
+                entryFillTime: _fillTimeBuy + LATENCY_SEC,
                 entryPrice: fillPrice,
                 entrySignalPrice: c.close,
                 sizeMultiplier: (cfg && Number.isFinite(cfg.sizeMultiplier)) ? cfg.sizeMultiplier : 1,
@@ -224,13 +232,17 @@ async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
             };
         } else if (s.signalType === 'EXIT_LONG' && open) {
             // 🆕 اعمال slippage روی فروش (کاهش قیمت فروش)
+            // FIX #1: fill from NEXT candle's open (exit)
+            const _nextExit = c.next;
+            const _baseExit = _nextExit ? _nextExit.open : c.close;
+            const _fillTimeExit = _nextExit ? _nextExit.time : (s.time + tfMin * 60);
             const slipFactor = 1 - STOCK_SLIPPAGE_PCT - STOCK_HALF_SPREAD_PCT;
-            const fillPrice = c.close * slipFactor;
+            const fillPrice = _baseExit * slipFactor;
 
             trades.push({
                 ...open,
                 exitTime: s.time,
-                exitFillTime: s.time + fillDelaySec,
+                exitFillTime: _fillTimeExit + LATENCY_SEC,
                 exitPrice: fillPrice,                     // 🆕 قیمت با slippage
                 exitSignalPrice: c.close,                 // 🆕
                 pnlPct: (fillPrice / open.entryPrice - 1) * 100,
@@ -434,7 +446,53 @@ function computeStats(trades) {
         : 0;
     const downsideStd = Math.sqrt(downsideVar);
 
-    // 🆕 سالانه‌سازی معقول‌تر: حداکثر ۱۰ معامله در روز
+    // FIX #4: Standard Sharpe from daily equity curve (not trade-count based)
+    let _dailySharpe = null, _dailySortino = null;
+    try {
+        const _sortedByExit = [...trades].sort((a, b) =>
+            (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime));
+        if (_sortedByExit.length >= 5) {
+            let _firstT = Infinity, _lastT = -Infinity;
+            for (const _t of trades) {
+                const _et = _t.entryTime || 0;
+                const _xt = _t.exitFillTime || _t.exitTime || 0;
+                if (_et < _firstT) _firstT = _et;
+                if (_xt > _lastT) _lastT = _xt;
+            }
+            const _daySec = 86400;
+            const _startDay = Math.floor(_firstT / _daySec) * _daySec;
+            const _endDay = Math.floor(_lastT / _daySec) * _daySec;
+            const _days = [];
+            for (let _d = _startDay; _d <= _endDay; _d += _daySec) _days.push(_d);
+            if (_days.length >= 5) {
+                let _eq = 100, _ti = 0;
+                const _curve = [];
+                for (const _day of _days) {
+                    while (_ti < _sortedByExit.length &&
+                           (_sortedByExit[_ti].exitFillTime || _sortedByExit[_ti].exitTime) <= _day) {
+                        _eq *= (1 + Math.max(-1, Math.min(5, _sortedByExit[_ti].pnlPct / 100)));
+                        _ti++;
+                    }
+                    _curve.push(_eq);
+                }
+                const _rets = [];
+                for (let _i = 1; _i < _curve.length; _i++) _rets.push(_curve[_i] / _curve[_i - 1] - 1);
+                if (_rets.length >= 4) {
+                    const _mr = _rets.reduce((s, x) => s + x, 0) / _rets.length;
+                    const _vr = _rets.reduce((s, x) => s + (x - _mr) ** 2, 0) / Math.max(_rets.length - 1, 1);
+                    const _sr = Math.sqrt(_vr);
+                    const _dr = _rets.filter(x => x < 0);
+                    const _dvr = _dr.length ? _dr.reduce((s, x) => s + x * x, 0) / _dr.length : 0;
+                    const _dsr = Math.sqrt(_dvr);
+                    const _ann = Math.sqrt(245);
+                    _dailySharpe = _sr > 0 ? Math.round((_mr / _sr) * _ann * 100) / 100 : null;
+                    _dailySortino = _dsr > 0 ? Math.round((_mr / _dsr) * _ann * 100) / 100 : null;
+                }
+            }
+        }
+    } catch (_e) { /* silent fallback */ }
+
+    // 🆕 سالانه‌سازی معقول‌تر: حداکثر ۱۰ معامله در روز (legacy fallback)
     const totalDays = trades.reduce((s, t) =>
         s + Math.max(0.01, ((t.exitFillTime || t.exitTime) - (t.entryTime || 0)) / 86400), 0
     );
@@ -444,8 +502,12 @@ function computeStats(trades) {
     const tradesPerYear = Math.min(rawTradesPerYear, 10 * TRADING_DAYS_PER_YEAR);
     const annFactor = Math.sqrt(Math.max(1, tradesPerYear));
 
-    const sharpe = stdDev > 0 ? (meanPnl / stdDev) * annFactor : null;
-    const sortino = downsideStd > 0 ? (meanPnl / downsideStd) * annFactor : null;
+    const _legacySharpe = stdDev > 0 ? (meanPnl / stdDev) * annFactor : null;
+    const _legacySortino = downsideStd > 0 ? (meanPnl / downsideStd) * annFactor : null;
+
+    // FIX #4: prefer standard daily-based Sharpe; fallback to legacy trade-based
+    const sharpe = _dailySharpe !== null ? _dailySharpe : _legacySharpe;
+    const sortino = _dailySortino !== null ? _dailySortino : _legacySortino;
 
     // Equity curve + Max Drawdown — 🆕 روی exitFillTime اگه بود
     let equity = 100;
