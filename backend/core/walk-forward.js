@@ -10,8 +10,14 @@
 function buildWindows(totalDays, numWindows = 4, trainPct = 0.7) {
     if (totalDays < 30) return [];
     const windows = [];
-    const testSize = Math.floor(totalDays / (numWindows + 1));
-    const trainSize = Math.floor(testSize * (trainPct / (1 - trainPct)));
+    // FIX #9a: proper math so exactly `numWindows` windows are produced.
+    // trainDays = testDays × R  with R = trainPct/(1-trainPct)
+    // totalDays  = trainDays + numWindows × testDays = testDays × (R + numWindows)
+    //   ⇒ testDays = totalDays / (numWindows + R)
+    const _R = Math.max(0.01, trainPct / Math.max(1 - trainPct, 0.01));
+    const testSize = Math.floor(totalDays / (numWindows + _R));
+    const trainSize = Math.floor(testSize * _R);   // FIX #9a
+    if (testSize < 5 || trainSize < 5) return [];   // FIX #9a: guard degenerate
 
     for (let i = 0; i < numWindows; i++) {
         const trainStart = i * testSize;

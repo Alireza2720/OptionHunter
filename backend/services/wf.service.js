@@ -154,6 +154,11 @@ async function runOnePair(jobId, symbol, strategyId, opts = {}) {
         && deflated.deflated > 0.5;
 
     return {
+        // FIX #9b: honest labeling — this is time-split stability, NOT real OOS.
+        // See runOnePairWithRetrain() for genuine walk-forward with per-window training.
+        method: 'time-split',
+        isRealOos: false,
+        methodNote: 'trades split by time; params NOT re-trained per window',
         jobId, symbol, strategyId,
         strategyName: detail.strategyName,
         timeframe: detail.timeframe,
@@ -284,6 +289,8 @@ async function runAggregate(jobId, opts = {}) {
     const wlPairsLen = wl.pairs instanceof Set ? wl.pairs.size : (Array.isArray(wl.pairs) ? wl.pairs.length : 0);
 
     return {
+        method: 'time-split',   // FIX #9b
+        isRealOos: false,       // FIX #9b
         jobId,
         analyzedAt: new Date(),
         totalWhitelistPairs: wlPairsLen,
