@@ -1963,6 +1963,13 @@ async function checkBackendStatus() {
     bs.style.color = d.status === 'ok' ? 'var(--success)' : 'var(--danger)';
     const cs = document.getElementById('collectorStatus');
     if (cs) {
+      if (d.collectorOnline) {
+        cs.textContent = 'متصل';
+        cs.style.color = 'var(--success)';
+      } else {
+        cs.textContent = 'قطع';
+        cs.style.color = 'var(--danger)';
+      }
     }
     const ms = document.getElementById('marketStatus');
     if (d.holidayToday) {
@@ -2047,9 +2054,10 @@ document.addEventListener('click', e => { if (!e.target.closest('.field')) { con
 async function addMonitoredSymbol() { if (!selectedSymbol) return showAlert('یک نماد انتخاب کنید.', 'warn'); try { await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: selectedSymbol }) }); showAlert(`«${selectedSymbol}» اضافه شد.`, 'success', 4000); document.getElementById('symbolSearchInput').value = ''; selectedSymbol = null; await loadMonitoredSymbols(); } catch (e) { showAlert('خطا: ' + e.message); } }
 async function loadMonitoredSymbols() {
   try {
-    monitoredSymbols = await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, {}, 0);
+    monitoredSymbols = (await apiFetch(`${BACKEND_URL}/api/monitored-symbols`, {}, 0)).slice().sort((a, b) => String(a.symbol || '').localeCompare(String(b.symbol || ''), 'fa'));
     try { window._symbolQuotes = await apiFetch(`${BACKEND_URL}/api/quotes`, {}, 0); } catch (e) {}
     try { window._lastDates = await apiFetch(`${BACKEND_URL}/api/symbols/last-dates`, {}, 0); } catch (e) { window._lastDates = {}; }
+    try { window._firstDates = await apiFetch(`${BACKEND_URL}/api/symbols/first-dates`, {}, 0); } catch (e) { window._firstDates = {}; }
     try { await loadRegimeMap(); } catch (e) {}
     renderMonitoredSymbols();
     renderConfigSymbolOptions();
@@ -6857,15 +6865,19 @@ function renderMonitoredSymbols() {
             : '<span class="badge none">-</span>';
         const cov = covMap[s.symbol] || {};
         const ld = (window._lastDates && window._lastDates[s.symbol]) || {};
+        const fd = (window._firstDates && window._firstDates[s.symbol]) || {};
         const d1m = (cov.stock_base && cov.stock_base.to) || ld.intraday || null;
         const dDaily = (cov.stock_daily && cov.stock_daily.to) || ld.daily || null;
         const dOpt = (cov.options && cov.options.to) || ld.options || null;
+        const f1m = (cov.stock_base && cov.stock_base.from) || fd.intraday || null;
+        const fDaily = (cov.stock_daily && cov.stock_daily.from) || fd.daily || null;
+        const fOpt = (cov.options && cov.options.from) || fd.options || null;
         const bfNow = window._backfillRunning ? '<span class="badge warn" title="backfill در جریان">⏳</span>' : '';
         return '<tr>' +
             '<td><b>' + esc(s.symbol) + '</b> ' + bfNow + '</td>' +
-            '<td style="font-size:11px; direction:ltr;">' + fmtDate(d1m) + '</td>' +
-            '<td style="font-size:11px; direction:ltr;">' + fmtDate(dDaily) + '</td>' +
-            '<td style="font-size:11px; direction:ltr;">' + fmtDate(dOpt) + '</td>' +
+            '<td style="font-size:11px; direction:ltr; line-height:1.5;"><div style="font-weight:600;">' + fmtDate(d1m) + '</div><div style="opacity:.55;font-size:10px;">' + fmtDate(f1m) + '</div></td>' +
+            '<td style="font-size:11px; direction:ltr; line-height:1.5;"><div style="font-weight:600;">' + fmtDate(dDaily) + '</div><div style="opacity:.55;font-size:10px;">' + fmtDate(fDaily) + '</div></td>' +
+            '<td style="font-size:11px; direction:ltr; line-height:1.5;"><div style="font-weight:600;">' + fmtDate(dOpt) + '</div><div style="opacity:.55;font-size:10px;">' + fmtDate(fOpt) + '</div></td>' +
             '<td>' + regimeHtml + '</td>' +
             '<td>' + priceHtml + '</td>' +
             '<td>' +
@@ -6878,7 +6890,7 @@ function renderMonitoredSymbols() {
     g.innerHTML =
         '<div class="table-responsive" style="max-height:500px; overflow-y:auto;">' +
         '<table class="data-table">' +
-        '<thead><tr><th>نام</th><th>آخرین 1m</th><th>آخرین روزانه</th><th>آخرین آپشن</th><th>رژیم</th><th>قیمت</th><th>عملیات</th></tr></thead>' +
+        '<thead><tr><th>نام</th><th>1m (آخرین / اولین)</th><th>روزانه (آخرین / اولین)</th><th>آپشن (آخرین / اولین)</th><th>رژیم</th><th>قیمت</th><th>عملیات</th></tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '</table></div>';
 }

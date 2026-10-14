@@ -108,6 +108,42 @@ function register(app, deps) {
         } catch (e) { next(e); }
     });
 
+    // ─── First dates for monitored symbols ───
+    // Returns the earliest candle/option date per symbol (cached 5 min since these rarely change)
+    let _firstDatesCache = null;
+    let _firstDatesAt = 0;
+    const _FIRST_DATES_TTL = 5 * 60 * 1000;
+    app.get('/api/symbols/first-dates', async (req, res, next) => {
+        try {
+            const fresh = req.query.fresh === '1';
+            if (!fresh && _firstDatesCache && (Date.now() - _firstDatesAt) < _FIRST_DATES_TTL) {
+                return res.json(_firstDatesCache);
+            }
+            const db = getDB();
+            const symbols = await db.collection(COLLECTIONS.MONITORED_SYMBOLS).find({}).toArray();
+            const symList = symbols.map(s => s.symbol);
+            if (!symList.length) return res.json({});
+            const out = {};
+            const projection = { time: 1, _id: 0 };
+            const sort = { time: 1 };
+            await Promise.all(symList.map(async (s) => {
+                const [d, i, o] = await Promise.all([
+                    db.collection(COLLECTIONS.CANDLES_DAILY).findOne({ symbol: s }, { sort, projection }).catch(() => null),
+                    db.collection(COLLECTIONS.CANDLES_BASE).findOne({ symbol: s }, { sort, projection }).catch(() => null),
+                    db.collection(COLLECTIONS.OPTION_HISTORY).findOne({ underlying: s }, { sort, projection }).catch(() => null)
+                ]);
+                out[s] = {
+                    daily: d ? d.time : null,
+                    intraday: i ? i.time : null,
+                    options: o ? o.time : null
+                };
+            }));
+            _firstDatesCache = out;
+            _firstDatesAt = Date.now();
+            res.json(out);
+        } catch (e) { next(e); }
+    });
+
     // ---- Monitored symbols list ----
     app.get('/api/monitored-symbols', async (req, res, next) => {
         try {
