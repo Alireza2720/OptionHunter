@@ -62,6 +62,18 @@ echo ""
 echo "── 3d) bs.test.js ──"
 node backend/tests/bs.test.js
 
+echo ""
+echo "── 3e) strategies.test.js ──"
+node backend/tests/strategies.test.js
+
+echo ""
+echo "── 3f) execution.test.js ──"
+node backend/tests/execution.test.js
+
+echo ""
+echo "── 3g) cache.test.js ──"
+node backend/tests/cache.test.js
+
 # 4. API test (اختیاری — نیاز به backend فعال)
 echo ""
 echo "── 4) API Test ──"
