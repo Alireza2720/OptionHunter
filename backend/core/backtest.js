@@ -34,8 +34,15 @@ function makeCacheKey(parts) {
     return crypto.createHash('md5').update(JSON.stringify(parts)).digest('hex');
 }
 
+// FIX #10: bump to invalidate stale trade caches when logic/cost changes
+const BACKTEST_LOGIC_VERSION = 'v2-2026-10-14';
+const BACKTEST_COST_MODEL_VERSION = 'v1';
+
 function buildSignature(cfg, mode) {
     return {
+        // FIX #10: cache invalidation keys
+        logicVersion: BACKTEST_LOGIC_VERSION,
+        costModelVersion: BACKTEST_COST_MODEL_VERSION,
         symbol: cfg.symbol || null,
         pairSymbol: cfg.pairSymbol || null,
         // 🆕 configId فقط وقتی _id معتبر باشه (نه برای dual-stage)

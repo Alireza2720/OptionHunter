@@ -1224,7 +1224,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     // ---- انتخاب قرارداد ورود (بهینه: هر نماد با slice) ----
     const candidateRows = [];
     const _loSec = entrySec - WINDOW_SEC;
-    const _hiSec = entrySec + WINDOW_SEC;
+    const _hiSec = entrySec;   // FIX #5: no future leak (candidate must be <= entry time)
     for (const [sym, rows] of rowsBySymbol) {
         // 🆕 فرض: rows از قبل بر اساس زمان مرتب است → باینری سرچ
         let lo = 0, hi = rows.length;
@@ -1299,15 +1299,21 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const _qSpreadPct = _qMid > 0 ? ((_qAsk - _qBid) / _qMid) * 100 : 100;
     const _qOI = Number(best.oi) || 0;
     const _qVol = Number(best.volume) || 0;
-    if (_qAsk < 20) return null;
-    if (_qSpreadPct > 80) return null;
-    if (best.oi != null && Number.isFinite(Number(best.oi)) && Number(best.oi) > 0 && Number(best.oi) < 5) return null;
+    // FIX #7: use quality-filter params instead of hardcoded thresholds
+    const _qMinPremium = (p.minPremium != null && Number.isFinite(p.minPremium) && p.minPremium > 0) ? p.minPremium : 20;
+    const _qMaxSpread = (p.maxSpreadPct != null && Number.isFinite(p.maxSpreadPct) && p.maxSpreadPct > 0) ? p.maxSpreadPct : 80;
+    const _qMinOI = (p.minOI != null && Number.isFinite(p.minOI) && p.minOI > 0) ? p.minOI : 0;
+    const _qMinDays = (p.minDays != null && Number.isFinite(p.minDays) && p.minDays > 0) ? p.minDays : 2;
+    const _qMaxDays = (p.maxDays != null && Number.isFinite(p.maxDays) && p.maxDays > 0) ? p.maxDays : 180;
+    if (_qAsk < _qMinPremium) return null;
+    if (_qSpreadPct > _qMaxSpread) return null;
+    if (_qMinOI > 0 && _qOI < _qMinOI) return null;
 
     const _qDaysRaw = best.daysLeft;
     if (_qDaysRaw != null && Number.isFinite(Number(_qDaysRaw)) && Number(_qDaysRaw) > 0) {
         const _qDays = Number(_qDaysRaw);
-        if (_qDays < 2) return null;
-        if (_qDays > 180) return null;
+        if (_qDays < _qMinDays) return null;
+        if (_qDays > _qMaxDays) return null;
     }
 
     // NEW: grade-aware — reject F tier (deep OTM / illiquid / huge spread)
@@ -1343,7 +1349,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const contractRows = rowsBySymbol.get(best.symbol) || [];
     let exitRow = null, exitDist = Infinity;
     const _eLo = exitSec - WINDOW_SEC;
-    const _eHi = exitSec + WINDOW_SEC;
+    const _eHi = exitSec;   // FIX #5: no future leak (candidate must be <= exit time)
     let _lo = 0, _hi = contractRows.length;
     while (_lo < _hi) {
         const mid = (_lo + _hi) >> 1;
@@ -1390,26 +1396,8 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     } catch (_) {}
 
 
-    // Bug 9 FIX: adjust option entry/exit for stock move between signal and EOD
-    {
-        const _adjDelta = getDelta(best) || 0.5;
-        if (Number(t.entryPrice) > 0 && Number(best.S) > 0) {
-            const _dS = Number(t.entryPrice) - Number(best.S);
-            let _dOpt = _adjDelta * _dS;
-            const _cap = entry.price * 0.5;
-            if (_dOpt > _cap) _dOpt = _cap;
-            if (_dOpt < -_cap) _dOpt = -_cap;
-            entry = Object.assign({}, entry, { price: Math.max(1, entry.price + _dOpt), _adj: true, _dS: _dS });
-        }
-        if (Number(t.exitPrice) > 0 && Number(exitRow.S) > 0) {
-            const _dS2 = Number(t.exitPrice) - Number(exitRow.S);
-            let _dOpt2 = _adjDelta * _dS2;
-            const _cap2 = exit.price * 0.5;
-            if (_dOpt2 > _cap2) _dOpt2 = _cap2;
-            if (_dOpt2 < -_cap2) _dOpt2 = -_cap2;
-            exit = Object.assign({}, exit, { price: Math.max(1, exit.price + _dOpt2), _adj: true, _dS: _dS2 });
-        }
-    }
+    // FIX #6: removed duplicate Bug-9 adjustment (kept first block; second was identical)
+
 
     // ---- 🆕 Slippage داینامیک (۱ قرارداد، نه multiplier) ----
     const contractMultiplier = best.size || 1000;
