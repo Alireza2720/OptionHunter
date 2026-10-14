@@ -1156,7 +1156,8 @@ function runNR7(candles, params, ctx) {
     const signals = [], trades = [];
     let position = null, entry = null, cooldown = 0, lastTrend = null;
     const dayCache = new Map();
-    const dayKey = (t) => { const x = getTehranParts(new Date(t * 1000)); return x.year + '-' + x.month + '-' + x.day; };
+    // FIX 9.6b: pad month/day so string sort is chronological (was leaking future days)
+    const dayKey = (t) => { const x = getTehranParts(new Date(t * 1000)); return x.year + '-' + String(x.month).padStart(2, '0') + '-' + String(x.day).padStart(2, '0'); };
     // Pre-compute daily ranges
     const dailyRanges = new Map();
     for (const c of candles) {
@@ -1244,7 +1245,8 @@ function runVCP(candles, params, ctx) {
     const signals = [], trades = [];
     let position = null, entry = null, cooldown = 0, lastTrend = null;
     const dayCache = new Map();
-    const dayKey = (t) => { const x = getTehranParts(new Date(t * 1000)); return x.year + '-' + x.month + '-' + x.day; };
+    // FIX 9.6b: pad month/day so string sort is chronological (was leaking future days)
+    const dayKey = (t) => { const x = getTehranParts(new Date(t * 1000)); return x.year + '-' + String(x.month).padStart(2, '0') + '-' + String(x.day).padStart(2, '0'); };
     const avgVol = (i, n) => { const s = Math.max(0, i - n); const sl = candles.slice(s, i); return sl.length ? sl.reduce((a, c) => a + (c.volume || 0), 0) / sl.length : 0; };
     // Compute daily ranges for contraction detection
     const daily = new Map();
