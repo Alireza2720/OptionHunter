@@ -171,8 +171,8 @@ async function generate() {
             winRate: Math.round(wr * 10) / 10,
             avgPnlPerTrade: s.totalTrades ? Math.round(s.totalPnl / s.totalTrades * 100) / 100 : 0,
             leaderCount, confirmerCount, configCount,
-            best: s.best,
-            worst: s.worst,
+            best: s.best || null,
+            worst: s.worst || null,
             status: statusEmoji(aggregatePF, s.totalTrades)
         };
     }).sort((a, b) => b.avgPF - a.avgPF);
@@ -221,8 +221,8 @@ async function generate() {
             configs: s.configs,
             totalTrades: s.totalTrades,
             aggregatePF: Math.round(aggPF * 100) / 100,
-            best: s.best,
-            worst: s.worst,
+            best: s.best || null,
+            worst: s.worst || null,
             status: statusEmoji(aggPF, s.totalTrades)
         };
     }).sort((a, b) => b.aggregatePF - a.aggregatePF);
@@ -374,7 +374,7 @@ function buildText(report) {
     t += `\n`;
 
     // ضعیف‌ها
-    const bot5 = report.symStats.filter(s => s.best.pf < 1.2).slice(-5).reverse();
+    const bot5 = report.symStats.filter(s => s.best && s.best.pf < 1.2).slice(-5).reverse();
     if (bot5.length) {
         t += `⚠️ نیاز به بررسی\n`;
         t += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
