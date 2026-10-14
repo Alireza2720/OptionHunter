@@ -156,6 +156,29 @@ function register(app, deps) {
     });
 
     // ----------------------------------------------------------
+    // GET /api/ga/fitness-history/:strategyId
+    // Lightweight: only fitness history (for mini chart)
+    // ----------------------------------------------------------
+    app.get('/api/ga/fitness-history/:strategyId', async (req, res, next) => {
+        try {
+            const st = await gaStopResume.loadState(getDB, req.params.strategyId);
+            if (!st) return res.status(404).json({ error: 'state not found' });
+            const raw = Array.isArray(st.history) ? st.history : [];
+            const history = raw.map((h, i) => ({
+                gen: i + 1,
+                fitness: Number(h && h.fitness) || 0
+            }));
+            res.json({
+                strategyId: req.params.strategyId,
+                generation: st.generation || 0,
+                status: st.status || 'unknown',
+                bestFitness: (st.best && st.best.fitness) || 0,
+                history
+            });
+        } catch (e) { next(e); }
+    });
+
+    // ----------------------------------------------------------
     // GET /api/ga/states
     // ----------------------------------------------------------
     app.get('/api/ga/states', async (req, res, next) => {

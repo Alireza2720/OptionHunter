@@ -114,7 +114,7 @@ function _buildSearchSpace(strategyId, defaults) {
     return out;
 }
 
-async function _evalParams(strategyId, params, symbols, opts) {
+async function _evalParams(strategyId, params, symbols, opts, optCountsCache) {
     const def = deps.strategies.STRATEGIES[strategyId];
     if (!def) return { error: 'unknown strategy', stats: null };
     const mergedParams = Object.assign({}, def.defaultParams, params);
@@ -149,20 +149,23 @@ async function _evalParams(strategyId, params, symbols, opts) {
         return null;
     };
 
-    let _optCounts = {};
-    if (mode === 'both') {
-        const db = deps.getDB();
-        const since = opts.dateFrom ? new Date(opts.dateFrom * 1000) : new Date(Date.now() - 365 * 86400 * 1000);
-        const until = opts.dateTo ? new Date(opts.dateTo * 1000) : new Date();
-        await Promise.all(symbols.map(async (s) => {
-            try {
-                _optCounts[s] = await db.collection('option_history').countDocuments({
-                    underlying: s,
-                    time: { $gte: since, $lte: until },
-                    bid: { $gt: 0 }, ask: { $gt: 0 }
-                });
-            } catch (_) { _optCounts[s] = 0; }
-        }));
+    let _optCounts = optCountsCache;
+    if (!_optCounts) {
+        _optCounts = {};
+        if (mode === 'both') {
+            const db = deps.getDB();
+            const since = opts.dateFrom ? new Date(opts.dateFrom * 1000) : new Date(Date.now() - 365 * 86400 * 1000);
+            const until = opts.dateTo ? new Date(opts.dateTo * 1000) : new Date();
+            await Promise.all(symbols.map(async (s) => {
+                try {
+                    _optCounts[s] = await db.collection('option_history').countDocuments({
+                        underlying: s,
+                        time: { $gte: since, $lte: until },
+                        bid: { $gt: 0 }, ask: { $gt: 0 }
+                    });
+                } catch (_) { _optCounts[s] = 0; }
+            }));
+        }
     }
 
     const _evalSymbol = async (sym) => {
@@ -311,6 +314,25 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
         .slice(0, _limit);
     if (!symbols.length) return { strategyId: strategyId, error: 'no symbols' };
 
+    // Pre-compute option counts once per strategy (was N×M before)
+    let _optCountsCache = null;
+    if (opts.mode === 'both' && symbols.length) {
+        _optCountsCache = {};
+        const _db = deps.getDB();
+        const _since = opts.dateFrom ? new Date(opts.dateFrom * 1000) : new Date(Date.now() - 365 * 86400 * 1000);
+        const _until = opts.dateTo ? new Date(opts.dateTo * 1000) : new Date();
+        await Promise.all(symbols.map(async (s) => {
+            try {
+                _optCountsCache[s] = await _db.collection('option_history').countDocuments({
+                    underlying: s,
+                    time: { $gte: _since, $lte: _until },
+                    bid: { $gt: 0 }, ask: { $gt: 0 }
+                });
+            } catch (_) { _optCountsCache[s] = 0; }
+        }));
+        deps.logger && deps.logger.info('[ga] precomputed optCounts for ' + symbols.length + ' symbols');
+    }
+
     while (generation < opts.maxGenerations) {
         // -- check cancel
         if (await _isCancelled(jobDbId)) {
@@ -399,7 +421,7 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             let ev;
             try {
                 ev = await Promise.race([
-                    _evalParams(strategyId, params, symbols, opts),
+                    _evalParams(strategyId, params, symbols, opts, _optCountsCache),
                     new Promise((_, rej) => setTimeout(() => rej(new Error('eval timeout ' + _toMs + 'ms')), _toMs))
                 ]);
             } catch (_te) {
@@ -454,7 +476,13 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             await _updateJobProgress(jobDbId, {
                 'progress.message': 'GA ' + strategyId + ' | gen ' + generation + '/' + opts.maxGenerations
                     + ' | trial ' + (t + 1) + '/' + opts.trialsPerGeneration
-                    + ' | best=' + bestFitness.toFixed(3)
+                    + ' | best=' + bestFitness.toFixed(3),
+                'progress.currentStrategy': strategyId,
+                'progress.generation': generation,
+                'progress.trial': t + 1,
+                'progress.maxGenerations': opts.maxGenerations,
+                'progress.trialsPerGeneration': opts.trialsPerGeneration,
+                'progress.bestFitness': bestFitness
             });
         }
 
@@ -472,7 +500,7 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             bestEquityCurve: bestEquityCurve,
             tpeState: sampler.export(),
             prunerState: pruner.export(),
-            history: sampler.history.slice(-100)
+            history: sampler.history.slice(-40)
         });
 
         if (patienceLeft <= 0) {

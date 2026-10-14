@@ -968,7 +968,7 @@ async function managePositions(chain) {
         if (reason) {
             Object.assign(upd, {
                 status: 'closed', exitTime: new Date(),
-                exitBid: exitPx, exitS: c.S, pnlPct, exitReason: reason
+                exitBid: exitPx, exitS: c.S, pnlPct, pnl: { pnlPct }, exitReason: reason
             });
             // 🆕 پاک کردن stagedExits قدیمی
             _unsetFields = { stagedExits: '' };

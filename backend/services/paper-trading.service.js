@@ -107,6 +107,7 @@ async function recordSignal(signalData) {
                     exitTime: new Date(),
                     exitBid,
                     pnlPct,
+                    pnl: { pnlPct },
                     exitReason: 'سیگنال خروج'
                 } }
             );
@@ -127,11 +128,16 @@ async function getReport() {
         .find({ paper: true }).sort({ createdAt: -1 }).limit(500).toArray();
 
     const open = all.filter(p => p.status === 'open');
-    const closed = all.filter(p => p.status === 'closed' && p.pnl);
-    const wins = closed.filter(p => (p.pnl.pnlPct || 0) > 0);
-    const losses = closed.filter(p => (p.pnl.pnlPct || 0) <= 0);
-    const gp = wins.reduce((s, p) => s + (p.pnl.pnlPct || 0), 0);
-    const gl = Math.abs(losses.reduce((s, p) => s + (p.pnl.pnlPct || 0), 0));
+    function _pnlOf(p) {
+        if (p && p.pnl && typeof p.pnl.pnlPct === 'number') return p.pnl.pnlPct;
+        if (p && typeof p.pnlPct === 'number') return p.pnlPct;
+        return null;
+    }
+    const closed = all.filter(p => p.status === 'closed' && _pnlOf(p) !== null);
+    const wins = closed.filter(p => _pnlOf(p) > 0);
+    const losses = closed.filter(p => _pnlOf(p) <= 0);
+    const gp = wins.reduce((s, p) => s + _pnlOf(p), 0);
+    const gl = Math.abs(losses.reduce((s, p) => s + _pnlOf(p), 0));
     const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
 
     return {
@@ -141,7 +147,7 @@ async function getReport() {
         wins: wins.length,
         losses: losses.length,
         winRate: closed.length ? wins.length / closed.length * 100 : 0,
-        totalPnl: closed.reduce((s, p) => s + (p.pnl.pnlPct || 0), 0),
+        totalPnl: closed.reduce((s, p) => s + (_pnlOf(p) || 0), 0),
         profitFactor: pf,
         avgWin: wins.length ? gp / wins.length : 0,
         avgLoss: losses.length ? -gl / losses.length : 0,

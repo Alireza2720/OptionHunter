@@ -3214,6 +3214,7 @@ async function loadPaperDashboard(btn) {
         const tradesResp = await apiFetch(BACKEND_URL + '/api/paper-trading/trades', {}, 0);
         const statBox = (label, val, cls) => '<div class="stat ' + (cls||'') + '"><small>' + label + '</small><b>' + val + '</b></div>';
         const trades = (tradesResp.trades || []).slice(0, 30);
+        try { _renderPaperPnlChart(tradesResp.trades || []); } catch(_) {}
         const rows = trades.map(t => {
             const status = t.status === 'open' ? 'باز' : t.status === 'closed' ? 'بسته' : t.status;
             const pnl = t.pnl && typeof t.pnl.pnlPct === 'number' ? t.pnl.pnlPct : null;
@@ -3226,6 +3227,7 @@ async function loadPaperDashboard(btn) {
             return '<tr><td>' + esc(sym) + '</td><td>' + esc(contract) + '</td><td>' + esc(status) + '</td><td>' + entry + '</td><td>' + exit + '</td><td class="' + pnlCls + '">' + pnlTxt + '</td><td style="font-size:11px;">' + esc((t.exit && t.exit.reason) || t.skipReason || '-') + '</td></tr>';
         }).join('');
         el.innerHTML =
+            '<div id="paperPnlChart" style="height:180px; background:var(--bg-elev-2); border:1px solid var(--border); border-radius:var(--r-md); margin-bottom:14px; overflow:hidden;"></div>' +
             '<div class="stats-grid">' +
                 statBox('کل', summary.total || 0) +
                 statBox('باز', summary.open || 0, (summary.open > 0 ? 'highlight-good' : '')) +
@@ -3250,6 +3252,60 @@ async function loadPaperDashboard(btn) {
         if (btn) { btn.disabled = false; btn.textContent = 'رفرش'; }
     }
 }
+function _renderPaperPnlChart(trades) {
+    var el = document.getElementById("paperPnlChart");
+    if (!el) return;
+    if (typeof LightweightCharts === "undefined") return;
+
+    function pnlOf(t) {
+        if (t && t.pnl && typeof t.pnl.pnlPct === "number") return t.pnl.pnlPct;
+        if (t && typeof t.pnlPct === "number") return t.pnlPct;
+        return null;
+    }
+    var closed = (trades || [])
+        .filter(function (t) { return t && t.status === "closed" && pnlOf(t) !== null; })
+        .sort(function (a, b) {
+            var ta = (a.exit && a.exit.time) ? new Date(a.exit.time).getTime() : 0;
+            var tb = (b.exit && b.exit.time) ? new Date(b.exit.time).getTime() : 0;
+            return ta - tb;
+        });
+
+    if (closed.length < 2) {
+        el.innerHTML = '<div class="hint" style="text-align:center;padding:60px 20px;">برای نمایش نمودار، حداقل دو معامله بسته لازم است</div>';
+        return;
+    }
+    var cum = 0;
+    var data = closed.map(function (t, i) {
+        cum += pnlOf(t);
+        return { time: i + 1, value: Math.round(cum * 100) / 100 };
+    });
+
+    el.innerHTML = "";
+    var chart = LightweightCharts.createChart(el, {
+        width: el.clientWidth || 600,
+        height: 180,
+        layout: { background: { color: "transparent" }, textColor: "#888", fontSize: 10 },
+        grid: { vertLines: { visible: false }, horzLines: { color: "rgba(255,255,255,0.05)" } },
+        timeScale: { visible: false },
+        rightPriceScale: { borderVisible: false },
+        handleScroll: false,
+        handleScale: false
+    });
+    var series = chart.addLineSeries({
+        color: cum >= 0 ? "#10b981" : "#ef4444",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true
+    });
+    series.setData(data);
+    chart.timeScale().fitContent();
+    var color = cum >= 0 ? "var(--success)" : "var(--danger)";
+    var hdr = document.createElement("div");
+    hdr.style.cssText = "font-size:11px; color:var(--text-dim); padding:6px 10px 0 10px; display:flex; justify-content:space-between;";
+    hdr.innerHTML = "<span>منحنی سود و زیان انباشته</span><span style=\"font-weight:600; color:" + color + ";\">جمع: " + (cum >= 0 ? "+" : "") + cum.toFixed(2) + "%</span>";
+    el.insertBefore(hdr, el.firstChild);
+}
+
 async function appendClosedTrades() {
     const el = document.getElementById('dashboardContent');
     if (!el) return;
@@ -7452,6 +7508,50 @@ function _gaFmtEta(sec) {
   return h + " ساعت" + (m > 0 ? " و " + m + " دقیقه" : "");
 }
 
+function _gaRenderFitnessChart(strategyId) {
+    if (!strategyId) return;
+    var el = document.getElementById("gaFitnessChart");
+    if (!el) return;
+    if (typeof LightweightCharts === "undefined") return;
+    if (!el._chart) {
+        try {
+            el._chart = LightweightCharts.createChart(el, {
+                width: el.clientWidth || 400,
+                height: 120,
+                layout: { background: { color: "transparent" }, textColor: "#888", fontSize: 10 },
+                grid: { vertLines: { visible: false }, horzLines: { color: "rgba(255,255,255,0.05)" } },
+                timeScale: { visible: false },
+                rightPriceScale: { borderVisible: false },
+                handleScroll: false,
+                handleScale: false,
+                crosshair: { mode: 0 }
+            });
+            el._series = el._chart.addLineSeries({
+                color: "#6366f1",
+                lineWidth: 2,
+                priceLineVisible: false,
+                lastValueVisible: true
+            });
+        } catch (_) { return; }
+    }
+    // Avoid hammering the API: skip if fetched < 5s ago
+    var now = Date.now();
+    if (el._lastFetch && (now - el._lastFetch) < 5000) return;
+    el._lastFetch = now;
+    apiFetch(BACKEND_URL + "/api/ga/fitness-history/" + encodeURIComponent(strategyId), {}, 0)
+        .then(function (r) {
+            var hist = (r && r.history) || [];
+            if (hist.length < 2) return;
+            var data = hist.map(function (h) { return { time: h.gen, value: h.fitness }; });
+            try {
+                el._series.setData(data);
+                el._chart.timeScale().fitContent();
+            } catch (_) {}
+        })
+        .catch(function () {});
+}
+window._gaRenderFitnessChart = _gaRenderFitnessChart;
+
 function _gaRenderLiveProgress(j) {
   const el = document.getElementById("gaLiveProgress");
   if (!el) return;
@@ -7516,7 +7616,9 @@ function _gaRenderLiveProgress(j) {
     + "<div style=\"display:flex;gap:6px;margin-top:10px;\">"
     + "<button class=\"btn tiny danger\" onclick=\"gaCancelJob()\">✖ لغو</button>"
     + "</div>"
-    + "</div>";
+    + "</div>"
+    + "<div id=\"gaFitnessChart\" style=\"height:120px; margin-top:10px; background:var(--bg-elev-2); border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden;\"></div>";
+  try { window._gaRenderFitnessChart(stratName); } catch(_) {}
 }
 
 async function _gaLiveTick() {
