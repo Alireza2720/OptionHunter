@@ -1098,6 +1098,8 @@ async function runBacktest(cfg, from, to, opts = {}) {
 }
 
 module.exports = {
+    // Stage 9.6d — version constants for cache invalidation
+    BACKTEST_LOGIC_VERSION, BACKTEST_COST_MODEL_VERSION,
     init,
     makeCacheKey, buildSignature,
     computeStockTrades,
