@@ -7584,7 +7584,29 @@ function _gaRenderLiveProgress(j) {
     doneFraction = totalTrials > 0 ? (prevTrials + currTrials) / totalTrials : 0;
   }
   const pct = Math.min(99, Math.round(doneFraction * 100));
-  const etaSec = doneFraction > 0.03 ? (elapsed / doneFraction - elapsed) : null;
+  // EWMA-based ETA from recent rate
+  if (!window._gaEtaState) window._gaEtaState = { strat: null, samples: [] };
+  const _etaState = window._gaEtaState;
+  if (_etaState.strat !== stratName) {
+      _etaState.strat = stratName;
+      _etaState.samples = [];
+  }
+  _etaState.samples.push({ at: Date.now(), frac: doneFraction });
+  if (_etaState.samples.length > 8) _etaState.samples.shift();
+  let etaSec = null;
+  if (_etaState.samples.length >= 3) {
+      const _s0 = _etaState.samples[0];
+      const _sN = _etaState.samples[_etaState.samples.length - 1];
+      const _dt = (_sN.at - _s0.at) / 1000;
+      const _df = _sN.frac - _s0.frac;
+      if (_df > 0.005 && _dt > 1) {
+          const _rate = _df / _dt;
+          etaSec = Math.max(0, (1 - _sN.frac) / _rate);
+      }
+  }
+  if (etaSec == null && doneFraction > 0.03) {
+      etaSec = Math.max(0, elapsed / doneFraction - elapsed);
+  }
 
   const now = new Date();
   const tehran = new Date(now.getTime() + 3.5 * 3600 * 1000);
