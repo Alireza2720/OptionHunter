@@ -16,6 +16,8 @@ async function run() {
         const r = await orch.resumeReady();
         if (r && r.resumed > 0) {
             deps.logger && deps.logger.info('ga-resume: resumed ' + r.resumed + ' strategies');
+        } else if (r && r.inDanger) {
+            deps.logger && deps.logger.info('ga-resume: skip (danger window active)');
         }
     } catch (e) {
         deps.logger && deps.logger.warn('ga-resume: ' + e.message);

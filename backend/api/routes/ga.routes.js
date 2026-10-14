@@ -230,7 +230,7 @@ function register(app, deps) {
             // Clear resumeAfter so next cron picks it up immediately
             await getDB().collection('meta').updateOne(
                 { _id: 'ga_state_' + sid },
-                { $set: { status: 'paused', resumeAfter: new Date(0), updatedAt: new Date() } }
+                { $set: { status: 'paused', resumeAfter: new Date(0), manualPause: false, pauseRequested: false, updatedAt: new Date() } }
             );
             res.json({ ok: true, note: 'الان روی صف resume قرار گرفت — تا ۵ دقیقه اجرا می‌شود' });
         } catch (e) { next(e); }
@@ -259,9 +259,15 @@ function register(app, deps) {
             };
             const insR = await db.collection('strategy_configs_archive').insertOne(archiveDoc);
 
-            // Merge & save
-            const existing = (cur && cur.values) || {};
-            existing[sid] = Object.assign({}, existing[sid] || {}, params);
+            // Merge & save (defensive - ensure existing is a plain object)
+            let existing = cur && cur.values;
+            if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+                existing = {};
+            }
+            const currentParams = (existing[sid] && typeof existing[sid] === 'object' && !Array.isArray(existing[sid]))
+                ? existing[sid] : {};
+            existing[sid] = Object.assign({}, currentParams, params);
+            logger && logger.info('[ga/apply] sid=' + sid + ' keys=' + Object.keys(params || {}).join(','));
 
             await db.collection(COLLECTIONS.META).updateOne(
                 { _id: 'strategy_defaults' },
@@ -365,6 +371,23 @@ function register(app, deps) {
                     optionRatio: Math.round(optionRatio * 100) / 100
                 }
             });
+        } catch (e) { next(e); }
+    });
+
+    // ----------------------------------------------------------
+    // POST /api/ga/pause/:strategyId -- manual pause
+    // ----------------------------------------------------------
+    app.post('/api/ga/pause/:strategyId', async (req, res, next) => {
+        try {
+            const sid = req.params.strategyId;
+            const st = await gaStopResume.loadState(getDB, sid);
+            if (!st) return res.status(404).json({ error: 'state not found' });
+            await getDB().collection('meta').updateOne(
+                { _id: 'ga_state_' + sid },
+                { $set: { pauseRequested: true, updatedAt: new Date() } }
+            );
+            logger && logger.info('[ga/pause] requested for ' + sid);
+            res.json({ ok: true, note: 'after current generation' });
         } catch (e) { next(e); }
     });
 

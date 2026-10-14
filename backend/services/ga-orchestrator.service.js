@@ -324,6 +324,27 @@ async function _runSingleStrategy(strategyId, jobDbId, opts) {
             return { strategyId: strategyId, cancelled: true };
         }
 
+        // -- manual pause request
+        try {
+            const _st = await stopResume.loadState(deps.getDB, strategyId);
+            if (_st && _st.pauseRequested) {
+                const _savedOpts = { mode: opts.mode, maxGenerations: opts.maxGenerations, trialsPerGeneration: opts.trialsPerGeneration, numWindows: opts.numWindows, patience: opts.patience, symbolsLimit: opts.symbolsLimit, dateFrom: opts.dateFrom, dateTo: opts.dateTo, lightMode: opts.lightMode, softMaxMinutes: opts.softMaxMinutes };
+                await stopResume.saveState(deps.getDB, strategyId, {
+                    status: 'paused', generation: generation,
+                    best: { params: bestParams, fitness: bestFitness, stats: bestStats },
+                    bestEquityCurve: bestEquityCurve,
+                    tpeState: sampler.export(),
+                    prunerState: pruner.export(),
+                    resumeAfter: null,
+                    manualPause: true,
+                    pauseRequested: false,
+                    savedOpts: _savedOpts
+                });
+                deps.logger && deps.logger.info('[ga] manually paused ' + strategyId + ' at gen ' + generation);
+                return { strategyId: strategyId, paused: true, manual: true };
+            }
+        } catch (_) {}
+
         // -- BUG-10: also check holiday
         let _isHoliday = false;
         try {
@@ -572,6 +593,7 @@ async function resumeReady() {
     let resumed = 0;
     // FIX GA-8: sequential, one at a time
     for (const st of paused) {
+        if (st.manualPause === true) continue;   // manual pause -- wait for user
         if (st.resumeAfter && new Date(st.resumeAfter) > new Date()) continue;
         if (stopResume.isDangerWindow()) break;
         await stopResume.saveState(deps.getDB, st.strategyId, Object.assign({}, st, { status: 'running' }));

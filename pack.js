@@ -89,7 +89,7 @@ const INCLUDE_NAMES = new Set([
     'requirements.txt',
 ]);
 
-const MAX_FILE_SIZE = 500 * 1024;   // 500KB per file
+const MAX_FILE_SIZE = 10 * 1024 * 1024;   // 10MB per file (R171)
 
 function shouldSkipDir(name) {
     return SKIP_DIRS.has(name);
