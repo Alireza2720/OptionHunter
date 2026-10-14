@@ -389,6 +389,54 @@ header {
   box-shadow: var(--shadow-lg);
 }
 .menu-panel.open { right: 0; }
+.menu-close-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 150ms;
+  flex-shrink: 0;
+  font-family: inherit;
+  padding: 0;
+}
+.menu-close-btn:hover {
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.hint-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-inline-start: 4px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: inherit;
+  transition: all 140ms;
+  vertical-align: middle;
+  padding: 0;
+  line-height: 1;
+}
+.hint-icon:hover {
+  background: var(--accent);
+  color: #fff;
+  transform: scale(1.15);
+}
 .menu-panel h3 {
   font-size: 15px;
   color: var(--text-bright);
@@ -1611,7 +1659,7 @@ table.data-table tbody tr:nth-child(even):hover td { background: var(--bg-hover)
 </div> <div id="globalLoader"><div class="loader-spinner"></div><div class="loader-text" id="loaderText"></div><div class="loader-sub" id="loaderSub"></div></div>
 <div id="alertContainer"></div> <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()" aria-label="منو"><span></span><span></span><span></span></button>
 <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
-<div class="menu-panel" id="menuPanel"> <h3>مرکز کنترل</h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> 
+<div class="menu-panel" id="menuPanel"> <h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px;"> <span>مرکز کنترل</span> <button class="menu-close-btn" onclick="toggleMenu()" aria-label="بستن منو" type="button">✕</button> </h3> <div class="menu-tabs"> <button class="menu-tab active" onclick="switchMenuTab('settings', this)">تنظیمات</button> <button class="menu-tab" onclick="switchMenuTab('status', this)">وضعیت</button> <button class="menu-tab" onclick="switchMenuTab('guide', this)">راهنما</button> </div> <div class="menu-tab-content" id="menuTab-settings"> <div class="menu-label">تم</div> <div class="theme-grid"> <button class="btn tiny outline" onclick="setTheme('dark')">تاریک</button> <button class="btn tiny outline" onclick="setTheme('light')">روشن</button> <button class="btn tiny outline" onclick="setTheme('midnight')">نیمه‌شب</button> <button class="btn tiny outline" onclick="setTheme('cream')">کرم</button> </div> 
 <div class="menu-divider"></div>
 <div class="menu-label">سرعت تیک زنده</div>
 <div style="padding:10px 12px; background:var(--bg-elev-2); border:1px solid var(--border); border-radius:var(--r-md);">
@@ -1775,7 +1823,7 @@ function switchMenuTab(which, btn) {
   ['settings','status','guide'].forEach(k => { const el = document.getElementById('menuTab-'+k); if (el) el.style.display = k === which ? 'block' : 'none'; });
   if (which === 'guide') { document.getElementById('guideContentInMenu').innerHTML = guideFull(); try { renderGlossary(); } catch (_) {} }
   if (which === 'status') refreshMenuStatus();
-  if (which === 'settings') { loadTickInterval(); loadCacheTtl(); loadAdminTokenState(); }
+  if (which === 'settings') { loadTickInterval(); loadCacheTtl(); loadAdminTokenState(); setTimeout(function () { try { _injectHints(); } catch(_) {} }, 250); }
 }
 function toggleCard(id) { document.getElementById(id).classList.toggle('open'); }
 function switchPipelineTab() {}
@@ -4724,7 +4772,11 @@ function renderGlossary() {
     { icon: '📈', name: 'رژیم بازار', desc: 'صعودی/نزولی/رنج. در هر رژیم، بعضی استراتژی‌ها بهتر کار می‌کنن.' },
     { icon: '🔄', name: 'Backfill', desc: 'دانلود دیتای تاریخی از TSETMC (سهام + آپشن).' },
     { icon: '📸', name: 'Snapshot', desc: 'عکس لحظه‌ای زنجیره آپشن (هر ۵ دقیقه).' },
-    { icon: '🩺', name: 'دکتر سیستم', desc: 'بررسی جامع سرور (RAM, MongoDB, API, logs) در ۳۶ بخش.' }
+    { icon: '🩺', name: 'دکتر سیستم', desc: 'بررسی جامع سرور (RAM, MongoDB, API, logs) در ۳۶ بخش.' },
+    { icon: '🔒', name: 'توکن ادمین', desc: 'رمز لازم برای عملیات تغییردهنده. از منو ← تنظیمات ← امنیت و دسترسی قابل تغییر است.' },
+    { icon: '📅', name: 'ستون‌های تاریخ‌ها', desc: 'در جدول نمادها، هر ستون تاریخ دو خط دارد: بالا آخرین داده، پایین اولین داده.' },
+    { icon: '🎨', name: 'دسته‌بندی قرارداد (Grade)', desc: 'A+ تا F بر اساس دلتا، اسپرد، DTE، IV/HV، OI و کیفیت. هر grade ضریب حجم دارد.' },
+    { icon: '🧬', name: 'GA (بهینه‌سازی)', desc: 'TPE Sampler + Median Pruner + Walk-Forward. در ساعات بازار خودکار pause می‌شود.' }
   ];
   let html = '<div class="menu-label">📚 واژه‌نامه</div>';
   html += '<div style="display:flex;flex-direction:column;gap:6px;font-size:11.5px;">';
@@ -4760,7 +4812,7 @@ function guideFull() {
     <div class="menu-label" style="margin-top:8px;">چند-نمادی / صنعت</div> ${sb('Pairs Spread', 'z-score نسبت دو نماد هم‌صنعت', '30m', 'بازار رنج')}
     ${sb('Sector Momentum', 'خود نماد قوی‌تر از میانگین صنعت', '1h', 'صنعت داغ')}
     <div class="menu-label" style="margin-top:8px;">ترکیبی</div> ${sb('Ensemble', 'رای وزنی از 12 زیراستراتژی', '30m', 'همه رژیم‌ها')}
-    <h4 class="guide-h">مدیریت سرمایه (Mode 2)</h4> <ul class="guide-ul"> <li><b>Duplicate Guard</b>: هر نماد در هر لحظه فقط یک پوزیشن</li> <li><b>Correlation Cluster</b>: نمادهای همبسته (corr >0.7) مجموع ≤ 30%</li> <li><b>Sector Limit</b>: هر صنعت ≤ 40% سرمایه</li> <li><b>Kelly Criterion</b>: حجم پویا بر اساس edge + fallback به risk%</li> <li><b>Signal Filter</b>: فقط pairهای تأییدشده توسط Bootstrap CI</li> </ul> <h4 class="guide-h">استراتژی‌های علمی (جدید)</h4> <ul class="guide-ul"> <li><b>TSMOM (Time Series Momentum)</b>: مومنتوم سری‌زمانی ۱۲ ماهه با فیلتر نوسان — Moskowitz et al. (2012).</li> <li><b>Momentum 12-1</b>: مومنتوم ۱۲ ماهه با skip یک ماه آخر — Jegadeesh &amp; Titman (1993).</li> <li><b>Short-Term Reversal</b>: بازگشت پس از افت ۵-۷ روزه — Lehmann (1990).</li> <li><b>Low Volatility Anomaly</b>: خرید در دوره‌های کم‌نوسان — Baker et al. (2011).</li></ul> <h4 class="guide-h">ابزارهای جدید</h4> <ul class="guide-ul"> <li><b>غنی‌سازی استراتژی (Sweep)</b>: تست ۳۰ ترکیب پارامتر در هر استراتژی و انتخاب بهترین بر اساس PF<sup>0.75</sup>×N<sup>0.25</sup>.</li> <li><b>Grade-Aware Option Sizing</b>: درجه‌بندی قرارداد آپشن از A+ تا F و تنظیم حجم پوزیشن متناسب با درجه.</li> <li><b>دکتر سیستم</b>: بررسی جامع سیستم در ۲۴ بخش با گزارش خودکار به Bale.</li> <li><b>معاملات دمو (Paper)</b>: ثبت خودکار سیگنال‌ها و پیگیری PnL بدون ریسک واقعی.</li></ul> `;
+    <h4 class="guide-h">مدیریت سرمایه (Mode 2)</h4> <ul class="guide-ul"> <li><b>Duplicate Guard</b>: هر نماد در هر لحظه فقط یک پوزیشن</li> <li><b>Correlation Cluster</b>: نمادهای همبسته (corr >0.7) مجموع ≤ 30%</li> <li><b>Sector Limit</b>: هر صنعت ≤ 40% سرمایه</li> <li><b>Kelly Criterion</b>: حجم پویا بر اساس edge + fallback به risk%</li> <li><b>Signal Filter</b>: فقط pairهای تأییدشده توسط Bootstrap CI</li> </ul> <h4 class="guide-h">استراتژی‌های علمی (جدید)</h4> <ul class="guide-ul"> <li><b>TSMOM (Time Series Momentum)</b>: مومنتوم سری‌زمانی ۱۲ ماهه با فیلتر نوسان — Moskowitz et al. (2012).</li> <li><b>Momentum 12-1</b>: مومنتوم ۱۲ ماهه با skip یک ماه آخر — Jegadeesh &amp; Titman (1993).</li> <li><b>Short-Term Reversal</b>: بازگشت پس از افت ۵-۷ روزه — Lehmann (1990).</li> <li><b>Low Volatility Anomaly</b>: خرید در دوره‌های کم‌نوسان — Baker et al. (2011).</li></ul> <h4 class="guide-h">ابزارهای جدید</h4> <ul class="guide-ul"> <li><b>غنی‌سازی استراتژی (Sweep)</b>: تست ۳۰ ترکیب پارامتر در هر استراتژی و انتخاب بهترین بر اساس PF<sup>0.75</sup>×N<sup>0.25</sup>.</li> <li><b>Grade-Aware Option Sizing</b>: درجه‌بندی قرارداد آپشن از A+ تا F و تنظیم حجم پوزیشن متناسب با درجه.</li> <li><b>دکتر سیستم</b>: بررسی جامع سیستم در ۲۴ بخش با گزارش خودکار به Bale.</li> <li><b>معاملات دمو (Paper)</b>: ثبت خودکار سیگنال‌ها و پیگیری PnL بدون ریسک واقعی.</li></ul> <h4 class="guide-h">پنل ادمین</h4> <ul class="guide-ul"> <li><b>توکن ادمین</b>: از منوی همبرگری ← تنظیمات ← امنیت. توکن در DB ذخیره می‌شود. برای حذف، فیلد را خالی بگذار.</li> </ul> <h4 class="guide-h">نکات UX جدید</h4> <ul class="guide-ul"> <li><b>آیکون ؟</b>: کنار بعضی فیلدهای مهم، آیکون «؟» می‌بینی. کلیک → توضیح کوتاه.</li> <li><b>ستون‌های تاریخ‌ها</b>: در جدول نمادها، هر سلول دو خط دارد — بالا آخرین، پایین اولین.</li> <li><b>دکمه ✕</b>: در منوی همبرگری، گوشه بالا-چپ. در موبایل کل صفحه را پر می‌کند.</li> </ul> `;
 }
 async function loadAdminTokenState() {
   try {
@@ -4796,6 +4848,59 @@ async function saveAdminToken(btn) {
     restore();
   }
 }
+window._HINTS = {
+  tickInterval: { title: 'فاصله تیک زنده', text: 'هر چند ثانیه یک بار از TSETMC قیمت‌ها گرفته می‌شود. حداقل ۱۰، حداکثر ۶۰۰. کاهش ⇒ سیگنال سریع‌تر ولی بار بیشتر سرور. پیش‌فرض ۶۰.' },
+  cacheTtl:      { title: 'کش زنجیره آپشن', text: 'مدت زمان نگه‌داری زنجیره‌ی آپشن در حافظه. کاهش ⇒ تازه‌تر ولی کندتر. پیش‌فرض ۱۵ ثانیه.' },
+  adminToken:    { title: 'توکن ادمین', text: 'رمز لازم برای عملیات تغییردهنده. در DB ذخیره می‌شود. برای حذف، فیلد را خالی بگذار. حداقل ۶ کاراکتر.' },
+  entryWindow:   { title: 'بازه ورود', text: 'شروع و پایان بازه‌ای که سیگنال BUY اجازه ورود دارد. قبل/بعد این بازه فقط سیگنال خروج فعال است.' },
+  capital:       { title: 'سرمایه کل', text: 'مبنای همه‌ی محاسبات مدیریت سرمایه. ریسک هر معامله، سقف درگیری نماد/کل و نقد ذخیره بر اساس این عدد حساب می‌شوند.' },
+  qualityLevel:  { title: 'کیفیت قرارداد آپشن', text: 'A+ سخت‌گیرانه (فقط دیتای واقعی، دلتا 0.45-0.65). B پیشنهادی. D حداکثر پوشش. روی بک‌تست و دمو و زنده اثر می‌گذارد.' }
+};
+function showHint(key) {
+  const h = (window._HINTS || {})[key];
+  if (!h) return;
+  openModal('راهنما — ' + esc(h.title), '<div style="line-height:2;font-size:13.5px;padding:8px 4px;">' + esc(h.text) + '</div><div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;"><button class="btn outline" onclick="closeModal()">فهمیدم</button></div>', true);
+}
+window.showHint = showHint;
+function _injectHints() {
+  try {
+    const dict = [
+      { key: 'tickInterval', match: /فاصله تیک/ },
+      { key: 'cacheTtl',     match: /مدت کش زنجیره آپشن/ },
+      { key: 'adminToken',   match: /^توکن ادمین/ },
+      { key: 'entryWindow',  match: /شروع بازه ورود/ },
+      { key: 'capital',      match: /سرمایه کل/ },
+      { key: 'qualityLevel', match: /کیفیت قرارداد آپشن/ }
+    ];
+    const panel = document.getElementById('menuPanel');
+    if (!panel) return;
+    const labels = panel.querySelectorAll('label, .menu-label, h3');
+    for (let i = 0; i < labels.length; i++) {
+      const el = labels[i];
+      if (el.querySelector && el.querySelector('.hint-icon')) continue;
+      const t = (el.textContent || '').trim();
+      for (let j = 0; j < dict.length; j++) {
+        const d = dict[j];
+        if (d.match.test(t)) {
+          const icon = document.createElement('span');
+          icon.className = 'hint-icon';
+          icon.textContent = '?';
+          icon.title = 'راهنما';
+          icon.addEventListener('click', (function(kk){
+            return function(ev) {
+              ev.stopPropagation();
+              ev.preventDefault();
+              window.showHint(kk);
+            };
+          })(d.key));
+          el.appendChild(icon);
+          break;
+        }
+      }
+    }
+  } catch (_) {}
+}
+window._injectHints = _injectHints;
 function jdpTodayJalali() {
   const now = new Date();
   const fmt = new Intl.DateTimeFormat('en-US-u-ca-persian', {
@@ -5877,6 +5982,7 @@ window.addEventListener('load', async () => {
     loadCacheTtl(),
     loadAdminTokenState(),
     ]);
+  setTimeout(function () { try { _injectHints(); } catch(_) {} }, 800);
   Promise.allSettled([
     loadPaperDashboard(),
     loadDataPipeline()
