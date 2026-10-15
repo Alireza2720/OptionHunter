@@ -1,0 +1,2015 @@
+'use strict';
+// ============================================================
+// options.js — منطق آپشن (خالص)
+// ============================================================
+// این ماژول:
+//   - Black-Scholes + Greeks
+//   - محاسبه IV ضمنی
+//   - امتیازدهی و انتخاب قرارداد
+//   - مدیریت پوزیشن
+//   - بک‌تست آپشن (real + approximate)
+//
+// هیچ وابستگی به Mongo یا HTTP نداره.
+// همه dependency ها از طریق init() تزریق می‌شن.
+// ============================================================
+
+const { TRADING_DAYS_PER_YEAR } = require('../config/constants');
+const { calcUnifiedSize } = require('./sizing-unified');
+const { getQualityParams, computeOptionGrade } = require('./option-selector');
+
+// ============================================================
+// Dependencies (تزریق می‌شن)
+// ============================================================
+let deps = {
+    getDB: null,             // () => MongoDB
+    notify: null,            // (text) => Promise<void>
+    settings: null,          // { get, capital, riskAmount, ... }
+    timeframeMinutes: {},    // { '30m': 30, ... }
+    todayDateString: null,   // () => 'YYYY-MM-DD'
+    getQuote: null,          // (symbol) => { price, queue } | null
+    getUnderlyingNames: null // (symbol) => [names]
+};
+
+function init(d) {
+    deps = { ...deps, ...d };
+}
+
+function requireDep(name) {
+    if (!deps[name]) throw new Error(`options.js: dependency "${name}" تزریق نشده`);
+    return deps[name];
+}
+
+// ============================================================
+// Constants
+// ============================================================
+const DEFAULT_SETTINGS = {
+    minDays: 7, maxDays: 60,
+    maxSpreadPct: 7,
+    minOI: 200, minTrades: 1,
+    minPremium: 200,
+    deltaMin: 0.35, deltaMax: 0.85,
+    maxIvHv: 1.5,
+    rewardRisk: 3.0,
+    topN: 3,
+    optionStopPct: 20,
+    take2Pct: 100,
+    closeDaysBefore: 5,
+    maxHoldDays: 20
+};
+
+const OPT_BT_DEFAULTS = {
+    assumedMaturityDays: 30,
+    ivMultiplier: 1.20,
+    spreadPct: 10,
+    // 🆕 کالیبره برای داده‌های ایران
+    // delta 0.85-1.0 اکثراً deep ITM مثل خود سهم عمل می‌کنه
+    deltaMin: 0.35, deltaMax: 0.85,
+    minDays: 7, maxDays: 60,
+    volCrushFactor: 3.0,
+    minIvCrush: 0.35,
+    spreadMoveMult: 3.0,
+    maxReturnPct: 150,
+    minExitDays: 0.5,
+    realEnabled: true,
+    // NOTE: spreadPenaltyMult was causing DOUBLE-COUNTING of spread
+    // when applied on top of real bid/ask PnL. Disabled by default.
+    // Set to >0 only if you intentionally want extra pessimism.
+    // 🆕 Phase 2: Realism — بدون تخمین
+    timeWindowDays: 2,
+    dynSlipBase: 0.001,
+    dynSlipImpactCoef: 0.5,
+    minFillRatio: 0,
+    maxParticipation: 0.4,
+    latencySec: 1,
+    // Enrichment-aware defaults (pessimistic)
+    spreadPenaltyMult: 0.0,
+    minDataQuality: 'enriched',
+    // NEW: quality enforcement in backtest (mirrors live)
+    minVolume: 0,
+    maxTradeReturnPct: 1000,
+    minTargetPct: 4.5,
+    autoDetectTarget: true,
+    maxIvHv: 2.5};
+
+const RELAX_LEVELS = [
+    { name: 'A+', tag: null, overrides: {} },
+    { name: 'A', tag: null, overrides: { minOI: 150, minTrades: 1, maxSpreadPct: 9, deltaMin: 0.35, deltaMax: 0.82 } },
+    { name: 'B', tag: 'کیفیت B', overrides: { minOI: 80, minTrades: 1, maxSpreadPct: 12, deltaMin: 0.30, deltaMax: 0.88, maxIvHv: 1.8 } },
+    { name: 'C', tag: 'کیفیت C', overrides: { minOI: 30, minTrades: 0, maxSpreadPct: 16, deltaMin: 0.25, deltaMax: 0.92, maxIvHv: 2.2, minPremium: 100 } },
+    { name: 'D', tag: 'کیفیت D', overrides: { minOI: 0, minTrades: 0, maxSpreadPct: 22, deltaMin: 0.20, deltaMax: 0.95, maxIvHv: 2.8, minPremium: 50 } }
+];
+
+// ============================================================
+// Normalization
+// ============================================================
+const norm = s => String(s || '')
+    .replace(/ي/g, 'ی').replace(/ك/g, 'ک')
+    .replace(/[\u200c\u200e\u200f\s\u00a0]/g, '')
+    .trim();
+
+const num = v => {
+    const n = parseFloat(String(v ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : 0;
+};
+const round = v => (v === null || v === undefined) ? null : Math.round(v * 100) / 100;
+const f0 = n => Math.round(n).toLocaleString('en-US');
+const pc = v => v === null || v === undefined ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+
+// ============================================================
+// 🆕 Phase 2: Realism helpers
+// ============================================================
+
+// 🆕 bid/ask اجباری — بدون حدس‌زنی
+function realisticBuyPrice(row) {
+    if (!row) return null;
+    if (!(row.ask > 0)) return null;   // ⛔ اگه ask نبود → رد
+    return { price: row.ask, isReal: true, source: 'ask' };
+}
+
+function realisticSellPrice(row) {
+    if (!row) return null;
+    if (!(row.bid > 0)) return null;   // ⛔ اگه bid نبود → رد
+    return { price: row.bid, isReal: true, source: 'bid' };
+}
+
+/**
+ * Slippage داینامیک (Almgren-Chriss سبک)
+ * - نسبت سفارش به حجم روز → impact ∝ sqrt(ratio)
+ * - نقدینگی کم → جریمه بالاتر
+ */
+function computeDynamicSlippage(orderSize, dailyVolume, p) {
+    const base = p.dynSlipBase || 0.001;
+    const coef = p.dynSlipImpactCoef || 0.5;
+    if (!dailyVolume || dailyVolume <= 0) {
+        // نقدینگی صفر → جریمه‌ی سنگین (اسکالپ نمی‌شه)
+        return base + 0.015;
+    }
+    const ratio = Math.min(1, orderSize / dailyVolume);
+    const impact = coef * Math.sqrt(ratio) * 0.01;
+    return base + impact;
+}
+
+/**
+ * محاسبه‌ی نرخ پر شدن سفارش
+ * - اگه حجم روز خیلی کمه → فقط بخشی fill می‌شه
+ */
+function computeFillRatio(orderSize, dailyVolume, maxParticipation) {
+    if (!dailyVolume || dailyVolume <= 0) return 0;
+    const maxFill = dailyVolume * (maxParticipation || 0.2);
+    return Math.min(1, maxFill / orderSize);
+}
+
+/**
+ * 🆕 Time-Decay Aware: کاهش قیمت به خاطر theta در طول نگه‌داری
+ * برای trade های intraday که exit در همون روزه
+ */
+function applyIntradayThetaDecay(entryPrice, entryTime, exitTime, thetaDay, daysLeft) {
+    const heldSec = Math.max(0, exitTime - entryTime);
+    const heldDays = heldSec / 86400;
+    if (heldDays < 0.01 || !thetaDay || thetaDay >= 0) return entryPrice;
+    // فقط بخش کسری از theta روزانه رو اعمال کن
+    const intradayDecay = Math.abs(thetaDay) * heldDays;
+    // capped: نباید بیشتر از 30% قیمت رو ببره
+    const maxDecay = entryPrice * 0.3;
+    return entryPrice - Math.min(intradayDecay, maxDecay);
+}
+
+// ============================================================
+// Black-Scholes
+// ============================================================
+function normCdf(x) {
+    const t = 1 / (1 + 0.2316419 * Math.abs(x));
+    const d = 0.3989423 * Math.exp(-x * x / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+    return x >= 0 ? 1 - p : p;
+}
+
+// ============================================================
+// BSM Alignment Note
+// ------------------------------------------------------------
+// The Python implementation in collector/option_reconstruction/pricing.py
+// mirrors this function exactly:
+//   - Same normCdf approximation (Abramowitz-Stegun)
+//   - Same call/put formulas
+//   - Same Greeks calculations
+// If you change one, change the other. Version tag: bsm-v2
+// ============================================================
+function bsCall(S, K, T, r, sig) {
+    if (T <= 0) {
+        const v = Math.max(S - K * Math.exp(-r * Math.max(T, 0)), 0);
+        return { price: v, delta: S > K ? 1 : 0, thetaDay: 0, vega: 0, gamma: 0 };
+    }
+    if (!(sig > 0.01)) sig = 0.01;
+    const sq = Math.sqrt(T);
+    const d1 = (Math.log(S / K) + (r + sig * sig / 2) * T) / (sig * sq);
+    const d2 = d1 - sig * sq;
+    const Nd1 = normCdf(d1), Nd2 = normCdf(d2);
+    const pdf = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI);
+
+    return {
+        price: S * Nd1 - K * Math.exp(-r * T) * Nd2,
+        delta: Nd1,
+        gamma: pdf / (S * sig * sq),
+        thetaDay: (-(S * pdf * sig) / (2 * sq) - r * K * Math.exp(-r * T) * Nd2) / 365,
+        vega: S * pdf * sq / 100
+    };
+}
+
+function impliedVol(price, S, K, T, r) {
+    if (!(price > 0) || T <= 0) return null;
+    if (price <= Math.max(S - K * Math.exp(-r * T), 0) * 1.001) return null;
+    let lo = 0.01, hi = 5;
+    for (let i = 0; i < 60; i++) {
+        const m = (lo + hi) / 2;
+        if (bsCall(S, K, T, r, m).price > price) hi = m; else lo = m;
+    }
+    return (lo + hi) / 2;
+}
+
+// ============================================================
+// Volatility helpers
+// ============================================================
+async function hvFromDaily(symbol, n = 20) {
+    const db = requireDep('getDB')();
+    const rows = await db.collection('candles_daily')
+        .find({ symbol }).sort({ time: -1 }).limit(n + 1).toArray();
+    if (rows.length < n + 1) return null;
+
+    const closes = rows.reverse().map(r => r.close).filter(x => x > 0);
+    const rets = [];
+    for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+    if (rets.length < 5) return null;
+
+    const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+    const v = rets.reduce((a, b) => a + (b - m) ** 2, 0) / (rets.length - 1);
+    return Math.sqrt(v * TRADING_DAYS_PER_YEAR);
+}
+
+function historicalHV(closes, uptoIndex, n = 20) {
+    const start = Math.max(0, uptoIndex - n);
+    const slice = closes.slice(start, uptoIndex + 1);
+    if (slice.length < 6) return null;
+    const rets = [];
+    for (let i = 1; i < slice.length; i++) rets.push(Math.log(slice[i] / slice[i - 1]));
+    const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+    const v = rets.reduce((a, b) => a + (b - m) ** 2, 0) / (rets.length - 1);
+    return Math.sqrt(v * TRADING_DAYS_PER_YEAR);
+}
+
+// ============================================================
+// Settings
+// ============================================================
+let settingsCache = null;
+
+async function getSettings(force = false) {
+    if (settingsCache && !force) return settingsCache;
+    const db = requireDep('getDB')();
+    const doc = await db.collection('meta').findOne({ _id: 'option_settings' });
+    settingsCache = { ...DEFAULT_SETTINGS, ...((doc && doc.values) || {}) };
+    return settingsCache;
+}
+
+async function saveSettings(values) {
+    const clean = {};
+    for (const k of Object.keys(DEFAULT_SETTINGS)) {
+        if (values[k] !== undefined && Number.isFinite(+values[k])) clean[k] = +values[k];
+    }
+    const db = requireDep('getDB')();
+    await db.collection('meta').updateOne(
+        { _id: 'option_settings' },
+        { $set: { values: clean } },
+        { upsert: true }
+    );
+    return getSettings(true);
+}
+
+function getRiskFree() {
+    // 🆕 اول از cache روزانه (risk-free.job)
+    if (deps.settings && typeof deps.settings.getRiskFreeRate === 'function') {
+        const r = deps.settings.getRiskFreeRate();
+        if (Number.isFinite(r) && r > 0) return r;
+    }
+    // Fallback: مقدار ثابت settings
+    const s = deps.settings ? deps.settings.get() : {};
+    return s.RISK_FREE_RATE || 0.23;
+}
+function getFeeBuy() {
+    const s = deps.settings ? deps.settings.get() : {};
+    return s.OPTION_FEE_BUY || 0.0012;
+}
+function getFeeSell() {
+    const s = deps.settings ? deps.settings.get() : {};
+    return s.OPTION_FEE_SELL || 0.0012;
+}
+
+// ============================================================
+// Underlying matching
+// ============================================================
+function matchUnderlying(contractUnderlying, names) {
+    if (!contractUnderlying) return false;
+    const cu = norm(contractUnderlying);
+    for (const n of names) {
+        const nn = norm(n);
+        if (!nn) continue;
+        if (cu === nn) return true;
+        if (nn.length >= 4 && cu.length >= 4) {
+            if (cu.includes(nn) || nn.includes(cu)) return true;
+        }
+    }
+    return false;
+}
+
+function getNames(symbol) {
+    if (deps.getUnderlyingNames) return deps.getUnderlyingNames(symbol);
+    return [norm(symbol)];
+}
+
+// ============================================================
+// Contract metrics
+// ============================================================
+function metrics(c, S, hv) {
+    const RISK_FREE = getRiskFree();
+    const T = Math.max(c.daysLeft, 0.5) / 365;
+    const mid = c.bid > 0 && c.ask > 0 ? (c.bid + c.ask) / 2 : 0;
+    const spreadPct = mid > 0 ? (c.ask - c.bid) / mid * 100 : null;
+    const vol = hv || c.hvApi || 0.4;
+    const theo = bsCall(S, c.strike, T, RISK_FREE, vol);
+
+    let iv = c.ivApi;
+    if (!iv || iv <= 0) iv = impliedVol(c.ask > 0 ? c.ask : c.last, S, c.strike, T, RISK_FREE);
+
+    return {
+        T, mid, spreadPct,
+        hv: vol,
+        theo: theo.price,
+        theoApi: c.bsApi || null,
+        delta: theo.delta, deltaApi: c.deltaApi || null,
+        gamma: theo.gamma, gammaApi: c.gammaApi || null,
+        thetaDay: theo.thetaDay, thetaApi: c.thetaApi || null,
+        vega: theo.vega, vegaApi: c.vegaApi || null,
+        iv, ivApi: c.ivApi || null,
+        ivHv: iv ? iv / vol : null,
+        leverage: c.ask > 0 ? theo.delta * S / c.ask : null,
+        moneynessPct: (S / c.strike - 1) * 100,
+        intrinsic: Math.max(S - c.strike, 0),
+        timeValue: c.ask > 0 ? Math.max(c.ask - Math.max(S - c.strike, 0), 0) : null
+    };
+}
+
+function rejectReasons(c, m, s) {
+    const R = [];
+    if (c.daysLeft < s.minDays) R.push('سررسید نزدیک');
+    else if (c.daysLeft > s.maxDays) R.push('سررسید دور');
+    if (!(c.bid > 0 && c.ask > 0)) R.push('سفارش دوطرفه ندارد');
+    else if (m.spreadPct > s.maxSpreadPct) R.push('اسپرد بالا');
+    if (c.oi < s.minOI) R.push('OI کم');
+    if (c.trades < s.minTrades) R.push('بدون معامله امروز');
+    if (c.ask > 0 && c.ask < s.minPremium) R.push('پرمیوم خیلی کم');
+    if (m.delta < s.deltaMin) R.push('دلتا پایین');
+    else if (m.delta > s.deltaMax) R.push('دلتا بالا');
+    if (m.ivHv && m.ivHv > s.maxIvHv) R.push('IV گران');
+    return R;
+}
+
+function breakevenMove(S, K, T2, sig, cost, halfSpread) {
+    const RISK_FREE = getRiskFree();
+    const FEE_SELL = getFeeSell();
+    const f = x => Math.max(bsCall(x, K, T2, RISK_FREE, sig).price - halfSpread, 0) * (1 - FEE_SELL) - cost;
+    let lo = S * 0.5, hi = S * 2;
+    if (f(hi) < 0) return null;
+    if (f(lo) > 0) return (lo / S - 1) * 100;
+    for (let i = 0; i < 50; i++) {
+        const m = (lo + hi) / 2;
+        if (f(m) > 0) hi = m; else lo = m;
+    }
+    return ((lo + hi) / 2 / S - 1) * 100;
+}
+
+function rejectionScore(c, m, R, effective) {
+    let score = 0;
+    if (R.includes('OI کم')) score += Math.max(0, (effective.minOI - c.oi) / Math.max(effective.minOI, 1)) * 100;
+    if (R.includes('اسپرد بالا')) score += Math.max(0, (m.spreadPct - effective.maxSpreadPct)) * 5;
+    if (R.includes('دلتا پایین')) score += Math.max(0, (effective.deltaMin - m.delta)) * 500;
+    if (R.includes('دلتا بالا')) score += Math.max(0, (m.delta - effective.deltaMax)) * 500;
+    if (R.includes('IV گران')) score += Math.max(0, (m.ivHv - effective.maxIvHv)) * 100;
+    return score;
+}
+
+function scoreContract(c, sc, s, effective) {
+    const RISK_FREE = getRiskFree();
+    const FEE_BUY = getFeeBuy();
+    const FEE_SELL = getFeeSell();
+
+    const S = sc.S || c.S;
+    const m = metrics(c, S, sc.hv);
+    const R = rejectReasons(c, m, effective);
+    if (R.length) return { ok: false, reasons: R, m };
+
+    const h = Math.min(sc.horizonDays, Math.max(c.daysLeft - 1, 1));
+    const T2 = Math.max((c.daysLeft - h) / 365, 1 / 365);
+    const sig = m.iv || m.hv;
+    const cost = c.ask * (1 + FEE_BUY);
+    const half = (c.ask - c.bid) / 2;
+    const exitAdj = v => Math.max(v - half, 0) * (1 - FEE_SELL);
+
+    const pt = exitAdj(bsCall(sc.target, c.strike, T2, RISK_FREE, sig).price) - cost;
+    const pl = exitAdj(bsCall(sc.stop, c.strike, T2, RISK_FREE, sig).price) - cost;
+    const pf = exitAdj(bsCall(S, c.strike, T2, RISK_FREE, sig).price) - cost;
+
+    const rr = pl < 0 ? pt / -pl : (pt > 0 ? 99 : 0);
+    const liq = Math.pow(Math.min(1, c.oi / 1000), 0.25) * (1 - (m.spreadPct / effective.maxSpreadPct) * 0.4);
+    const ivPen = m.ivHv ? Math.max(0.6, Math.min(1, 1.3 / m.ivHv)) : 1;
+
+    const pick = {
+        symbol: c.symbol, fullName: c.fullName,
+        strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft,
+        ask: c.ask, bid: c.bid,
+        askVol: c.askVol, bidVol: c.bidVol, last: c.last,
+        oi: c.oi, oiChange: c.oiChange,
+        volume: c.volume, trades: c.trades, size: c.size,
+        spreadPct: m.spreadPct,
+        theo: m.theo, theoApi: m.theoApi,
+        intrinsic: m.intrinsic, timeValue: m.timeValue,
+        iv: m.iv, ivApi: m.ivApi, hv: m.hv, ivHv: m.ivHv,
+        delta: m.delta, deltaApi: m.deltaApi,
+        gamma: m.gamma, gammaApi: m.gammaApi,
+        thetaDay: m.thetaDay, thetaApi: m.thetaApi,
+        vega: m.vega, vegaApi: m.vegaApi,
+        leverage: m.leverage, moneynessPct: m.moneynessPct,
+        profitPct: pt / cost * 100,
+        lossPct: pl / cost * 100,
+        flatPct: pf / cost * 100,
+        rr,
+        bePct: breakevenMove(S, c.strike, T2, sig, cost, half),
+        score: rr * liq * ivPen,
+        S
+    };
+    pick.positionSize = 1;
+    return { ok: true, pick, m };
+}
+
+// ============================================================
+// Contract selection
+// ============================================================
+function selectCalls(chain, underlying, sc, s) {
+    const names = Array.isArray(underlying) ? underlying : [underlying];
+    const cands = chain.filter(c => c.isCall && matchUnderlying(c.underlying, names));
+
+    if (!cands.length) {
+        return {
+            picks: [], considered: 0, passed: 0, rejected: {},
+            level: null, nearMisses: [], relaxed: false,
+            matchedNames: names, totalChain: chain.length
+        };
+    }
+
+    const nearMissesAll = [];
+
+    for (const level of RELAX_LEVELS) {
+        const effective = { ...s, ...level.overrides };
+        const rejected = {};
+        const scored = [];
+
+        for (const c of cands) {
+            const S = sc.S || c.S;
+            const m = metrics(c, S, sc.hv);
+            const res = scoreContract(c, sc, s, effective);
+
+            if (!res.ok) {
+                res.reasons.forEach(x => rejected[x] = (rejected[x] || 0) + 1);
+                if (level.name === 'A+') {
+                    nearMissesAll.push({
+                        symbol: c.symbol, strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft,
+                        ask: c.ask, bid: c.bid, oi: c.oi, trades: c.trades,
+                        spreadPct: m.spreadPct, delta: m.delta, ivHv: m.ivHv,
+                        reasons: res.reasons,
+                        distance: rejectionScore(c, m, res.reasons, effective)
+                    });
+                }
+                continue;
+            }
+            res.pick.level = level.name;
+            scored.push(res.pick);
+        }
+
+        if (scored.length) {
+            scored.sort((a, b) => b.score - a.score);
+            return {
+                picks: scored.slice(0, s.topN),
+                considered: cands.length,
+                passed: scored.length,
+                rejected,
+                level: level.name,
+                tag: level.tag,
+                relaxed: level.name !== 'A+',
+                nearMisses: [],
+                matchedNames: names,
+                totalChain: chain.length
+            };
+        }
+    }
+
+    nearMissesAll.sort((a, b) => a.distance - b.distance);
+    return {
+        picks: [], considered: cands.length, passed: 0, rejected: {},
+        level: null, tag: null, relaxed: false,
+        nearMisses: nearMissesAll.slice(0, 5),
+        matchedNames: names, totalChain: chain.length
+    };
+}
+
+// ============================================================
+// Scenario building
+// ============================================================
+function horizonDaysFor(config) {
+    const bars = (config.params && config.params.maxHoldBars) || 10;
+    const tfMin = deps.timeframeMinutes[config.timeframe] || 30;
+    const tradingDays = tfMin >= 1440 ? bars : Math.max(1, Math.ceil(bars * tfMin / 210));
+    return Math.max(2, Math.ceil(tradingDays * 7 / 5));
+}
+
+async function buildScenario(config, price, liveS, indicators, s, targetMultiplier) {
+    const stop = indicators && indicators.stop;
+    const atr = indicators && indicators.atr;
+    const risk = stop && stop < price ? price - stop : atr ? 2 * atr : price * 0.03;
+    // 🆕 اگه targetMultiplier داده شده، از اون استفاده کن (بر اساس رژیم)
+    const mult = (targetMultiplier != null && Number.isFinite(targetMultiplier))
+        ? targetMultiplier
+        : s.rewardRisk;
+
+    return {
+        S: liveS || price,
+        entry: price,
+        stop: price - risk,
+        target: price + risk * mult,
+        targetMultiplier: mult,   // 🆕
+        risk,                     // 🆕
+        horizonDays: horizonDaysFor(config),
+        hv: await hvFromDaily(config.symbol)
+    };
+}
+
+// ============================================================
+// Portfolio / position sizing
+// ============================================================
+async function getPortfolioState() {
+    const db = requireDep('getDB')();
+    const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
+    const bySymbol = {};
+    let totalExposure = 0;
+
+    for (const p of open) {
+        const value = (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
+        bySymbol[p.underlying] = (bySymbol[p.underlying] || 0) + value;
+        totalExposure += value;
+    }
+
+    const capital = deps.settings.capital();
+    return {
+        totalCapital: capital,
+        totalExposure,
+        availableCash: capital - totalExposure,
+        exposurePct: capital > 0 ? (totalExposure / capital * 100) : 0,
+        openCount: open.length,
+        bySymbol
+    };
+}
+
+async function calcPositionSizeV3(pick, scenario, currentPortfolio, signalStrength, config) {
+    const settings = deps.settings.get();
+    const capital = deps.settings.capital();
+    const level = pick.level || 'A+';
+    const levelFac = deps.settings.levelFactor(level);
+    const ivFac = deps.settings.ivFactor(pick.ivHv);
+    const dataDays = (config && Number.isFinite(config.dataDays)) ? config.dataDays : 90;
+    const dataFac = deps.settings.dataDepthFactor(dataDays);
+
+    let scoreFac = 1.0;
+    if (deps.settings.scoreSizeFactor && signalStrength && signalStrength.signalScore) {
+        scoreFac = deps.settings.scoreSizeFactor(signalStrength.signalScore.score);
+    }
+
+    // R16: per-strategy size multiplier (live)
+    let stratMult = 1.0;
+    try {
+        if (deps.settings && typeof deps.settings.getStrategySizeMult === 'function' && config && config.strategyId) {
+            stratMult = deps.settings.getStrategySizeMult(config.strategyId);
+        }
+    } catch (_) {}
+
+    const sizeMult = (config && Number.isFinite(config.sizeMultiplier)) ? config.sizeMultiplier : 1.0;
+    const portfolio = currentPortfolio || { totalExposure: 0, exposureBySymbol: {} };
+
+    const res = calcUnifiedSize(
+        {
+            symbol: pick.underlying || (scenario && scenario.symbol) || 'unknown',
+            optionEntry: pick.ask,
+            size: pick.size || 1000
+        },
+        portfolio,
+        {
+            capital,
+            riskPct: settings.RISK_PER_TRADE_PCT || 1.5,
+            maxSymPct: settings.MAX_SYMBOL_EXPOSURE_PCT || 20
+        },
+        {
+            scoreFactor: scoreFac,
+            levelFactor: levelFac,
+            ivFactor: ivFac,
+            dataFactor: dataFac * sizeMult,
+            strategySizeMult: stratMult
+        }
+    );
+
+    return {
+        size: res.size,
+        baseSize: res.baseSize,
+        adjusted: res.adjusted,
+        combinedFactor: res.combinedFactor,
+        levelFactor: levelFac,
+        ivFactor: ivFac,
+        dataFactor: dataFac,
+        scoreFactor: scoreFac,
+        level,
+        confluence: (signalStrength && signalStrength.confluence) || 1,
+        bySymbol: res.limits.bySymbol,
+        byCash: res.limits.byCash,
+        contractValue: res.limits.contractValue,
+        limitReason: res.limitReason,
+        _unified: true
+    };
+}
+
+function suggestOrderPlan(pick, targetSize) {
+    const askVol = pick.askVol || 0, askPrice = pick.ask;
+    const totalShares = targetSize * (pick.size || 1000);
+
+    if (askVol >= totalShares) {
+        return { canFillAtAsk: true, plans: [{ shares: totalShares, price: askPrice }], note: null };
+    }
+
+    const plans = [];
+    if (askVol > 0) plans.push({ shares: askVol, price: askPrice });
+    const remaining = totalShares - askVol;
+    if (remaining > 0) plans.push({ shares: remaining, price: Math.round(askPrice * 1.03), estimated: true });
+
+    return {
+        canFillAtAsk: false,
+        plans,
+        note: `حجم سرخط (${askVol.toLocaleString()} سهم) کمتر از نیاز (${totalShares.toLocaleString()} سهم) است - پله ای خرید کن`
+    };
+}
+
+// ============================================================
+// Recommendation text
+// ============================================================
+function formatRecommendation(symbol, sc, res, portfolio, signalStrength, title = 'انتخاب قرارداد کال') {
+    let t = `${title} - ${symbol}\n`;
+    if (signalStrength && signalStrength.confluence > 1) t += `هم گرایی ${signalStrength.confluence} استراتژی\n`;
+    if (signalStrength && signalStrength.confirmers && signalStrength.confirmers.length) t += `تایید: ${signalStrength.confirmers.join('، ')}\n`;
+    t += `سناریو: ورود ${f0(sc.entry)} | حد ضرر ${f0(sc.stop)} | هدف ${f0(sc.target)} | افق ~${sc.horizonDays} روز${sc.hv ? ` | HV ${(sc.hv * 100).toFixed(0)}%` : ''}\n`;
+
+    if (res.level && res.level !== 'A+') t += `\nسطح فیلتر: ${res.level}${res.tag ? ' - ' + res.tag : ''}\n`;
+
+    if (!res.picks.length) {
+        t += `قرارداد مناسبی یافت نشد (${res.considered} بررسی شد)\n`;
+        if (res.nearMisses && res.nearMisses.length) {
+            t += `\nنزدیک ترین گزینه ها:\n`;
+            res.nearMisses.forEach((n, i) => {
+                t += `${i + 1}) ${n.symbol} | اعمال ${f0(n.strike)} | ${n.daysLeft} روز\n`;
+                t += `   OI ${n.oi} | معاملات ${n.trades} | اسپرد ${n.spreadPct ? n.spreadPct.toFixed(1) + '%' : '-'} | دلتا ${n.delta ? n.delta.toFixed(2) : '-'}\n`;
+                t += `   دلایل رد: ${n.reasons.join('، ')}\n`;
+            });
+        }
+        return t;
+    }
+
+    res.picks.forEach((p, i) => {
+        const sizeLabel = (p.positionInfo && p.positionInfo.size > 0)
+            ? `🟢 ${p.positionInfo.size} قرارداد`
+            : `⚠️ حجم صفر`;
+        t += `\n${i + 1}) ${p.symbol} | اعمال ${f0(p.strike)} | ${p.expiry} (${p.daysLeft} روز) | ${sizeLabel}\n`;
+        t += `   خرید: ${f0(p.ask)} | فروش: ${f0(p.bid)} | اسپرد ${p.spreadPct.toFixed(1)}%\n`;
+        t += `   حجم سرخط خرید: ${(p.askVol || 0).toLocaleString()} سهم\n`;
+        t += `   دلتا ${p.delta.toFixed(2)} | گاما ${p.gamma ? p.gamma.toFixed(4) : '-'} | تتا/روز ${f0(p.thetaDay)} | وگا ${p.vega ? p.vega.toFixed(2) : '-'}\n`;
+        const ivHvStr = (p.ivHv && Number.isFinite(p.ivHv) && p.ivHv > 0)
+            ? ` (${p.ivHv.toFixed(2)}xHV)` : '';
+        t += `   IV ${p.iv ? (p.iv * 100).toFixed(0) + '%' : '-'}${ivHvStr} | OI ${p.oi}${p.oiChange ? ` (${p.oiChange > 0 ? '+' : ''}${p.oiChange})` : ''} | حجم ${p.volume}\n`;
+        t += `   پرمیوم: ${f0(p.ask)} | ارزش ذاتی: ${f0(p.intrinsic)} | ارزش زمانی: ${f0(p.timeValue)} | اهرم: ${p.leverage ? p.leverage.toFixed(2) : '-'}\n`;
+        t += `   هدف آپشن: ${pc(p.profitPct)} | حد ضرر: ${pc(p.lossPct)} | RR ${p.rr.toFixed(2)}\n`;
+        if (p.bePct !== null && p.bePct !== undefined) t += `   سربه سر: حرکت ${p.bePct.toFixed(1)}% سهم\n`;
+
+        if (p.positionInfo) {
+            const pi = p.positionInfo;
+            if (pi.size > 0) {
+                t += `   📦 حجم پیشنهادی: ${pi.size} قرارداد (value ~${f0(pi.size * (p.size || 1000))} سهم)\n`;
+                const plan = suggestOrderPlan(p, pi.size);
+                if (plan.note) {
+                    t += `   ${plan.note}\n`;
+                    t += `   پیشنهاد خرید:\n`;
+                    plan.plans.forEach(pl => {
+                        t += `      - ${pl.shares.toLocaleString()} سهم در ${f0(pl.price)}${pl.estimated ? ' (تخمینی)' : ''}\n`;
+                    });
+                } else {
+                    t += `   می توانی کل ${(pi.size * (p.size || 1000)).toLocaleString()} سهم را در ${f0(p.ask)} بخری\n`;
+                }
+                if (pi.limitReason) t += `   ${pi.limitReason}\n`;
+            } else {
+                t += `   حجم صفر - ${pi.limitReason || 'محدودیت'}\n`;
+            }
+        }
+    });
+
+    if (portfolio) {
+        t += `\nسرمایه: ${f0(portfolio.totalCapital)} | درگیری فعلی: ${portfolio.exposurePct.toFixed(1)}% | نقد: ${f0(portfolio.availableCash)}\n`;
+    }
+    return t;
+}
+
+// ============================================================
+// Signal handler
+// ============================================================
+async function onBuySignal({ config, indicators, price, liveS, tradeId, confluence = 1, confirmers = [], signalScore = null, regimeFactor = 1.0, regimeReason = null, targetMultiplier = null }) {
+    const s = await getSettings();
+    let chain;
+    try {
+        chain = await requireDep('getChain')();
+    } catch (e) {
+        deps.logger && deps.logger.warn(`onBuySignal: getChain failed for ${config.symbol}: ${e.message}`);
+        return { picks: [], error: 'chain_fetch_failed' };
+    }
+    if (!Array.isArray(chain)) {
+        deps.logger && deps.logger.warn(`onBuySignal: chain is not array (${typeof chain})`);
+        return { picks: [], error: 'chain_invalid' };
+    }
+    const sc = await buildScenario(config, price, liveS, indicators, s, targetMultiplier);
+    const names = getNames(config.symbol);
+    const res = selectCalls(chain, names, sc, s);
+    const portfolio = await getPortfolioState();
+    const signalStrength = { confluence, confirmers, signalScore, regimeFactor, regimeReason };
+    const askedAt = new Date();   // 🆕 زمان recommendation
+
+    for (const p of res.picks) {
+        try {
+            // 🆕 Grade-aware sizing (live)
+            let _liveGrade = null;
+            try {
+                if (deps.settings && typeof deps.settings.isOptionGradeSizingEnabled === 'function'
+                    && deps.settings.isOptionGradeSizingEnabled()) {
+                    _liveGrade = computeOptionGrade({
+                        bid: p.bid, ask: p.ask,
+                        deltaApi: p.deltaApi != null ? p.deltaApi : p.delta,
+                        daysLeft: p.daysLeft,
+                        ivApi: p.ivApi != null ? p.ivApi : p.iv,
+                        hvApi: p.hvApi != null ? p.hvApi : p.hv,
+                        oi: p.oi, volume: p.volume,
+                        dataQuality: p.dataQuality || 'real'
+                    }, {
+                        weights: deps.settings.getOptionGradeWeights ? deps.settings.getOptionGradeWeights() : null,
+                        thresholds: deps.settings.getOptionGradeThresholds ? deps.settings.getOptionGradeThresholds() : null
+                    });
+                }
+            } catch (_) { _liveGrade = null; }
+            p.optionGrade = _liveGrade;
+            const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol, optionSizeFactor: _liveGrade ? _liveGrade.sizeFactor : 1.0 }, sc, portfolio, signalStrength, config);
+            p.positionSize = pi.size;
+            p.positionInfo = pi;
+        } catch (_) {
+            p.positionSize = 0;
+            p.positionInfo = null;
+        }
+    }
+
+    await requireDep('notify')(formatRecommendation(config.symbol, sc, res, portfolio, signalStrength));
+
+    if (res.picks.length) {
+        const p = res.picks[0];
+        if (!p.positionSize || p.positionSize <= 0) return res;
+
+        const db = requireDep('getDB')();
+        const existing = await db.collection('option_positions').findOne({
+            configId: config._id.toString(), status: 'open'
+        });
+        if (existing) {
+            // 🆕 محاسبه‌ی PnL قبل از بستن
+            let exitBid = null;
+            try {
+                const liveContract = chain.find(c => c.symbol === existing.symbol);
+                if (liveContract && liveContract.bid > 0) exitBid = liveContract.bid;
+            } catch (_) {}
+
+            const exitCost = (existing.entryAsk || 0) * (1 + getFeeBuy());
+            const exitProceeds = exitBid ? exitBid * (1 - getFeeSell()) : null;
+            const pnlPct = (exitProceeds && exitCost > 0)
+                ? (exitProceeds / exitCost - 1) * 100
+                : null;
+
+            await db.collection('option_positions').updateOne(
+                { _id: existing._id },
+                { $set: {
+                    status: 'closed',
+                    exitTime: new Date(),
+                    exitBid: exitBid,
+                    pnlPct: pnlPct,
+                    exitReason: 'رول به قرارداد جدید'
+                } }
+            );
+        }
+
+        const isPaperMode = process.env.TRADING_MODE !== 'live';
+
+        await db.collection('option_positions').insertOne({
+            configId: config._id.toString(),
+            tradeId: tradeId ? tradeId.toString() : null,
+            underlying: config.symbol,
+            underlyingNames: names,
+            symbol: p.symbol, fullName: p.fullName,
+            strike: p.strike, expiry: p.expiry,
+            entryTime: askedAt,
+            entrySignalAt: askedAt,
+            entryFilledAt: new Date(),
+            entryAsk: p.ask, entryBid: p.bid, entryLast: p.last,
+            entryS: p.S, entryIv: p.iv, entryDelta: p.delta,
+            entryGamma: p.gamma, entryTheta: p.thetaDay, entryVega: p.vega,
+            entryOi: p.oi, entryVolume: p.volume, entrySpreadPct: p.spreadPct,
+            entryDaysLeft: p.daysLeft,
+            size: p.size,
+            positionSize: p.positionSize,
+            entryValue: (p.ask || 0) * (p.positionSize || 0) * (p.size || 1000),
+            level: p.level,
+            scenario: sc,
+            paper: isPaperMode,
+            tradingMode: isPaperMode ? 'paper' : 'live',
+            status: 'open',
+            confluence
+        });
+    }
+    return res;
+}
+
+async function recommendForState(config, state) {
+    const s = await getSettings();
+    const chain = await requireDep('getChain')();
+    const sc = await buildScenario(config, state.price, state.livePrice, state.indicators, s);
+    const names = getNames(config.symbol);
+    return { scenario: sc, ...selectCalls(chain, names, sc, s) };
+}
+
+// ============================================================
+// Position management
+// ============================================================
+async function managePositions(chain) {
+    const db = requireDep('getDB')();
+    const s = await getSettings();
+    const RISK_FREE = getRiskFree();
+    const FEE_BUY = getFeeBuy();
+    const FEE_SELL = getFeeSell();
+
+    const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
+    if (!open.length) return;
+
+    const map = new Map(chain.map(c => [c.symbol, c]));
+    const longIds = new Set(
+        (await db.collection('signals_state').find({ position: 'LONG' })
+            .project({ configId: 1 }).toArray()).map(x => x.configId)
+    );
+
+    const monitored = await db.collection('monitored_symbols').find({}).toArray();
+    const sellQueueSet = new Set();
+    for (const m of monitored) {
+        const q = deps.getQuote ? deps.getQuote(m.symbol) : null;
+        if (q && q.queue === 'sell') sellQueueSet.add(m.symbol);
+    }
+
+    const now = new Date();
+    const tehranMin = (now.getUTCHours() * 60 + now.getUTCMinutes() + 210) % 1440;
+    const isLast30Min = tehranMin >= 720 && tehranMin <= 750;
+
+    for (const p of open) {
+        const c = map.get(p.symbol);
+        if (!c) {
+            if (!p.missingWarned) {
+                await requireDep('notify')(`قرارداد ${p.symbol} در داده آپشن یافت نشد.`);
+                await db.collection('option_positions').updateOne(
+                    { _id: p._id }, { $set: { missingWarned: true } }
+                );
+            }
+            continue;
+        }
+
+        // 🆕 اگه هیچ قیمت خرید معتبری نیست، از پوزیشن صرف‌نظر کن
+        const exitPx = c.bid > 0 ? c.bid : (c.last > 0 ? c.last : 0);
+        if (exitPx <= 0) {
+            // فقط upd رو انجام بده، ولی close نکن
+            await db.collection('option_positions').updateOne(
+                { _id: p._id },
+                { $set: {
+                    lastBid: c.bid, lastAsk: c.ask, lastS: c.S,
+                    lastCheck: new Date(),
+                    missingPriceWarned: true
+                } }
+            );
+            continue;
+        }
+        const cost = p.entryAsk * (1 + FEE_BUY);
+        const pnlPct = (exitPx * (1 - FEE_SELL) / cost - 1) * 100;
+        const T = Math.max(c.daysLeft, 0.5) / 365;
+        const iv = impliedVol(
+            (c.bid > 0 && c.ask > 0) ? (c.bid + c.ask) / 2 : c.last,
+            c.S, c.strike, T, RISK_FREE
+        );
+        const spreadPct = c.bid > 0 && c.ask > 0 ? (c.ask - c.bid) / ((c.ask + c.bid) / 2) * 100 : null;
+        const m = metrics(c, c.S, null);
+
+        const upd = {
+            lastBid: c.bid, lastAsk: c.ask, lastS: c.S,
+            lastPnlPct: pnlPct, lastIv: iv,
+            lastDelta: m.delta, lastTheta: m.thetaDay,
+            lastOi: c.oi, lastVolume: c.volume,
+            lastSpreadPct: spreadPct,
+            lastDaysLeft: c.daysLeft,
+            lastCheck: new Date()
+        };
+
+        let reason = null;
+
+        // 🆕 محاسبه‌ی option-aware exit conditions
+        const heldDays = p.entryTime ? (Date.now() - new Date(p.entryTime).getTime()) / 86400000 : 0;
+        const ivDrop = (p.entryIv && iv) ? (iv - p.entryIv) / p.entryIv : 0;
+        const thetaPerDayPct = (p.entryTheta && p.entryAsk && p.entryAsk > 0)
+            ? Math.abs(p.entryTheta) / p.entryAsk * 100 : 0;
+
+        // Exit logic ساده: TP/SL + time-based
+        const maxHoldDays = s.maxHoldDays || 20;   // 🆕
+        if (!longIds.has(p.configId)) reason = 'سیگنال خروج یا لغو روی سهم پایه';
+        else if (c.daysLeft <= s.closeDaysBefore) reason = `${c.daysLeft} روز تا سررسید`;
+        else if (pnlPct <= -s.optionStopPct) reason = `حد ضرر آپشن (${pnlPct.toFixed(0)}%)`;
+        else if (pnlPct >= s.take2Pct) reason = `حد سود کامل (${pnlPct.toFixed(0)}%)`;
+        else if (ivDrop < -0.30) reason = `IV سقوط شدید (${(ivDrop*100).toFixed(0)}%)`;
+        else if (thetaPerDayPct > 2.5 && heldDays >= 2 && pnlPct < 10) reason = `تتا سنگین (${thetaPerDayPct.toFixed(1)}%/روز)`;
+        else if (heldDays >= maxHoldDays && pnlPct < 20) reason = `سقف زمان (${heldDays.toFixed(0)} روز)`;
+
+        const warns = [];
+        if (sellQueueSet.has(p.underlying)) warns.push(`نماد پایه در صف فروش است - برای بستن آپشن باید منتظر باز شدن صف بمانی`);
+        if (!reason && p.entryIv && iv && iv < p.entryIv * 0.8 && !p.ivWarned) {
+            warns.push(`IV از ${(p.entryIv * 100).toFixed(0)}% به ${(iv * 100).toFixed(0)}% افت کرد`);
+            upd.ivWarned = true;
+        }
+        if (!reason && spreadPct !== null && spreadPct > 15 && !p.spreadWarned) {
+            warns.push(`اسپرد ${spreadPct.toFixed(0)}%`);
+            upd.spreadWarned = true;
+        }
+        if (isLast30Min && !reason && !p.timeWarned) {
+            warns.push(`30 دقیقه آخر بازار`);
+            upd.timeWarned = true;
+        }
+
+        let _unsetFields = null;
+        if (reason) {
+            Object.assign(upd, {
+                status: 'closed', exitTime: new Date(),
+                exitBid: exitPx, exitS: c.S, pnlPct, pnl: { pnlPct }, exitReason: reason
+            });
+            // 🆕 پاک کردن stagedExits قدیمی
+            _unsetFields = { stagedExits: '' };
+
+            let roll = '';
+            if (longIds.has(p.configId) && c.daysLeft <= s.closeDaysBefore && p.scenario) {
+                const names = p.underlyingNames && p.underlyingNames.length ? p.underlyingNames : [norm(p.underlying)];
+                const r = selectCalls(chain, names, { ...p.scenario, S: c.S }, s);
+                if (r.picks.length) {
+                    const q = r.picks[0];
+                    roll = `\nپیشنهاد رول: ${q.symbol} اعمال ${f0(q.strike)} سررسید ${q.expiry} (${q.daysLeft} روز) خرید ${f0(q.ask)}`;
+                }
+            }
+
+            await requireDep('notify')(`بستن کال ${p.symbol} (${p.underlying})\nدلیل: ${reason}\nورود ${f0(p.entryAsk)} -> خروج ${f0(exitPx)} | بازده ${pc(pnlPct)}\nسهم پایه: ${f0(p.entryS)} -> ${f0(c.S)} (${pc((c.S / p.entryS - 1) * 100)})${roll}`);
+        } else if (warns.length) {
+            await requireDep('notify')(`${p.symbol} (${p.underlying}) | بازده ${pc(pnlPct)}\n${warns.join('\n')}`);
+        }
+
+        const _updateDoc = { $set: upd };
+        if (_unsetFields) _updateDoc.$unset = _unsetFields;
+        await db.collection('option_positions').updateOne({ _id: p._id }, _updateDoc);
+    }
+}
+
+const openPositionsCount = () =>
+    requireDep('getDB')().collection('option_positions').countDocuments({ status: 'open' });
+
+// ============================================================
+// Storage helpers
+// ============================================================
+const wanted = (c, set) => c.isCall && set.has(c.underlying) && (c.oi > 0 || c.trades > 0);
+
+async function storeSnapshots(chain, monitoredSet) {
+    const time = new Date();
+    const docs = chain.filter(c => wanted(c, monitoredSet)).map(c => ({
+        symbol: c.symbol, underlying: c.underlying, time,
+        S: c.S, last: c.last, bid: c.bid, ask: c.ask,
+        oi: c.oi, volume: c.volume, trades: c.trades
+    }));
+    if (docs.length) {
+        await requireDep('getDB')().collection('option_snapshots').insertMany(docs, { ordered: false });
+    }
+    return docs.length;
+}
+
+async function storeFullOptionHistory(chain, monitoredSet) {
+    const time = new Date();
+    const docs = chain.filter(c => wanted(c, monitoredSet)).map(c => ({
+        symbol: c.symbol, underlying: c.underlying,
+        strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft, time,
+        S: c.S, bid: c.bid, ask: c.ask, last: c.last,
+        bidVol: c.bidVol, askVol: c.askVol,
+        oi: c.oi, volume: c.volume, trades: c.trades,
+        ivApi: c.ivApi, hvApi: c.hvApi,
+        deltaApi: c.deltaApi, gammaApi: c.gammaApi,
+        thetaApi: c.thetaApi, vegaApi: c.vegaApi, bsApi: c.bsApi
+    }));
+    if (docs.length) {
+        try {
+            await requireDep('getDB')().collection('option_history').insertMany(docs, { ordered: false });
+        } catch (_) {}
+    }
+    return docs.length;
+}
+
+async function storeEOD(chain, monitoredSet) {
+    const date = deps.todayDateString ? deps.todayDateString() : new Date().toISOString().slice(0, 10);
+    const col = requireDep('getDB')().collection('option_daily');
+    let n = 0;
+    for (const c of chain.filter(c => wanted(c, monitoredSet))) {
+        const m = metrics(c, c.S, null);
+        await col.updateOne(
+            { symbol: c.symbol, date },
+            { $set: {
+                symbol: c.symbol, underlying: c.underlying, date,
+                strike: c.strike, expiry: c.expiry, daysLeft: c.daysLeft,
+                S: c.S, last: c.last, final: c.final, bid: c.bid, ask: c.ask,
+                oi: c.oi, volume: c.volume, value: c.value, trades: c.trades,
+                iv: m.iv, delta: m.delta, hvApi: c.hvApi
+            }},
+            { upsert: true }
+        );
+        n++;
+    }
+    return n;
+}
+
+// ============================================================
+// Backtest — real & approximate
+// ============================================================
+async function tryGetRealTradeData(symbol, t, p) {
+    const db = requireDep('getDB')();
+    const RISK_FREE = getRiskFree();
+    const FEE_BUY = getFeeBuy();
+    const FEE_SELL = getFeeSell();
+
+    // از لحظه ورود/خروج واقعی استفاده کن (بعد از close کندل)
+    const entrySec = t.entryFillTime || t.entryTime;
+    const exitSec  = t.exitFillTime  || t.exitTime;
+    const entryDate = new Date(entrySec * 1000);
+    const exitDate  = new Date(exitSec  * 1000);
+
+    // پنجره بزرگ‌تر — 30 دقیقه به جای 5
+    const WINDOW_MS = 30 * 60 * 1000;
+
+    const entryCandidates = await db.collection('option_history').find({
+        underlying: norm(symbol),
+        time: { $gte: new Date(entryDate.getTime() - WINDOW_MS), $lte: new Date(entryDate.getTime() + WINDOW_MS) },
+        daysLeft: { $gte: p.minDays, $lte: p.maxDays },
+        bid: { $gt: 0 }, ask: { $gt: 0 }, oi: { $gt: 0 }
+    }).toArray();
+
+    if (!entryCandidates.length) return null;
+
+    const targetDelta = 0.55;
+    let best = null, bestDiff = Infinity;
+    for (const c of entryCandidates) {
+        const delta = c.deltaApi || 0;
+        if (delta < p.deltaMin || delta > p.deltaMax) continue;
+        const diff = Math.abs(delta - targetDelta);
+        if (diff < bestDiff) { bestDiff = diff; best = c; }
+    }
+    if (!best) return null;
+
+    const exitRows = await db.collection('option_history').find({
+        symbol: best.symbol,
+        time: { $gte: new Date(exitDate.getTime() - WINDOW_MS), $lte: new Date(exitDate.getTime() + WINDOW_MS) }
+    }).toArray();
+
+    let exitBid = null, exitRow = null;
+    if (exitRows.length) {
+        exitBid = exitRows[0].bid;
+        exitRow = exitRows[0];
+    } else {
+        const lastRow = await db.collection('option_history').find({
+            symbol: best.symbol, time: { $lt: exitDate }
+        }).sort({ time: -1 }).limit(1).toArray();
+        if (lastRow.length) { exitBid = lastRow[0].bid; exitRow = lastRow[0]; }
+    }
+    if (!exitBid) return null;
+
+    // 🆕 fallback: اگه ask/bid نداریم، از close/last استفاده کن
+    const bestBase = best.close > 0 ? best.close : (best.last > 0 ? best.last : 0);
+    const effectiveEntryAsk = best.ask > 0 ? best.ask : bestBase;
+    if (effectiveEntryAsk <= 0) return null;
+
+    const exitBase = exitRow && exitRow.close > 0 ? exitRow.close
+                   : exitRow && exitRow.last > 0 ? exitRow.last
+                   : exitBid;
+    const effectiveExitBid = (exitRow && exitRow.bid > 0) ? exitRow.bid : exitBase;
+    if (effectiveExitBid <= 0) return null;
+
+    const entryCost = effectiveEntryAsk * (1 + FEE_BUY);
+    const exitProceeds = effectiveExitBid * (1 - FEE_SELL);
+    const spreadPct = best.bid > 0 && best.ask > 0
+        ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100 : null;
+
+
+    // 🆕 Grade-aware sizing — compute grade for this contract
+    let _ohGrade = null;
+    try {
+        if (deps.settings && typeof deps.settings.isOptionGradeSizingEnabled === 'function'
+            && deps.settings.isOptionGradeSizingEnabled()) {
+            const _gp = {
+                weights: deps.settings.getOptionGradeWeights ? deps.settings.getOptionGradeWeights() : null,
+                thresholds: deps.settings.getOptionGradeThresholds ? deps.settings.getOptionGradeThresholds() : null
+            };
+            const _gr = {
+                bid: best.bid,
+                ask: best.ask,
+                deltaApi: best.deltaApi,
+                daysLeft: best.daysLeft,
+                ivApi: best.ivApi,
+                hvApi: best.hvApi,
+                oi: best.oi,
+                volume: best.volume,
+                dataQuality: best.dataQuality
+            };
+            _ohGrade = computeOptionGrade(_gr, _gp);
+        }
+    } catch (_) { _ohGrade = null; }
+
+    return {
+        entryTime: t.entryTime, exitTime: t.exitTime,
+        stockEntry: t.entryPrice, stockExit: t.exitPrice,
+        symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
+        optionEntry: best.ask, optionExit: exitBid,
+        optionEntryBid: best.bid, optionExitAsk: exitRow ? exitRow.ask : null,
+        optionEntryLast: best.last, optionExitLast: exitRow ? exitRow.last : null,
+        oi: best.oi, volume: best.volume, spreadPct,
+        dataQuality: best.dataQuality || 'unknown',
+        enrichedSpreadPct: best.enrichedSpreadPct || null,
+        delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
+        iv: best.ivApi, hv: best.hvApi,
+        ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
+        pnlPct: (exitProceeds / entryCost - 1) * 100,
+        exitReason: t.exitReason,
+        source: 'real'
+    };
+}
+// ============================================================
+// 🆕 نسخه سریع tryGetRealTradeData — Phase 2 Realism
+// ============================================================
+const OPT_SLIPPAGE_PCT = 0.003;
+const OPT_IMPACT_PCT = 0.001;
+const OPT_LATENCY_SEC = 1;
+
+// 🆕 طبقه‌بندی خروجی آپشن
+function classifyOptionExit(entryRow, exitRow, heldDays) {
+    const thetaPerDayPct = (entryRow && entryRow.thetaApi && entryRow.ask && entryRow.ask > 0)
+        ? Math.abs(entryRow.thetaApi) / entryRow.ask * 100 : null;
+    const ivChangePct = (entryRow && exitRow && entryRow.ivApi && exitRow.ivApi && entryRow.ivApi > 0)
+        ? (exitRow.ivApi - entryRow.ivApi) / entryRow.ivApi * 100 : null;
+    const deltaChangePct = (entryRow && exitRow && entryRow.deltaApi && exitRow.deltaApi && entryRow.deltaApi > 0)
+        ? (exitRow.deltaApi - entryRow.deltaApi) / entryRow.deltaApi * 100 : null;
+
+    let tag = 'normal';
+    let note = null;
+
+    if (ivChangePct != null && ivChangePct < -30) {
+        tag = 'iv_crush';
+        note = `IV افت ${Math.abs(ivChangePct).toFixed(0)}%`;
+    } else if (thetaPerDayPct != null && thetaPerDayPct > 2.5 && (heldDays || 0) >= 2) {
+        tag = 'theta_decay';
+        note = `تتا ${thetaPerDayPct.toFixed(1)}%/روز`;
+    } else if (deltaChangePct != null && deltaChangePct < -40) {
+        tag = 'delta_loss';
+        note = `Δ افت ${Math.abs(deltaChangePct).toFixed(0)}%`;
+    }
+
+    return {
+        tag, note,
+        thetaPerDayPct: thetaPerDayPct != null ? Math.round(thetaPerDayPct * 100) / 100 : null,
+        ivChangePct: ivChangePct != null ? Math.round(ivChangePct * 10) / 10 : null,
+        deltaChangePct: deltaChangePct != null ? Math.round(deltaChangePct * 10) / 10 : null,
+        heldDays: heldDays != null ? Math.round(heldDays * 100) / 100 : null
+    };
+}
+
+function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
+    const FEE_BUY = getFeeBuy();
+    const FEE_SELL = getFeeSell();
+
+    // 🆕 Latency با p.latencySec
+    const latency = p.latencySec || 1;
+    const entrySec = (t.entryFillTime || t.entryTime) + latency;
+    const exitSec  = (t.exitFillTime  || t.exitTime)  + latency;
+
+    // 🆕 پنجره‌ی محدودتر (1 روز پیش‌فرض)
+    const WINDOW_SEC = (p.timeWindowDays || 1) * 24 * 3600;
+
+    // ---- انتخاب قرارداد ورود (بهینه: هر نماد با slice) ----
+    const candidateRows = [];
+    const _loSec = entrySec - WINDOW_SEC;
+    const _hiSec = entrySec;   // FIX #5: no future leak (candidate must be <= entry time)
+    for (const [sym, rows] of rowsBySymbol) {
+        // 🆕 فرض: rows از قبل بر اساس زمان مرتب است → باینری سرچ
+        let lo = 0, hi = rows.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            const sec = Math.floor(new Date(rows[mid].time).getTime() / 1000);
+            if (sec < _loSec) lo = mid + 1;
+            else hi = mid;
+        }
+        for (let i = lo; i < rows.length; i++) {
+            const r = rows[i];
+            const sec = Math.floor(new Date(r.time).getTime() / 1000);
+            if (sec > _hiSec) break;
+            if (r.bid > 0 || r.ask > 0 || r.close > 0 || r.last > 0) {
+                candidateRows.push(r);
+            }
+        }
+    }
+    if (!candidateRows.length) return null;
+
+    // 🆕 delta: از deltaApi، یا محاسبه با BS (bid/ask هر دو اجباری هستن قبل از این تابع)
+    const RISK_FREE_LOCAL = getRiskFree();
+    function getDelta(row) {
+        if (row.deltaApi !== null && row.deltaApi !== undefined && Number.isFinite(row.deltaApi)) {
+            return row.deltaApi;
+        }
+        // fallback: BS delta با S/strike/IV
+        if (!row.S || !row.strike) return null;
+        const T = Math.max((row.daysLeft || 30), 0.5) / 365;
+        let iv = row.ivApi;
+        if (!iv || !Number.isFinite(iv) || iv < 0.05 || iv > 5.0) iv = 0.6;
+        try {
+            const bs = bsCall(row.S, row.strike, T, RISK_FREE_LOCAL, iv);
+            return bs.delta;
+        } catch (_) { return null; }
+    }
+
+    // Quality-aware delta filtering
+    const allowMissingDelta = p.allowMissingDelta !== false;  // B/C/D allow; A+/A do not
+    const valid = candidateRows.filter(c => {
+        const d = getDelta(c);
+        if (d === null || d === undefined) {
+            return allowMissingDelta;  // accept unknown delta for looser levels
+        }
+        return d >= p.deltaMin && d <= p.deltaMax;
+    });
+    if (!valid.length) return null;
+
+    // 🆕 target delta انعطاف‌پذیر — مرکز بازه‌ی موجود
+    let targetDelta = 0.55;
+    if (valid.length >= 3) {
+        const avgDelta = valid.reduce((s, r) => s + (getDelta(r) || 0), 0) / valid.length;
+        targetDelta = Math.max(0.4, Math.min(0.7, avgDelta));
+    }
+
+    valid.sort((a, b) => {
+        const da = Math.abs((getDelta(a) || 0) - targetDelta);
+        const db = Math.abs((getDelta(b) || 0) - targetDelta);
+        if (Math.abs(da - db) > 0.01) return da - db;
+        const secA = Math.floor(new Date(a.time).getTime() / 1000);
+        const secB = Math.floor(new Date(b.time).getTime() / 1000);
+        return Math.abs(secA - entrySec) - Math.abs(secB - entrySec);
+    });
+
+    // FIX 10c: quality gates applied BEFORE picking best.
+    // Previously valid[0] was picked by delta closeness only, and if it failed
+    // OI/spread/days the function returned null (rejecting the whole trade)
+    // instead of trying the next-best candidate. Now we walk sorted candidates
+    // and pick the first that passes ALL quality gates.
+    const _qMinPremium = (p.minPremium != null && Number.isFinite(p.minPremium) && p.minPremium > 0) ? p.minPremium : 20;
+    const _qMaxSpread  = (p.maxSpreadPct != null && Number.isFinite(p.maxSpreadPct) && p.maxSpreadPct > 0) ? p.maxSpreadPct : 80;
+    const _qMinOI      = (p.minOI != null && Number.isFinite(p.minOI) && p.minOI > 0) ? p.minOI : 0;
+    const _qMinDays    = (p.minDays != null && Number.isFinite(p.minDays) && p.minDays > 0) ? p.minDays : 2;
+    const _qMaxDays    = (p.maxDays != null && Number.isFinite(p.maxDays) && p.maxDays > 0) ? p.maxDays : 180;
+
+    function _passesQuality(cand) {
+        const _a = Number(cand.ask) || 0;
+        const _b = Number(cand.bid) || 0;
+        if (!(_a > 0 && _b > 0)) return false;
+        const _m = (_a + _b) / 2;
+        const _sp = _m > 0 ? ((_a - _b) / _m) * 100 : 100;
+        if (_a < _qMinPremium) return false;
+        if (_sp > _qMaxSpread) return false;
+        const _oi = Number(cand.oi) || 0;
+        if (_qMinOI > 0 && _oi < _qMinOI) return false;
+        const _d = Number(cand.daysLeft);
+        if (Number.isFinite(_d) && _d > 0) {
+            if (_d < _qMinDays) return false;
+            if (_d > _qMaxDays) return false;
+        }
+        return true;
+    }
+
+    let best = null;
+    for (const _cand of valid) {
+        if (_passesQuality(_cand)) { best = _cand; break; }
+    }
+    if (!best) return null;
+    // ---- 🆕 قیمت‌ها فقط از bid/ask واقعی ----
+    const _exitRows = rowsBySymbol.get(best.symbol) || [];
+    let exitRow = null;
+    let _bestExitDelta = Infinity;
+    const _exitLo = exitSec - 24 * 3600;
+    const _exitHi = exitSec + 60;
+    for (let _ei = 0; _ei < _exitRows.length; _ei++) {
+        const _r = _exitRows[_ei];
+        const _sec = Math.floor(new Date(_r.time).getTime() / 1000);
+        if (_sec > _exitHi) break;
+        if (_sec < _exitLo) continue;
+        if (_r.bid > 0) {
+            const _d = Math.abs(_sec - exitSec);
+            if (_d < _bestExitDelta) { _bestExitDelta = _d; exitRow = _r; }
+        }
+    }
+    if (!exitRow) return null;
+    let entry = realisticBuyPrice(best);
+    let exit  = realisticSellPrice(exitRow);
+    if (!entry || !exit) return null;   // ⛔ اگه bid/ask نبود → کل معامله skip
+
+    // Bug 9 FIX: intraday adjustment for stock move signal -> EOD
+    const _rawEntryPrice = entry.price;
+    const _rawExitPrice = exit.price;
+    try {
+        const _adjDelta = (typeof getDelta === "function" ? getDelta(best) : null) || 0.5;
+        if (t.entryPrice > 0 && best.S > 0) {
+            const _dS = Number(t.entryPrice) - Number(best.S);
+            const _cap = entry.price * 0.5;
+            let _dOpt = _adjDelta * _dS;
+            if (_dOpt > _cap) _dOpt = _cap;
+            if (_dOpt < -_cap) _dOpt = -_cap;
+            entry = Object.assign({}, entry, { price: Math.max(1, entry.price + _dOpt), _adj: true, _dS: _dS });
+        }
+        if (t.exitPrice > 0 && exitRow.S > 0) {
+            const _dS2 = Number(t.exitPrice) - Number(exitRow.S);
+            const _cap2 = exit.price * 0.5;
+            let _dOpt2 = _adjDelta * _dS2;
+            if (_dOpt2 > _cap2) _dOpt2 = _cap2;
+            if (_dOpt2 < -_cap2) _dOpt2 = -_cap2;
+            exit = Object.assign({}, exit, { price: Math.max(1, exit.price + _dOpt2), _adj: true, _dS: _dS2 });
+        }
+    } catch (_) {}
+
+
+    // FIX #6: removed duplicate Bug-9 adjustment (kept first block; second was identical)
+
+
+    // ---- 🆕 Slippage داینامیک (۱ قرارداد، نه multiplier) ----
+    // FIX #8: units are SHARES. 1 contract = `size` shares (typically 1000).
+    // `dailyVolume` (best.volume) is total SHARES traded today for this contract.
+    // orderSize = (numContracts × contractMultiplier), i.e., shares we want to trade.
+    const numContracts = 1; // backtest assumes 1 contract per trade
+    const contractMultiplier = best.size || 1000;
+    const orderSize = numContracts * contractMultiplier;
+    const dailyVol = best.volume || 0;
+    const dynSlip = computeDynamicSlippage(orderSize, dailyVol, p);
+
+    // ---- 🆕 پر شدن سفارش ----
+    const fillRatio = computeFillRatio(orderSize, dailyVol, p.maxParticipation);
+    if (fillRatio < (p.minFillRatio != null ? p.minFillRatio : 0)) {
+        return null;
+    }
+
+    // ---- قیمت‌های نهایی ----
+    const entryFillPrice = entry.price * (1 + dynSlip);
+    const exitFillPrice  = exit.price  * (1 - dynSlip);
+
+    // ---- 🆕 Intraday theta decay ----
+    const heldDays = (exitSec - entrySec) / 86400;
+    let thetaDecay = 0;
+    // theta فقط برای نگه‌داری کوتاه‌مدت (<1 روز) و وقتی thetaApi موجوده
+    if (best.thetaApi && heldDays > 0 && heldDays < 1) {
+        const thetaPct = Math.abs(best.thetaApi) / Math.max(entry.price, 1);
+        const intradayFraction = Math.min(1, heldDays / 1);
+        thetaDecay = entry.price * thetaPct * intradayFraction * 0.5;
+    }
+    const finalEntryPrice = entryFillPrice + thetaDecay;
+
+    const entryCost = finalEntryPrice * (1 + FEE_BUY);
+    const exitProceeds = exitFillPrice * (1 - FEE_SELL);
+
+    // NEW: sanity cap — rejects unrealistic returns from stale rows
+    let _rawPnlPct = (exitProceeds / entryCost - 1) * 100;
+    if (Number.isFinite(p.maxTradeReturnPct) && _rawPnlPct > p.maxTradeReturnPct) {
+        _rawPnlPct = p.maxTradeReturnPct;
+    }
+
+    const spreadPct = best.bid > 0 && best.ask > 0
+        ? (best.ask - best.bid) / ((best.ask + best.bid) / 2) * 100
+        : (best.close > 0 && best.bid > 0 ? (best.close - best.bid) / best.close * 100 : null);
+
+    return {
+        entryTime: t.entryTime, exitTime: t.exitTime,
+        entryFillTime: entrySec, exitFillTime: exitSec,
+        stockEntry: t.entryPrice, stockExit: t.exitPrice,
+        // 🆕 Phase 4 — propagate score fields
+        atr: t.atr || null,
+        rsiFast: t.rsiFast || null,
+        rsiSlow: t.rsiSlow || null,
+        htfTrend: t.htfTrend || null,
+        signalReason: t.signalReason || null,
+        symbol: best.symbol, strike: best.strike, expiry: best.expiry, daysLeft: best.daysLeft,
+
+        entrySource: entry.source, exitSource: exit.source,
+        entryWasReal: entry.isReal, exitWasReal: exit.isReal,
+
+        optionEntryRaw: (typeof _rawEntryPrice !== "undefined" ? _rawEntryPrice : entry.price), optionExitRaw: (typeof _rawExitPrice !== "undefined" ? _rawExitPrice : exit.price),
+        optionEntry: finalEntryPrice, optionExit: exitFillPrice,
+
+        slippagePct: dynSlip * 100,
+        thetaDecay: thetaDecay,
+        fillRatio: fillRatio * 100,
+        latencySec: latency,
+
+        oi: best.oi, volume: best.volume, spreadPct,
+        dataQuality: best.dataQuality || 'unknown',
+        enrichedSpreadPct: best.enrichedSpreadPct || null,
+        delta: best.deltaApi, gamma: best.gammaApi, theta: best.thetaApi, vega: best.vegaApi,
+        iv: best.ivApi, hv: best.hvApi,
+        ivHv: best.ivApi && best.hvApi ? best.ivApi / best.hvApi : null,
+        pnlPct: _rawPnlPct,
+        exitReason: t.exitReason,
+        // 🆕 option-exit classification
+        optionExitInfo: classifyOptionExit(best, exitRow, (exitSec - entrySec) / 86400),
+        optionGrade: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.grade : null,
+        optionScore: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.score : null,
+        optionSizeFactor: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.sizeFactor : 1.0,
+        optionGradeBreakdown: (typeof _ohGrade !== "undefined" && _ohGrade) ? _ohGrade.breakdown : null,
+        entryIvAtEntry: best.ivApi || null,
+        entryDeltaAtEntry: best.deltaApi || null,
+        entryThetaAtEntry: best.thetaApi || null,
+        entryHvAtEntry: best.hvApi || null,
+        source: 'real'
+    };
+}
+
+function tryGetApproxTradeData(t, closes, times, p) {
+    const RISK_FREE = getRiskFree();
+    const FEE_BUY = getFeeBuy();
+    const FEE_SELL = getFeeSell();
+
+    let idx = -1;
+    for (let i = 0; i < times.length; i++) {
+        if (times[i] <= t.entryTime) idx = i; else break;
+    }
+    const hv = (idx >= 0 ? historicalHV(closes, idx) : null) || 0.4;
+    const sigmaBase = Math.max(hv * p.ivMultiplier, 0.05);
+    const daysHeld = Math.max((t.exitTime - t.entryTime) / 86400, 0.1);
+
+    const moveRatio = Math.abs(t.exitPrice / t.entryPrice - 1);
+    const ivCrushFactor = Math.max(p.minIvCrush, 1 - moveRatio * p.volCrushFactor);
+    const sigmaExit = sigmaBase * ivCrushFactor;
+
+    const dynamicSpreadPct = p.spreadPct * (1 + moveRatio * p.spreadMoveMult);
+    const halfSpreadEntry = p.spreadPct / 200;
+    const halfSpreadExit = dynamicSpreadPct / 200;
+
+    const Tentry = p.assumedMaturityDays / 365;
+    const Texit = Math.max(p.assumedMaturityDays - daysHeld, p.minExitDays) / 365;
+    const strike = Math.round(t.entryPrice);
+
+    const entryTheo = bsCall(t.entryPrice, strike, Tentry, RISK_FREE, sigmaBase);
+    const exitTheo = bsCall(t.exitPrice, strike, Texit, RISK_FREE, sigmaExit);
+
+    // 🆕 Slippage داینامیک (چون حجم تقریبیه، از form بازه‌ی متوسط استفاده می‌کنیم)
+    const dynSlip = (p.dynSlipBase || 0.001) + (p.dynSlipImpactCoef || 0.5) * 0.5 * 0.01;
+
+    const entryFillPrice = entryTheo.price
+        * (1 + halfSpreadEntry + dynSlip);
+    const exitFillPrice = exitTheo.price
+        * (1 - halfSpreadExit - dynSlip);
+
+    const entryCost = entryFillPrice * (1 + FEE_BUY);
+    const exitProceeds = exitFillPrice * (1 - FEE_SELL);
+    if (!(entryCost > 0) || !isFinite(exitProceeds)) return null;
+
+    let pnlPct = (exitProceeds / entryCost - 1) * 100;
+    if (pnlPct > p.maxReturnPct) pnlPct = p.maxReturnPct;
+
+    // 🆕 option-exit classification (approx)
+    const heldDaysApprox = (t.exitTime - t.entryTime) / 86400;
+    const thetaPerDayPctApprox = entryTheo.price > 0
+        ? Math.abs(entryTheo.thetaDay) / entryTheo.price * 100 : null;
+    const ivChangePctApprox = sigmaBase > 0
+        ? (sigmaExit - sigmaBase) / sigmaBase * 100 : null;
+    const deltaChangePctApprox = entryTheo.delta > 0
+        ? (exitTheo.delta - entryTheo.delta) / entryTheo.delta * 100 : null;
+
+    let approxTag = 'normal', approxNote = null;
+    if (ivChangePctApprox != null && ivChangePctApprox < -30) {
+        approxTag = 'iv_crush';
+        approxNote = `IV افت ${Math.abs(ivChangePctApprox).toFixed(0)}%`;
+    } else if (thetaPerDayPctApprox != null && thetaPerDayPctApprox > 2.5 && heldDaysApprox >= 2) {
+        approxTag = 'theta_decay';
+        approxNote = `تتا ${thetaPerDayPctApprox.toFixed(1)}%/روز`;
+    } else if (deltaChangePctApprox != null && deltaChangePctApprox < -40) {
+        approxTag = 'delta_loss';
+        approxNote = `Δ افت ${Math.abs(deltaChangePctApprox).toFixed(0)}%`;
+    }
+
+    return {
+        entryTime: t.entryTime, exitTime: t.exitTime,
+        stockEntry: t.entryPrice, stockExit: t.exitPrice,
+        atr: t.atr || null,
+        rsiFast: t.rsiFast || null,
+        rsiSlow: t.rsiSlow || null,
+        htfTrend: t.htfTrend || null,
+        signalReason: t.signalReason || null,
+        strike, hv, sigma: sigmaBase, sigmaExit, ivCrushFactor,
+        dynamicSpreadPct,
+        optionEntryRaw: entryTheo.price,
+        optionExitRaw: exitTheo.price,
+        optionEntry: entryFillPrice,
+        optionExit: exitFillPrice,
+        optionEntryBid: entryFillPrice * (1 - halfSpreadEntry),
+        optionExitAsk: exitFillPrice * (1 + halfSpreadExit),
+        slippagePct: dynSlip * 100,
+        delta: entryTheo.delta, deltaExit: exitTheo.delta,
+        gamma: entryTheo.gamma, theta: entryTheo.thetaDay, vega: entryTheo.vega,
+        iv: sigmaBase, ivHv: sigmaBase / hv,
+        pnlPct,
+        exitReason: t.exitReason,
+        // 🆕 option-exit classification
+        optionExitInfo: {
+            tag: approxTag,
+            note: approxNote,
+            thetaPerDayPct: thetaPerDayPctApprox != null ? Math.round(thetaPerDayPctApprox * 100) / 100 : null,
+            ivChangePct: ivChangePctApprox != null ? Math.round(ivChangePctApprox * 10) / 10 : null,
+            deltaChangePct: deltaChangePctApprox != null ? Math.round(deltaChangePctApprox * 10) / 10 : null,
+            heldDays: Math.round(heldDaysApprox * 100) / 100
+        },
+        entryIvAtEntry: sigmaBase,
+        entryDeltaAtEntry: entryTheo.delta,
+        entryThetaAtEntry: entryTheo.thetaDay,
+        entryHvAtEntry: hv,
+        source: 'approximate'
+    };
+}
+
+// ============================================================
+// 🆕 Grade an option contract A+ -> D based on quality
+// Instead of rejecting, classify so it can still participate
+// in backtest/live with a lower size factor.
+// ============================================================
+function gradeOption(c) {
+    const bid = Number(c.bid) || 0;
+    const ask = Number(c.ask) || 0;
+    const oi = Number(c.oi) || 0;
+    const days = Number(c.daysLeft) || 0;
+    const delta = Number(c.delta);
+    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+    const spreadPct = mid > 0 ? ((ask - bid) / mid) * 100 : 100;
+    const dq = c.dataQuality || 'real';
+
+    if (!(ask > 0)) return null;
+
+    // A+ : strictest
+    if (bid > 0 && ask >= 500 && spreadPct <= 8 &&
+        days >= 14 && days <= 45 && oi >= 200 &&
+        Number.isFinite(delta) && delta >= 0.45 && delta <= 0.65 &&
+        dq === 'real') {
+        return { grade: 'A+', score: 5, spreadPct, delta };
+    }
+
+    // A
+    if (bid > 0 && ask >= 300 && spreadPct <= 10 &&
+        days >= 10 && days <= 55 && oi >= 100 &&
+        Number.isFinite(delta) && delta >= 0.35 && delta <= 0.75 &&
+        dq === 'real') {
+        return { grade: 'A', score: 4, spreadPct, delta };
+    }
+
+    // B
+    if (bid > 0 && ask >= 150 && spreadPct <= 15 &&
+        days >= 7 && days <= 70 && oi >= 50 &&
+        Number.isFinite(delta) && delta >= 0.25 && delta <= 0.85) {
+        return { grade: 'B', score: 3, spreadPct, delta };
+    }
+
+    // C
+    if (bid > 0 && ask >= 80 && spreadPct <= 20 &&
+        days >= 3 && days <= 90 && oi >= 20 &&
+        Number.isFinite(delta) && delta >= 0.15 && delta <= 0.90) {
+        return { grade: 'C', score: 2, spreadPct, delta };
+    }
+
+    // D — most permissive
+    if (ask >= 30 && spreadPct <= 30 &&
+        days >= 1 && days <= 180) {
+        return { grade: 'D', score: 1, spreadPct, delta: Number.isFinite(delta) ? delta : null };
+    }
+
+    return null;
+}
+
+// ============================================================
+// 🆕 Grade a whole chain (keep all eligible contracts)
+// ============================================================
+function gradeOptionChain(chain) {
+    const out = [];
+    for (const c of (chain || [])) {
+        const g = gradeOption(c);
+        if (!g) continue;
+        out.push(Object.assign({}, c, {
+            _grade: g.grade,
+            _gradeScore: g.score,
+            _spreadPct: g.spreadPct,
+            _deltaUsed: g.delta
+        }));
+    }
+    return out;
+}
+
+async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
+    const db = requireDep('getDB')();
+    // Resolve quality level (opts > settings > default)
+    let qualityLevel = opts.qualityLevel;
+    if (!qualityLevel && deps.settings && typeof deps.settings.getOptionQualityLevel === 'function') {
+        try { qualityLevel = deps.settings.getOptionQualityLevel(); } catch (_) {}
+    }
+    const qParams = getQualityParams(qualityLevel);
+
+    const p = {
+        ...OPT_BT_DEFAULTS,
+        // Override quality-dependent defaults (unless explicitly set by caller)
+        deltaMin: opts.deltaMin != null ? opts.deltaMin : qParams.deltaMin,
+        deltaMax: opts.deltaMax != null ? opts.deltaMax : qParams.deltaMax,
+        minDays: opts.minDays != null ? opts.minDays : qParams.minDays,
+        maxDays: opts.maxDays != null ? opts.maxDays : qParams.maxDays,
+        minPremium: opts.minPremium != null ? opts.minPremium : qParams.minPremium,
+        minOI: opts.minOI != null ? opts.minOI : qParams.minOI,
+        maxSpreadPct: opts.maxSpreadPct != null ? opts.maxSpreadPct : qParams.maxSpreadPct,
+        allowEnriched: qParams.allowEnriched,
+        qualityLevel: qParams.level,
+    };
+    Object.assign(p, opts);
+
+    if (!closedTrades.length) {
+        return {
+            assumptions: p,
+            stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null, avgWin: 0, avgLoss: 0, maxWin: 0, maxLoss: 0 },
+            trades: [], mode: 'hybrid',
+            realUsed: 0, approxUsed: 0, hasAnyOptionData: false,
+            diagnostic: 'هیچ معامله بسته شده ای تولید نشده.'
+        };
+    }
+
+    const sampleCount = await db.collection('option_history')
+        .countDocuments({ underlying: norm(symbol) });
+    const hasAnyOptionData = sampleCount > 0;
+    const realEnabled = p.realEnabled !== false;
+
+    // ---------- Prefetch: یه query به جای N query ----------
+    let optionRowsBySymbolTime = new Map();
+    if (realEnabled && hasAnyOptionData) {
+        try {
+            let _minSec = Infinity, _maxSec = -Infinity;
+            for (const t of closedTrades) {
+                const e = t.entryFillTime || t.entryTime;
+                const x = t.exitFillTime || t.exitTime;
+                if (e < _minSec) _minSec = e;
+                if (e > _maxSec) _maxSec = e;
+                if (x < _minSec) _minSec = x;
+                if (x > _maxSec) _maxSec = x;
+            }
+            // 🆕 پنجره‌ی مبتنی بر p.timeWindowDays
+            const WINDOW_MS = (p.timeWindowDays || 1) * 24 * 3600 * 1000 * 2;
+            const minTime = new Date(_minSec * 1000 - WINDOW_MS);
+            const maxTime = new Date(_maxSec * 1000 + WINDOW_MS);
+
+            // 🆕 bid/ask اجباری + daysLeft منعطف‌تر + projection برای کاهش حافظه
+            // Build dataQuality filter based on minDataQuality option
+            const _mq = p.minDataQuality || 'enriched';
+            const _query = {
+                underlying: { $in: [symbol, norm(symbol)] },
+                time: { $gte: minTime, $lte: maxTime },
+                bid: { $gt: 0 },
+                ask: { $gt: 0 }
+            };
+            // optionType filter: 'call' | 'put' | 'both'
+            if (p.optionType === 'call') {
+                _query.isCall = true;
+            } else if (p.optionType === 'put') {
+                _query.isCall = false;
+            }
+            if (_mq === 'real' || p.allowEnriched === false) {
+                // A+/A: real only
+                _query.$or = [
+                    { dataQuality: 'real' },
+                    { dataQuality: { $exists: false } }
+                ];
+            } else {
+                // B/C/D: allow enriched
+                _query.$or = [
+                    { dataQuality: { $in: ['real', 'enriched'] } },
+                    { dataQuality: { $exists: false } }
+                ];
+            }
+            const bulkRows = await db.collection('option_history').find(
+                _query,
+                {
+                    projection: {
+                        dataQuality: 1, enrichedSpreadPct: 1,
+                        symbol: 1, time: 1, bid: 1, ask: 1, close: 1, last: 1,
+                        volume: 1, S: 1, strike: 1, expiry: 1, daysLeft: 1,
+                        ivApi: 1, deltaApi: 1, gammaApi: 1, thetaApi: 1, vegaApi: 1,
+                        hvApi: 1, size: 1, oi: 1, isCall: 1
+                    }
+                }
+            ).toArray();
+
+            // group by symbol + sort by time (برای باینری سرچ)
+            for (const r of bulkRows) {
+                if (!optionRowsBySymbolTime.has(r.symbol)) {
+                    optionRowsBySymbolTime.set(r.symbol, []);
+                }
+                optionRowsBySymbolTime.get(r.symbol).push(r);
+            }
+            // 🆕 مرتب‌سازی زمانی
+            for (const [sym, rows] of optionRowsBySymbolTime) {
+                rows.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            }
+        } catch (_) { /* fallback به query per trade */ }
+    }
+
+    const daily = await db.collection('candles_daily')
+        .find({ symbol }).sort({ time: 1 }).toArray();
+    const closes = daily.map(r => r.close);
+    const times = daily.map(r => Math.floor(new Date(r.time).getTime() / 1000));
+
+    const trades = [];
+    let realUsed = 0, approxUsed = 0;
+
+    // R13: per-strategy minTargetPct pre-filter
+    let _perStratTargets = null;
+    try {
+        if (deps.settings && typeof deps.settings.getStrategyMinTargetMap === 'function') {
+            _perStratTargets = deps.settings.getStrategyMinTargetMap();
+        }
+    } catch (_) { _perStratTargets = null; }
+
+    function _targetPctOfTrade(t) {
+        const entry = Number(t.entryPrice || t.stockEntry) || 0;
+        if (entry <= 0) return null;
+        // FIX 10d: stop may live only inside signalInfo; check both.
+        const stop = Number(t.stop) || Number(t.signalInfo && t.signalInfo.stop);
+        const atr = Number(t.atr);
+        const risk = (stop && stop < entry) ? (entry - stop) : (atr ? 2 * atr : entry * 0.03);
+        return (risk * 2.5 / entry) * 100;
+    }
+
+    let _processTrades = closedTrades;
+    if (_perStratTargets) {
+        _processTrades = closedTrades.filter(t => {
+            const sid = t.strategyId || '_default';
+            const minT = (_perStratTargets[sid] != null)
+                ? _perStratTargets[sid]
+                : (_perStratTargets._default != null ? _perStratTargets._default : 3.5);
+            const tp = _targetPctOfTrade(t);
+            return tp == null || tp >= minT;
+        });
+    }
+
+    for (const t of _processTrades) {
+        let result = null;
+        if (realEnabled && hasAnyOptionData) {
+            try {
+                {
+                const _entryPx = t.entryPrice || t.stockEntry;
+                const _stopPx = t.stop || (t.signalInfo && t.signalInfo.stop);   // FIX 10d
+                const _atrVal = t.atr;
+                let _skip = false;
+                if (_entryPx > 0) {
+                    const _riskPx = (_stopPx && _stopPx < _entryPx)
+                        ? (_entryPx - _stopPx)
+                        : (_atrVal ? 2 * _atrVal : _entryPx * 0.03);
+                    const _targetPct = (_riskPx * 2.5 / _entryPx) * 100;
+                    // FIX 10d: use strategy-specific minTarget (not flat p.minTargetPct)
+                    let _minTarget = p.minTargetPct || 0;
+                    try {
+                        if (deps.settings && typeof deps.settings.getMinTargetPctFor === 'function') {
+                            const _smt = deps.settings.getMinTargetPctFor(t.strategyId || '_default');
+                            if (Number.isFinite(_smt) && _smt > 0) _minTarget = _smt;
+                        }
+                    } catch (_) {}
+                    if (_targetPct < _minTarget) _skip = true;
+                }
+                result = _skip ? null : tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
+            }
+            } catch (_) { result = null; }
+        }
+        // 🆕 فقط معاملات با bid/ask واقعی پذیرفته می‌شن
+        if (result) {
+            // Apply spread penalty to PnL (pessimistic)
+            if (p.spreadPenaltyMult > 0 && result.spreadPct != null && result.spreadPct > 0) {
+                const _sp = (p.spreadPenaltyMult || 0) * (result.spreadPct / 100);
+                result.rawPnlPct = result.pnlPct;
+                result.spreadPenaltyApplied = Math.round(_sp * 10000) / 10000;
+                result.pnlPct = result.pnlPct * (1 - _sp);
+            }
+            result._strategyId = t.strategyId || '_default';
+            result._targetPct = _targetPctOfTrade(t);
+            trades.push(result);
+            realUsed++;
+        }
+        // ⛔ approximate حذف شد — بدون bid/ask معامله معنی نداره
+        else {
+            approxUsed++;   // شمارش برای diagnostic
+        }
+    }
+
+    // R13: auto-detect optimal minTargetPct per strategy (PF × √N)
+    let _optimalTargets = null;
+    if (p.autoDetectTarget !== false) {
+        const _thresholds = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0];
+        const _byStrat = {};
+        for (const tr of trades) {
+            const sid = tr._strategyId || '_default';
+            if (!_byStrat[sid]) _byStrat[sid] = [];
+            _byStrat[sid].push(tr);
+        }
+        _optimalTargets = {};
+        for (const [sid, list] of Object.entries(_byStrat)) {
+            let best = { threshold: null, pf: 0, n: 0, score: 0, totalPnl: 0 };
+            for (const th of _thresholds) {
+                const sub = list.filter(x => (x._targetPct || 0) >= th);
+                if (sub.length < 5) continue;
+                const w = sub.filter(x => x.pnlPct > 0);
+                const l = sub.filter(x => x.pnlPct <= 0);
+                const gp = w.reduce((s, x) => s + x.pnlPct, 0);
+                const gl = -l.reduce((s, x) => s + x.pnlPct, 0);
+                const pf = gl > 0 ? gp / gl : (gp > 0 ? 99 : 0);
+                                const total = gp - gl;
+                if (total <= 0) continue;
+                if (!Number.isFinite(pf) || pf < 1.0) continue;
+const score = pf * Math.sqrt(sub.length);
+                if (score > best.score) {
+                    best = {
+                        threshold: th,
+                        pf: Math.round(pf * 100) / 100,
+                        n: sub.length,
+                        score: Math.round(score * 100) / 100,
+                        totalPnl: Math.round(total * 100) / 100
+                    };
+                }
+            }
+            if (best.threshold != null) _optimalTargets[sid] = best;
+        }
+    }
+
+    const wins = trades.filter(x => x.pnlPct > 0);
+    const losses = trades.filter(x => x.pnlPct <= 0);
+    const sum = a => a.reduce((s, x) => s + x.pnlPct, 0);
+    const gp = sum(wins), gl = -sum(losses);
+    const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
+    // 🆕 جلوگیری از stack overflow روی آرایه‌های بزرگ
+    let maxWin = 0, maxLoss = 0;
+    if (trades.length) {
+        maxWin = -Infinity; maxLoss = Infinity;
+        for (const t of trades) {
+            if (t.pnlPct > maxWin) maxWin = t.pnlPct;
+            if (t.pnlPct < maxLoss) maxLoss = t.pnlPct;
+        }
+    }
+
+    const result = {
+        assumptions: p,
+        stats: {
+            count: trades.length,
+            winRate: trades.length ? wins.length / trades.length * 100 : 0,
+            avgPnl: trades.length ? sum(trades) / trades.length : 0,
+            totalPnl: sum(trades),
+            profitFactor: pf,
+            avgWin: wins.length ? gp / wins.length : 0,
+            avgLoss: losses.length ? -gl / losses.length : 0,
+            maxWin, maxLoss,
+            avgDaysHeld: trades.length
+                ? trades.reduce((s, t) => s + (t.exitTime - t.entryTime) / 86400, 0) / trades.length
+                : 0
+        },
+        trades, mode: 'hybrid',
+        realUsed, approxUsed, hasAnyOptionData,
+        coverage: closedTrades.length ? trades.length / closedTrades.length * 100 : 0,
+        optimalTargetPct: _optimalTargets
+    };
+
+    if (!trades.length) result.diagnostic = 'هیچ معامله ای با bid/ask واقعی پیدا نشد.';
+    else if (approxUsed > 0) result.diagnostic = `${realUsed} معامله واقعی (bid/ask کامل) — ${approxUsed} معامله به‌دلیل نداشتن bid/ask رد شد`;
+    else result.diagnostic = `همه ${realUsed} معامله از دیتای واقعی با bid/ask`;
+
+    return result;
+}
+
+// ============================================================
+// Position stats
+// ============================================================
+function positionStats(list) {
+    const closed = list.filter(p => p.status === 'closed' && typeof p.pnlPct === 'number');
+    const wins = closed.filter(p => p.pnlPct > 0);
+    const losses = closed.filter(p => p.pnlPct <= 0);
+    const sum = a => a.reduce((x, p) => x + p.pnlPct, 0);
+    const gp = sum(wins), gl = -sum(losses);
+    const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
+
+    // 🆕 Sharpe / Sortino / MaxDD
+    let sharpe = null, sortino = null, maxDD = 0, totalReturnPct = 0;
+    if (closed.length >= 3) {
+        const pnls = closed.map(p => p.pnlPct);
+        const mean = pnls.reduce((s, x) => s + x, 0) / pnls.length;
+        const variance = pnls.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, pnls.length - 1);
+        const sd = Math.sqrt(variance);
+        if (sd > 0) {
+            const annFactor = Math.sqrt(Math.max(1, pnls.length));
+            sharpe = Math.round((mean / sd) * annFactor * 100) / 100;
+        }
+        // 🆕 Sortino صحیح: downside deviation روی همه‌ی معاملات (0 برای مثبت‌ها)
+        const target = 0;
+        const downsideDiffSq = pnls.map(x => Math.min(0, x - target) ** 2);
+        const dsd = Math.sqrt(downsideDiffSq.reduce((s, x) => s + x, 0) / pnls.length);
+        if (dsd > 0) {
+            sortino = Math.round(((mean - target) / dsd) * Math.sqrt(pnls.length) * 100) / 100;
+        }
+        // Equity curve → MaxDD
+        let eq = 100, peak = 100;
+        for (const x of pnls) {
+            eq *= (1 + 0.01 * Math.max(-1, Math.min(5, x / 100)));
+            if (eq > peak) peak = eq;
+            const dd = ((peak - eq) / peak) * 100;
+            if (dd > maxDD) maxDD = dd;
+        }
+        totalReturnPct = eq - 100;
+    }
+
+    return {
+        open: list.length - closed.length,
+        closed: closed.length,
+        winRate: closed.length ? wins.length / closed.length * 100 : 0,
+        avgPnl: closed.length ? sum(closed) / closed.length : 0,
+        totalPnl: sum(closed),
+        profitFactor: pf,
+        avgWin: wins.length ? gp / wins.length : 0,
+        avgLoss: losses.length ? -gl / losses.length : 0,
+        sharpe: sharpe,
+        sortino: sortino,
+        maxDrawdownPct: Math.round(maxDD * 100) / 100,
+        totalReturnPct: Math.round(totalReturnPct * 100) / 100
+    };
+}
+
+// ============================================================
+// Exports
+// ============================================================
+module.exports = {
+    init,
+    getRiskFree, getFeeBuy, getFeeSell,
+    // helpers
+    norm, num, round, f0, pc,
+    // BS
+    bsCall, impliedVol, normCdf,
+    // volatility
+    hvFromDaily, historicalHV,
+    // settings
+    getSettings, saveSettings, DEFAULT_SETTINGS,
+    // contracts
+    matchUnderlying, metrics, rejectReasons,
+    selectCalls, buildScenario, horizonDaysFor,
+    // recommendation
+    formatRecommendation, suggestOrderPlan,
+    // position sizing
+    getPortfolioState, calcPositionSizeV3,
+    // signal handlers
+    onBuySignal, recommendForState, managePositions,
+    openPositionsCount,
+    // storage
+    storeSnapshots, storeFullOptionHistory, storeEOD,
+    // backtest
+    runHybridOptionBacktest,
+    runApproxOptionBacktest: (symbol, trades, opts) => runHybridOptionBacktest(symbol, trades, { ...opts, realEnabled: false }),
+    runRealOptionBacktest: (symbol, trades, opts) => runHybridOptionBacktest(symbol, trades, { ...opts, realEnabled: true }),
+    // stats
+    positionStats,
+    // grading
+    gradeOption, gradeOptionChain,
+    // constants
+    OPT_BT_DEFAULTS
+};
+
+
+

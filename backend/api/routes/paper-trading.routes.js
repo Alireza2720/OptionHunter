@@ -1,10 +1,11 @@
 'use strict';
 // ============================================================
 // paper-trading.routes.js — API endpoints
-// Requires service directly (not via deps) — robust against wiring
 // ============================================================
 
 const paperTradingService = require('../../services/paper-trading.service');
+const paperDriftService = require('../../services/paper-drift.service');
+const { COLLECTIONS } = require('../../config/constants');
 
 function register(app, deps) {
 
@@ -12,7 +13,8 @@ function register(app, deps) {
         res.json({
             has_getReport: typeof paperTradingService.getReport === 'function',
             has_dailySync: typeof paperTradingService.dailySync === 'function',
-            has_recordSignal: typeof paperTradingService.recordSignal === 'function'
+            has_recordSignal: typeof paperTradingService.recordSignal === 'function',
+            has_drift: typeof paperDriftService.computeDrift === 'function'
         });
     });
 
@@ -54,6 +56,40 @@ function register(app, deps) {
             });
         } catch (e) { next(e); }
     });
+
+    // ----------------------------------------------------------
+    // Stage 12: Drift — Paper vs Backtest
+    // ----------------------------------------------------------
+    app.get('/api/paper-trading/drift', async (req, res, next) => {
+        try {
+            const days = Math.min(Math.max(+(req.query.days || 30), 1), 365);
+            const r = await paperDriftService.computeDrift(deps.getDB, { days: days });
+            res.json(r);
+        } catch (e) { next(e); }
+    });
+
+    // ----------------------------------------------------------
+    // Stage 12: Cleanup orphan pending EXITs (no matching BUY)
+    // ----------------------------------------------------------
+    app.post('/api/paper-trading/cleanup-orphans', async (req, res, next) => {
+        try {
+            const db = deps.getDB();
+            const r = await db.collection(COLLECTIONS.OPTION_POSITIONS).deleteMany({
+                paper: true,
+                status: 'pending',
+                'signal.signalType': 'EXIT_LONG',
+                $or: [
+                    { 'contract.symbol': { $exists: false } },
+                    { 'contract.symbol': null },
+                    { 'contract.symbol': '' }
+                ]
+            });
+            if (deps.logger) {
+                deps.logger.info('paper-cleanup: deleted ' + r.deletedCount + ' orphan pending EXITs');
+            }
+            res.json({ ok: true, deleted: r.deletedCount });
+        } catch (e) { next(e); }
+    });
 }
 
-module.exports = { register };
+module.exports = { register: register };

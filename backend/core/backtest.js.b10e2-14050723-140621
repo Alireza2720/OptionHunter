@@ -1,0 +1,1116 @@
+'use strict';
+// ============================================================
+// backtest.js — موتور بک‌تست (خالص)
+// ============================================================
+// - اجرای استراتژی روی کندل‌ها
+// - Incremental trade cache (6 ماه -> 1 سال سریع)
+// - آمار حرفه‌ای (Sharpe, Sortino, MaxDD, Equity Curve)
+// ============================================================
+
+const crypto = require('crypto');
+const {
+    TIMEFRAME_MINUTES,
+    COLLECTIONS,
+    ERROR_CODES,
+    TRADING_DAYS_PER_YEAR
+} = require('../config/constants');
+const { checkTrainTestOverlap } = require('./pit');
+
+let deps = {
+    getDB: null,
+    strategies: null,
+    dataService: null,
+    options: null,
+    entryWindow: () => ({ start: 9 * 60, end: 12 * 60 + 35 }),
+    getTehranParts: null   // ← اضافه
+};
+
+function init(d) { deps = { ...deps, ...d }; }
+
+// ============================================================
+// Cache key
+// ============================================================
+function makeCacheKey(parts) {
+    return crypto.createHash('md5').update(JSON.stringify(parts)).digest('hex');
+}
+
+// FIX #10: bump to invalidate stale trade caches when logic/cost changes
+const BACKTEST_LOGIC_VERSION = 'v4-2026-10-15';   // FIX 10d: option minTarget + stop lookup   // FIX #1: bump for fill-from-next-open
+const BACKTEST_COST_MODEL_VERSION = 'v1';
+
+function buildSignature(cfg, mode) {
+    return {
+        // FIX #10: cache invalidation keys
+        logicVersion: BACKTEST_LOGIC_VERSION,
+        costModelVersion: BACKTEST_COST_MODEL_VERSION,
+        symbol: cfg.symbol || null,
+        pairSymbol: cfg.pairSymbol || null,
+        // 🆕 configId فقط وقتی _id معتبر باشه (نه برای dual-stage)
+        configId: cfg._id && String(cfg._id).length > 0 ? String(cfg._id) : null,
+        strategyId: cfg.strategyId,
+        timeframe: cfg.timeframe,
+        htfTimeframe: cfg.htfTimeframe || '1d',
+        candleType: cfg.candleType || 'heikin',
+        params: cfg.params || {},
+        mode: mode || 'hybrid'
+    };
+}
+
+// ============================================================
+// Compute stock trades from candles
+// ============================================================
+async function computeStockTrades(cfg, dateFrom, dateTo, onProgress) {
+    const STRATEGIES = deps.strategies.STRATEGIES;
+    const def = STRATEGIES[cfg.strategyId];
+    if (!def) throw new Error(`استراتژی نامعتبر: ${cfg.strategyId}`);
+
+    const htfTf = cfg.htfTimeframe || '1d';
+
+    let candles = deps.dataService.closedOnly(
+        await deps.dataService.getCandlesFull(cfg.symbol, cfg.timeframe),
+        cfg.timeframe
+    );
+    let htf = deps.dataService.closedOnly(
+        await deps.dataService.getCandlesFull(cfg.symbol, htfTf),
+        htfTf
+    );
+
+    // 🆕 Warmup داینامیک بر اساس نیاز استراتژی (نه ۹۰ روز ثابت)
+    const tfMin = TIMEFRAME_MINUTES[cfg.timeframe] || 30;
+    const htfMin = TIMEFRAME_MINUTES[htfTf] || 1440;
+    const required = (deps.strategies.getRequiredCandles
+        ? deps.strategies.getRequiredCandles(cfg.strategyId, cfg.params)
+        : 100) || 100;
+    const requiredHtf = (deps.strategies.getRequiredHtfCandles
+        ? deps.strategies.getRequiredHtfCandles(cfg.strategyId, cfg.params)
+        : 50) || 50;
+
+    // TF: دقیقه‌ی خالص × 60 + 50% بافر برای gap بازار
+    const warmupFromTf = required * tfMin * 60 * 1.5;
+    // 🆕 HTF: multiplier از 1.5 به 1.2 (کاهش warmup اضافی)
+    const warmupFromHtf = requiredHtf * htfMin * 60 * 1.2;
+    const WARMUP_SEC = Math.max(warmupFromTf, warmupFromHtf, 7 * 86400);
+
+    if (dateFrom) {
+        const fromWarm = dateFrom - WARMUP_SEC;
+        candles = candles.filter(c => c.time >= fromWarm);
+        htf = htf.filter(c => c.time >= fromWarm);
+    }
+    if (dateTo) {
+        candles = candles.filter(c => c.time <= dateTo);
+        htf = htf.filter(c => c.time <= dateTo);
+    }
+
+    if (onProgress) {
+        onProgress({ phase: 'candles-loaded', candleCount: candles.length, htfCount: htf.length });
+    }
+
+    // 🆕 pair candles برای pairs_spread
+    let pairCandles = null, pairSymbol = null;
+    if (cfg.strategyId === 'pairs_spread' || cfg.pairSymbol) {
+        pairSymbol = cfg.pairSymbol;
+        if (pairSymbol) {
+            try {
+                pairCandles = deps.dataService.closedOnly(
+                    await deps.dataService.getCandlesFull(pairSymbol, cfg.timeframe),
+                    cfg.timeframe
+                );
+                if (dateFrom) pairCandles = pairCandles.filter(c => c.time >= dateFrom - WARMUP_SEC);
+                if (dateTo) pairCandles = pairCandles.filter(c => c.time <= dateTo);
+            } catch (e) {
+                deps.logger && deps.logger.warn('pair candles: ' + e.message);
+            }
+        }
+    }
+
+    // 🆕 sector peer candles برای sector_momentum
+    let sectorPeerCandles = null;
+    if (cfg.strategyId === 'sector_momentum') {
+        try {
+            const { getSectorPeers } = require('./sectors');
+            const peers = getSectorPeers(cfg.symbol);
+            sectorPeerCandles = {};
+            for (const psym of peers) {
+                const pc = deps.dataService.closedOnly(
+                    await deps.dataService.getCandlesFull(psym, cfg.timeframe),
+                    cfg.timeframe
+                );
+                let filtered = pc;
+                if (dateFrom) filtered = filtered.filter(c => c.time >= dateFrom - WARMUP_SEC);
+                if (dateTo) filtered = filtered.filter(c => c.time <= dateTo);
+                sectorPeerCandles[psym] = filtered;
+            }
+        } catch (e) {
+            deps.logger && deps.logger.warn('sector peers: ' + e.message);
+        }
+    }
+
+    // Load enhancements for Pro strategies
+    let _enhancements = null;
+    if (def.isPro || (cfg.strategyId && cfg.strategyId.endsWith('_pro'))) {
+        try {
+            const _enhMod = require('./enhancements');
+            _enhancements = await _enhMod.loadEnhancements(deps.getDB(), cfg.symbol, dateFrom, dateTo);
+            if (deps.logger) deps.logger.info('[pro] enhancements loaded for ' + cfg.symbol + ' — ct=' + _enhancements.clientCount + ' pc=' + _enhancements.putCallSignal);
+        } catch (_e) {
+            deps.logger && deps.logger.warn('enhancements load: ' + _e.message);
+            _enhancements = null;
+        }
+    }
+    const result = def.run(
+        candles,
+        { ...cfg.params, candleType: cfg.candleType },
+        {
+            htfCandles: htf,
+            htfTimeframe: htfTf,
+            entryWindow: deps.entryWindow(),
+            pairCandles,
+            pairSymbol,
+            sectorPeerCandles,
+            enhancements: _enhancements
+        }
+    );
+
+    // فیلتر سیگنال‌ها به بازه اصلی (بدون warmup)
+    const signals = result.signals.filter(s => {
+        if (dateFrom && s.time < dateFrom) return false;
+        if (dateTo && s.time > dateTo) return false;
+        return true;
+    });
+
+    // تبدیل به trades
+    // تبدیل به trades
+    const closeAt = new Map(candles.map((c, i) => [c.time, {
+        close: c.close,
+        i,
+        next: candles[i + 1] ? { time: candles[i + 1].time, open: candles[i + 1].open } : null
+    }]));
+    const trades = [];
+    let open = null;
+
+    // 🆕 Latency ثابت: تأخیر بین سیگنال و ورود واقعی (شبیه‌سازی تأخیر شبکه/بروکر)
+    const LATENCY_SEC = 1;
+
+    // 🆕 Slippage سهم: 0.3% + half-spread فرضی برای سهم
+    const STOCK_SLIPPAGE_PCT = 0.003;
+    const STOCK_HALF_SPREAD_PCT = 0.001;   // فرض 0.1% half-spread برای سهم
+
+    for (const s of signals) {
+        const c = closeAt.get(s.time);
+        if (!c) continue;
+
+        const tfMin = TIMEFRAME_MINUTES[cfg.timeframe] || 30;
+        const fillDelaySec = tfMin * 60 + LATENCY_SEC;   // 🆕 + Latency
+
+        if (s.signalType === 'BUY' && !open) {
+            // FIX #1: fill from NEXT candle's open (no look-ahead bias)
+            const _nextBuy = c.next;
+            const _baseBuy = _nextBuy ? _nextBuy.open : c.close;
+            const _fillTimeBuy = _nextBuy ? _nextBuy.time : (s.time + tfMin * 60);
+            const slipFactor = 1 + STOCK_SLIPPAGE_PCT + STOCK_HALF_SPREAD_PCT;
+            const fillPrice = _baseBuy * slipFactor;
+            const ind = s.indicators || {};
+
+            open = {
+                entryTime: s.time,
+                entryFillTime: _fillTimeBuy + LATENCY_SEC,
+                entryPrice: fillPrice,
+                entrySignalPrice: c.close,
+                sizeMultiplier: (cfg && Number.isFinite(cfg.sizeMultiplier)) ? cfg.sizeMultiplier : 1,
+                entryIdx: c.i,
+                reason: s.reason,
+                status: 'open',
+                signalInfo: ind,
+                slippagePct: STOCK_SLIPPAGE_PCT * 100,
+                strategyId: cfg.strategyId || null,
+                // 🆕 Phase 4 — فیلدهای score (از signal indicators)
+                atr: ind.atr || null,
+                rsiFast: ind.rsiFast || null,
+                rsiSlow: ind.rsiSlow || null,
+                htfTrend: result.htfTrend || null,
+                signalReason: s.reason || null
+            };
+        } else if (s.signalType === 'EXIT_LONG' && open) {
+            // 🆕 اعمال slippage روی فروش (کاهش قیمت فروش)
+            // FIX #1: fill from NEXT candle's open (exit)
+            const _nextExit = c.next;
+            const _baseExit = _nextExit ? _nextExit.open : c.close;
+            const _fillTimeExit = _nextExit ? _nextExit.time : (s.time + tfMin * 60);
+            const slipFactor = 1 - STOCK_SLIPPAGE_PCT - STOCK_HALF_SPREAD_PCT;
+            const fillPrice = _baseExit * slipFactor;
+
+            trades.push({
+                ...open,
+                exitTime: s.time,
+                exitFillTime: _fillTimeExit + LATENCY_SEC,
+                exitPrice: fillPrice,                     // 🆕 قیمت با slippage
+                exitSignalPrice: c.close,                 // 🆕
+                pnlPct: (fillPrice / open.entryPrice - 1) * 100,
+                bars: c.i - open.entryIdx,
+                exitReason: s.reason,
+                status: 'closed'
+            });
+            open = null;
+        }
+    }
+    // Force-close any trade still open at end of window.
+    // Without this, open trades silently disappear (filtered out by status='closed').
+    if (open) {
+        const lastCandle = candles[candles.length - 1];
+        if (lastCandle) {
+            const tfMin = TIMEFRAME_MINUTES[cfg.timeframe] || 30;
+            const fillDelaySec = tfMin * 60 + LATENCY_SEC;
+            const slipFactor = 1 - STOCK_SLIPPAGE_PCT - STOCK_HALF_SPREAD_PCT;
+            const fillPrice = lastCandle.close * slipFactor;
+            trades.push({
+                ...open,
+                exitTime: lastCandle.time,
+                exitFillTime: lastCandle.time + fillDelaySec,
+                exitPrice: fillPrice,
+                exitSignalPrice: lastCandle.close,
+                pnlPct: (fillPrice / open.entryPrice - 1) * 100,
+                bars: (candles.length - 1) - open.entryIdx,
+                exitReason: 'پایان بازه بک‌تست',
+                status: 'closed',
+                forcedClose: true
+            });
+        } else {
+            trades.push(open);
+        }
+    }
+
+    return { trades, candles, htf };
+}
+
+// ============================================================
+// Incremental trade cache
+// ============================================================
+async function loadTradeCache(sigHash) {
+    return deps.getDB().collection(COLLECTIONS.BACKTEST_TRADE_CACHE).findOne({ _id: sigHash });
+}
+
+async function saveTradeCache(sigHash, signature, coveredFrom, coveredTo, trades) {
+    await deps.getDB().collection(COLLECTIONS.BACKTEST_TRADE_CACHE).updateOne(
+        { _id: sigHash },
+        { $set: {
+            signature,
+            coveredFrom, coveredTo,
+            trades,
+            tradeCount: trades.length,
+            computedAt: new Date()
+        }},
+        { upsert: true }
+    );
+}
+
+/**
+ * بازگرداندن trades برای بازه [from, to] با کش افزایشی.
+ * computeFn(cfg, from, to) باید آرایه trades برگردونه.
+ */
+async function getOrComputeTrades(cfg, from, to, mode, computeFn, onProgress) {
+    // 🆕 normalize for cache filtering (null → sane defaults)
+    const fromV = from || 0;
+    const toV = to || Number.MAX_SAFE_INTEGER;
+
+    // 🆕 trainedFrom/To در signature بیاد تا PIT check دقیق بمونه
+    const sigCfg = {
+        ...cfg,
+        _trainFrom: cfg.trainedFrom || null,
+        _trainTo: cfg.trainedTo || null
+    };
+    const signature = buildSignature(sigCfg, mode);
+    const sigHash = makeCacheKey(signature);
+    const cached = await loadTradeCache(sigHash);
+
+    // R15: re-inject strategyId on cached trades (old caches lack it)
+    if (cached && Array.isArray(cached.trades) && cfg && cfg.strategyId) {
+        for (const t of cached.trades) {
+            if (!t.strategyId) t.strategyId = cfg.strategyId;
+        }
+    }
+
+    // A) بدون cache
+    if (!cached) {
+        if (onProgress) onProgress({ phase: 'compute', from, to });
+        const trades = await computeFn(cfg, from, to);
+        await saveTradeCache(sigHash, signature, from, to, trades);
+        return { trades, cached: false, computedRanges: [[from, to]], signature: sigHash };
+    }
+
+    // B) cache کامل پوشش می‌ده
+    const cachedFrom = cached.coveredFrom || 0;
+    const cachedTo = cached.coveredTo || Number.MAX_SAFE_INTEGER;
+    if (cachedFrom <= fromV && cachedTo >= toV) {
+        const filtered = cached.trades.filter(t => t.entryTime >= fromV && t.entryTime <= toV);
+        return { trades: filtered, cached: true, computedRanges: [], signature: sigHash };
+    }
+
+    // C) به آینده اضافه شده
+    if (from >= cached.coveredFrom && to > cached.coveredTo) {
+        if (onProgress) onProgress({ phase: 'extend-future', from: cached.coveredTo, to });
+        // 🆕 +1 ثانیه تا معامله‌ای که دقیقاً روی مرز است دوبار شمرده نشه
+        const newTrades = await computeFn(cfg, cached.coveredTo + 1, to);
+        const merged = [...cached.trades, ...newTrades].sort((a, b) => a.entryTime - b.entryTime);
+        await saveTradeCache(sigHash, signature, cached.coveredFrom, to, merged);
+        const filtered = merged.filter(t => t.entryTime >= from && t.entryTime <= to);
+        return {
+            trades: filtered,
+            cached: false,
+            computedRanges: [[cached.coveredTo, to]],
+            signature: sigHash,
+            reusedFromCache: cached.trades.length
+        };
+    }
+
+    // D) به عقب اضافه شده — فقط دلتای گذشته رو compute کن
+    if (from < cached.coveredFrom) {
+        if (onProgress) onProgress({ phase: 'extend-past', from, to: cached.coveredFrom });
+
+        // 🆕 +1 ثانیه روی مرز جلوگیری از تکرار
+        const newPastTrades = await computeFn(cfg, from, cached.coveredFrom - 1);
+
+        const survivingCached = cached.trades.filter(t => t.entryTime >= cached.coveredFrom);
+
+        let merged = [...newPastTrades, ...survivingCached]
+            .sort((a, b) => a.entryTime - b.entryTime);
+
+        // اگه به آینده هم نیازه
+        if (to > cached.coveredTo) {
+            if (onProgress) onProgress({ phase: 'extend-future', from: cached.coveredTo, to });
+            // 🆕 +1 ثانیه جلوگیری از تکرار
+            const futureTrades = await computeFn(cfg, cached.coveredTo + 1, to);
+            merged = [...merged, ...futureTrades].sort((a, b) => a.entryTime - b.entryTime);
+        }
+
+        const newFrom = from;
+        const newTo = Math.max(to, cached.coveredTo);
+        await saveTradeCache(sigHash, signature, newFrom, newTo, merged);
+
+        const filtered = merged.filter(t => t.entryTime >= from && t.entryTime <= to);
+        return {
+            trades: filtered,
+            cached: false,
+            computedRanges: [
+                [from, cached.coveredFrom],
+                ...(to > cached.coveredTo ? [[cached.coveredTo, to]] : [])
+            ],
+            signature: sigHash,
+            reusedFromCache: survivingCached.length
+        };
+    }
+
+    // fallback
+    const trades = await computeFn(cfg, from, to);
+    await saveTradeCache(sigHash, signature, from, to, trades);
+    return { trades, cached: false, computedRanges: [[from, to]], signature: sigHash };
+}
+
+async function invalidateCacheForConfig(configId) {
+    return deps.getDB().collection(COLLECTIONS.BACKTEST_TRADE_CACHE).deleteMany({
+        'signature.configId': String(configId)
+    });
+}
+
+async function clearTradeCache() {
+    return deps.getDB().collection(COLLECTIONS.BACKTEST_TRADE_CACHE).deleteMany({});
+}
+
+// ============================================================
+// Analytics — Sharpe, Sortino, MaxDD, Equity
+// ============================================================
+function computeStats(trades) {
+    const n = trades.length;
+    if (!n) {
+        return {
+            count: 0, winRate: 0, avgPnl: 0, totalPnl: 0,
+            profitFactor: null, avgWin: 0, avgLoss: 0,
+            maxWin: 0, maxLoss: 0, avgDaysHeld: 0,
+            sharpe: null, sortino: null, maxDrawdownPct: 0, calmar: null
+        };
+    }
+
+    const wins = trades.filter(t => t.pnlPct > 0);
+    const losses = trades.filter(t => t.pnlPct <= 0);
+    const sum = arr => arr.reduce((s, x) => s + x.pnlPct, 0);
+    const gp = sum(wins);
+    const gl = -sum(losses);
+    const pf = gl > 0 ? gp / gl : (gp > 0 ? null : 0);
+
+    // Sharpe/Sortino روی بازده معاملات
+    const meanPnl = sum(trades) / n;
+    const variance = trades.reduce((s, t) => s + (t.pnlPct - meanPnl) ** 2, 0) / Math.max(n - 1, 1);
+    const stdDev = Math.sqrt(variance);
+    const downside = trades.filter(t => t.pnlPct < 0);
+    const downsideVar = downside.length
+        ? downside.reduce((s, t) => s + t.pnlPct ** 2, 0) / downside.length
+        : 0;
+    const downsideStd = Math.sqrt(downsideVar);
+
+    // FIX #4: Standard Sharpe from daily equity curve (not trade-count based)
+    let _dailySharpe = null, _dailySortino = null;
+    try {
+        const _sortedByExit = [...trades].sort((a, b) =>
+            (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime));
+        if (_sortedByExit.length >= 5) {
+            let _firstT = Infinity, _lastT = -Infinity;
+            for (const _t of trades) {
+                const _et = _t.entryTime || 0;
+                const _xt = _t.exitFillTime || _t.exitTime || 0;
+                if (_et < _firstT) _firstT = _et;
+                if (_xt > _lastT) _lastT = _xt;
+            }
+            const _daySec = 86400;
+            const _startDay = Math.floor(_firstT / _daySec) * _daySec;
+            const _endDay = Math.floor(_lastT / _daySec) * _daySec;
+            const _days = [];
+            for (let _d = _startDay; _d <= _endDay; _d += _daySec) _days.push(_d);
+            if (_days.length >= 5) {
+                let _eq = 100, _ti = 0;
+                const _curve = [];
+                for (const _day of _days) {
+                    while (_ti < _sortedByExit.length &&
+                           (_sortedByExit[_ti].exitFillTime || _sortedByExit[_ti].exitTime) <= _day) {
+                        _eq *= (1 + Math.max(-1, Math.min(5, _sortedByExit[_ti].pnlPct / 100)));
+                        _ti++;
+                    }
+                    _curve.push(_eq);
+                }
+                const _rets = [];
+                for (let _i = 1; _i < _curve.length; _i++) _rets.push(_curve[_i] / _curve[_i - 1] - 1);
+                if (_rets.length >= 4) {
+                    const _mr = _rets.reduce((s, x) => s + x, 0) / _rets.length;
+                    const _vr = _rets.reduce((s, x) => s + (x - _mr) ** 2, 0) / Math.max(_rets.length - 1, 1);
+                    const _sr = Math.sqrt(_vr);
+                    const _dr = _rets.filter(x => x < 0);
+                    const _dvr = _dr.length ? _dr.reduce((s, x) => s + x * x, 0) / _dr.length : 0;
+                    const _dsr = Math.sqrt(_dvr);
+                    const _ann = Math.sqrt(245);
+                    _dailySharpe = _sr > 0 ? Math.round((_mr / _sr) * _ann * 100) / 100 : null;
+                    _dailySortino = _dsr > 0 ? Math.round((_mr / _dsr) * _ann * 100) / 100 : null;
+                }
+            }
+        }
+    } catch (_e) { /* silent fallback */ }
+
+    // 🆕 سالانه‌سازی معقول‌تر: حداکثر ۱۰ معامله در روز (legacy fallback)
+    const totalDays = trades.reduce((s, t) =>
+        s + Math.max(0.01, ((t.exitFillTime || t.exitTime) - (t.entryTime || 0)) / 86400), 0
+    );
+    const avgDaysPerTrade = Math.max(0.01, totalDays / n);
+    const rawTradesPerYear = TRADING_DAYS_PER_YEAR / avgDaysPerTrade;
+    // cap بر ۱۰ معامله در روز
+    const tradesPerYear = Math.min(rawTradesPerYear, 10 * TRADING_DAYS_PER_YEAR);
+    const annFactor = Math.sqrt(Math.max(1, tradesPerYear));
+
+    const _legacySharpe = stdDev > 0 ? (meanPnl / stdDev) * annFactor : null;
+    const _legacySortino = downsideStd > 0 ? (meanPnl / downsideStd) * annFactor : null;
+
+    // FIX #4: prefer standard daily-based Sharpe; fallback to legacy trade-based
+    const sharpe = _dailySharpe !== null ? _dailySharpe : _legacySharpe;
+    const sortino = _dailySortino !== null ? _dailySortino : _legacySortino;
+
+    // Equity curve + Max Drawdown — 🆕 روی exitFillTime اگه بود
+    let equity = 100;
+    let peak = 100;
+    let maxDD = 0;
+    const equityCurve = [];
+    const sortedByExit = [...trades].sort((a, b) =>
+        (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime)
+    );
+    for (const t of sortedByExit) {
+        equity *= (1 + Math.max(-1, Math.min(5, t.pnlPct / 100)));
+        equityCurve.push({
+            time: t.exitFillTime || t.exitTime,
+            equity: round2(equity)
+        });
+        if (equity > peak) peak = equity;
+        const dd = ((peak - equity) / peak) * 100;
+        if (dd > maxDD) maxDD = dd;
+    }
+
+    const totalReturnPct = equity - 100;
+    const calmar = maxDD > 0 ? totalReturnPct / maxDD : null;
+
+    // 🆕 برای آرایه‌های بزرگ — جلوگیری از stack overflow
+    let maxWin = -Infinity, maxLoss = Infinity;
+    for (const t of trades) {
+        if (t.pnlPct > maxWin) maxWin = t.pnlPct;
+        if (t.pnlPct < maxLoss) maxLoss = t.pnlPct;
+    }
+    if (!Number.isFinite(maxWin)) maxWin = 0;
+    if (!Number.isFinite(maxLoss)) maxLoss = 0;
+
+    return {
+        count: n,
+        winRate: wins.length / n * 100,
+        avgPnl: meanPnl,
+        totalPnl: sum(trades),
+        totalReturnPct,
+        profitFactor: pf,
+        avgWin: wins.length ? gp / wins.length : 0,
+        avgLoss: losses.length ? -gl / losses.length : 0,
+        maxWin,
+        maxLoss,
+        avgDaysHeld: trades.reduce((s, t) => s + ((t.exitTime || 0) - (t.entryTime || 0)) / 86400, 0) / n,
+        sharpe: round2(sharpe),
+        sortino: round2(sortino),
+        maxDrawdownPct: round2(maxDD),
+        calmar: round2(calmar),
+        equityCurve
+    };
+}
+// ============================================================
+// Jalali conversion
+// ============================================================
+function gregorianToJalali(gy, gm, gd) {
+    const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let jy = (gy <= 1600) ? 0 : 979;
+    gy -= (gy <= 1600) ? 621 : 1600;
+    const gy2 = (gm > 2) ? (gy + 1) : gy;
+    let days = (365 * gy) + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100)
+        + Math.floor((gy2 + 399) / 400) - 80 + gd + g_d_m[gm - 1];
+    jy += 33 * Math.floor(days / 12053);
+    days %= 12053;
+    jy += 4 * Math.floor(days / 1461);
+    days %= 1461;
+    if (days > 365) {
+        jy += Math.floor((days - 1) / 365);
+        days = (days - 1) % 365;
+    }
+    const jm = (days < 186) ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+    const jd = 1 + ((days < 186) ? (days % 31) : ((days - 186) % 30));
+    return { jy, jm, jd };
+}
+
+const JALALI_MONTHS = [
+    'فروردین', 'اردیبهشت', 'خرداد',
+    'تیر', 'مرداد', 'شهریور',
+    'مهر', 'آبان', 'آذر',
+    'دی', 'بهمن', 'اسفند'
+];
+
+// ============================================================
+// Advanced analytics
+// ============================================================
+function computeMonthlyReturns(trades) {
+    const map = new Map();
+    for (const t of trades) {
+        const entryT = deps.getTehranParts(new Date(t.entryTime * 1000));
+        const { jy, jm } = gregorianToJalali(entryT.year, entryT.month, entryT.day);
+        const key = `${jy}-${String(jm).padStart(2, '0')}`;
+        if (!map.has(key)) map.set(key, { pnl: 0, count: 0, wins: 0, jy, jm });
+        const m = map.get(key);
+        m.pnl += t.pnlPct;
+        m.count++;
+        if (t.pnlPct > 0) m.wins++;
+    }
+    return Array.from(map.values()).map(v => ({
+        monthKey: `${v.jy}-${String(v.jm).padStart(2, '0')}`,
+        monthLabel: `${JALALI_MONTHS[v.jm - 1]} ${v.jy}`,
+        year: v.jy, month: v.jm,
+        totalPnl: round2(v.pnl),
+        avgPnl: round2(v.pnl / v.count),
+        count: v.count,
+        winRate: round2(v.wins / v.count * 100)
+    })).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+}
+
+function computeHourlyReturns(trades) {
+    const map = new Map();
+    for (const t of trades) {
+        const entryT = deps.getTehranParts(new Date(t.entryTime * 1000));
+        const h = entryT.hour;
+        if (!map.has(h)) map.set(h, { pnl: 0, count: 0, wins: 0 });
+        const x = map.get(h);
+        x.pnl += t.pnlPct;
+        x.count++;
+        if (t.pnlPct > 0) x.wins++;
+    }
+    return Array.from(map.entries()).map(([h, v]) => ({
+        hour: h,
+        hourLabel: `${String(h).padStart(2, '0')}:00`,
+        totalPnl: round2(v.pnl),
+        avgPnl: round2(v.pnl / v.count),
+        count: v.count,
+        winRate: round2(v.wins / v.count * 100)
+    })).sort((a, b) => a.hour - b.hour);
+}
+
+const DOW_NAMES = {
+    Sat: 'شنبه', Sun: 'یک‌شنبه', Mon: 'دوشنبه',
+    Tue: 'سه‌شنبه', Wed: 'چهارشنبه', Thu: 'پنج‌شنبه', Fri: 'جمعه'
+};
+const DOW_ORDER = { Sat: 0, Sun: 1, Mon: 2, Tue: 3, Wed: 4, Thu: 5, Fri: 6 };
+
+function computeDayOfWeekReturns(trades) {
+    const map = new Map();
+    for (const t of trades) {
+        const entryT = deps.getTehranParts(new Date(t.entryTime * 1000));
+        const d = entryT.weekday;
+        if (!map.has(d)) map.set(d, { pnl: 0, count: 0, wins: 0 });
+        const x = map.get(d);
+        x.pnl += t.pnlPct;
+        x.count++;
+        if (t.pnlPct > 0) x.wins++;
+    }
+    return Array.from(map.entries()).map(([d, v]) => ({
+        day: d,
+        dayLabel: DOW_NAMES[d] || d,
+        totalPnl: round2(v.pnl),
+        avgPnl: round2(v.pnl / v.count),
+        count: v.count,
+        winRate: round2(v.wins / v.count * 100)
+    })).sort((a, b) => DOW_ORDER[a.day] - DOW_ORDER[b.day]);
+}
+
+function computeEMA(closes, period) {
+    const ema = new Array(closes.length).fill(null);
+    if (closes.length < period) return ema;
+    let s = 0;
+    for (let i = 0; i < period; i++) s += closes[i];
+    ema[period - 1] = s / period;
+    const k = 2 / (period + 1);
+    for (let i = period; i < closes.length; i++) ema[i] = closes[i] * k + ema[i - 1] * (1 - k);
+    return ema;
+}
+
+function computeRegimeBreakdown(trades, dailyCandles) {
+    if (!dailyCandles || dailyCandles.length < 200) return null;
+    const closes = dailyCandles.map(c => c.close);
+    const ema20 = computeEMA(closes, 20);
+    const ema50 = computeEMA(closes, 50);
+    const ema200 = computeEMA(closes, 200);
+    const times = dailyCandles.map(c => c.time);
+
+    function regimeAt(timeSec) {
+        let idx = -1;
+        for (let i = 0; i < times.length; i++) {
+            if (times[i] <= timeSec) idx = i; else break;
+        }
+        if (idx < 0 || ema200[idx] === null || ema20[idx] === null || ema50[idx] === null) return 'unknown';
+        const c = closes[idx];
+        if (c > ema200[idx] && ema20[idx] > ema50[idx]) return 'bull';
+        if (c < ema200[idx] && ema20[idx] < ema50[idx]) return 'bear';
+        return 'range';
+    }
+
+    const stats = {
+        bull: { count: 0, wins: 0, pnl: 0 },
+        bear: { count: 0, wins: 0, pnl: 0 },
+        range: { count: 0, wins: 0, pnl: 0 },
+        unknown: { count: 0, wins: 0, pnl: 0 }
+    };
+    for (const t of trades) {
+        const r = regimeAt(t.entryTime);
+        stats[r].count++;
+        stats[r].pnl += t.pnlPct;
+        if (t.pnlPct > 0) stats[r].wins++;
+    }
+    const labels = { bull: 'صعودی', bear: 'نزولی', range: 'رنج', unknown: 'نامشخص' };
+    const result = [];
+    for (const k of ['bull', 'bear', 'range', 'unknown']) {
+        if (stats[k].count > 0) {
+            result.push({
+                regime: k,
+                regimeLabel: labels[k],
+                count: stats[k].count,
+                avgPnl: round2(stats[k].pnl / stats[k].count),
+                totalPnl: round2(stats[k].pnl),
+                winRate: round2(stats[k].wins / stats[k].count * 100)
+            });
+        }
+    }
+    return result;
+}
+
+function computeEquityCurve(trades) {
+    const sorted = [...trades].sort((a, b) => (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime));
+    let eq = 100;
+    let peak = 100;
+    const curve = [{ time: sorted.length ? sorted[0].entryTime : 0, equity: 100, drawdown: 0 }];
+    for (const t of sorted) {
+        eq *= (1 + 0.01 * Math.max(-1, Math.min(5, t.pnlPct / 100)));
+        if (eq > peak) peak = eq;
+        const dd = ((peak - eq) / peak) * 100;
+        curve.push({
+            time: t.exitFillTime || t.exitTime,
+            equity: round2(eq),
+            drawdown: round2(dd),
+            pnl: t.pnlPct,
+            reason: t.exitReason || null
+        });
+    }
+    return curve;
+}
+// ============================================================
+// Rolling Segments (شبیه walk-forward ساده)
+// ============================================================
+function computeRollingSegments(trades, numSegments = 10) {
+    if (!trades || trades.length < numSegments) return null;
+
+    // 🆕 برای rolling Sharpe، مبنای محاسبه باید لحظه‌ی بسته‌شدن trade باشه
+    const sorted = [...trades].sort((a, b) =>
+        (a.exitFillTime || a.exitTime) - (b.exitFillTime || b.exitTime)
+    );
+    const minTime = sorted[0].exitFillTime || sorted[0].exitTime;
+    const maxTime = sorted[sorted.length - 1].exitFillTime || sorted[sorted.length - 1].exitTime;
+    const range = maxTime - minTime;
+    if (range <= 0) return null;
+    const segSize = range / numSegments;
+
+    const segments = [];
+    for (let i = 0; i < numSegments; i++) {
+        const from = minTime + i * segSize;
+        const to = minTime + (i + 1) * segSize;
+        const segTrades = sorted.filter(t => {
+            const exitT = t.exitFillTime || t.exitTime;
+            return exitT >= from && exitT < to;
+        });
+        if (!segTrades.length) {
+            segments.push({ index: i + 1, from, to, count: 0 });
+            continue;
+        }
+        const wins = segTrades.filter(t => t.pnlPct > 0);
+        const sum = segTrades.reduce((s, t) => s + t.pnlPct, 0);
+        const gp = wins.reduce((s, t) => s + t.pnlPct, 0);
+        const gl = -segTrades.filter(t => t.pnlPct <= 0).reduce((s, t) => s + t.pnlPct, 0);
+        segments.push({
+            index: i + 1,
+            from, to,
+            count: segTrades.length,
+            winRate: round2(wins.length / segTrades.length * 100),
+            avgPnl: round2(sum / segTrades.length),
+            totalPnl: round2(sum),
+            profitFactor: gl > 0 ? round2(gp / gl) : (gp > 0 ? null : 0)
+        });
+    }
+
+    // consistency: چند درصد پنجره‌ها سودده بودن
+    const profitable = segments.filter(s => s.count > 0 && s.totalPnl > 0).length;
+    const withData = segments.filter(s => s.count > 0).length;
+
+    return {
+        segments,
+        numSegments,
+        withData,
+        profitable,
+        consistencyPct: withData ? round2(profitable / withData * 100) : 0
+    };
+}
+
+// ============================================================
+// Monte Carlo Bootstrap
+// ============================================================
+function computeMonteCarlo(trades, iterations = 2000) {
+    if (!trades || !trades.length) return null;
+    const pnls = trades.map(t => t.pnlPct);
+    const N = pnls.length;
+
+    const totalReturns = new Array(iterations);
+    const maxDDs = new Array(iterations);
+    const sharpes = new Array(iterations);
+
+    for (let iter = 0; iter < iterations; iter++) {
+        let eq = 100;
+        let peak = 100;
+        let maxDD = 0;
+        let sum = 0, sumSq = 0;
+
+        for (let i = 0; i < N; i++) {
+            const p = pnls[Math.floor(Math.random() * N)];
+            eq *= (1 + p / 100);
+            if (eq > peak) peak = eq;
+            const dd = (peak - eq) / peak * 100;
+            if (dd > maxDD) maxDD = dd;
+            sum += p;
+            sumSq += p * p;
+        }
+        const mean = sum / N;
+        const variance = Math.max(sumSq / N - mean * mean, 0);
+        const std = Math.sqrt(variance);
+        const sharpe = std > 0 ? (mean / std) * Math.sqrt(N) : 0;
+
+        totalReturns[iter] = eq - 100;
+        maxDDs[iter] = maxDD;
+        sharpes[iter] = sharpe;
+    }
+
+    totalReturns.sort((a, b) => a - b);
+    maxDDs.sort((a, b) => a - b);
+    sharpes.sort((a, b) => a - b);
+
+    const pctAt = (arr, p) => arr[Math.floor(arr.length * p / 100)];
+    const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+    const probLoss = totalReturns.filter(r => r < 0).length / iterations * 100;
+    const probBigDD = maxDDs.filter(d => d > 30).length / iterations * 100;
+
+    // histogram
+    const minR = totalReturns[0];
+    const maxR = totalReturns[totalReturns.length - 1];
+    const bucketSize = (maxR - minR) / 20 || 1;
+    const histogram = new Array(20).fill(0);
+    for (const r of totalReturns) {
+        const idx = Math.min(19, Math.floor((r - minR) / bucketSize));
+        histogram[idx]++;
+    }
+
+    return {
+        iterations,
+        returns: {
+            min: round2(totalReturns[0]),
+            p5: round2(pctAt(totalReturns, 5)),
+            p25: round2(pctAt(totalReturns, 25)),
+            median: round2(pctAt(totalReturns, 50)),
+            p75: round2(pctAt(totalReturns, 75)),
+            p95: round2(pctAt(totalReturns, 95)),
+            max: round2(totalReturns[totalReturns.length - 1]),
+            mean: round2(avg(totalReturns))
+        },
+        maxDrawdowns: {
+            best: round2(maxDDs[0]),
+            p5: round2(pctAt(maxDDs, 5)),
+            median: round2(pctAt(maxDDs, 50)),
+            p95: round2(pctAt(maxDDs, 95)),
+            worst: round2(maxDDs[maxDDs.length - 1])
+        },
+        sharpes: {
+            p5: round2(pctAt(sharpes, 5)),
+            median: round2(pctAt(sharpes, 50)),
+            p95: round2(pctAt(sharpes, 95))
+        },
+        probLoss: round2(probLoss),
+        probBigDD: round2(probBigDD),
+        histogram: histogram.map((c, i) => ({
+            from: round2(minR + i * bucketSize),
+            to: round2(minR + (i + 1) * bucketSize),
+            count: c
+        }))
+    };
+}
+
+// ============================================================
+// Robustness — حذف بهترین‌ها و بدترین‌ها
+// ============================================================
+function computeRobustness(trades) {
+    if (!trades || trades.length < 5) return null;
+
+    const sorted = [...trades].sort((a, b) => b.pnlPct - a.pnlPct);
+    const N = sorted.length;
+
+    const stats = arr => {
+        if (!arr.length) return { count: 0, totalPnl: 0, avgPnl: 0, winRate: 0, profitFactor: null };
+        const wins = arr.filter(t => t.pnlPct > 0);
+        const sum = arr.reduce((s, t) => s + t.pnlPct, 0);
+        const gp = wins.reduce((s, t) => s + t.pnlPct, 0);
+        const gl = -arr.filter(t => t.pnlPct <= 0).reduce((s, t) => s + t.pnlPct, 0);
+        return {
+            count: arr.length,
+            totalPnl: round2(sum),
+            avgPnl: round2(sum / arr.length),
+            winRate: round2(wins.length / arr.length * 100),
+            profitFactor: gl > 0 ? round2(gp / gl) : (gp > 0 ? null : 0)
+        };
+    };
+
+    const k = Math.max(1, Math.floor(N * 0.1));   // ۱۰٪ بهترین و بدترین
+
+    return {
+        full: stats(sorted),
+        withoutTop10: stats(sorted.slice(k)),       // بدون k بهترین
+        withoutTopAndBottom10: stats(sorted.slice(k, N - k)),  // بدون k بهترین و k بدترین
+        top10PctContribution: (() => {
+            const topSum = sorted.slice(0, k).reduce((s, t) => s + t.pnlPct, 0);
+            const fullSum = sorted.reduce((s, t) => s + t.pnlPct, 0);
+            return fullSum !== 0 ? round2(topSum / fullSum * 100) : 0;
+        })(),
+        topK: k
+    };
+}
+function computeAdvancedStats(trades, dailyCandles, opts = {}) {
+    if (!trades || !trades.length) {
+        return { monthly: [], hourly: [], dow: [], regime: [], equityCurve: [], rolling: null, monteCarlo: null, robustness: null };
+    }
+    // 🆕 Monte Carlo و Robustness فقط وقتی صریحاً خواسته شدن
+    // (برای اوج عملکرد در pipeline 3-5 برابر سریع‌تر)
+    const wantMC = opts.wantMonteCarlo === true;
+    const wantRobustness = opts.wantRobustness === true;
+
+    return {
+        monthly: computeMonthlyReturns(trades),
+        hourly: computeHourlyReturns(trades),
+        dow: computeDayOfWeekReturns(trades),
+        regime: computeRegimeBreakdown(trades, dailyCandles),
+        equityCurve: computeEquityCurve(trades),
+        rolling: computeRollingSegments(trades, 10),
+        monteCarlo: wantMC ? computeMonteCarlo(trades, opts.mcIterations || 2000) : null,
+        robustness: wantRobustness ? computeRobustness(trades) : null
+    };
+}
+function round2(v) {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    return Math.round(v * 100) / 100;
+}
+
+// ============================================================
+// Full backtest for a config (stock + option)
+// ============================================================
+async function runBacktest(cfg, from, to, opts = {}) {
+    const isStockOnly = opts.mode === 'stock';
+    // 🆕 فقط معاملات سهام کش می‌شن → mode یکسان کافیه (جلوگیری از کش تکراری)
+    const cacheMode = 'stock';
+
+    const computeFn = async (c, f, t) => {
+        const r = await computeStockTrades(c, f, t);
+        return r.trades.filter(x => x.status === 'closed');
+    };
+
+    const tradeRes = await getOrComputeTrades(cfg, from, to, cacheMode, computeFn, opts.onProgress);
+
+    if (opts.onProgress) opts.onProgress({ phase: 'stock-done', tradeCount: tradeRes.trades.length });
+
+    // 🆕 در حالت stock، محاسبه‌ی آپشن کلاً skip می‌شه
+    let optionResult;
+    if (isStockOnly) {
+        optionResult = {
+            trades: [],
+            stats: { count: 0, winRate: 0, avgPnl: 0, totalPnl: 0, profitFactor: null },
+            mode: 'stock-only',
+            realUsed: 0,
+            approxUsed: 0,
+            hasAnyOptionData: false,
+            diagnostic: 'حالت stock-only: محاسبه‌ی آپشن skip شد',
+            assumptions: {}
+        };
+    } else {
+        if (opts.onProgress) opts.onProgress({ phase: 'option-backtest', tradeCount: tradeRes.trades.length });
+        optionResult = await deps.options.runHybridOptionBacktest(
+            cfg.symbol,
+            tradeRes.trades,
+            {
+                realEnabled: !!opts.useRealOption,
+                optionType: opts.optionType || 'call',
+                qualityLevel: opts.qualityLevel || null
+            }
+        );
+    }
+
+    // 🆕 option-aware tagging روی هر trade
+    try {
+        const db = deps.getDB();
+        const optMap = new Map();
+        const allOptRows = await db.collection('option_history')
+            .find({ underlying: cfg.symbol })
+            .project({ symbol: 1, time: 1, ivApi: 1, deltaApi: 1, thetaApi: 1, daysLeft: 1, hvApi: 1 })
+            .toArray();
+        for (const r of allOptRows) {
+            const key = `${r.symbol}::${Math.floor(new Date(r.time).getTime() / 60000)}`;
+            optMap.set(key, r);
+        }
+        for (const t of (optionResult.trades || [])) {
+            if (!t.entryFillTime || !t.symbol) continue;
+            const key = `${t.symbol}::${Math.floor(t.entryFillTime / 60)}`;
+            let row = optMap.get(key);
+            // تلاش با ±۲ دقیقه
+            if (!row) {
+                for (let d = -2; d <= 2 && !row; d++) {
+                    row = optMap.get(`${t.symbol}::${Math.floor(t.entryFillTime / 60) + d}`);
+                }
+            }
+            if (row) {
+                t.entryIvAtEntry = row.ivApi || null;
+                t.entryDeltaAtEntry = row.deltaApi || null;
+                t.entryThetaAtEntry = row.thetaApi || null;
+                t.entryDaysLeftAtEntry = row.daysLeft || null;
+                t.entryHvAtEntry = row.hvApi || null;
+                t.entryIvHvAtEntry = (row.ivApi && row.hvApi) ? row.ivApi / row.hvApi : null;
+            }
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('option-aware tagging: ' + e.message);
+    }
+
+    // آمار پایه
+    const stockStats = computeStats(tradeRes.trades);
+    const optionStats = computeStats(optionResult.trades || []);
+
+    // دیتای روزانه برای regime
+    let dailyCandles = [];
+    try {
+        dailyCandles = await deps.dataService.getCandles(cfg.symbol, '1d');
+    } catch (_) {}
+
+    // 🆕 آمار پیشرفته — در حالت stock روی معاملات سهام
+    // MC و Robustness فقط در backtest تک‌config (نه در pipeline)
+    const advancedOpts = {
+        wantMonteCarlo: opts.wantMonteCarlo !== false && !opts.lightMode,
+        wantRobustness: opts.wantRobustness !== false && !opts.lightMode,
+        mcIterations: opts.mcIterations || 2000
+    };
+    const advanced = isStockOnly
+        ? computeAdvancedStats(tradeRes.trades || [], dailyCandles, advancedOpts)
+        : computeAdvancedStats(optionResult.trades || tradeRes.trades, dailyCandles, advancedOpts);
+
+    // Pro-strategy enhancements info (only for _pro strategies)
+    if (cfg.strategyId && cfg.strategyId.endsWith('_pro')) {
+        advanced._proInfo = {
+            isPro: true,
+            strategyId: cfg.strategyId,
+            // _enhancements is in computeStockTrades scope; not accessible here.
+            // Track only what's propagated via optionResult.
+            enhancementsLoaded: null,
+            clientTypeCount: null,
+            putCallSignal: null,
+            proKept: (optionResult && optionResult.proKept) || null,
+            proFiltered: (optionResult && optionResult.proFiltered) || null,
+        };
+    }
+
+    // 🆕 PIT: چک همپوشانی train/test
+    const trainedFrom = cfg.trainedFrom || (opts.trainingMeta && opts.trainingMeta.trainedFrom) || null;
+    const trainedTo = cfg.trainedTo || (opts.trainingMeta && opts.trainingMeta.trainedTo) || null;
+    const overlapCheck = checkTrainTestOverlap(
+        [trainedFrom, trainedTo],
+        [from || null, to || null]
+    );
+
+    return {
+        stockTradesCount: tradeRes.trades.length,
+        stockClosedCount: tradeRes.trades.length,
+        dateRange: { from, to },
+        cached: tradeRes.cached,
+        reusedFromCache: tradeRes.reusedFromCache || 0,
+        computedRanges: tradeRes.computedRanges || [],
+        cacheSignature: tradeRes.signature,
+        stockStats,
+        optionStats,
+        advanced,
+        // 🆕 معاملات سهام همیشه برگردونده می‌شه
+        stockTrades: tradeRes.trades,
+        // 🆕 PIT
+        trainingMeta: { trainedFrom, trainedTo },
+        overlapWarning: overlapCheck.overlap ? overlapCheck.message : null,
+        overlapSeverity: overlapCheck.severity,
+        // 🆕 mode در خروجی
+        runMode: isStockOnly ? 'stock-only' : 'with-option',
+        ...optionResult
+    };
+}
+
+module.exports = {
+    // Stage 9.6d — version constants for cache invalidation
+    BACKTEST_LOGIC_VERSION, BACKTEST_COST_MODEL_VERSION,
+    init,
+    makeCacheKey, buildSignature,
+    computeStockTrades,
+    getOrComputeTrades,
+    loadTradeCache, saveTradeCache,
+    invalidateCacheForConfig, clearTradeCache,
+    computeStats, runBacktest,
+    computeAdvancedStats,
+    computeRollingSegments,
+    computeMonteCarlo,
+    computeRobustness,
+    gregorianToJalali,
+    JALALI_MONTHS
+};
