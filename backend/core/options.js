@@ -1752,7 +1752,8 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
     function _targetPctOfTrade(t) {
         const entry = Number(t.entryPrice || t.stockEntry) || 0;
         if (entry <= 0) return null;
-        const stop = Number(t.stop);
+        // FIX 10d: stop may live only inside signalInfo; check both.
+        const stop = Number(t.stop) || Number(t.signalInfo && t.signalInfo.stop);
         const atr = Number(t.atr);
         const risk = (stop && stop < entry) ? (entry - stop) : (atr ? 2 * atr : entry * 0.03);
         return (risk * 2.5 / entry) * 100;
@@ -1776,7 +1777,7 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
             try {
                 {
                 const _entryPx = t.entryPrice || t.stockEntry;
-                const _stopPx = t.stop;
+                const _stopPx = t.stop || (t.signalInfo && t.signalInfo.stop);   // FIX 10d
                 const _atrVal = t.atr;
                 let _skip = false;
                 if (_entryPx > 0) {
@@ -1784,7 +1785,15 @@ async function runHybridOptionBacktest(symbol, closedTrades, opts = {}) {
                         ? (_entryPx - _stopPx)
                         : (_atrVal ? 2 * _atrVal : _entryPx * 0.03);
                     const _targetPct = (_riskPx * 2.5 / _entryPx) * 100;
-                    if (_targetPct < (p.minTargetPct || 0)) _skip = true;
+                    // FIX 10d: use strategy-specific minTarget (not flat p.minTargetPct)
+                    let _minTarget = p.minTargetPct || 0;
+                    try {
+                        if (deps.settings && typeof deps.settings.getMinTargetPctFor === 'function') {
+                            const _smt = deps.settings.getMinTargetPctFor(t.strategyId || '_default');
+                            if (Number.isFinite(_smt) && _smt > 0) _minTarget = _smt;
+                        }
+                    } catch (_) {}
+                    if (_targetPct < _minTarget) _skip = true;
                 }
                 result = _skip ? null : tryGetRealTradeDataFast(symbol, t, p, optionRowsBySymbolTime);
             }
