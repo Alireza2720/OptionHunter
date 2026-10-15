@@ -193,14 +193,6 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
 
     let baseSize = Math.floor(riskAmt / contractValue);
     // FIX 10a.2: realistic min-1-contract — if one contract fits within symbol exposure limit, allow it
-    if (baseSize === 0 && contractValue > 0) {
-        const _g = String(candidate.optionGrade || 'A').toUpperCase();
-        const _maxSymValue = capital * (limits.maxSymPct / 100);
-        if (['A+', 'A', 'B', 'C', 'D'].includes(_g) && contractValue <= _maxSymValue) {
-            baseSize = 1;
-            candidate._minContractTriggered = true;
-        }
-    }
     // Soft multipliers (regime + score)
     if (ctx.combinedFactor && ctx.combinedFactor !== 1.0) {
         baseSize = Math.floor(baseSize * ctx.combinedFactor);
@@ -227,6 +219,17 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     if (candidate.strategySizeMult != null && Number.isFinite(candidate.strategySizeMult)
         && candidate.strategySizeMult !== 1.0) {
         baseSize = Math.floor(baseSize * candidate.strategySizeMult);
+    }
+
+    // Stage 10f.1: min-1-contract floor AFTER all soft multipliers.
+    // Prevents strategySizeMult=0.3 (SMC/OB) from zeroing the min-1 rule.
+    if (baseSize === 0 && contractValue > 0) {
+        const _g = String(candidate.optionGrade || 'A').toUpperCase();
+        const _maxSymValue = capital * (limits.maxSymPct / 100);
+        if (['A+', 'A', 'B', 'C', 'D'].includes(_g) && contractValue <= _maxSymValue) {
+            baseSize = 1;
+            candidate._minContractTriggered = true;
+        }
     }
 
     const curSym = portfolio.exposureBySymbol[candidate.symbol] || 0;
