@@ -1327,7 +1327,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     const _exitRows = rowsBySymbol.get(best.symbol) || [];
     let exitRow = null;
     let _bestExitDelta = Infinity;
-    const _exitLo = exitSec - 24 * 3600;
+    const _exitLo = exitSec - 48 * 3600;   // Stage 10e.2: widen 24h->48h for holidays / sparse days
     const _exitHi = exitSec + 60;
     for (let _ei = 0; _ei < _exitRows.length; _ei++) {
         const _r = _exitRows[_ei];

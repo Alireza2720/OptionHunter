@@ -35,7 +35,7 @@ function makeCacheKey(parts) {
 }
 
 // FIX #10: bump to invalidate stale trade caches when logic/cost changes
-const BACKTEST_LOGIC_VERSION = 'v4-2026-10-15';   // FIX 10d: option minTarget + stop lookup   // FIX #1: bump for fill-from-next-open
+const BACKTEST_LOGIC_VERSION = 'v5-2026-10-15-10e2';   // FIX 10d: option minTarget + stop lookup   // FIX #1: bump for fill-from-next-open
 const BACKTEST_COST_MODEL_VERSION = 'v1';
 
 function buildSignature(cfg, mode) {
