@@ -28,7 +28,7 @@ const { MongoClient } = require(path.join(ROOT, 'node_modules', 'mongodb'));
 
 const CHECK_ONLY = process.argv.indexOf('--check') !== -1;
 const AS_JSON = process.argv.indexOf('--json') !== -1;
-const REPORT_ID = 'methodology_report_v1';
+const REPORT_ID = 'methodology_report_v2';
 
 // ── Fix registry ──
 const FIXES = [
@@ -44,7 +44,10 @@ const FIXES = [
     { id: '9b', stage: '9.5-v2', severity: 'high', title: 'real OOS walk-forward with retrain', desc: 'New wf-retrain.service: per-window grid search on TRAIN (9 combos x 2 params), pick best by PF^0.75 x N^0.25, apply frozen params to TEST. Old naive split re-labeled as method="time-split", isRealOos=false.', files: ['backend/services/wf-retrain.service.js', 'backend/services/wf.service.js', 'backend/api/routes/wf.routes.js', 'backend/bootstrap.js'] },
     { id: '10', stage: '9.2', severity: 'critical', title: 'cache signature versioning', desc: 'buildSignature includes logicVersion + costModelVersion. Any logic/cost change invalidates trade cache. Also exported both constants.', files: ['backend/core/backtest.js', 'backend/scripts/clear-caches.js'] },
     { id: 'X1', stage: '9.6b-v2', severity: 'high', title: 'nr7 dayKey sort leak',       desc: 'Discovered by strategies.test.js future-independence test. dayKey returned un-padded "yyyy-m-d" causing alphabetical sort (2024-1-10 < 2024-1-9). Padded month/day → chronological sort.', files: ['backend/strategies.js'] },
-    { id: 'X2', stage: '9.7c', severity: 'critical', title: 'wf.routes app-not-defined', desc: 'Stages 9.5-v2 had placed app.post(retrain) at module level (outside register). Fixed by moving inside register().', files: ['backend/api/routes/wf.routes.js'] }
+    { id: 'X2', stage: '9.7c', severity: 'critical', title: 'wf.routes app-not-defined', desc: 'Stages 9.5-v2 had placed app.post(retrain) at module level (outside register). Fixed by moving inside register().', files: ['backend/api/routes/wf.routes.js'] },
+    { id: '10e', stage: '10e', severity: 'critical', title: 'exitRow undefined in tryGetRealTradeDataFast', desc: 'Function referenced exitRow without declaring it; ReferenceError silently swallowed by try/catch in runHybridOptionBacktest, causing opt N=0 for all trades.', files: ['backend/core/options.js'] },
+    { id: '10e.2', stage: '10e.2', severity: 'high', title: 'oi=0 treated as unknown, not zero', desc: 'TSETMC writes oi=0 for historical rows where OI was not tracked. Filter now skips the check when oi<=0, only rejecting when oi>0 and below threshold. Exit lookback also widened 24h->48h for holidays/sparse days.', files: ['backend/core/options.js'] },
+    { id: '10f.1', stage: '10f.1', severity: 'high', title: 'min-1-contract floor after soft multipliers', desc: 'The min-1-contract rule was applied BEFORE strategySizeMult; SMC/OB (mult=0.3) then floored 1*0.3 to 0, so no trades were ever opened for those strategies. Rule moved to AFTER all soft multipliers.', files: ['backend/core/execution-guard.js'] }
 ];
 
 function _runTest(file) {
@@ -83,9 +86,14 @@ async function _loadSnapshots() {
     const db = client.db('trading_bot');
     const v2 = await db.collection('meta').findOne({ _id: 'backtest_reference_v2' });
     const v3 = await db.collection('meta').findOne({ _id: 'backtest_reference_v3' });
-    const v4 = await client.db('trading_bot').collection('meta').findOne({ _id: 'backtest_reference_v4' });
+    const v4 = await db.collection('meta').findOne({ _id: 'backtest_reference_v4' });
+    const v7 = await db.collection('meta').findOne({ _id: 'backtest_reference_v7' });
+    const v8 = await db.collection('meta').findOne({ _id: 'backtest_reference_v8' });
+    const v9 = await db.collection('meta').findOne({ _id: 'backtest_reference_v9' });
+    const v10 = await db.collection('meta').findOne({ _id: 'backtest_reference_v10' });
+    const v11 = await db.collection('meta').findOne({ _id: 'backtest_reference_v11' });
     await client.close();
-    return { v2, v3, v4 };
+    return { v2, v3, v4, v7, v8, v9, v10, v11 };
 }
 
 function _summaryOf(doc) {
@@ -173,7 +181,12 @@ function _summaryOf(doc) {
         snapshots: {
             v2: _summaryOf(v2),
             v3: _summaryOf(v3),
-            v4: _summaryOf(v4)
+            v4: _summaryOf(v4),
+            v7: _summaryOf(v7),
+            v8: _summaryOf(v8),
+            v9: _summaryOf(v9),
+            v10: _summaryOf(v10),
+            v11: _summaryOf(v11)
         },
         delta_v2_to_v4: delta,
         knownLimitations: [
