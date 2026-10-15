@@ -1,1 +1,282 @@
-'use strict';// ============================================================// portfolio.service.js — orchestrate شبیه‌سازی پرتفولیو// ============================================================const { COLLECTIONS } = require('../config/constants');const portfolioCore = require('../core/portfolio');const sizing = require('../core/sizing');const { getSectorMap } = require('../core/sectors');const { filterTrades } = require('../core/signal-filter');const scoreMod = require('../core/signal-score');const regimeCore = require('../core/regime');let deps = {    getDB: null,    logger: null,    settings: null,    correlationService: null,    analysisService: null,    signalFilterService: null,    regimeService: null   // 🆕 Phase 6};function init(d) { deps = { ...deps, ...d }; }async function simulateFromJob(jobId, opts = {}) {    const db = deps.getDB();    const mode = opts.mode || 'option';   // 🆕    const minTrades = opts.minTrades || 5;    const details = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)        .find({ jobId: String(jobId) })        .toArray();    const allTrades = [];    for (const d of details) {        if (!d.trades || d.trades.length < minTrades) continue;        for (const t of d.trades) {            let normalized;            if (mode === 'stock') {                // 🆕 از قیمت سهم استفاده کن                const entryPx = t.stockEntry || t.entryPrice;                const exitPx = t.stockExit || t.exitPrice;                const pnlPct = (entryPx && exitPx && entryPx > 0)                    ? (exitPx / entryPx - 1) * 100                    : (t.pnlPct || 0);                normalized = {                    ...t,                    symbol: d.symbol,                    strategyId: d.strategyId,                    strategyName: d.strategyName,                    // Override برای sim                    optionEntry: entryPx,                    optionExit: exitPx,                    size: 1,           // ۱ سهم در هر واحد                    pnlPct,                    _mode: 'stock'                };            } else {                normalized = {                    ...t,                    symbol: d.symbol,                    pairSymbol: d.pairSymbol || null,   // 🆕                    strategyId: d.strategyId,                    strategyName: d.strategyName,                    _mode: 'option'                };            }            allTrades.push(normalized);        }    }    if (!allTrades.length) {        // FIX 10a.1: structured error to help caller        const _details = (details || []).map(d => ({            symbol: d.symbol,            strategyId: d.strategyId,            tradeCount: (d.trades || []).length,            stockCount: (d.stockTrades || []).length        }));        return {            error: 'empty_trade_set',            jobId,            mode,            totalTradesProvided: 0,            minTradesRequired: minTrades,            detailsCount: (details || []).length,            details: _details,            hint: mode === 'option'                ? 'OPTION_DATA_CUTOFF=2026-06-09. Narrow range or use mode=stock.'                : 'No trades passed the minTrades filter.'        };    }    // 🆕 Phase 3.5: Signal Quality Filter    let filterReport = { applied: false };    let filteredTrades = allTrades;    // 🆕 اگه whitelist غیرفعاله، filterTrades هم bypass کن    // R11: bypass disabled signalFilterService — always use analysis when enabled    if (opts.useSignalFilter !== false && deps.analysisService) {        try {            const analysis = await deps.analysisService.analyzeJob(jobId, { minTrades, iterations: 2000 });            const fr = filterTrades(allTrades, analysis, {                mode: opts.filterMode || 'pair',                minPairPF: opts.minPairPF || 2.0,                minPairTrades: opts.minPairTrades || 5,                minPairLB: opts.minPairLB || 1.0,                minStrategyPF: opts.minStrategyPF || 1.3,                minStrategyTrades: opts.minStrategyTrades || 5            });            filteredTrades = fr.trades;            filterReport = fr.filter;            if (fr.filter.applied) {                deps.logger && deps.logger.info(                    `signal filter: ${fr.filter.keptCount} / ${fr.filter.originalCount} kept`                );                // 🆕 whitelist رو برای مسیر زنده ذخیره کن                if (deps.signalFilterService && fr.filter.allowedPairs) {                    try {                        const db2 = deps.getDB();                        await db2.collection('meta').updateOne(                            { _id: 'signal_whitelist' },                            { $set: {                                jobId: String(jobId),                                pairs: fr.filter.allowedPairs,                                strategies: fr.filter.allowedStrategies,                                symbols: fr.filter.allowedSymbols,                                filterMode: opts.filterMode || 'pair',                                computedAt: new Date(),                                stats: {                                    totalPairs: fr.filter.originalCount,                                    allowedPairs: fr.filter.allowedPairs.length                                }                            }},                            { upsert: true }                        );                        deps.logger.info(`signal whitelist saved: ${fr.filter.allowedPairs.length} pairs`);                    } catch (e) {                        deps.logger.warn('save whitelist: ' + e.message);                    }                }            }        } catch (e) {            deps.logger && deps.logger.warn('signal filter: ' + e.message);        }    }    // 🆕 Correlation matrix    let corrMatrix = null;    if (opts.useCorrelation !== false) {        const cached = await deps.correlationService.getCached();        if (cached && cached.matrix) {            corrMatrix = cached.matrix;        } else {            deps.logger && deps.logger.info('no correlation cache — computing now...');            await deps.correlationService.computeAndStore(30);            const fresh = await deps.correlationService.getCached();            if (fresh && fresh.matrix) corrMatrix = fresh.matrix;        }    }    // 🆕 Sector map    const symbols = [...new Set(allTrades.map(t => t.symbol))];    const sectorMap = getSectorMap(symbols);    // 🆕 Regime map (Phase 6)    const regimeMap = {};    if (opts.useRegime !== false && deps.regimeService) {        try {            const regimes = await deps.regimeService.getAllCached();            for (const r of regimes) {                regimeMap[r.symbol] = { macro: r.macro, vol: r.vol };            }            deps.logger && deps.logger.info(`regime map: ${Object.keys(regimeMap).length} symbols`);        } catch (e) {            deps.logger && deps.logger.warn('regime map: ' + e.message);        }    }    // 🆕 Compute signal score per trade (Phase 4)    let scoreStats = { computed: 0, failed: 0, avg: 0, firstError: null, sampleErrors: [] };    if (opts.useSignalScore !== false) {        let sumScore = 0;        for (const t of filteredTrades) {            try {                const sc = scoreMod.computeHistoricalScore(t, regimeMap[t.symbol]);                if (sc && typeof sc.score === 'number' && Number.isFinite(sc.score)) {                    t.signalScore = sc.score;                    if (!t.confluenceEffective && t.confluence) t.confluenceEffective = t.confluence;                    sumScore += sc.score;                    scoreStats.computed++;                } else {                    t.signalScore = 0.5;                    scoreStats.failed++;                    if (scoreStats.sampleErrors.length < 3) {                        scoreStats.sampleErrors.push({                            symbol: t.symbol, strategyId: t.strategyId,                            error: sc ? sc.error : 'invalid result'                        });                    }                }                if (sc && sc.error && !scoreStats.firstError) {                    scoreStats.firstError = sc.error;                }            } catch (e) {                t.signalScore = 0.5;                scoreStats.failed++;                if (!scoreStats.firstError) scoreStats.firstError = e.message;            }        }        scoreStats.avg = filteredTrades.length ? Math.round(sumScore / filteredTrades.length * 1000) / 1000 : 0;        deps.logger && deps.logger.info(            `signal scores: ${scoreStats.computed} computed, ${scoreStats.failed} failed, avg=${scoreStats.avg}, firstError=${scoreStats.firstError || 'none'}`        );    }    // Limits    const limits = {        capital: opts.capital || 100_000_000,        riskPct: opts.riskPct || 1.5,        maxSymPct: opts.maxSymPct || 20,        maxTotalPct: opts.maxTotalPct || 50,        minCashPct: opts.minCashPct || 20,        // Step 2        useDuplicateGuard: opts.useDuplicateGuard !== false,        useKelly: opts.useKelly !== false,        kellyCapPct: opts.kellyCapPct || 3.0,        useCorrelation: opts.useCorrelation !== false,        corrThreshold: opts.corrThreshold || 0.85,   // 🆕 0.7 → 0.85        maxClusterPct: opts.maxClusterPct || 30,        useSectors: opts.useSectors !== false,        maxSectorPct: opts.maxSectorPct || 40,        // 🆕 Phase 4 + 6        useRegime: opts.useRegime !== false,        useSignalScore: opts.useSignalScore !== false,        useSignalFilter: opts.useSignalFilter !== false,        // Filter        minTrades: minTrades,        // R16: per-strategy size multiplier        strategySizeMultMap: (deps.settings && deps.settings.getStrategySizeMultMap)            ? deps.settings.getStrategySizeMultMap()            : null    };    const result = portfolioCore.simulate(filteredTrades, limits, {        corrMatrix,        sectorMap,        regimeMap   // 🆕 Phase 6    });    // Advanced    const pnls = result.trades.map(t => t.pnlPct);    const cvar = sizing.cvar95(pnls);    // 🆕 ذخیره PF برای drift monitoring    try {        if (result.stats && Number.isFinite(result.stats.profitFactor)) {            await db.collection(COLLECTIONS.META).updateOne(                { _id: 'last_backtest_pf' },                { $set: {                    pf: result.stats.profitFactor,                    jobId: String(jobId),                    maxDD: result.stats.maxDD,                    returnPct: result.stats.totalReturnPct,                    sharpe: result.stats.sharpe,                    acceptedTrades: result.acceptedTrades,                    recordedAt: new Date()                }},                { upsert: true }            );            deps.logger && deps.logger.info(`last_backtest_pf saved: ${result.stats.profitFactor}`);        }    } catch (e) {        deps.logger && deps.logger.warn('save last_backtest_pf: ' + e.message);    }    return {        jobId,        mode,   // 🆕        at: new Date(),        limits,        corrMatrixMeta: corrMatrix            ? { symbols: Object.keys(corrMatrix).length }            : null,        sectorMap,        regimeMapSize: Object.keys(regimeMap).length,        signalFilter: filterReport,        scoreStats,   // 🆕        ...result,        advanced: {            cvar95: cvar,            kellyFraction: result.globalStats.halfKellyPct / 100 * 2,            halfKelly: result.globalStats.halfKellyPct / 100,            effectiveRiskPct: result.globalStats.effectiveRiskPct        }    };}module.exports = { init, simulateFromJob };
+'use strict';
+// ============================================================
+// portfolio.service.js — orchestrate شبیه‌سازی پرتفولیو
+// ============================================================
+
+const { COLLECTIONS } = require('../config/constants');
+const portfolioCore = require('../core/portfolio');
+const sizing = require('../core/sizing');
+const { getSectorMap } = require('../core/sectors');
+const { filterTrades } = require('../core/signal-filter');
+const scoreMod = require('../core/signal-score');
+const regimeCore = require('../core/regime');
+
+let deps = {
+    getDB: null,
+    logger: null,
+    settings: null,
+    correlationService: null,
+    analysisService: null,
+    signalFilterService: null,
+    regimeService: null   // 🆕 Phase 6
+};
+function init(d) { deps = { ...deps, ...d }; }
+
+async function simulateFromJob(jobId, opts = {}) {
+    const db = deps.getDB();
+    const mode = opts.mode || 'option';   // 🆕
+    const minTrades = opts.minTrades || 5;
+
+    const details = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
+        .find({ jobId: String(jobId) })
+        .toArray();
+
+    const allTrades = [];
+    for (const d of details) {
+        if (!d.trades || d.trades.length < minTrades) continue;
+        for (const t of d.trades) {
+            let normalized;
+            if (mode === 'stock') {
+                // 🆕 از قیمت سهم استفاده کن
+                const entryPx = t.stockEntry || t.entryPrice;
+                const exitPx = t.stockExit || t.exitPrice;
+                const pnlPct = (entryPx && exitPx && entryPx > 0)
+                    ? (exitPx / entryPx - 1) * 100
+                    : (t.pnlPct || 0);
+                normalized = {
+                    ...t,
+                    symbol: d.symbol,
+                    strategyId: d.strategyId,
+                    strategyName: d.strategyName,
+                    // Override برای sim
+                    optionEntry: entryPx,
+                    optionExit: exitPx,
+                    size: 1,           // ۱ سهم در هر واحد
+                    pnlPct,
+                    _mode: 'stock'
+                };
+            } else {
+                normalized = {
+                    ...t,
+                    symbol: d.symbol,
+                    pairSymbol: d.pairSymbol || null,   // 🆕
+                    strategyId: d.strategyId,
+                    strategyName: d.strategyName,
+                    _mode: 'option'
+                };
+            }
+            allTrades.push(normalized);
+        }
+    }
+
+    if (!allTrades.length) {
+        return { error: 'هیچ معامله‌ی معتبری برای شبیه‌سازی نیست', jobId };
+    }
+
+    // 🆕 Phase 3.5: Signal Quality Filter
+    let filterReport = { applied: false };
+    let filteredTrades = allTrades;
+
+    // 🆕 اگه whitelist غیرفعاله، filterTrades هم bypass کن
+    // R11: bypass disabled signalFilterService — always use analysis when enabled
+    if (opts.useSignalFilter !== false && deps.analysisService) {
+        try {
+            const analysis = await deps.analysisService.analyzeJob(jobId, { minTrades, iterations: 2000 });
+            const fr = filterTrades(allTrades, analysis, {
+                mode: opts.filterMode || 'pair',
+                minPairPF: opts.minPairPF || 2.0,
+                minPairTrades: opts.minPairTrades || 5,
+                minPairLB: opts.minPairLB || 1.0,
+                minStrategyPF: opts.minStrategyPF || 1.3,
+                minStrategyTrades: opts.minStrategyTrades || 5
+            });
+            filteredTrades = fr.trades;
+            filterReport = fr.filter;
+            if (fr.filter.applied) {
+                deps.logger && deps.logger.info(
+                    `signal filter: ${fr.filter.keptCount} / ${fr.filter.originalCount} kept`
+                );
+
+                // 🆕 whitelist رو برای مسیر زنده ذخیره کن
+                if (deps.signalFilterService && fr.filter.allowedPairs) {
+                    try {
+                        const db2 = deps.getDB();
+                        await db2.collection('meta').updateOne(
+                            { _id: 'signal_whitelist' },
+                            { $set: {
+                                jobId: String(jobId),
+                                pairs: fr.filter.allowedPairs,
+                                strategies: fr.filter.allowedStrategies,
+                                symbols: fr.filter.allowedSymbols,
+                                filterMode: opts.filterMode || 'pair',
+                                computedAt: new Date(),
+                                stats: {
+                                    totalPairs: fr.filter.originalCount,
+                                    allowedPairs: fr.filter.allowedPairs.length
+                                }
+                            }},
+                            { upsert: true }
+                        );
+                        deps.logger.info(`signal whitelist saved: ${fr.filter.allowedPairs.length} pairs`);
+                    } catch (e) {
+                        deps.logger.warn('save whitelist: ' + e.message);
+                    }
+                }
+            }
+        } catch (e) {
+            deps.logger && deps.logger.warn('signal filter: ' + e.message);
+        }
+    }
+
+    // 🆕 Correlation matrix
+    let corrMatrix = null;
+    if (opts.useCorrelation !== false) {
+        const cached = await deps.correlationService.getCached();
+        if (cached && cached.matrix) {
+            corrMatrix = cached.matrix;
+        } else {
+            deps.logger && deps.logger.info('no correlation cache — computing now...');
+            await deps.correlationService.computeAndStore(30);
+            const fresh = await deps.correlationService.getCached();
+            if (fresh && fresh.matrix) corrMatrix = fresh.matrix;
+        }
+    }
+
+    // 🆕 Sector map
+    const symbols = [...new Set(allTrades.map(t => t.symbol))];
+    const sectorMap = getSectorMap(symbols);
+
+    // 🆕 Regime map (Phase 6)
+    const regimeMap = {};
+    if (opts.useRegime !== false && deps.regimeService) {
+        try {
+            const regimes = await deps.regimeService.getAllCached();
+            for (const r of regimes) {
+                regimeMap[r.symbol] = { macro: r.macro, vol: r.vol };
+            }
+            deps.logger && deps.logger.info(`regime map: ${Object.keys(regimeMap).length} symbols`);
+        } catch (e) {
+            deps.logger && deps.logger.warn('regime map: ' + e.message);
+        }
+    }
+
+    // 🆕 Compute signal score per trade (Phase 4)
+    let scoreStats = { computed: 0, failed: 0, avg: 0, firstError: null, sampleErrors: [] };
+    if (opts.useSignalScore !== false) {
+        let sumScore = 0;
+        for (const t of filteredTrades) {
+            try {
+                const sc = scoreMod.computeHistoricalScore(t, regimeMap[t.symbol]);
+                if (sc && typeof sc.score === 'number' && Number.isFinite(sc.score)) {
+                    t.signalScore = sc.score;
+                    if (!t.confluenceEffective && t.confluence) t.confluenceEffective = t.confluence;
+                    sumScore += sc.score;
+                    scoreStats.computed++;
+                } else {
+                    t.signalScore = 0.5;
+                    scoreStats.failed++;
+                    if (scoreStats.sampleErrors.length < 3) {
+                        scoreStats.sampleErrors.push({
+                            symbol: t.symbol, strategyId: t.strategyId,
+                            error: sc ? sc.error : 'invalid result'
+                        });
+                    }
+                }
+                if (sc && sc.error && !scoreStats.firstError) {
+                    scoreStats.firstError = sc.error;
+                }
+            } catch (e) {
+                t.signalScore = 0.5;
+                scoreStats.failed++;
+                if (!scoreStats.firstError) scoreStats.firstError = e.message;
+            }
+        }
+        scoreStats.avg = filteredTrades.length ? Math.round(sumScore / filteredTrades.length * 1000) / 1000 : 0;
+        deps.logger && deps.logger.info(
+            `signal scores: ${scoreStats.computed} computed, ${scoreStats.failed} failed, avg=${scoreStats.avg}, firstError=${scoreStats.firstError || 'none'}`
+        );
+    }
+
+    // Limits
+    const limits = {
+        capital: opts.capital || 100_000_000,
+        riskPct: opts.riskPct || 1.5,
+        maxSymPct: opts.maxSymPct || 20,
+        maxTotalPct: opts.maxTotalPct || 50,
+        minCashPct: opts.minCashPct || 20,
+        // Step 2
+        useDuplicateGuard: opts.useDuplicateGuard !== false,
+        useKelly: opts.useKelly !== false,
+        kellyCapPct: opts.kellyCapPct || 3.0,
+        useCorrelation: opts.useCorrelation !== false,
+        corrThreshold: opts.corrThreshold || 0.85,   // 🆕 0.7 → 0.85
+        maxClusterPct: opts.maxClusterPct || 30,
+        useSectors: opts.useSectors !== false,
+        maxSectorPct: opts.maxSectorPct || 40,
+        // 🆕 Phase 4 + 6
+        useRegime: opts.useRegime !== false,
+        useSignalScore: opts.useSignalScore !== false,
+        useSignalFilter: opts.useSignalFilter !== false,
+        // Filter
+        minTrades: minTrades,
+        // R16: per-strategy size multiplier
+        strategySizeMultMap: (deps.settings && deps.settings.getStrategySizeMultMap)
+            ? deps.settings.getStrategySizeMultMap()
+            : null
+    };
+
+    const result = portfolioCore.simulate(filteredTrades, limits, {
+        corrMatrix,
+        sectorMap,
+        regimeMap   // 🆕 Phase 6
+    });
+
+    // Advanced
+    const pnls = result.trades.map(t => t.pnlPct);
+    const cvar = sizing.cvar95(pnls);
+
+    // 🆕 ذخیره PF برای drift monitoring
+    try {
+        if (result.stats && Number.isFinite(result.stats.profitFactor)) {
+            await db.collection(COLLECTIONS.META).updateOne(
+                { _id: 'last_backtest_pf' },
+                { $set: {
+                    pf: result.stats.profitFactor,
+                    jobId: String(jobId),
+                    maxDD: result.stats.maxDD,
+                    returnPct: result.stats.totalReturnPct,
+                    sharpe: result.stats.sharpe,
+                    acceptedTrades: result.acceptedTrades,
+                    recordedAt: new Date()
+                }},
+                { upsert: true }
+            );
+            deps.logger && deps.logger.info(`last_backtest_pf saved: ${result.stats.profitFactor}`);
+        }
+    } catch (e) {
+        deps.logger && deps.logger.warn('save last_backtest_pf: ' + e.message);
+    }
+
+    return {
+        jobId,
+        mode,   // 🆕
+        at: new Date(),
+        limits,
+        corrMatrixMeta: corrMatrix
+            ? { symbols: Object.keys(corrMatrix).length }
+            : null,
+        sectorMap,
+        regimeMapSize: Object.keys(regimeMap).length,
+        signalFilter: filterReport,
+        scoreStats,   // 🆕
+        ...result,
+        advanced: {
+            cvar95: cvar,
+            kellyFraction: result.globalStats.halfKellyPct / 100 * 2,
+            halfKelly: result.globalStats.halfKellyPct / 100,
+            effectiveRiskPct: result.globalStats.effectiveRiskPct
+        }
+    };
+}
+
+module.exports = { init, simulateFromJob };
