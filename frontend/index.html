@@ -3862,7 +3862,7 @@ function switchSettingsTab(which, btn) { ['trading','capital','factors','conflue
 async function saveTradingSettings(keys) {
     const body = {};
     keys.forEach(k => {
-        const el = document.getElementById(`ts_${k}`);
+        let el = document.getElementById(`ts_${k}`) || document.getElementById(`adv_${k}`);
         if (!el) return;
         let v = String(el.value).trim();
         if (el.hasAttribute("data-rial")) v = v.replace(/[^\d.-]/g, "");
@@ -5887,48 +5887,37 @@ async function openAdvancedSettings() {
       apiFetch(`${BACKEND_URL}/api/trading-settings`, {}, 0),
       apiFetch(`${BACKEND_URL}/api/options/settings`, {}, 0)
     ]);
+    const capitalKeys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT'];
     const factorKeys = ['SIGNAL_FACTOR_1','SIGNAL_FACTOR_2','SIGNAL_FACTOR_3','SIGNAL_FACTOR_4PLUS','LEVEL_FACTOR_A_PLUS','LEVEL_FACTOR_A','LEVEL_FACTOR_B','LEVEL_FACTOR_C','LEVEL_FACTOR_D','IV_FACTOR_MIN','IV_FACTOR_MAX','IV_FACTOR_BASE'];
     const confKeys = ['CONFLUENCE_TIME_WINDOW','MULTI_CONFIRMER_MIN','MULTI_CONFIRMER_TIME_WINDOW','MIN_TARGET_PCT'];
-    const field = (k, val) => `<div class="field"><label>${TRADING_LABELS[k]||k}</label><input type="number" step="any" id="adv_${k}" value="${val}"></div>`;
+    const RIAL_KEYS = { TOTAL_CAPITAL: 1 };
+    const field = (k, val) => {
+      const isRial = RIAL_KEYS[k] === 1;
+      const labelTxt = TRADING_LABELS[k] || k;
+      const suffix = isRial ? ' <span style="color:var(--accent);font-size:10px;font-weight:600;">(ریال)</span>' : '';
+      const dataAttr = isRial ? ' data-rial="1"' : '';
+      return `<div class="field"><label>${labelTxt}${suffix}</label><input type="number" step="any" id="adv_${k}" value="${val}"${dataAttr}></div>`;
+    };
+    const capitalFields = capitalKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     const factorFields = factorKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     const confFields = confKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     openModal('تنظیمات پیشرفته', `
-      <div class="hint">تنظیمات معاملات، سرمایه و آپشن در صفحه‌ی بک‌تست قرار دارند.</div> <h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">💰 مدیریت سرمایه</h4>
-      <div class="hint" style="margin-bottom:6px;font-size:11px;">
-        سرمایه کل پایه‌ی همه‌ی محاسبات است. ریسک هر معامله درصدی از سرمایه است که در هر ترید ریسک می‌شود.
-        سقف درگیری نماد، سقف کل، و ذخیره‌ی نقدی محدودیت‌های اضافی هستند.
-      </div>
-      <div class="form-row">${capFields}</div>
-      <button class="btn success" onclick="${capitalOnclick}">💾 ذخیره مدیریت سرمایه</button>
-      <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">🎯 ضرایب سیگنال</h4> <div class="form-row">${factorFields}</div> <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره ضرایب</button> <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">ضرایب امتیاز سیگنال به حجم</h4>
-      <div class="hint" style="margin-bottom:6px;">
-        هر ردیف: حداقل امتیاز → ضریب حجم. سیستم اولین ردیف رو که امتیاز ≥ min باشه انتخاب می‌کنه.
-      </div>
-      <div id="scoreSizeRows">
-        <div class="form-row">
-          <div class="field"><label>حداقل امتیاز ۱</label><input type="number" step="0.05" id="ssm_min_1" value="0.80"></div>
-          <div class="field"><label>ضریب ۱</label><input type="number" step="0.1" id="ssm_fac_1" value="1.3"></div>
-          <div class="field"><label>حداقل امتیاز ۲</label><input type="number" step="0.05" id="ssm_min_2" value="0.65"></div>
-          <div class="field"><label>ضریب ۲</label><input type="number" step="0.1" id="ssm_fac_2" value="1.1"></div>
-          <div class="field"><label>حداقل امتیاز ۳</label><input type="number" step="0.05" id="ssm_min_3" value="0.55"></div>
-          <div class="field"><label>ضریب ۳</label><input type="number" step="0.1" id="ssm_fac_3" value="1.0"></div>
-          <div class="field"><label>حداقل امتیاز ۴</label><input type="number" step="0.05" id="ssm_min_4" value="0.45"></div>
-          <div class="field"><label>ضریب ۴</label><input type="number" step="0.1" id="ssm_fac_4" value="0.8"></div>
-          <div class="field"><label>حداقل امتیاز ۵</label><input type="number" step="0.05" id="ssm_min_5" value="0.30"></div>
-          <div class="field"><label>ضریب ۵</label><input type="number" step="0.1" id="ssm_fac_5" value="0.5"></div>
-          <div class="field"><label>حداقل امتیاز ۶</label><input type="number" step="0.05" id="ssm_min_6" value="0"></div>
-          <div class="field"><label>ضریب ۶ (پیش‌فرض)</label><input type="number" step="0.1" id="ssm_fac_6" value="0.3"></div>
-        </div>
-      </div>
-      <div style="margin-top:6px; display:flex; gap:8px; align-items:center;">
-        <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
-          <input type="checkbox" id="ssm_enabled" checked> فعال
-        </label>
-        <button class="btn" onclick="saveScoreSizeMap()">ذخیره ضرایب</button>
-      </div>
-      <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">هم‌گرایی</h4> <div class="form-row">${confFields}</div> <button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>`'${k}'`).join(',')}])">ذخیره هم‌گرایی</button> `);
+      <div class="hint">همه اعداد مبلغی <b>به ریال</b> هستند (۱ تومان = ۱۰ ریال).</div>
+      <h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">💰 مدیریت سرمایه</h4>
+      <div class="hint" style="margin-bottom:6px;font-size:11px;line-height:1.7;">سرمایه کل پایه‌ی همه‌ی محاسبات است. ریسک هر معامله درصدی از سرمایه است. سقف درگیری نماد و کل، محدودیت‌های اضافی هستند.</div>
+      <div class="form-row">${capitalFields}</div>
+      <button class="btn success" onclick="saveTradingSettings([${capitalKeys.map(k=>"'"+k+"'").join(',')}])">💾 ذخیره مدیریت سرمایه</button>
+      <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">🎯 ضرایب سیگنال</h4>
+      <div class="form-row">${factorFields}</div>
+      <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>"'"+k+"'").join(',')}])">ذخیره ضرایب</button>
+      <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">🔗 هم‌گرایی و فیلترها</h4>
+      <div class="form-row">${confFields}</div>
+      <button class="btn" onclick="saveTradingSettings([${confKeys.map(k=>"'"+k+"'").join(',')}])">ذخیره هم‌گرایی</button>
+    `);
+    setTimeout(() => { try { _moneyFormatAll(document.getElementById('modalBody')); if (window._addRialLabels) window._addRialLabels(document.getElementById('modalBody')); } catch(_) {} }, 30);
   } catch (e) { openModal('خطا', `<div class="empty-note">${esc(e.message)}</div>`); }
 }
+
 async function openQualityDetail(symbol) {
   openModal(`کیفیت دیتا — ${symbol}`, '<div style="text-align:center;padding:30px;">در حال دریافت...</div>');
   try {
@@ -7181,7 +7170,7 @@ window._r21MoveElements = _r21MoveElements;
 
 // R22a money helpers
 (function(){
-  const MONEY_IDS = ["ts_TOTAL_CAPITAL","bt2_portfolio_capital","pfCapital","ds_capital","ac_capital"];
+  const MONEY_IDS = ["ts_TOTAL_CAPITAL","adv_TOTAL_CAPITAL","bt2_portfolio_capital","pfCapital","ds_capital","ac_capital"];
   function _moneyFormatAll(root) {
     (root || document).querySelectorAll(MONEY_IDS.map(i => "input[id=\"" + i + "\"]").join(",")).forEach(el => {
       el.setAttribute("data-rial", "1");
@@ -7201,7 +7190,7 @@ window._r21MoveElements = _r21MoveElements;
     const _origOpen = openModal;
     window.openModal = function(t, h, p) {
       _origOpen.call(this, t, h, p);
-      setTimeout(() => _moneyFormatAll(document.getElementById("modalBody")), 30);
+      setTimeout(() => { _moneyFormatAll(document.getElementById("modalBody")); if (window._addRialLabels) window._addRialLabels(document.getElementById("modalBody")); }, 30);
     };
   }
   window.addEventListener("load", () => setTimeout(() => _moneyFormatAll(document), 100));
