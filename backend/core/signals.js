@@ -382,7 +382,31 @@ async function _evaluateConfigInner(config, marketInfo) {
 
     // Stage 11 fix: actionable defined BEFORE log (was ReferenceError, silently swallowed)
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
-    deps.logger && deps.logger.info('actionable=' + actionable + ' ' + config.symbol + '/' + config.strategyId + ' type=' + (last.signalType || 'null'));
+
+    // Stage 11.3 fix: paper hook with SEPARATE idempotency (independent from Telegram notify tracking)
+    // This fires BEFORE the 'already' early-return, so paper positions get created even when
+    // Telegram notify was already sent for the same signal (the historical bug that blocked paper trading).
+    const paperAlready = prev && prev.paperLastNotifiedTime === last.time && prev.paperLastNotifiedType === last.signalType;
+    if (actionable && !paperAlready && !isConfirmer && deps.paperTrading && deps.paperTrading.recordSignal) {
+        try {
+            await deps.paperTrading.recordSignal({
+                symbol: config.symbol,
+                strategyId: config.strategyId,
+                signalType: last.signalType,
+                price: lastPrice,
+                time: last.time,
+                reason: last.reason,
+                indicators: last.indicators,
+                htfTrend: result.htfTrend || null,
+                timeframe: config.timeframe
+            });
+            await stateColl.updateOne(
+                { configId },
+                { $set: { paperLastNotifiedTime: last.time, paperLastNotifiedType: last.signalType } }
+            );
+        } catch (pe) { deps.logger && deps.logger.warn('paper hook: ' + pe.message); }
+    }
+    deps.logger && deps.logger.info('actionable=' + actionable + ' ' + config.symbol + '/' + config.strategyId + ' type=' + (last.signalType || 'null') + ' paperAlready=' + paperAlready);
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
 
@@ -441,39 +465,6 @@ async function _evaluateConfigInner(config, marketInfo) {
 
     const confluenceTag = confluence > 1 ? `\nهم گرایی ${confluence} استراتژی` : '';
     const confirmersTag = confirmersList.length ? `\nتایید: ${confirmersList.join('، ')}` : '';
-
-    // Stage 11.2 fix: record paper EXIT BEFORE state update (so already-check on next tick doesn't skip it)
-    if (last.signalType === 'EXIT_LONG' && deps.paperTrading && deps.paperTrading.recordSignal) {
-        try {
-            await deps.paperTrading.recordSignal({
-                symbol: config.symbol,
-                strategyId: config.strategyId,
-                signalType: 'EXIT_LONG',
-                price: lastPrice,
-                time: last.time,
-                reason: last.reason,
-                timeframe: config.timeframe
-            });
-        } catch (pe) { deps.logger && deps.logger.warn('paper EXIT: ' + pe.message); }
-    }
-
-
-    // Stage 11.2 fix: record paper BUY BEFORE state update
-    if (last.signalType === 'BUY' && !isConfirmer && deps.paperTrading && deps.paperTrading.recordSignal) {
-        try {
-            await deps.paperTrading.recordSignal({
-                symbol: config.symbol,
-                strategyId: config.strategyId,
-                signalType: 'BUY',
-                price: lastPrice,
-                time: last.time,
-                reason: last.reason,
-                indicators: last.indicators,
-                htfTimeframe: htfTf,
-                timeframe: config.timeframe
-            });
-        } catch (pe) { deps.logger && deps.logger.warn('paper BUY: ' + pe.message); }
-    }
 
     // ---- علامت‌گذاری notify ----
     await stateColl.updateOne(
