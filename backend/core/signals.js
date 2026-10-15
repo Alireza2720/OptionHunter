@@ -387,7 +387,8 @@ async function _evaluateConfigInner(config, marketInfo) {
     // This fires BEFORE the 'already' early-return, so paper positions get created even when
     // Telegram notify was already sent for the same signal (the historical bug that blocked paper trading).
     const paperAlready = prev && prev.paperLastNotifiedTime === last.time && prev.paperLastNotifiedType === last.signalType;
-    if (actionable && !paperAlready && !isConfirmer && deps.paperTrading && deps.paperTrading.recordSignal) {
+    // Stage 11.4: record paper for ALL actionable signals (leader OR confirmer)
+    if (actionable && !paperAlready && deps.paperTrading && deps.paperTrading.recordSignal) {
         try {
             await deps.paperTrading.recordSignal({
                 symbol: config.symbol,
