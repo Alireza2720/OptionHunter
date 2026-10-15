@@ -92,6 +92,12 @@ async function recordSignal(signalData) {
             status: 'open',
             paper: true
         });
+        // Stage 11.6: skip orphan EXITs (no matching open paper BUY)
+        if (!open) {
+            deps.logger && deps.logger.info('[paper] skip orphan EXIT: ' + signalData.symbol + '/' + signalData.strategyId);
+            return { type: 'paper_trade', status: 'skipped', skipReason: 'no open paper position',
+                     signal: { symbol: signalData.symbol, signalType: 'EXIT_LONG' } };
+        }
         if (open) {
             const chain = await deps.options.fetchChain(60000).catch(() => []);
             const liveContract = chain.find(c => c.symbol === open.symbol);
