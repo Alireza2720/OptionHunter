@@ -74,6 +74,10 @@ echo ""
 echo "── 3g) cache.test.js ──"
 node backend/tests/cache.test.js
 
+echo ""
+echo "── 3h) paper-trading.test.js (Stage 11) ──"
+node backend/tests/paper-trading.test.js
+
 # 4. API test (اختیاری — نیاز به backend فعال)
 echo ""
 echo "── 4) API Test ──"
