@@ -17,50 +17,62 @@ let deps = {
 // ------------------------------------------------------------
 // ذخیره‌ی WF strategy whitelist برای مسیر زنده
 // ------------------------------------------------------------
+// [WF-WHITELIST-REMOVED] 2026-10-15 -- advisory only, never enforced.
+// Rationale:
+//   - 30-day window = ~5-10 trades = statistically insignificant
+//   - Market downturns would kill all long-only strategies for a week
+//   - signalFilterService (which reads signal_whitelist) is already disabled
+//   - No live path (signals.js / signal.service.js / tick.job.js) reads
+//     meta.wf_strategy_whitelist for enforcement
+// This function still writes advisory metadata to meta for audit but always
+// returns empty passingStrategies so downstream callers never filter on it.
 async function saveWfStrategyWhitelist(jobId, aggregateResult) {
     const db = deps.getDB();
-    const passingStrategies = [];
     const perStrategy = aggregateResult.perStrategy || {};
+    const allDetails = [];
 
     for (const [sid, r] of Object.entries(perStrategy)) {
         if (r.error) continue;
-        if (r.gate && r.gate.allPassed) {
-            passingStrategies.push({
-                strategyId: sid,
-                totalTrades: r.totalTrades,
-                avgPF: r.avgPF,
-                sharpe: r.sharpe,
-                consistencyPct: r.consistencyPct
-            });
-        }
+        allDetails.push({
+            strategyId: sid,
+            totalTrades: r.totalTrades,
+            avgPF: r.avgPF,
+            sharpe: r.sharpe,
+            consistencyPct: r.consistencyPct,
+            wouldHavePassed: !!(r.gate && r.gate.allPassed)
+        });
     }
 
-    // اگه هیچ استراتژی‌ای پاس نشد، همه‌ی whitelist رو حفظ کن
-    const hasPassing = passingStrategies.length > 0;
+    const wouldHavePassedCount = allDetails.filter(d => d.wouldHavePassed).length;
 
-    await db.collection('meta').updateOne(
-        { _id: 'wf_strategy_whitelist' },
+    await db.collection("meta").updateOne(
+        { _id: "wf_strategy_whitelist" },
         { $set: {
             jobId: String(jobId),
-            strategies: passingStrategies.map(s => s.strategyId),
-            details: passingStrategies,
-            hasPassing,
+            advisory: true,
+            enforced: false,
+            strategies: [],
+            details: allDetails,
+            hasPassing: false,
+            wouldHavePassedCount,
             computedAt: new Date(),
-            // آمار کل
             overallGate: aggregateResult.gate,
-            totalTrades: aggregateResult.totalTrades
+            totalTrades: aggregateResult.totalTrades,
+            note: "advisory-only since 2026-10-15 - enforcement removed"
         }},
         { upsert: true }
     );
 
     deps.logger && deps.logger.info(
-        `WF whitelist saved: ${passingStrategies.length} strategies passed`
+        "WF whitelist: advisory only, " + wouldHavePassedCount + " would have passed (not enforced)"
     );
 
     return {
-        passingStrategies: passingStrategies.map(s => s.strategyId),
-        details: passingStrategies,
-        hasPassing
+        passingStrategies: [],
+        details: allDetails,
+        hasPassing: false,
+        advisory: true,
+        wouldHavePassedCount: wouldHavePassedCount
     };
 }
 

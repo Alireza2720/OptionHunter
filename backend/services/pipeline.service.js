@@ -183,11 +183,10 @@ async function runMaster(jobId, opts = {}) {
         const applied = [];
         try {
             // کاندیدهایی که WF passing + analysis passing
-            const wfStrats = new Set(
-                wf && wf.wfWhitelistSaved && wf.wfWhitelistSaved.passingStrategies
-                    ? wf.wfWhitelistSaved.passingStrategies
-                    : []
-            );
+            // [WF-WHITELIST-REMOVED] 2026-10-15 -- no longer filter by wf winners
+            // See wf.service.js for rationale. This was a 30-day window filter that
+            // would disable all long-only strategies during any bear week.
+            const wfStrats = new Set();  // always empty
 
             // از analysis نتایج، pairهای برنده رو بگیر
             const details = await db.collection(COLLECTIONS.BACKTEST_COMPARE_DETAILS)
@@ -200,7 +199,7 @@ async function runMaster(jobId, opts = {}) {
             const bySymbol = {};
             for (const d of details) {
                 if (!d.trades || d.trades.length < (opts.minTrades || 5)) continue;
-                if (wfStrats.size > 0 && !wfStrats.has(d.strategyId)) continue;
+                // [WF-WHITELIST-REMOVED] filter removed -- see comment above
 
                 const pnls = d.trades.map(t => t.pnlPct).filter(Number.isFinite);
                 const wins = pnls.filter(x => x > 0);
