@@ -192,12 +192,13 @@ function calcPositionSize(candidate, portfolio, limits, ctx) {
     }
 
     let baseSize = Math.floor(riskAmt / contractValue);
-    // NEW: allow minimum 1 contract if risk covers at least 40% of contract cost
-    if (baseSize === 0 && riskAmt >= contractValue * 0.4) {
-        // R7 refined: require option grade C or better for min-1-contract
+    // FIX 10a.2: realistic min-1-contract — if one contract fits within symbol exposure limit, allow it
+    if (baseSize === 0 && contractValue > 0) {
         const _g = String(candidate.optionGrade || 'A').toUpperCase();
-        if (['A+', 'A', 'B', 'C'].includes(_g)) {
+        const _maxSymValue = capital * (limits.maxSymPct / 100);
+        if (['A+', 'A', 'B', 'C', 'D'].includes(_g) && contractValue <= _maxSymValue) {
             baseSize = 1;
+            candidate._minContractTriggered = true;
         }
     }
     // Soft multipliers (regime + score)
