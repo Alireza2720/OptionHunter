@@ -388,6 +388,13 @@ async function bootstrap() {
         notify: telegram.notify
     });
 
+    // 11.12.1) paper drift job
+    paperDriftJob.init({
+        getDB: mongo.getDB,
+        logger,
+        notify: telegram.notify
+    });
+
     // 11.12.5) sector-rank job 🆕
     sectorRankJob.init({
         getDB: mongo.getDB,
@@ -646,6 +653,7 @@ async function bootstrap() {
         riskFreeJob,
         healthJob,
         driftJob,
+        paperDriftJob,
         sectorRankJob,
         dailyBackfillJob,
         gapDetectorJob,
