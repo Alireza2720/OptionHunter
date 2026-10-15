@@ -8510,6 +8510,149 @@ function exportGATableToCSV(jobId) {
 }
 
 </script>
+
+<script>
+/* OH_DRIFT_PANEL_V1 */
+(function () {
+    if (window.__driftPanelLoaded) return;
+    window.__driftPanelLoaded = true;
+
+    function injectMenuButton() {
+        const parent = document.getElementById('menuTab-settings');
+        if (!parent || document.getElementById('driftMenuBtn')) return;
+        const btn = document.createElement('button');
+        btn.id = 'driftMenuBtn';
+        btn.className = 'menu-item';
+        btn.innerHTML = '\u{1F4CA} Drift Monitor (Paper vs BT)';
+        btn.onclick = function () { try { toggleMenu(); } catch (_) {} openDriftPanel(); };
+        const items = parent.querySelectorAll('.menu-item');
+        let anchor = null;
+        for (const el of items) {
+            if (el.textContent && el.textContent.indexOf('\u06AF\u0632\u0627\u0631\u0634 \u0645\u0627\u0647\u0627\u0646\u0647') >= 0) { anchor = el; break; }
+        }
+        if (anchor) anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+        else parent.appendChild(btn);
+    }
+
+    window.openDriftPanel = async function () {
+        if (typeof openModal !== 'function') return;
+        openModal('Paper vs Backtest Drift', '<div style="text-align:center;padding:30px;">Loading...</div>');
+        try {
+            const url = (typeof BACKEND_URL !== 'undefined' ? BACKEND_URL : '') + '/api/paper-trading/drift?days=30';
+            const r = await fetch(url);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.json();
+            renderDriftPanel(d);
+        } catch (e) {
+            openModal('Drift Error', '<div class="empty-note">' + esc(e.message) + '</div>');
+        }
+    };
+
+    function renderDriftPanel(d) {
+        const sev = d.severity || 'insufficient';
+        const sevColor = sev === 'critical' ? 'var(--danger)'
+            : sev === 'warn' ? 'var(--warn)'
+            : sev === 'notice' ? 'var(--info)'
+            : sev === 'ok' ? 'var(--success)'
+            : 'var(--text-dim)';
+        const sevLabel = sev === 'critical' ? 'CRITICAL'
+            : sev === 'warn' ? 'WARN'
+            : sev === 'notice' ? 'NOTICE'
+            : sev === 'ok' ? 'OK'
+            : 'INSUFFICIENT';
+
+        const paper = d.paper || {};
+        const sw = paper.statsWindow || {};
+        const bt = d.backtest || {};
+
+        const statBox = function (label, val, cls) {
+            return '<div class="stat ' + (cls || '') + '"><small>' + label + '</small><b>' + val + '</b></div>';
+        };
+
+        let html = '';
+        html += '<div style="padding:14px;background:var(--bg-elev-2);border:2px solid ' + sevColor + ';border-radius:var(--r-lg);margin-bottom:14px;">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">';
+        html += '<div style="font-size:18px;font-weight:700;color:' + sevColor + ';">' + sevLabel + '</div>';
+        html += '<div style="font-size:13px;color:var(--text-dim);">' + esc(d.message || 'OK') + '</div>';
+        html += '</div></div>';
+
+        html += '<div class="stats-grid">';
+        html += statBox('Paper PF (30d)', sw.profitFactor != null ? sw.profitFactor : '\u2014', sev === 'ok' ? 'highlight-good' : (sev === 'critical' || sev === 'warn' ? 'highlight-bad' : ''));
+        html += statBox('Backtest PF', bt.pf != null ? bt.pf : '\u2014');
+        html += statBox('Ratio', d.ratio != null ? (d.ratio * 100).toFixed(0) + '%' : '\u2014');
+        html += statBox('Closed (30d)', paper.closed || 0);
+        html += statBox('Open', paper.open || 0);
+        html += statBox('Skipped', paper.skipped || 0, paper.skipped > 0 ? 'highlight-bad' : '');
+        html += statBox('Pending', paper.pending || 0, paper.pending > 0 ? 'highlight-bad' : '');
+        html += '</div>';
+
+        html += '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">Paper stats (30d)</h4>';
+        html += '<div class="stats-grid">';
+        html += statBox('Win Rate', (sw.winRate != null ? sw.winRate : 0) + '%');
+        html += statBox('Avg PnL', (sw.avgPnl != null ? sw.avgPnl : 0) + '%');
+        html += statBox('Total PnL', (sw.totalPnl != null ? sw.totalPnl : 0) + '%');
+        html += statBox('Avg Win', (sw.avgWin != null ? sw.avgWin : 0) + '%');
+        html += statBox('Avg Loss', (sw.avgLoss != null ? sw.avgLoss : 0) + '%');
+        html += '</div>';
+
+        const ps = d.perStrategy || [];
+        if (ps.length) {
+            html += '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">Per-strategy (' + ps.length + ')</h4>';
+            html += '<div class="table-responsive" style="max-height:280px;overflow-y:auto;"><table class="data-table"><thead><tr><th>Strategy</th><th>N</th><th>Win%</th><th>Avg PnL</th><th>Total PnL</th><th>PF</th></tr></thead><tbody>';
+            for (const p of ps) {
+                html += '<tr><td><b>' + esc(p.strategyId) + '</b></td><td>' + p.count + '</td><td>' + p.winRate + '</td><td>' + p.avgPnl + '%</td><td>' + p.totalPnl + '%</td><td>' + (p.profitFactor != null ? p.profitFactor : '\u2014') + '</td></tr>';
+            }
+            html += '</tbody></table></div>';
+        }
+
+        const sy = d.perSymbol || [];
+        if (sy.length) {
+            html += '<h4 style="font-size:13px;color:var(--accent);margin:14px 0 6px;">Per-symbol (' + sy.length + ')</h4>';
+            html += '<div class="table-responsive" style="max-height:280px;overflow-y:auto;"><table class="data-table"><thead><tr><th>Symbol</th><th>N</th><th>Win%</th><th>Avg PnL</th><th>Total PnL</th><th>PF</th></tr></thead><tbody>';
+            for (const s of sy) {
+                html += '<tr><td><b>' + esc(s.symbol) + '</b></td><td>' + s.count + '</td><td>' + s.winRate + '</td><td>' + s.avgPnl + '%</td><td>' + s.totalPnl + '%</td><td>' + (s.profitFactor != null ? s.profitFactor : '\u2014') + '</td></tr>';
+            }
+            html += '</tbody></table></div>';
+        }
+
+        if (!ps.length && !sy.length) {
+            html += '<div class="empty-note" style="margin-top:14px;">No closed paper trades yet \u2014 waiting for market open.</div>';
+        }
+
+        html += '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">';
+        html += '<button class="btn" onclick="openDriftPanel()">\u{1F504} Refresh</button>';
+        html += '<button class="btn outline" onclick="cleanupOrphanPaper()">\u{1F9F9} Cleanup Orphans</button>';
+        html += '<button class="btn outline" onclick="closeModal()">Close</button>';
+        html += '</div>';
+
+        openModal('Paper Drift Monitor', html, true);
+    }
+
+    window.cleanupOrphanPaper = async function () {
+        try {
+            const token = (typeof getToken === 'function') ? getToken() : '';
+            const r = await fetch((typeof BACKEND_URL !== 'undefined' ? BACKEND_URL : '') + '/api/paper-trading/cleanup-orphans', {
+                method: 'POST',
+                headers: { 'x-admin-token': token }
+            });
+            const d = await r.json();
+            if (typeof showAlert === 'function') showAlert('Deleted ' + (d.deleted || 0) + ' orphans', 'success', 3000);
+            window.openDriftPanel();
+        } catch (e) {
+            if (typeof showAlert === 'function') showAlert('Error: ' + e.message, 'error');
+        }
+    };
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(injectMenuButton, 600);
+    } else {
+        window.addEventListener('DOMContentLoaded', function () { setTimeout(injectMenuButton, 600); });
+    }
+    document.addEventListener('click', function (e) {
+        if (e.target && e.target.id === 'hamburgerBtn') setTimeout(injectMenuButton, 250);
+    }, true);
+})();
+</script>
 </body>
 </html>
 
