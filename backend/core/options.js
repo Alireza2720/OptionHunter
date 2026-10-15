@@ -1324,6 +1324,22 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
     }
     if (!best) return null;
     // ---- 🆕 قیمت‌ها فقط از bid/ask واقعی ----
+    const _exitRows = rowsBySymbol.get(best.symbol) || [];
+    let exitRow = null;
+    let _bestExitDelta = Infinity;
+    const _exitLo = exitSec - 24 * 3600;
+    const _exitHi = exitSec + 60;
+    for (let _ei = 0; _ei < _exitRows.length; _ei++) {
+        const _r = _exitRows[_ei];
+        const _sec = Math.floor(new Date(_r.time).getTime() / 1000);
+        if (_sec > _exitHi) break;
+        if (_sec < _exitLo) continue;
+        if (_r.bid > 0) {
+            const _d = Math.abs(_sec - exitSec);
+            if (_d < _bestExitDelta) { _bestExitDelta = _d; exitRow = _r; }
+        }
+    }
+    if (!exitRow) return null;
     let entry = realisticBuyPrice(best);
     let exit  = realisticSellPrice(exitRow);
     if (!entry || !exit) return null;   // ⛔ اگه bid/ask نبود → کل معامله skip
