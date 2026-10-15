@@ -1289,84 +1289,40 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         return Math.abs(secA - entrySec) - Math.abs(secB - entrySec);
     });
 
-    const best = valid[0];
-
-    // NEW: [QUALITY GATES — mirrors live selectCalls/scoreContract]
-    const _qAsk = Number(best.ask) || 0;
-    const _qBid = Number(best.bid) || 0;
-    if (!(_qAsk > 0 && _qBid > 0)) return null;
-    const _qMid = (_qAsk + _qBid) / 2;
-    const _qSpreadPct = _qMid > 0 ? ((_qAsk - _qBid) / _qMid) * 100 : 100;
-    const _qOI = Number(best.oi) || 0;
-    const _qVol = Number(best.volume) || 0;
-    // FIX #7: use quality-filter params instead of hardcoded thresholds
+    // FIX 10c: quality gates applied BEFORE picking best.
+    // Previously valid[0] was picked by delta closeness only, and if it failed
+    // OI/spread/days the function returned null (rejecting the whole trade)
+    // instead of trying the next-best candidate. Now we walk sorted candidates
+    // and pick the first that passes ALL quality gates.
     const _qMinPremium = (p.minPremium != null && Number.isFinite(p.minPremium) && p.minPremium > 0) ? p.minPremium : 20;
-    const _qMaxSpread = (p.maxSpreadPct != null && Number.isFinite(p.maxSpreadPct) && p.maxSpreadPct > 0) ? p.maxSpreadPct : 80;
-    const _qMinOI = (p.minOI != null && Number.isFinite(p.minOI) && p.minOI > 0) ? p.minOI : 0;
-    const _qMinDays = (p.minDays != null && Number.isFinite(p.minDays) && p.minDays > 0) ? p.minDays : 2;
-    const _qMaxDays = (p.maxDays != null && Number.isFinite(p.maxDays) && p.maxDays > 0) ? p.maxDays : 180;
-    if (_qAsk < _qMinPremium) return null;
-    if (_qSpreadPct > _qMaxSpread) return null;
-    if (_qMinOI > 0 && _qOI < _qMinOI) return null;
+    const _qMaxSpread  = (p.maxSpreadPct != null && Number.isFinite(p.maxSpreadPct) && p.maxSpreadPct > 0) ? p.maxSpreadPct : 80;
+    const _qMinOI      = (p.minOI != null && Number.isFinite(p.minOI) && p.minOI > 0) ? p.minOI : 0;
+    const _qMinDays    = (p.minDays != null && Number.isFinite(p.minDays) && p.minDays > 0) ? p.minDays : 2;
+    const _qMaxDays    = (p.maxDays != null && Number.isFinite(p.maxDays) && p.maxDays > 0) ? p.maxDays : 180;
 
-    const _qDaysRaw = best.daysLeft;
-    if (_qDaysRaw != null && Number.isFinite(Number(_qDaysRaw)) && Number(_qDaysRaw) > 0) {
-        const _qDays = Number(_qDaysRaw);
-        if (_qDays < _qMinDays) return null;
-        if (_qDays > _qMaxDays) return null;
-    }
-
-    // NEW: grade-aware — reject F tier (deep OTM / illiquid / huge spread)
-    let _ohGrade = null;
-    try {
-        if (deps.settings && typeof deps.settings.isOptionGradeSizingEnabled === 'function'
-            && deps.settings.isOptionGradeSizingEnabled()) {
-            const _gd = getDelta(best);
-            _ohGrade = computeOptionGrade({
-                bid: best.bid, ask: best.ask,
-                deltaApi: _gd,
-                daysLeft: best.daysLeft,
-                ivApi: best.ivApi != null ? best.ivApi : null,
-                hvApi: best.hvApi != null ? best.hvApi : null,
-                oi: best.oi, volume: best.volume,
-                dataQuality: best.dataQuality || 'real'
-            }, {
-                weights: deps.settings.getOptionGradeWeights ? deps.settings.getOptionGradeWeights() : null,
-                thresholds: deps.settings.getOptionGradeThresholds ? deps.settings.getOptionGradeThresholds() : null
-            });
+    function _passesQuality(cand) {
+        const _a = Number(cand.ask) || 0;
+        const _b = Number(cand.bid) || 0;
+        if (!(_a > 0 && _b > 0)) return false;
+        const _m = (_a + _b) / 2;
+        const _sp = _m > 0 ? ((_a - _b) / _m) * 100 : 100;
+        if (_a < _qMinPremium) return false;
+        if (_sp > _qMaxSpread) return false;
+        const _oi = Number(cand.oi) || 0;
+        if (_qMinOI > 0 && _oi < _qMinOI) return false;
+        const _d = Number(cand.daysLeft);
+        if (Number.isFinite(_d) && _d > 0) {
+            if (_d < _qMinDays) return false;
+            if (_d > _qMaxDays) return false;
         }
-    } catch (_) { _ohGrade = null; }
-    if (_ohGrade && _ohGrade.grade === 'F') return null;
-
-    // R16: IV/HV filter — mirror live's maxIvHv
-    if (p.maxIvHv != null && Number.isFinite(p.maxIvHv) && p.maxIvHv > 0) {
-        const _ivv = Number(best.ivApi);
-        const _hvv = Number(best.hvApi);
-        if (_ivv > 0 && _hvv > 0 && (_ivv / _hvv) > p.maxIvHv) return null;
+        return true;
     }
 
-    // ---- انتخاب رکورد خروج (بهینه با باینری سرچ) ----
-    const contractRows = rowsBySymbol.get(best.symbol) || [];
-    let exitRow = null, exitDist = Infinity;
-    const _eLo = exitSec - WINDOW_SEC;
-    const _eHi = exitSec;   // FIX #5: no future leak (candidate must be <= exit time)
-    let _lo = 0, _hi = contractRows.length;
-    while (_lo < _hi) {
-        const mid = (_lo + _hi) >> 1;
-        const sec = Math.floor(new Date(contractRows[mid].time).getTime() / 1000);
-        if (sec < _eLo) _lo = mid + 1;
-        else _hi = mid;
+    let best = null;
+    for (const _cand of valid) {
+        if (_passesQuality(_cand)) { best = _cand; break; }
     }
-    for (let i = _lo; i < contractRows.length; i++) {
-        const r = contractRows[i];
-        const sec = Math.floor(new Date(r.time).getTime() / 1000);
-        if (sec > _eHi) break;
-        if (!(r.bid > 0 || r.close > 0 || r.last > 0)) continue;
-        const dist = Math.abs(sec - exitSec);
-        if (dist < exitDist) { exitDist = dist; exitRow = r; }
-    }
-    if (!exitRow) return null;
-
+    if (!best) return null;
     // ---- 🆕 قیمت‌ها فقط از bid/ask واقعی ----
     let entry = realisticBuyPrice(best);
     let exit  = realisticSellPrice(exitRow);
