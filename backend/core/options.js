@@ -788,6 +788,11 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
         const p = res.picks[0];
         if (!p.positionSize || p.positionSize <= 0) return res;
 
+        // [DEDUP-PAPER] paper positions are created by paper-trading.service.recordSignal.
+        // Skip insert here to avoid duplicate paper positions per BUY signal.
+        const _skipPaperInsert = process.env.TRADING_MODE !== 'live';
+        if (_skipPaperInsert) return res;
+
         const db = requireDep('getDB')();
         const existing = await db.collection('option_positions').findOne({
             configId: config._id.toString(), status: 'open'
@@ -867,7 +872,11 @@ async function managePositions(chain) {
     const FEE_BUY = getFeeBuy();
     const FEE_SELL = getFeeSell();
 
-    const open = await db.collection('option_positions').find({ status: 'open' }).toArray();
+    // [PAPER-ONLY-FILTER] managePositions handles LIVE positions only.
+    // Paper positions are managed by paper-trading.service via recordSignal.
+    const open = await db.collection('option_positions')
+        .find({ status: 'open', paper: { $ne: true } })
+        .toArray();
     if (!open.length) return;
 
     const map = new Map(chain.map(c => [c.symbol, c]));
