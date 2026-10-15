@@ -241,14 +241,36 @@ function register(app, deps) {
     });
 
     // ---- Evaluate Now ----
+    // [EVAL-ASYNC] default: fire-and-forget (return immediately).
+    // Use ?block=1 to wait (with client timeout).
     app.post('/api/evaluate-now', async (req, res, next) => {
         try {
-            await deps.signalService.tick();
+            const block = req.query.block === '1' || req.body && req.body.block === true;
+            if (block) {
+                await deps.signalService.tick();
+                const h = deps.signalService.getHealth();
+                return res.json({
+                    success: true,
+                    blocked: true,
+                    lastTickAt: h.lastTickAt,
+                    lastError: h.lastError,
+                    consecutiveFailures: h.consecutiveFailures
+                });
+            }
+            // fire & forget
+            const running = deps.signalService.isTickRunning ? deps.signalService.isTickRunning() : false;
+            if (running) {
+                return res.json({ success: true, alreadyRunning: true, note: 'tick already running in background' });
+            }
+            deps.signalService.tick().catch(e => deps.logger && deps.logger.warn('evaluate-now bg: ' + e.message));
+            const h = deps.signalService.getHealth();
             res.json({
                 success: true,
-                lastTickAt: deps.signalService.getHealth().lastTickAt,
-                lastError: deps.signalService.getHealth().lastError,
-                consecutiveFailures: deps.signalService.getHealth().consecutiveFailures
+                started: true,
+                note: 'tick started in background — poll /api/status or signal-history',
+                lastTickAt: h.lastTickAt,
+                lastError: h.lastError,
+                consecutiveFailures: h.consecutiveFailures
             });
         } catch (e) { next(e); }
     });
@@ -262,6 +284,43 @@ function register(app, deps) {
                 .limit(limit)
                 .toArray();
             res.json({ count: list.length, signals: list });
+        } catch (e) { next(e); }
+    });
+
+    // [EVAL-DEBUG] Single-config evaluate with full stacktrace
+    app.get('/api/evaluate-single/:configId', async (req, res, next) => {
+        try {
+            const cfg = await configService.getById(req.params.configId);
+            if (!cfg) return res.status(404).json({ error: 'config not found' });
+            const marketInfo = new Map();
+            try {
+                const quotes = (deps.signalService && deps.signalService.getLastQuotes)
+                    ? deps.signalService.getLastQuotes()
+                    : new Map();
+                const q = quotes.get(cfg.symbol);
+                if (q) marketInfo.set(cfg.symbol, { price: q.price, queue: q.queue });
+            } catch (_) {}
+            let result = null, outerErr = null, outerStack = null;
+            try {
+                if (!deps.signals || typeof deps.signals.evaluateConfig !== 'function') {
+                    return res.status(500).json({ error: 'deps.signals.evaluateConfig not wired' });
+                }
+                result = await deps.signals.evaluateConfig(cfg, marketInfo);
+            } catch (e) {
+                outerErr = e.message;
+                outerStack = e.stack;
+            }
+            res.json({
+                configId: cfg._id.toString(),
+                symbol: cfg.symbol,
+                strategyId: cfg.strategyId,
+                timeframe: cfg.timeframe,
+                result,
+                outerError: outerErr,
+                outerStack,
+                innerError: (result && result.error) || null,
+                innerStack: (result && result.stack) || null
+            });
         } catch (e) { next(e); }
     });
 }

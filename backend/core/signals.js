@@ -143,10 +143,11 @@ async function evaluateConfig(config, marketInfo) {
     try {
         return await _evaluateConfigInner(config, marketInfo);
     } catch (e) {
-        deps.logger && deps.logger.warn(
-            'evaluateConfig ' + config.symbol + '/' + config.strategyId + ': ' + (e.message || e)
-        );
-        return { symbol: config.symbol, strategyId: config.strategyId, error: e.message };
+        const _stack = (e && e.stack) ? String(e.stack) : 'NO_STACK';
+        const _msg = (config.symbol || '?') + '/' + (config.strategyId || '?') + ': ' + (e.message || e);
+        try { console.error('[evaluateConfig THREW] ' + _msg + '\n' + _stack); } catch (_) {}
+        try { deps.logger && deps.logger.error('evaluateConfig THREW ' + _msg + ' | STACK: ' + _stack); } catch (_) {}
+        return { symbol: config.symbol, strategyId: config.strategyId, error: e.message, stack: _stack };
     }
 }
 

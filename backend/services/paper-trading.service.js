@@ -111,6 +111,7 @@ async function recordSignal(signalData) {
                 { $set: {
                     status: 'closed',
                     exitTime: new Date(),
+                    closedAt: new Date(),
                     exitBid,
                     pnlPct,
                     pnl: { pnlPct },
@@ -193,6 +194,7 @@ async function dailySync() {
                 { $set: {
                     status: 'closed',
                     exitTime: new Date(),
+                    closedAt: new Date(),
                     exitBid,
                     pnl: { pnlPct },
                     exitReason: reason

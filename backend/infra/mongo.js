@@ -128,6 +128,14 @@ async function ensureIndexes() {
     await safeCreateIndex(db.collection(COLLECTIONS.OPTION_DAILY), { symbol: 1, date: 1 }, { unique: true });
     await safeCreateIndex(db.collection(COLLECTIONS.OPTION_DAILY), { underlying: 1, date: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.OPTION_POSITIONS), { status: 1, configId: 1 });
+    // [RETENTION-V3] paper-only TTL — 180d on closed paper positions
+    await safeCreateIndex(
+        db.collection(COLLECTIONS.OPTION_POSITIONS),
+        { closedAt: 1 },
+        { expireAfterSeconds: 180 * 86400, name: 'option_positions_paper_ttl', partialFilterExpression: { paper: true, status: 'closed' } }
+    );
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_POSITIONS), { createdAt: -1 });
+    await safeCreateIndex(db.collection(COLLECTIONS.OPTION_POSITIONS), { 'signal.symbol': 1, createdAt: -1 });
     await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { symbol: 1, time: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { underlying: 1, time: 1 });
     await safeCreateIndex(db.collection(COLLECTIONS.OPTION_HISTORY), { time: 1 });

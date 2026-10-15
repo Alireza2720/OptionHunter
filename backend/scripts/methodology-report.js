@@ -28,7 +28,7 @@ const { MongoClient } = require(path.join(ROOT, 'node_modules', 'mongodb'));
 
 const CHECK_ONLY = process.argv.indexOf('--check') !== -1;
 const AS_JSON = process.argv.indexOf('--json') !== -1;
-const REPORT_ID = 'methodology_report_v2';
+const REPORT_ID = 'methodology_report_v3';
 
 // ── Fix registry ──
 const FIXES = [
@@ -47,7 +47,20 @@ const FIXES = [
     { id: 'X2', stage: '9.7c', severity: 'critical', title: 'wf.routes app-not-defined', desc: 'Stages 9.5-v2 had placed app.post(retrain) at module level (outside register). Fixed by moving inside register().', files: ['backend/api/routes/wf.routes.js'] },
     { id: '10e', stage: '10e', severity: 'critical', title: 'exitRow undefined in tryGetRealTradeDataFast', desc: 'Function referenced exitRow without declaring it; ReferenceError silently swallowed by try/catch in runHybridOptionBacktest, causing opt N=0 for all trades.', files: ['backend/core/options.js'] },
     { id: '10e.2', stage: '10e.2', severity: 'high', title: 'oi=0 treated as unknown, not zero', desc: 'TSETMC writes oi=0 for historical rows where OI was not tracked. Filter now skips the check when oi<=0, only rejecting when oi>0 and below threshold. Exit lookback also widened 24h->48h for holidays/sparse days.', files: ['backend/core/options.js'] },
-    { id: '10f.1', stage: '10f.1', severity: 'high', title: 'min-1-contract floor after soft multipliers', desc: 'The min-1-contract rule was applied BEFORE strategySizeMult; SMC/OB (mult=0.3) then floored 1*0.3 to 0, so no trades were ever opened for those strategies. Rule moved to AFTER all soft multipliers.', files: ['backend/core/execution-guard.js'] }
+    { id: '10f.1', stage: '10f.1', severity: 'high', title: 'min-1-contract floor after soft multipliers', desc: 'The min-1-contract rule was applied BEFORE strategySizeMult; SMC/OB (mult=0.3) then floored 1*0.3 to 0, so no trades were ever opened for those strategies. Rule moved to AFTER all soft multipliers.', files: ['backend/core/execution-guard.js'] },
+    { id: '11.1', stage: '11', severity: 'critical', title: 'actionable TDZ bug', desc: 'The "actionable" variable was referenced before its const declaration, causing a silent ReferenceError inside try/catch. Result: NO actionable signals (BUY/EXIT) fired from 2026-10-07 onwards. Fixed by moving declaration BEFORE the logger call and paper hook. Verified: 13 signals fired in 3 min after fix.', files: ['backend/core/signals.js'] },
+    { id: '11.2', stage: '11.2', severity: 'high', title: 'paper hooks order', desc: 'paper hook was placed AFTER the already-notified early-return, so paper positions were never created when Telegram notify was already sent for the same signal. Moved BEFORE the early-return.', files: ['backend/core/signals.js'] },
+    { id: '11.3', stage: '11.3', severity: 'high', title: 'paperLastNotifiedTime idempotency', desc: 'Added a SEPARATE idempotency field (paperLastNotifiedTime/paperLastNotifiedType) independent from the Telegram notify tracking. Prevents double-firing on paper side AND avoids skipping paper when Telegram already sent.', files: ['backend/core/signals.js'] },
+    { id: '11.4', stage: '11.4', severity: 'medium', title: 'remove !isConfirmer filter on paper hook', desc: 'Previous code filtered paper hook to leader role only. Now ALL actionable signals (leader + confirmer) create paper positions, matching live behavior.', files: ['backend/core/signals.js'] },
+    { id: '11.5', stage: '11.5', severity: 'medium', title: 'skip orphan EXITs in paper-trading', desc: 'EXIT_LONG signals without a matching open paper BUY were creating noise records. Now skip with reason no-open-paper-position.', files: ['backend/services/paper-trading.service.js'] },
+    { id: '11.6', stage: '11.6', severity: 'medium', title: 'paper-trading EXIT_LONG uses signal.symbol', desc: 'Previously EXIT lookup used wrong field; now matches on underlying + paper + status=open correctly.', files: ['backend/services/paper-trading.service.js'] },
+    { id: '11.7', stage: '11.7', severity: 'high', title: 'reset-signals-state also resets paperLastNotifiedTime', desc: 'POST /api/reset-signals-state was only resetting lastNotifiedTime, leaving paperLastNotifiedTime stuck. After reset, paper hooks continued to suppress. Now both fields are cleared together.', files: ['backend/api/routes/system.routes.js'] },
+    { id: '12.1', stage: '12.1', severity: 'high', title: 'paper-drift service', desc: 'New service computing drift between paper-trading PF and last backtest PF. Uses 30d window with fallback to all-time when sample < 5. Severity: insufficient / ok / notice / warn / critical.', files: ['backend/services/paper-drift.service.js', 'backend/api/routes/paper-trading.routes.js'] },
+    { id: '12.2', stage: '12.2', severity: 'medium', title: 'paper-drift cron job', desc: 'Weekly Sunday 10:00 Tehran cron that computes drift and notifies on warn/critical. Registered in bootstrap + server startup.', files: ['backend/jobs/paper-drift.job.js', 'backend/bootstrap.js', 'backend/server.js'] },
+    { id: '12.3', stage: '12.3', severity: 'medium', title: 'orphan guard in paper-trading', desc: 'EXIT_LONG with no matching open paper BUY is now skipped (with log) rather than creating a closed record with no entry. Also: /api/paper-trading/cleanup-orphans endpoint to purge legacy orphans.', files: ['backend/services/paper-trading.service.js', 'backend/api/routes/paper-trading.routes.js'] },
+    { id: '12.4', stage: '12.4', severity: 'high', title: 'evaluate-now async', desc: 'POST /api/evaluate-now used to block until tick completed (3-5 min for 57 configs). Now fire-and-forget by default, returns started:true in less than 20ms. Pass ?block=1 to wait with client timeout. Prevents HTTP timeouts and dashboard freezes.', files: ['backend/api/routes/configs.routes.js'] },
+    { id: '12.5', stage: '12.5', severity: 'high', title: 'capital UI + min-1-contract floor', desc: 'Capital settings moved from openSettings to openAdvancedSettings with Rial labels. min-1-contract floor added to sizing-unified.js (live path) so deep-OTM contracts with high premium are not silently zeroed when they fit within symbol exposure limits.', files: ['frontend/index.html', 'backend/core/sizing-unified.js'] },
+    { id: '12.6', stage: '12.6', severity: 'medium', title: 'stacktrace in evaluateConfig + calcPositionSizeV3', desc: 'Both evaluateConfig and calcPositionSizeV3 catch-blocks now log full stacktrace and include it in the response object (result.stack). Added /api/evaluate-single/:configId debug endpoint that returns innerStack/outerStack for a single config.', files: ['backend/core/signals.js', 'backend/core/options.js', 'backend/api/routes/configs.routes.js'] }
 ];
 
 function _runTest(file) {
@@ -92,8 +105,9 @@ async function _loadSnapshots() {
     const v9 = await db.collection('meta').findOne({ _id: 'backtest_reference_v9' });
     const v10 = await db.collection('meta').findOne({ _id: 'backtest_reference_v10' });
     const v11 = await db.collection('meta').findOne({ _id: 'backtest_reference_v11' });
+    const v12 = await db.collection('meta').findOne({ _id: 'backtest_reference_v12' });
     await client.close();
-    return { v2, v3, v4, v7, v8, v9, v10, v11 };
+    return { v2, v3, v4, v7, v8, v9, v10, v11, v12 };
 }
 
 function _summaryOf(doc) {
@@ -149,7 +163,7 @@ function _summaryOf(doc) {
     }
 
     console.log('[method] loading reference snapshots ...');
-    const { v2, v3, v4, v7, v8, v9, v10, v11 } = await _loadSnapshots();
+    const { v2, v3, v4, v7, v8, v9, v10, v11, v12 } = await _loadSnapshots();
 
     // Delta v2 -> v4
     function _indexBy(doc) {
@@ -172,7 +186,7 @@ function _summaryOf(doc) {
 
     const doc = {
         _id: REPORT_ID,
-        version: 'v1-2026-10-15',
+        version: 'v3-2026-10-15',
         generatedAt: new Date(),
         gitHead,
         fixes: FIXES,
@@ -186,7 +200,8 @@ function _summaryOf(doc) {
             v8: _summaryOf(v8),
             v9: _summaryOf(v9),
             v10: _summaryOf(v10),
-            v11: _summaryOf(v11)
+            v11: _summaryOf(v11),
+            v12: _summaryOf(v12)
         },
         delta_v2_to_v4: delta,
         knownLimitations: [

@@ -161,6 +161,7 @@ function register(app, deps) {
     });
 
     // R32: reset lastNotifiedTime
+    // [STAGE-11.7] also reset paperLastNotifiedTime (Stage 11.3 introduced it as separate field)
     app.post('/api/reset-signals-state', async (req, res, next) => {
         try {
             const db = getDB();
@@ -168,9 +169,12 @@ function register(app, deps) {
             const q = body.configId ? { configId: String(body.configId) } : {};
             const r = await db.collection(COLLECTIONS.SIGNALS_STATE).updateMany(
                 q,
-                { $set: { lastNotifiedTime: 0, lastNotifiedType: null } }
+                { $set: {
+                    lastNotifiedTime: 0, lastNotifiedType: null,
+                    paperLastNotifiedTime: 0, paperLastNotifiedType: null
+                } }
             );
-            res.json({ ok: true, modified: r.modifiedCount });
+            res.json({ ok: true, modified: r.modifiedCount, note: 'reset lastNotified + paperLastNotified' });
         } catch (e) { next(e); }
     });
 
