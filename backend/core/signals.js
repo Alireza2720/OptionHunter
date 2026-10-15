@@ -442,6 +442,39 @@ async function _evaluateConfigInner(config, marketInfo) {
     const confluenceTag = confluence > 1 ? `\nهم گرایی ${confluence} استراتژی` : '';
     const confirmersTag = confirmersList.length ? `\nتایید: ${confirmersList.join('، ')}` : '';
 
+    // Stage 11.2 fix: record paper EXIT BEFORE state update (so already-check on next tick doesn't skip it)
+    if (last.signalType === 'EXIT_LONG' && deps.paperTrading && deps.paperTrading.recordSignal) {
+        try {
+            await deps.paperTrading.recordSignal({
+                symbol: config.symbol,
+                strategyId: config.strategyId,
+                signalType: 'EXIT_LONG',
+                price: lastPrice,
+                time: last.time,
+                reason: last.reason,
+                timeframe: config.timeframe
+            });
+        } catch (pe) { deps.logger && deps.logger.warn('paper EXIT: ' + pe.message); }
+    }
+
+
+    // Stage 11.2 fix: record paper BUY BEFORE state update
+    if (last.signalType === 'BUY' && !isConfirmer && deps.paperTrading && deps.paperTrading.recordSignal) {
+        try {
+            await deps.paperTrading.recordSignal({
+                symbol: config.symbol,
+                strategyId: config.strategyId,
+                signalType: 'BUY',
+                price: lastPrice,
+                time: last.time,
+                reason: last.reason,
+                indicators: last.indicators,
+                htfTimeframe: htfTf,
+                timeframe: config.timeframe
+            });
+        } catch (pe) { deps.logger && deps.logger.warn('paper BUY: ' + pe.message); }
+    }
+
     // ---- علامت‌گذاری notify ----
     await stateColl.updateOne(
         { configId },
@@ -583,20 +616,7 @@ async function _evaluateConfigInner(config, marketInfo) {
         createdAt: new Date()
     });
 
-    // 🆕 Paper Trading — ثبت EXIT
-    if (last.signalType === 'EXIT_LONG' && deps.paperTrading && deps.paperTrading.recordSignal) {
-        try {
-            await deps.paperTrading.recordSignal({
-                symbol: config.symbol,
-                strategyId: config.strategyId,
-                signalType: 'EXIT_LONG',
-                price: lastPrice,
-                time: last.time,
-                reason: last.reason,
-                timeframe: config.timeframe
-            });
-        } catch (pe) { deps.logger && deps.logger.warn('paper EXIT: ' + pe.message); }
-    }
+    // Stage 11.2 fix: paper hooks BEFORE state update
 
     // ---- پیشنهاد قرارداد ----
     if (last.signalType === 'BUY') {
@@ -647,23 +667,7 @@ async function _evaluateConfigInner(config, marketInfo) {
                 targetMultiplier   // 🆕
             });
 
-            // 🆕 Paper Trading — ثبت خودکار سیگنال
-            if (deps.paperTrading && deps.paperTrading.recordSignal) {
-                try {
-                    await deps.paperTrading.recordSignal({
-                        symbol: config.symbol,
-                        strategyId: config.strategyId,
-                        signalType: 'BUY',
-                        price: lastPrice,
-                        time: last.time,
-                        reason: last.reason,
-                        indicators: last.indicators,
-                        htfTrend: result.htfTrend || null,
-                        regime: regimeResult,
-                        timeframe: config.timeframe
-                    });
-                } catch (pe) { deps.logger && deps.logger.warn('paper BUY: ' + pe.message); }
-            }
+            // Stage 11.2: BUY paper hook moved BEFORE state update
         } catch (e) {
             await deps.notify(`انتخاب قرارداد ${config.symbol} ناموفق: ${e.message}`);
         }
