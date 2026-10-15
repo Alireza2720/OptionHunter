@@ -253,26 +253,58 @@ function computeOptionGrade(row, params) {
 }
 // [DEEP-ITM-DIAG] summarize why all candidates failed
 function summarizeRejections(rejected) {
-    if (!rejected || !rejected.length) return null;
-    const reasons = {};
-    for (const r of rejected) {
-        const reason = r.reason || 'unknown';
-        let key = reason;
-        if (reason.indexOf('delta') >= 0) {
-            if (reason.indexOf('<') >= 0) key = 'delta too low';
-            else if (reason.indexOf('>') >= 0) key = 'delta too high (deep ITM)';
-            else key = 'delta out of range';
-        } else if (reason.indexOf('OI') >= 0) key = 'OI too low';
-        else if (reason.indexOf('spread') >= 0) key = 'spread too wide';
-        else if (reason.indexOf('no bid') >= 0 || reason.indexOf('no ask') >= 0) key = 'no bid/ask (illiquid)';
-        else if (reason.indexOf('premium') >= 0) key = 'premium too low';
-        else if (reason.indexOf('daysLeft') >= 0) key = 'daysLeft out of range';
-        else if (reason.indexOf('quality') >= 0) key = 'dataQuality too low';
-        else if (reason.indexOf('missing delta') >= 0) key = 'missing delta';
-        reasons[key] = (reasons[key] || 0) + 1;
+    if (!rejected) return null;
+
+    // Format A: array [{symbol, reason}, ...]
+    if (Array.isArray(rejected)) {
+        if (!rejected.length) return null;
+        const reasons = {};
+        for (const r of rejected) {
+            const reason = (r && r.reason) || 'unknown';
+            let key = reason;
+            if (reason.indexOf('delta') >= 0) {
+                if (reason.indexOf('<') >= 0) key = 'delta too low';
+                else if (reason.indexOf('>') >= 0) key = 'delta too high (deep ITM)';
+                else key = 'delta out of range';
+            } else if (reason.indexOf('OI') >= 0) key = 'OI too low';
+            else if (reason.indexOf('spread') >= 0) key = 'spread too wide';
+            else if (reason.indexOf('no bid') >= 0 || reason.indexOf('no ask') >= 0) key = 'no bid/ask (illiquid)';
+            else if (reason.indexOf('premium') >= 0) key = 'premium too low';
+            else if (reason.indexOf('daysLeft') >= 0) key = 'daysLeft out of range';
+            else if (reason.indexOf('quality') >= 0) key = 'dataQuality too low';
+            else if (reason.indexOf('missing delta') >= 0) key = 'missing delta';
+            reasons[key] = (reasons[key] || 0) + 1;
+        }
+        const parts = Object.entries(reasons).sort((a,b) => b[1] - a[1]).map(([k,v]) => k + ' x' + v);
+        return parts.join(' | ');
     }
-    const parts = Object.entries(reasons).sort((a,b) => b[1] - a[1]).map(([k,v]) => k + ' x' + v);
-    return parts.join(' | ');
+
+    // Format B: object {reasonText: count, ...}  ← what selectCalls() returns
+    if (typeof rejected === 'object') {
+        const entries = Object.entries(rejected).filter(([k, v]) => v > 0);
+        if (!entries.length) return null;
+        // Group reasons
+        const groups = {};
+        for (const [reason, count] of entries) {
+            let key = reason;
+            if (reason.indexOf('delta') >= 0) {
+                if (reason.indexOf('<') >= 0 || reason.indexOf('پایین') >= 0) key = 'delta too low';
+                else if (reason.indexOf('>') >= 0 || reason.indexOf('بالا') >= 0) key = 'delta too high (deep ITM)';
+                else key = 'delta out of range';
+            } else if (reason.indexOf('OI') >= 0) key = 'OI too low';
+            else if (reason.indexOf('اسپرد') >= 0 || reason.indexOf('spread') >= 0) key = 'spread too wide';
+            else if (reason.indexOf('سفارش') >= 0) key = 'no bid/ask (illiquid)';
+            else if (reason.indexOf('پرمیوم') >= 0 || reason.indexOf('premium') >= 0) key = 'premium too low';
+            else if (reason.indexOf('سررسید') >= 0 || reason.indexOf('daysLeft') >= 0) key = 'daysLeft out of range';
+            else if (reason.indexOf('کیفیت') >= 0 || reason.indexOf('quality') >= 0) key = 'dataQuality too low';
+            else if (reason.indexOf('معامله') >= 0) key = 'no trades today';
+            groups[key] = (groups[key] || 0) + count;
+        }
+        const parts = Object.entries(groups).sort((a,b) => b[1] - a[1]).map(([k,v]) => k + ' x' + v);
+        return parts.join(' | ');
+    }
+
+    return null;
 }
 
 module.exports = {

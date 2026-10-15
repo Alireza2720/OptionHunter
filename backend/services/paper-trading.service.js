@@ -15,6 +15,10 @@ async function recordSignal(signalData) {
     const db = deps.getDB();
     const doc = {
         type: 'paper_trade',
+        // [PAPER-SCHEMA-FIX] top-level fields for query consistency
+        underlying: signalData.symbol,
+        symbol: null,
+        contractSymbol: null,
         signal: {
             symbol: signalData.symbol,
             strategyId: signalData.strategyId,
@@ -65,6 +69,9 @@ async function recordSignal(signalData) {
                     oi: res.picks[0].oi,
                     daysLeft: res.picks[0].daysLeft
                 };
+                // [PAPER-SCHEMA-FIX]
+                doc.symbol = res.picks[0].symbol;
+                doc.contractSymbol = res.picks[0].symbol;
                 doc.entry = {
                     time: new Date(),
                     underlyingPrice: signalData.price,
@@ -87,10 +94,12 @@ async function recordSignal(signalData) {
 
     // اگه EXIT_LONG بود، پوزیشن باز رو ببند
     if (signalData.signalType === 'EXIT_LONG') {
+        // [PAPER-SCHEMA-FIX] query by underlying (new) OR signal.symbol (old schema)
         const open = await db.collection(COLLECTIONS.OPTION_POSITIONS).findOne({
-            underlying: signalData.symbol,
-            status: 'open',
-            paper: true
+            $or: [
+                { underlying: signalData.symbol, status: 'open', paper: true },
+                { 'signal.symbol': signalData.symbol, status: 'open', paper: true }
+            ]
         });
         // Stage 11.6: skip orphan EXITs (no matching open paper BUY)
         if (!open) {
@@ -100,9 +109,12 @@ async function recordSignal(signalData) {
         }
         if (open) {
             const chain = await deps.options.fetchChain(60000).catch(() => []);
-            const liveContract = chain.find(c => c.symbol === open.symbol);
+            // [PAPER-SCHEMA-FIX] resolve contract symbol + entryAsk from nested schema
+            const _contractSym = open.symbol || (open.contract && open.contract.symbol) || null;
+            const _entryAsk = (open.entry && open.entry.optionAsk) || open.entryAsk || 0;
+            const liveContract = _contractSym ? chain.find(c => c.symbol === _contractSym) : null;
             const exitBid = liveContract && liveContract.bid > 0 ? liveContract.bid : null;
-            const exitCost = open.entryAsk * (1 + 0.0012);
+            const exitCost = _entryAsk * (1 + 0.0012);
             const exitProceeds = exitBid ? exitBid * (1 - 0.0012) : null;
             const pnlPct = (exitProceeds && exitCost > 0) ? (exitProceeds / exitCost - 1) * 100 : null;
 
@@ -118,10 +130,15 @@ async function recordSignal(signalData) {
                     exitReason: 'سیگنال خروج'
                 } }
             );
-            doc.status = 'closed';
-            doc.exit = { time: new Date(), optionBid: exitBid, pnlPct };
-            deps.logger && deps.logger.info(`[paper] CLOSE: ${open.symbol} pnl=${pnlPct ? pnlPct.toFixed(1) : '?'}%`);
+            deps.logger && deps.logger.info(`[paper] CLOSE: ${_contractSym || signalData.symbol} pnl=${pnlPct != null ? pnlPct.toFixed(1) : '?'}%`);
         }
+        // [PAPER-SCHEMA-FIX] early return — avoid inserting duplicate closed record
+        return {
+            type: 'paper_trade',
+            status: 'closed',
+            signal: { symbol: signalData.symbol, signalType: 'EXIT_LONG' },
+            exit: { time: new Date(), optionBid: null, pnlPct: null }
+        };
     }
 
     await db.collection(COLLECTIONS.OPTION_POSITIONS).insertOne(doc);
@@ -174,7 +191,10 @@ async function dailySync() {
     let updated = 0;
 
     for (const p of open) {
-        const live = chain.find(c => c.symbol === p.symbol);
+        // [PAPER-SCHEMA-FIX] resolve contract symbol from nested schema
+        const _contractSym = p.symbol || (p.contract && p.contract.symbol) || null;
+        if (!_contractSym) continue;
+        const live = chain.find(c => c.symbol === _contractSym);
         if (!live) continue;
 
         const exitBid = live.bid > 0 ? live.bid : null;

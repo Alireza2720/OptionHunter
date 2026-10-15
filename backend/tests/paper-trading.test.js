@@ -63,7 +63,8 @@ function makeMockDB() {
 // Test 1: EXIT_LONG with no open paper BUY → skipped (Stage 11.5)
 // ═══════════════════════════════════════════════════════════
 (async () => {
-    const paperTrading = require('/home/deploy/apps/OptionHunter/backend/services/paper-trading.service.js');
+    const path = require('path');
+const paperTrading = require(path.join(__dirname, '..', 'services', 'paper-trading.service.js'));
 
     await testAsync('EXIT_LONG with no open BUY → skipped orphan (Stage 11.5)', async () => {
         const db = makeMockDB();
