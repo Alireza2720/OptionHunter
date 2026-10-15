@@ -149,7 +149,7 @@ function _summaryOf(doc) {
     }
 
     console.log('[method] loading reference snapshots ...');
-    const { v2, v3, v4 } = await _loadSnapshots();
+    const { v2, v3, v4, v7, v8, v9, v10, v11 } = await _loadSnapshots();
 
     // Delta v2 -> v4
     function _indexBy(doc) {
