@@ -59,6 +59,7 @@ const healthJob = require('./jobs/health.job');
 const correlationJob = require('./jobs/correlation.job');
 const regimeJob = require('./jobs/regime.job');
 const driftJob = require('./jobs/drift.job');
+const paperDriftJob = require('./jobs/paper-drift.job');
 const sectorRankJob = require('./jobs/sector-rank.job');   // 🆕
 
 // strategies
