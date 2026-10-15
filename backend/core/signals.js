@@ -380,8 +380,9 @@ async function _evaluateConfigInner(config, marketInfo) {
         }
     }
 
-    deps.logger && deps.logger.info('actionable=' + actionable + ' ' + config.symbol + '/' + config.strategyId + ' type=' + (last.signalType || 'null'));
+    // Stage 11 fix: actionable defined BEFORE log (was ReferenceError, silently swallowed)
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
+    deps.logger && deps.logger.info('actionable=' + actionable + ' ' + config.symbol + '/' + config.strategyId + ' type=' + (last.signalType || 'null'));
     const already = prev && prev.lastNotifiedTime === last.time && prev.lastNotifiedType === last.signalType;
     if (!actionable || already) return;
 
