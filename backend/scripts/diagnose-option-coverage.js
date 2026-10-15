@@ -1,6 +1,5 @@
 'use strict';
-// diagnose-option-coverage.js — funnel check for option_history filters
-// Usage: node backend/scripts/diagnose-option-coverage.js --symbol=شپنا --from-jalali=1402/07/23 --to-jalali=1405/07/23
+// diagnose-option-coverage.js — v2 (removed $expr/$divide — planner issue)
 const fs = require('fs');
 const path = require('path');
 
@@ -51,8 +50,8 @@ function _jalaliToGreg(jStr) {
     const fromD = _jalaliToGreg(FROM_J);
     const toD = _jalaliToGreg(TO_J);
     console.log('Symbol : ' + SYMBOL);
-    console.log('From   : ' + fromD.toISOString().slice(0, 10) + ' (' + FROM_J + ')');
-    console.log('To     : ' + toD.toISOString().slice(0, 10) + ' (' + TO_J + ')');
+    console.log('From   : ' + fromD.toISOString().slice(0, 10));
+    console.log('To     : ' + toD.toISOString().slice(0, 10));
     console.log('');
 
     const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 8000 });
@@ -61,64 +60,46 @@ function _jalaliToGreg(jStr) {
 
     const baseQ = { underlying: SYMBOL, time: { $gte: fromD, $lte: toD } };
 
-    const funnel = {};
-    funnel.total = await col.countDocuments(baseQ);
-    funnel.withBidAsk = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 } });
-    funnel.withDelta = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 } });
-    funnel.withDays7_70 = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 }, daysLeft: { $gte: 7, $lte: 70 } });
-    funnel.withSpread15 = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 }, daysLeft: { $gte: 7, $lte: 70 }, $expr: { $lte: [{ $divide: [{ $subtract: ['$ask', '$bid'] }, { $divide: [{ $add: ['$bid', '$ask'] }, 2] }] }, 0.15] } });
-    funnel.onlyCalls = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 }, daysLeft: { $gte: 7, $lte: 70 }, isCall: true });
+    console.log('── Funnel (simple counts) ──');
+    const f = {};
+    f.total      = await col.countDocuments(baseQ);
+    f.withBidAsk = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 } });
+    f.withDelta  = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 } });
+    f.withDays   = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 }, daysLeft: { $gte: 7, $lte: 70 } });
+    f.isCall     = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 }, daysLeft: { $gte: 7, $lte: 70 }, isCall: true });
+    f.realDQ     = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 }, daysLeft: { $gte: 7, $lte: 70 }, isCall: true, dataQuality: 'real' });
+    f.enrichedDQ = await col.countDocuments({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 }, deltaApi: { $gte: 0.30, $lte: 0.98 }, daysLeft: { $gte: 7, $lte: 70 }, isCall: true, dataQuality: 'enriched' });
 
-    console.log('── Funnel ──');
-    console.log('  total (raw)                : ' + funnel.total.toLocaleString());
-    console.log('  + bid>0 AND ask>0          : ' + funnel.withBidAsk.toLocaleString());
-    console.log('  + deltaApi 0.30..0.98      : ' + funnel.withDelta.toLocaleString());
-    console.log('  + daysLeft 7..70           : ' + funnel.withDays7_70.toLocaleString());
-    console.log('  + spread <= 15%            : ' + funnel.withSpread15.toLocaleString());
-    console.log('  + isCall=true              : ' + funnel.onlyCalls.toLocaleString());
+    console.log('  total                       : ' + f.total.toLocaleString());
+    console.log('  + bid>0 AND ask>0           : ' + f.withBidAsk.toLocaleString());
+    console.log('  + deltaApi 0.30..0.98       : ' + f.withDelta.toLocaleString());
+    console.log('  + daysLeft 7..70            : ' + f.withDays.toLocaleString());
+    console.log('  + isCall=true               : ' + f.isCall.toLocaleString());
+    console.log('  + dataQuality=real          : ' + f.realDQ.toLocaleString());
+    console.log('  + dataQuality=enriched      : ' + f.enrichedDQ.toLocaleString());
+
+    // Sample with bid/ask, compute spread in JS
     console.log('');
-
-    // Date range of what exists
-    console.log('── Date range (option_history) ──');
-    const earliest = await col.find(baseQ).sort({ time: 1 }).limit(1).toArray();
-    const latest = await col.find(baseQ).sort({ time: -1 }).limit(1).toArray();
-    if (earliest[0]) console.log('  earliest : ' + earliest[0].time.toISOString().slice(0, 10));
-    if (latest[0]) console.log('  latest   : ' + latest[0].time.toISOString().slice(0, 10));
-
-    // Counts by dataQuality
-    console.log('');
-    console.log('── dataQuality distribution ──');
-    const dqAgg = await col.aggregate([
-        { $match: baseQ },
-        { $group: { _id: '$dataQuality', n: { $sum: 1 } } },
-        { $sort: { n: -1 } }
-    ]).toArray();
-    for (const d of dqAgg) console.log('  ' + (d._id || 'null').padEnd(20) + ' : ' + d.n.toLocaleString());
-
-    // Counts by source
-    console.log('');
-    console.log('── source distribution ──');
-    const srcAgg = await col.aggregate([
-        { $match: baseQ },
-        { $group: { _id: '$source', n: { $sum: 1 } } },
-        { $sort: { n: -1 } }
-    ]).toArray();
-    for (const d of srcAgg) console.log('  ' + (d._id || 'null').padEnd(25) + ' : ' + d.n.toLocaleString());
-
-    // Sample rows
-    console.log('');
-    console.log('── sample rows (with bid/ask) ──');
-    const samples = await col.find({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 } }).limit(5).toArray();
-    for (const s of samples) {
-        console.log('  ' + s.symbol + ' ' + (s.time ? s.time.toISOString().slice(0, 10) : '?') +
-            ' isCall=' + s.isCall + ' S=' + s.S + ' strike=' + s.strike +
-            ' bid=' + s.bid + ' ask=' + s.ask + ' delta=' + s.deltaApi +
-            ' daysLeft=' + s.daysLeft + ' dq=' + (s.dataQuality || 'null'));
+    console.log('── sample rows with bid/ask (spread computed in JS) ──');
+    const samples = await col.find({ ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 } })
+        .sort({ time: -1 }).limit(10).toArray();
+    if (!samples.length) {
+        console.log('  (no rows with bid>0 AND ask>0)');
+    } else {
+        for (const s of samples) {
+            const mid = (s.bid + s.ask) / 2;
+            const spreadPct = mid > 0 ? ((s.ask - s.bid) / mid * 100).toFixed(1) : '?';
+            console.log('  ' + s.symbol + ' ' + (s.time ? s.time.toISOString().slice(0, 10) : '?') +
+                ' isCall=' + s.isCall + ' S=' + (s.S || '?') + ' K=' + s.strike +
+                ' bid=' + s.bid + ' ask=' + s.ask + ' spread=' + spreadPct + '%' +
+                ' delta=' + s.deltaApi + ' daysLeft=' + s.daysLeft +
+                ' dq=' + (s.dataQuality || 'null'));
+        }
     }
 
-    // Histograms
+    // DaysLeft histogram (safe — bucket, no divide)
     console.log('');
-    console.log('── daysLeft histogram (with bid/ask) ──');
+    console.log('── daysLeft histogram (bid/ask only) ──');
     const dlAgg = await col.aggregate([
         { $match: { ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 } } },
         { $bucket: { groupBy: '$daysLeft', boundaries: [-1, 0, 3, 7, 14, 30, 60, 90, 180, 365, 10000], default: 'null' } },
@@ -127,8 +108,9 @@ function _jalaliToGreg(jStr) {
     ]).toArray();
     for (const d of dlAgg) console.log('  ' + String(d._id).padEnd(10) + ' : ' + d.n.toLocaleString());
 
+    // Delta histogram
     console.log('');
-    console.log('── delta histogram (with bid/ask) ──');
+    console.log('── deltaApi histogram (bid/ask only) ──');
     const deltaAgg = await col.aggregate([
         { $match: { ...baseQ, bid: { $gt: 0 }, ask: { $gt: 0 } } },
         { $bucket: { groupBy: '$deltaApi', boundaries: [-1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01, 2], default: 'null' } },
@@ -136,6 +118,26 @@ function _jalaliToGreg(jStr) {
         { $sort: { _id: 1 } }
     ]).toArray();
     for (const d of deltaAgg) console.log('  ' + String(d._id).padEnd(10) + ' : ' + d.n.toLocaleString());
+
+    // dataQuality distribution
+    console.log('');
+    console.log('── dataQuality distribution (all rows) ──');
+    const dqAgg = await col.aggregate([
+        { $match: baseQ },
+        { $group: { _id: '$dataQuality', n: { $sum: 1 } } },
+        { $sort: { n: -1 } }
+    ]).toArray();
+    for (const d of dqAgg) console.log('  ' + String(d._id || 'null').padEnd(20) + ' : ' + d.n.toLocaleString());
+
+    // source distribution
+    console.log('');
+    console.log('── source distribution (all rows) ──');
+    const srcAgg = await col.aggregate([
+        { $match: baseQ },
+        { $group: { _id: '$source', n: { $sum: 1 } } },
+        { $sort: { n: -1 } }
+    ]).toArray();
+    for (const d of srcAgg) console.log('  ' + String(d._id || 'null').padEnd(25) + ' : ' + d.n.toLocaleString());
 
     await client.close();
 })().catch(e => { console.error('FATAL:', e.message); process.exit(1); });
