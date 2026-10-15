@@ -1309,7 +1309,7 @@ function tryGetRealTradeDataFast(symbol, t, p, rowsBySymbol) {
         if (_a < _qMinPremium) return false;
         if (_sp > _qMaxSpread) return false;
         const _oi = Number(cand.oi) || 0;
-        if (_qMinOI > 0 && _oi < _qMinOI) return false;
+        if (_qMinOI > 0 && _oi > 0 && _oi < _qMinOI) return false;
         const _d = Number(cand.daysLeft);
         if (Number.isFinite(_d) && _d > 0) {
             if (_d < _qMinDays) return false;
