@@ -39,7 +39,17 @@ function calcUnifiedSize(candidate, portfolio, settings, opts = {}) {
     const availableCash = Math.max(0, capital - (portfolio.totalExposure || 0));
     const byCash = Math.floor(availableCash / contractValue);
 
-    const finalSize = Math.max(0, Math.min(adjusted, bySymbol, byCash));
+    let finalSize = Math.max(0, Math.min(adjusted, bySymbol, byCash));
+
+    // [MIN-1-CONTRACT] allow at least 1 contract if it fits within absolute caps
+    if (finalSize === 0 && contractValue > 0) {
+        const _maxSymValue = capital * (maxSymPct / 100);
+        const _fitsSym = contractValue <= _maxSymValue;
+        const _fitsCash = contractValue <= availableCash;
+        if (_fitsSym && _fitsCash) {
+            finalSize = 1;
+        }
+    }
 
     let limitReason = null;
     if (finalSize < adjusted) {

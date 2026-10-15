@@ -774,9 +774,11 @@ async function onBuySignal({ config, indicators, price, liveS, tradeId, confluen
             const pi = await calcPositionSizeV3({ ...p, underlying: config.symbol, optionSizeFactor: _liveGrade ? _liveGrade.sizeFactor : 1.0 }, sc, portfolio, signalStrength, config);
             p.positionSize = pi.size;
             p.positionInfo = pi;
-        } catch (_) {
+        } catch (e) {
+            const _stk = (e && e.stack) ? String(e.stack).slice(0, 600) : 'NO_STACK';
+            try { deps.logger && deps.logger.warn('calcPositionSizeV3 threw for ' + config.symbol + ': ' + (e.message || e) + ' | STACK: ' + _stk); } catch (_) {}
             p.positionSize = 0;
-            p.positionInfo = null;
+            p.positionInfo = { size: 0, limitReason: 'sizing threw: ' + (e.message || 'unknown'), error: true };
         }
     }
 

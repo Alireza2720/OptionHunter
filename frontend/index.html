@@ -1,3 +1,4 @@
+<!-- [CAP-UI-PATCH] -->
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -3848,6 +3849,9 @@ async function openSettings() {
     const qualityField = `<div class="field" style="min-width:260px;"><label>کیفیت قرارداد آپشن</label><select id="ts_OPTION_QUALITY_LEVEL"><option value="A+" ${qualityVal==='A+'?'selected':''}>A+ — فقط دیتای واقعی، دلتا ۰.۴۵-۰.۶۵ (دقیق‌ترین)</option><option value="A" ${qualityVal==='A'?'selected':''}>A — واقعی، دلتا ۰.۳۵-۰.۷۵</option><option value="B" ${qualityVal==='B'?'selected':''}>B — واقعی+غنی‌سازی، دلتا ۰.۲۵-۰.۸۵ (پیشنهادی)</option><option value="C" ${qualityVal==='C'?'selected':''}>C — پوشش بالا، دلتا ۰.۱۵-۰.۹۰</option><option value="D" ${qualityVal==='D'?'selected':''}>D — حداکثر پوشش (~۸۰٪)، دلتا ۰.۰۵-۰.۹۸</option></select></div>`;
     const tradingFields = tradingKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     const capitalFields = capitalKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+    const capitalKeys = ['TOTAL_CAPITAL','RISK_PER_TRADE_PCT','MAX_SYMBOL_EXPOSURE_PCT','MAX_TOTAL_EXPOSURE_PCT','MIN_CASH_RESERVE_PCT'];
+    const capitalFields = capitalKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
+    const capitalOnclick = 'saveTradingSettings([' + capitalKeys.map(k => "'" + k + "'").join(',') + '])';
     const factorFields = factorKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     const confFields = confKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     const optFields = Object.keys(o.defaults).map(k => `<div class="field"><label>${OPT_LABELS[k]||k}</label><input type="number" step="any" id="opt_${k}" value="${o.values[k]}"></div>`).join('');
@@ -5889,7 +5893,14 @@ async function openAdvancedSettings() {
     const factorFields = factorKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     const confFields = confKeys.map(k => field(k, t.values[k] !== undefined ? t.values[k] : t.defaults[k])).join('');
     openModal('تنظیمات پیشرفته', `
-      <div class="hint">تنظیمات معاملات، سرمایه و آپشن در صفحه‌ی بک‌تست قرار دارند.</div> <h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">ضرایب سیگنال</h4> <div class="form-row">${factorFields}</div> <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره ضرایب</button> <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">ضرایب امتیاز سیگنال به حجم</h4>
+      <div class="hint">تنظیمات معاملات، سرمایه و آپشن در صفحه‌ی بک‌تست قرار دارند.</div> <h4 style="font-size:13px;color:var(--accent);margin:12px 0 6px;">💰 مدیریت سرمایه</h4>
+      <div class="hint" style="margin-bottom:6px;font-size:11px;">
+        سرمایه کل پایه‌ی همه‌ی محاسبات است. ریسک هر معامله درصدی از سرمایه است که در هر ترید ریسک می‌شود.
+        سقف درگیری نماد، سقف کل، و ذخیره‌ی نقدی محدودیت‌های اضافی هستند.
+      </div>
+      <div class="form-row">${capitalFields}</div>
+      <button class="btn success" onclick="${capitalOnclick}">💾 ذخیره مدیریت سرمایه</button>
+      <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">🎯 ضرایب سیگنال</h4> <div class="form-row">${factorFields}</div> <button class="btn" onclick="saveTradingSettings([${factorKeys.map(k=>`'${k}'`).join(',')}])">ذخیره ضرایب</button> <h4 style="font-size:13px;color:var(--accent);margin:16px 0 6px;">ضرایب امتیاز سیگنال به حجم</h4>
       <div class="hint" style="margin-bottom:6px;">
         هر ردیف: حداقل امتیاز → ضریب حجم. سیستم اولین ردیف رو که امتیاز ≥ min باشه انتخاب می‌کنه.
       </div>
