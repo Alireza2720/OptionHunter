@@ -248,6 +248,13 @@ class TSETMCClient:
             d = self._json(url, timeout=15)
             mw = d.get("marketWatch", []) or []
             if mw:
+                # CDN returns pmd (bid) / pmo (ask); legacy used pd1/po1.
+                # Normalize so downstream callers see consistent field names.
+                for _r in mw:
+                    if not _r.get("pd1"):
+                        _r["pd1"] = _r.get("pmd", 0) or 0
+                    if not _r.get("po1"):
+                        _r["po1"] = _r.get("pmo", 0) or 0
                 return mw
         except TSETMCError:
             pass

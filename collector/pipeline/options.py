@@ -87,16 +87,11 @@ def discover_contracts_for_underlying(underlying):
     # 1) learn from DB
     db_prefixes = _learn_option_prefixes(underlying)
 
-    # 2) heuristics
-    heur = _heuristic_option_prefixes(underlying)
-
-    # merge (DB first, then heuristics)
-    seen = set()
-    prefixes = []
-    for p in (db_prefixes + heur):
-        if p not in seen:
-            seen.add(p)
-            prefixes.append(p)
+    # 2) heuristics ONLY if DB has no prefixes (avoids ~10x extra searches)
+    if db_prefixes:
+        prefixes = db_prefixes
+    else:
+        prefixes = _heuristic_option_prefixes(underlying)
 
     # 3) search each prefix
     for prefix in prefixes:

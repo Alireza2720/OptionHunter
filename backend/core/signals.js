@@ -384,6 +384,38 @@ async function _evaluateConfigInner(config, marketInfo) {
     // Stage 11 fix: actionable defined BEFORE log (was ReferenceError, silently swallowed)
     const actionable = last.signalType === 'BUY' || last.signalType === 'EXIT_LONG';
 
+    // 🆕 Stale signal filter — after reset-signals-state, don't fire old ones
+    const _nowSec = Math.floor(Date.now() / 1000);
+    const _signalAgeSec = _nowSec - last.time;
+    const _MAX_SIGNAL_AGE_SEC = 24 * 3600;  // 24h
+    if (actionable && _signalAgeSec > _MAX_SIGNAL_AGE_SEC) {
+        try {
+            await db.collection(COLLECTIONS.SIGNAL_HISTORY).insertOne({
+                configId, symbol: config.symbol,
+                pairSymbol: config.pairSymbol || null,
+                strategyId: config.strategyId, strategyName: def.name,
+                timeframe: config.timeframe,
+                signalType: last.signalType,
+                price: lastPrice, time: last.time,
+                reason: last.reason || null,
+                htfTrend: result.htfTrend || null,
+                rejected: true,
+                rejectionDetail: 'stale_signal',
+                rejectionReason: 'سیگنال ' + Math.round(_signalAgeSec/3600) + 'h قدیمی — ارسال نشد',
+                signalAgeHours: Math.round(_signalAgeSec / 3600),
+                createdAt: new Date()
+            });
+            await stateColl.updateOne(
+                { configId },
+                { $set: { lastNotifiedTime: last.time, lastNotifiedType: last.signalType } }
+            );
+        } catch (_staleErr) {
+            deps.logger && deps.logger.warn('stale filter: ' + _staleErr.message);
+        }
+        deps.logger && deps.logger.info('stale signal skipped: ' + config.symbol + '/' + config.strategyId + ' age=' + Math.round(_signalAgeSec/3600) + 'h');
+        return;
+    }
+
     // Stage 11.3 fix: paper hook with SEPARATE idempotency (independent from Telegram notify tracking)
     // This fires BEFORE the 'already' early-return, so paper positions get created even when
     // Telegram notify was already sent for the same signal (the historical bug that blocked paper trading).
