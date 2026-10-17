@@ -245,6 +245,16 @@ async function processQueue() {
                     peakRssMB: Math.round(Math.max(rssNow, startRss) / 1048576),
                     totalCpuMs: Math.round((cpuNow.user + cpuNow.system) / 1000)
                 });
+
+                // Auto-trigger results compute (so PF gets saved even when cron/CLI runs without frontend polling).
+                if (j.type === JOB_TYPE.BACKTEST_COMPARE) {
+                    setImmediate(() => {
+                        try {
+                            const orch = require('./backtest-orchestrator.service');
+                            orch.getResults(String(jobId)).catch(() => {});
+                        } catch (_) {}
+                    });
+                }
             } catch (e) {
                 if (String(e.message).includes(ERROR_CODES.CANCELED_BY_USER)) {
                     await finishJob(jobId, null, JOB_STATUS.CANCELLED, null, null);

@@ -18,6 +18,7 @@ Pipeline:
 
 import math
 import time
+import threading
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
@@ -56,6 +57,7 @@ _contract_cache = {'at': 0.0, 'data': None}
 _CONTRACT_TTL = 3600          # refresh contract list every 1h
 
 _chain_cache = {'at': 0.0, 'data': None, 'meta': None}
+_compute_lock = threading.Lock()
 _CHAIN_TTL = 60               # refresh full chain every 60s
 
 HV_WINDOW = 30                # HV window (trading days)
@@ -141,27 +143,75 @@ def _get_risk_free():
 
 
 def _discover_all_contracts_cached(force=False):
-    """Discover all option contracts for all monitored underlyings (cached)."""
+    """Discover all option contracts. Mongo-persisted (24h) + parallel."""
     from . import options as opt_mod
     db = get_db()
     now = time.time()
+
     if not force and _contract_cache['data'] is not None and (now - _contract_cache['at']) < _CONTRACT_TTL:
         return _contract_cache['data']
 
+    if not force:
+        try:
+            cached = db['meta'].find_one({'_id': 'option_contracts_cache'})
+            if cached and cached.get('at') and cached.get('contracts'):
+                _at = cached['at']
+                if isinstance(_at, datetime) and _at.tzinfo is None:
+                    _at = _at.replace(tzinfo=timezone.utc)
+                _age = (datetime.now(timezone.utc) - _at).total_seconds()
+                if _age < 86400:
+                    _contract_cache['data'] = cached['contracts']
+                    _contract_cache['at'] = now
+                    log('og_disc', 'from Mongo: {} contracts (age={}h)'.format(
+                        len(cached['contracts']), round(_age/3600, 1)))
+                    return cached['contracts']
+        except Exception as e:
+            log('og_disc_mongo_err', str(e)[:200])
+
     underlyings = [s['symbol'] for s in db['monitored_symbols'].find({})]
     all_contracts = []
-    for ua in underlyings:
+    t_start = time.time()
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _disc_one(ua):
         try:
             cs = opt_mod.discover_contracts_for_underlying(ua)
+            return ua, cs, None
+        except Exception as e:
+            return ua, [], str(e)[:120]
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(_disc_one, ua): ua for ua in underlyings}
+        for fut in as_completed(futures):
+            ua, cs, err = fut.result()
+            if err:
+                log('og_disc_err', '{}: {}'.format(ua, err))
+                continue
             for c in cs:
                 c['_underlying'] = ua
                 all_contracts.append(c)
-        except Exception as e:
-            log('og_disc_err', '{}: {}'.format(ua, str(e)[:120]))
 
+    _elapsed = time.time() - t_start
     _contract_cache['data'] = all_contracts
     _contract_cache['at'] = now
-    log('og_disc', 'discovered {} contracts for {} underlyings'.format(len(all_contracts), len(underlyings)))
+    log('og_disc', 'cold discover: {} in {}s (workers=4)'.format(
+        len(all_contracts), round(_elapsed, 1)))
+
+    try:
+        db['meta'].update_one(
+            {'_id': 'option_contracts_cache'},
+            {'$set': {
+                'contracts': all_contracts,
+                'at': datetime.now(timezone.utc),
+                'count': len(all_contracts),
+                'elapsedSec': round(_elapsed, 1),
+            }},
+            upsert=True,
+        )
+    except Exception as e:
+        log('og_disc_mongo_save_err', str(e)[:200])
+
     return all_contracts
 
 
@@ -223,11 +273,13 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
     except Exception as _fe:
         log('og_fallback_spot_err', str(_fe)[:200])
 
-    # ── Parallel BestLimits: fetch 5-level order book for all contracts ──
+    # ── Per-contract BestLimits: DISABLED (CDN returns empty [] for options) ──
+    # bid/ask come from pmd/pmo on MarketWatch rows (normalized in tsetmc_client).
+    _ALLOW_BEST_LIMITS_FETCH = False
     _best_limits_map = {}
     _all_ins = [cc.get('insCode') for cc in contracts_all if cc.get('insCode')]
 
-    if _all_ins:
+    if _all_ins and _ALLOW_BEST_LIMITS_FETCH:
         _t0_bl = time.time()
         _bl_ok = 0
         _bl_fail = 0
@@ -272,7 +324,7 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
 
         m = opt_map.get(ins, {})
 
-        # Bid/ask from bestLimits[0]
+        # Bid/ask from bestLimits[0] (empty for options on CDN)
         bid_p, ask_p, bid_v, ask_v = 0.0, 0.0, 0.0, 0.0
         bl = m.get('bestLimits')
         if isinstance(bl, list) and bl:
@@ -281,9 +333,14 @@ def compute_enriched_chain(underlyings=None, force=False, pricing_model='bsm'):
             bid_v = _safe_float(lvl0.get('bq') or lvl0.get('bidVol') or lvl0.get('bVolume'))
             ask_p = _safe_float(lvl0.get('od') or lvl0.get('ask'))
             ask_v = _safe_float(lvl0.get('oq') or lvl0.get('askVol') or lvl0.get('oVolume'))
+        # CDN MarketWatch fallback: pmd = best bid, pmo = best ask
+        if bid_p <= 0:
+            bid_p = _safe_float(m.get('pmd'))
+        if ask_p <= 0:
+            ask_p = _safe_float(m.get('pmo'))
 
-        # ── Merge real volumes from BestLimits ──
-        _book = _best_limits_map.get(ins)
+        # ── Merge real volumes from BestLimits (disabled by default) ──
+        _book = _best_limits_map.get(ins) if _ALLOW_BEST_LIMITS_FETCH else None
         if _book and _book[0]:
             _lvl1 = _book[0]
             if _lvl1['bid'] > 0:
@@ -494,3 +551,41 @@ def diagnose_market_watch():
         'sample_keys': list(opts[0].keys()),
         'sample_row': opts[0],
     }
+
+
+# ── Background chain refresh (guarantees fresh cache always) ──
+_bg_refresh_thread = None
+BG_REFRESH_INTERVAL = 20  # seconds
+
+def _chain_refresh_loop():
+    """Refresh chain every 20s. Cache always warm → instant API response."""
+    time.sleep(5)
+    while True:
+        try:
+            # Skip if cache is already fresh (some other path refreshed it)
+            if (_chain_cache['data'] is not None
+                    and (time.time() - _chain_cache['at']) < (BG_REFRESH_INTERVAL - 5)):
+                time.sleep(BG_REFRESH_INTERVAL)
+                continue
+            with _compute_lock:
+                if (_chain_cache['data'] is not None
+                        and (time.time() - _chain_cache['at']) < (BG_REFRESH_INTERVAL - 5)):
+                    time.sleep(BG_REFRESH_INTERVAL)
+                    continue
+                new_data = compute_enriched_chain(force=False)
+                _chain_cache['data'] = new_data
+                _chain_cache['at'] = time.time()
+        except Exception as e:
+            try: log('og_bg_refresh_err', str(e)[:200])
+            except Exception: pass
+        time.sleep(BG_REFRESH_INTERVAL)
+
+def start_background_refresh():
+    global _bg_refresh_thread
+    if _bg_refresh_thread is not None:
+        return
+    _bg_refresh_thread = threading.Thread(
+        target=_chain_refresh_loop, daemon=True, name='chain-bg-refresh')
+    _bg_refresh_thread.start()
+    try: log('og_bg_refresh_started', 'interval={}s'.format(BG_REFRESH_INTERVAL))
+    except Exception: pass

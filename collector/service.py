@@ -197,6 +197,11 @@ def _startup():
         print(f'⚠️ RF init failed: {e}')
 
     _install_signal_handlers()
+    try:
+        og_mod.start_background_refresh()
+        print('chain bg refresh started')
+    except Exception as e:
+        print(f'chain bg start failed: {e}')
     # 🆕 R18: start coverage pre-compute
     try:
         _start_coverage_background()
@@ -1154,6 +1159,11 @@ def chain_enriched_status():
     """Metadata only: last refresh time, count, compute ms."""
     meta_info = og_mod.get_chain_meta()
     if not meta_info:
+        # Fallback: bg thread may have filled data without meta (older code)
+        d = og_mod._chain_cache.get('data') if hasattr(og_mod, '_chain_cache') else None
+        if d:
+            return {'ready': True, 'count': len(d), '_no_meta': True,
+                    'at': og_mod._chain_cache.get('at')}
         return {'ready': False}
     return {'ready': True, **meta_info}
 
