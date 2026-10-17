@@ -10,7 +10,6 @@
 
 const { findClusters } = require('./correlation');
 const { getSector } = require('./sectors');
-const regimeCore = require('./regime');
 const scoreMod = require('./signal-score');
 
 // ============================================================
