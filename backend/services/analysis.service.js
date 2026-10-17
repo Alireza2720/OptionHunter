@@ -62,7 +62,19 @@ function round4(v) {
 // ============================================================
 function bootstrapCI(pnls, iterations = 10000) {
     if (!pnls || pnls.length < 3) {
-        return { error: 'need at least 3 trades' };
+        return { error: 'need at least 3 trades', insufficient: true };
+    }
+    // V6: bootstrap on <10 samples is statistically meaningless
+    if (pnls.length < 10) {
+        const _finalPF = profitFactorFromPnls(pnls);
+        return {
+            insufficient: true,
+            reason: 'N=' + pnls.length + ' < 10 - bootstrap CI meaningless',
+            rawPF: _finalPF === Infinity ? 999 : round2(_finalPF),
+            pf: { p2_5: null, p5: null, p25: null, median: null, p75: null, p95: null, p97_5: null, mean: null, significant: false, insufficient: true },
+            totalReturn: { p2_5: null, median: null, p97_5: null, probLoss: null },
+            sampleSize: pnls.length
+        };
     }
     const N = pnls.length;
     const pfs = new Array(iterations);
@@ -296,11 +308,17 @@ const statsKey = isStockMode ? 'stockStats' : 'optionStats';
         ? null  // → مشخص می‌کنه insufficient
         : rolling.consistencyPct >= 66.7;
 
+    // V6: adaptive bootstrap gate
+    const _bsInsuff = !!bootstrap.insufficient;
+    const _bsSmall = !_bsInsuff && pnls.length < 20;
+    const _bsThreshold = _bsSmall ? 1.2 : 1.0;
     const gate = {
-        bootstrapLowerBoundPF: bootstrap.pf.p2_5 > 1.0,
+        bootstrapLowerBoundPF: !_bsInsuff && bootstrap.pf.p2_5 != null && bootstrap.pf.p2_5 > _bsThreshold,
         ttestSignificant: ttest.p < 0.05,
         rollingConsistency: rollingPassed,
-        sharpeOk: sharpe !== null && sharpe > 1.0
+        sharpeOk: sharpe !== null && sharpe > 1.0,
+        bootstrapInsufficient: _bsInsuff,
+        bootstrapSmallSample: _bsSmall
     };
 
     // 🆕 اگه rolling نامعلومه، فقط 3 شرط دیگه چک می‌شن

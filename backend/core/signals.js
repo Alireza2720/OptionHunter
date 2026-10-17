@@ -80,54 +80,13 @@ function getSectorRankFor(sectorRanking, symbol) {
 // 🆕 Phase 6 — Regime Guard
 // ============================================================
 async function checkRegimeGuard(config) {
-    if (!deps.regimeService) return { allowed: true, factor: 1.0, reason: 'regime service not wired' };
-
-    try {
-        const regime = await deps.regimeService.getForSymbol(config.symbol);
-        if (!regime || !regime.macro || regime.macro === 'unknown') {
-            return { allowed: true, factor: 0.7, reason: 'رژیم محاسبه نشده (70%)', regime: 'unknown' };
-        }
-
-        const regimeCore = require('./regime');
-        const rf = regimeCore.regimeSizeFactor(config.strategyId, regime.macro, regime.vol);
-
-        return {
-            allowed: rf.factor > 0,
-            factor: rf.factor,
-            regime: `${regime.macro}/${regime.vol}`,
-            macro: regime.macro,
-            vol: regime.vol,
-            reason: rf.reason
-        };
-    } catch (e) {
-        deps.logger && deps.logger.warn('checkRegimeGuard: ' + e.message);
-        return { allowed: true, factor: 1.0, error: e.message };
-    }
+    // V3: regime gate removed 2026-10-17 — display only
+    return { allowed: true, factor: 1.0, reason: 'regime gate removed' };
 }
 
 async function checkSignalGuard(config, last, lastPrice, info) {
-    // Guard disabled: no whitelist, no exposure hard-check.
-    // Only logs a warning if exposure is high — signal is NOT rejected.
-    try {
-        const db = deps.getDB();
-        const settings = deps.settings.get();
-        const capital = deps.settings.capital();
-        const maxTotalExposure = capital * (settings.MAX_TOTAL_EXPOSURE_PCT / 100);
-
-        const openAll = await db.collection('option_positions').find({ status: 'open' }).toArray();
-        let totalExposure = 0;
-        for (const p of openAll) totalExposure += (p.entryAsk || 0) * (p.positionSize || 1) * (p.size || 1000);
-
-        const exposurePct = capital > 0 ? (totalExposure / capital * 100) : 0;
-        let warning = null;
-        if (totalExposure >= maxTotalExposure * 0.9) {
-            warning = 'درگیری کل نزدیک سقف (' + exposurePct.toFixed(1) + '%) — هشدار فقط';
-        }
-        return { allowed: true, warning, exposurePct };
-    } catch (e) {
-        deps.logger && deps.logger.warn('checkSignalGuard: ' + e.message);
-        return { allowed: true };
-    }
+    // V2: whitelist / signal-filter removed 2026-10-17
+    return { allowed: true };
 }
 
 function sameDay(t1, t2) {
@@ -650,19 +609,9 @@ async function _evaluateConfigInner(config, marketInfo) {
             return;
         }
 
-        // 🆕 رژیم‌محور: bear → skip، range → 1.5R، bull → 3R
-        const regime = deps.regimeService ? await deps.regimeService.getForSymbol(config.symbol) : null;
-        const macro = regime ? regime.macro : 'unknown';
-
-        if (macro === 'bear') {
-            await deps.notify(`${config.symbol}: رژیم نزولی — سیگنال آپشن داده نمی‌شود.`);
-            return;
-        }
-
-        let targetMultiplier;
-        if (macro === 'range') targetMultiplier = 1.5;
-        else if (macro === 'bull') targetMultiplier = 3.0;
-        else targetMultiplier = 2.0;   // unknown — محافظه‌کارانه
+        // V3: regime-based target multiplier removed 2026-10-17
+        // Use neutral 2.0R (was: 3.0 bull, 1.5 range, skip bear)
+        const targetMultiplier = 2.0;
 
         const stop = last.indicators && last.indicators.stop;
         const atr = last.indicators && last.indicators.atr;

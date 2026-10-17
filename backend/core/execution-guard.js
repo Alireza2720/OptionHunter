@@ -305,16 +305,7 @@ function canOpen(candidate, portfolio, limits, ctx) {
     const violations = [];
     const entryTs = candidate.entryTime || Math.floor(Date.now() / 1000);
 
-    // 1) Signal filter (whitelist)
-    if (limits.useSignalFilter && limits.signalWhitelist instanceof Set) {
-        const key = `${candidate.symbol}::${candidate.strategyId}`;
-        if (!limits.signalWhitelist.has(key)) {
-            violations.push({
-                rule: 'signalWhitelist',
-                message: `pair ${key} در whitelist نیست`
-            });
-        }
-    }
+    // V2: whitelist removed 2026-10-17
 
     // 2) Duplicate guard
     if (limits.useDuplicateGuard && hasOpenForSymbol(portfolio, candidate.symbol, entryTs, candidate.pairSymbol)) {
@@ -326,7 +317,7 @@ function canOpen(candidate, portfolio, limits, ctx) {
     }
 
     // اگه violation اساسی داریم → reject فوری (size=0)
-    if (violations.some(v => v.rule === 'signalWhitelist' || v.rule === 'duplicate')) {
+    if (violations.some(v => v.rule === 'duplicate')) {
         return {
             allowed: false,
             size: 0,
@@ -336,27 +327,9 @@ function canOpen(candidate, portfolio, limits, ctx) {
         };
     }
 
-    // 🆕 Regime check (soft — فقط خیلی خطرناک رو رد می‌کنه)
+    // V3: regime gate removed 2026-10-17
     let regimeFactor = 1.0;
     let regimeReason = 'ok';
-    if (limits.useRegime && ctx.regimeMap) {
-        const r = ctx.regimeMap[candidate.symbol];
-        if (r && r.macro && r.macro !== 'unknown') {
-            const rf = regimeCore.regimeSizeFactor(candidate.strategyId, r.macro, r.vol);
-            regimeFactor = Number(rf.factor) || 0;
-            regimeReason = rf.reason;
-            // 🆕 با Number() مقایسه کن
-            if (regimeFactor === 0) {
-                return {
-                    allowed: false,
-                    size: 0,
-                    reason: `Regime خطرناک: ${rf.reason}`,
-                    violations: [...violations, { rule: 'regime', message: rf.reason }],
-                    sizing: null
-                };
-            }
-        }
-    }
 
     // 🆕 Signal score check (soft)
     let scoreFactor = 1.0;
