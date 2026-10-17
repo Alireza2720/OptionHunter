@@ -43,6 +43,18 @@ function canStartHeavyJob() {
             status: s,
         };
     }
+    // I6: CPU load guard
+    try {
+        const _load1 = os.loadavg()[0];
+        const _cores = os.cpus().length || 1;
+        if (_load1 > _cores * 1.5) {
+            return {
+                ok: false,
+                reason: 'CPU load too high: ' + _load1.toFixed(2) + ' on ' + _cores + ' cores (busy)',
+                status: s,
+            };
+        }
+    } catch (_) {}
     return { ok: true, status: s };
 }
 
