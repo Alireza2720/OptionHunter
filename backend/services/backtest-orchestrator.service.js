@@ -226,6 +226,14 @@ async function computeInBackground(jobId) {
             { $set: { status: 'DONE', updatedAt: new Date() } }
         );
 
+            // F1: record provenance
+            try {
+                const provenance = require('./provenance.service');
+                await provenance.record(jobId, job, savedResult);
+            } catch (_pv) {
+                deps.logger && deps.logger.warn('[provenance] '+_pv.message);
+            }
+
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
         deps.logger && deps.logger.info(`[bt-compute] ${jobId} done in ${elapsed}s`);
 
