@@ -396,24 +396,27 @@ function register(app, deps) {
 
         const symbols = monitored.map(m => m.symbol);
         const since7 = new Date(Date.now() - 7 * 86400000);
+        // B2-1: time-bounded scans (avoid 5M+ doc full scans)
+        const OPTION_CUTOFF = new Date('2026-06-09T00:00:00Z');
+        const _since90 = new Date(Date.now() - 90 * 86400000);
 
-        // 5 parallel aggregations — all with maxTimeMS for safety
-        const aggOpts = { allowDiskUse: false, maxTimeMS: 20000 };
+        // 5 parallel aggregations — time-bounded
+        const aggOpts = { allowDiskUse: true, maxTimeMS: 25000 };
         const [baseAgg, dailyAgg, optAgg, optIvAgg, ticksAgg] = await Promise.all([
             db.collection(COLLECTIONS.CANDLES_BASE).aggregate([
-                { $match: { symbol: { $in: symbols }, source: 'algotik_intraday' } },
+                { $match: { symbol: { $in: symbols }, source: 'algotik_intraday', time: { $gte: _since90 } } },
                 { $group: { _id: '$symbol', count: { $sum: 1 } } }
             ], aggOpts).toArray(),
             db.collection(COLLECTIONS.CANDLES_DAILY).aggregate([
-                { $match: { symbol: { $in: symbols } } },
+                { $match: { symbol: { $in: symbols }, time: { $gte: _since90 } } },
                 { $group: { _id: '$symbol', count: { $sum: 1 } } }
             ], aggOpts).toArray(),
             db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
-                { $match: { underlying: { $in: symbols } } },
+                { $match: { underlying: { $in: symbols }, time: { $gte: OPTION_CUTOFF } } },
                 { $group: { _id: '$underlying', count: { $sum: 1 }, max_time: { $max: '$time' } } }
             ], aggOpts).toArray(),
             db.collection(COLLECTIONS.OPTION_HISTORY).aggregate([
-                { $match: { underlying: { $in: symbols }, ivApi: { $gt: 0 } } },
+                { $match: { underlying: { $in: symbols }, ivApi: { $gt: 0 }, time: { $gte: OPTION_CUTOFF } } },
                 { $group: { _id: '$underlying', count: { $sum: 1 } } }
             ], aggOpts).toArray(),
             db.collection('stock_ticks').aggregate([

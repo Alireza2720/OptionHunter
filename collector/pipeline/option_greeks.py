@@ -572,9 +572,21 @@ def _chain_refresh_loop():
                         and (time.time() - _chain_cache['at']) < (BG_REFRESH_INTERVAL - 5)):
                     time.sleep(BG_REFRESH_INTERVAL)
                     continue
+                _bg_t0 = time.time()
                 new_data = compute_enriched_chain(force=False)
+                _bg_elapsed = int((time.time() - _bg_t0) * 1000)
                 _chain_cache['data'] = new_data
                 _chain_cache['at'] = time.time()
+                try:
+                    _chain_cache['meta'] = {
+                        'count': len(new_data) if new_data else 0,
+                        'computeMs': _bg_elapsed,
+                        'at': datetime.now(timezone.utc).isoformat(),
+                        'source': 'tsetmc_enriched_bg',
+                        'pricingModel': 'bsm',
+                    }
+                except Exception:
+                    pass
         except Exception as e:
             try: log('og_bg_refresh_err', str(e)[:200])
             except Exception: pass
