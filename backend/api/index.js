@@ -43,6 +43,7 @@ const rollbackRoutes = require('./routes/rollback.routes');
 // R27: sweep removed
 // // R27: sweep removed
 const gaRoutes = require('./routes/ga.routes');
+const provenanceRoutes = require('./routes/provenance.routes');
 
 function createApp(deps) {
     const app = express();
@@ -95,6 +96,7 @@ function createApp(deps) {
     paperTradingRoutes.register(app, deps);
     rollbackRoutes.register(app, deps);
     gaRoutes.register(app, deps);
+    provenanceRoutes.register(app, deps);
 
     // ---- 404 + error ----
     app.use(errorMw.notFoundHandler);

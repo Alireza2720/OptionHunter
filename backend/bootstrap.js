@@ -43,6 +43,7 @@ const gaResumeJob = require('./jobs/ga-resume.job');
 const executionGuard = require('./core/execution-guard');
 const pipelineService = require('./services/pipeline.service');
 const backtestOrchestrator = require('./services/backtest-orchestrator.service');
+const provenanceService = require('./services/provenance.service');
 const gaOrchestrator = require('./services/ga-orchestrator.service');
 const dualStageService = require('./services/dual-stage-pipeline.service');
 const paperTradingService = require('./services/paper-trading.service');
@@ -471,6 +472,8 @@ async function bootstrap() {
         dataService,
         notify: telegram.notify
     });
+
+    provenanceService.init({ getDB: mongo.getDB, logger });
 
     backtestOrchestrator.init({
         getDB: mongo.getDB,
